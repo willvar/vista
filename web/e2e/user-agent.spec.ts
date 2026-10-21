@@ -4,7 +4,9 @@ import type { UserAgentSettings } from '../src/client/types'
 test('UA presets preview exact headers and custom changes reach a resident Worker', async ({ page, vista }, testInfo) => {
   const initial = await vista.api('/user-agent') as UserAgentSettings
   expect(initial.preset).toBe('vista')
-  expect(initial.value).toMatch(/^vista\/dev \((Linux|Windows|macOS); (x86_64|arm64)\)$/)
+  const version = (await vista.api('/status')).version.replace(/^v/, '')
+  expect(initial.value.split(' ', 1)[0]).toBe('vista/' + version)
+  expect(initial.value).toMatch(/^vista\/\S+ \((Linux|Windows|macOS); (x86_64|arm64)\)$/)
   expect(initial.presets.map(preset => preset.id)).toEqual(expect.arrayContaining(['gemini-cli', 'kimi-code', 'cline', 'github-copilot']))
   const session = await vista.api('/sessions', { method: 'POST', body: '{}' })
   async function send(content: string, value: string) {
@@ -73,9 +75,9 @@ test('UA save errors retain the draft and allow retry', async ({ page, vista }) 
   await page.goto(vista.origin + '/settings/about')
   const region = page.getByRole('region', { name: 'User-Agent', exact: true })
   await region.locator('#user-agent-preset').click()
-  // From Vista, wrap to the last option so virtual scrolling renders Custom.
+  // From Vista, wrap to Custom and select it without racing virtual scrolling.
   await region.locator('#user-agent-preset').press('ArrowUp')
-  await page.locator('.ant-select-dropdown:visible .ant-select-item-option').filter({ hasText: /^Custom$/ }).click()
+  await region.locator('#user-agent-preset').press('Enter')
   const input = region.getByRole('textbox', { name: 'Custom UA', exact: true })
   await input.fill('RetainedClient/1')
   const save = region.getByRole('button', { name: 'Save changes', exact: true })
