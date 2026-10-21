@@ -11,6 +11,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"vista/internal/copilotauth"
 )
 
 const maxLocalModels = 64
@@ -45,8 +47,8 @@ func DiscoverCopilotModels(parent context.Context, source Configured) ([]Configu
 	}
 	req.Header.Set("Accept", "application/json")
 	req.Header.Set("Authorization", "Bearer "+source.APIKey)
-	req.Header.Set("User-Agent", "vista")
 	req.Header.Set("X-GitHub-Api-Version", "2026-08-01")
+	copilotauth.SetAPIHeaders(req.Header)
 	response, err := copilotDiscoveryClient.Do(req)
 	if err != nil {
 		return nil, err

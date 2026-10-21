@@ -16,6 +16,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/bedrockruntime/types"
 	"github.com/aws/smithy-go"
 	"github.com/aws/smithy-go/auth/bearer"
+	smithyhttp "github.com/aws/smithy-go/transport/http"
 
 	modelcfg "vista/internal/model"
 )
@@ -28,6 +29,12 @@ func bedrockTurnWithReasoning(ctx context.Context, model modelcfg.Model, message
 		return Turn{}, errors.New("Bedrock model, region, and credentials are required")
 	}
 	cfg := aws.Config{Region: model.AWSRegion, HTTPClient: bedrockHTTPClient}
+	// Keep the AWS SDK identity unless this connection explicitly overrides it.
+	for name, value := range model.Headers {
+		if strings.EqualFold(name, "User-Agent") {
+			cfg.APIOptions = append(cfg.APIOptions, smithyhttp.SetHeaderValue("User-Agent", value))
+		}
+	}
 	if model.APIKey != "" {
 		cfg.BearerAuthTokenProvider = bearer.StaticTokenProvider{Token: bearer.Token{Value: model.APIKey}}
 		cfg.AuthSchemePreference = []string{"httpBearerAuth"}

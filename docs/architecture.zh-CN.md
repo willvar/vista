@@ -30,7 +30,7 @@
 
 Server 负责 SQLite 写入和会话内事件序号。Worker 通过本地管道发送结果，工具启动、子任务启动／终态及检查点等边界等待持久化确认。浏览器接收已持久化事件，按序号去重 SSE 重放。模型正文分块保存，工具和进程产物按需读取。见[进程生命周期](./process-lifecycle.zh-CN.md)。
 
-[目录解析](../internal/appdirs/dirs.go)使用 `os.UserConfigDir()/vista`。`models.json`、`mcp.json`、`search.json`、全局 `AGENTS.md`、`skills/`、`omp-models.json`、`model-catalog-status.json` 等配置与凭据位于该根目录。SQLite、实例记录、锁、日志、输出及资源原件位于 `state/`。模型目录文件不在 `state/` 内。
+[目录解析](../internal/appdirs/dirs.go)使用 `os.UserConfigDir()/vista`。`models.json`、`mcp.json`、`search.json`、`user-agent.json`、全局 `AGENTS.md`、`skills/`、`omp-models.json`、`model-catalog-status.json` 等配置与凭据位于该根目录。SQLite、实例记录、锁、日志、输出及资源原件位于 `state/`。模型目录文件不在 `state/` 内。
 
 `GET /api/status` 提供版本、缓存的可执行文件 SHA-256、Go 源码提交及 dirty 状态、服务所在系统及版本。`internal/buildinfo.Version` 默认为 `dev`，Makefile 可指定发布版本。不注入构建时间，二进制哈希在启动时计算，不回写可执行文件。
 

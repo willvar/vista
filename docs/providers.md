@@ -24,6 +24,20 @@ Metadata supplements names, capabilities, limits, and reasoning settings; it doe
 
 Discovery schedules are implemented separately: custom/Zen every minute, Copilot every five minutes, local services every 30 seconds. Temporary discovery errors retain the latest successful inventory. Editing a connection invalidates obsolete discovery responses. See [custom](../internal/server/custom_models.go), [Copilot](../internal/server/copilot_models.go), and [local](../internal/server/local_models.go) discovery.
 
+## HTTP client identity
+
+About Vista provides a general-request `User-Agent` setting below the model catalog, with Vista, Codex, OpenCode, OhMyPi, Claude Code, Gemini CLI, Kimi Code, Cline, GitHub Copilot, and custom choices. Selecting an option previews the full default header for general requests before saving. The default format is `vista/<version> (<OS>; <architecture>)`, for example `vista/0.1.0 (Linux; x86_64)`; development builds use `dev`. Other presets use bundled compatibility strings, not live-discovered client versions. The Gemini CLI preset includes its product/version prefix without model-specific metadata. A custom value accepts up to 512 printable ASCII characters on one line.
+
+[Settings and HTTP helpers](../internal/useragent/useragent.go) read configuration-root `user-agent.json` for each new general request, including requests in resident Workers. The configurable default covers ordinary model APIs, model discovery, catalog downloads, web search/page reading, and remote MCP tool requests. Explicit connection headers take precedence. Page reading keeps the selected UA and falls back to the next configured reading service after failure.
+
+Login, token exchange, and channel-specific identities do not use that setting. Codex authorization, refresh, and account inference share the bundled `codex_cli_rs` identity and version. Copilot device authorization uses its OAuth identity; account lookup, discovery, and inference use the bundled Copilot CLI identity and associated editor/integration headers. AWS Bedrock keeps its SDK UA unless the connection explicitly overrides it. Vertex credentials and instance metadata, GitLab/SAP/IBM token exchange, and MCP OAuth retain their HTTP client or SDK behavior. These paths do not read general UA settings, so changing or corrupting that file cannot replace their identities or prevent credential exchange. Browser requests and independently launched commands use their own HTTP clients. Compatibility profiles and simulated checks do not establish live-provider acceptance or account permissions.
+
+`GET /api/user-agent` returns the saved selection, available presets, and resolved header. `PUT` validates and saves the selection atomically; it does not modify requests already in progress.
+
+Release builds (`make build VERSION=v0.1.0`) first run [the version updater](../scripts/update_user_agents.mjs). It fetches `latest` metadata from the eight clients' official npm packages, accepts stable versions only, and generates [the bundled version constants](../internal/useragent/versions_generated.go). Failed lookups, invalid metadata, prereleases, or downgrades leave the whole snapshot unchanged and stop the build. The updater changes versions, not UA formats, and does not install or run the clients.
+
+`make update-ua` refreshes the snapshot separately; `node scripts/update_user_agents.mjs --check` checks upstream versions without writing. Normal `dev` builds use the existing snapshot without fetching UA metadata. After saving a release snapshot, `make build VERSION=v0.1.0 UPDATE_UA=0` reuses it for reproducible or multiple-platform rebuilds. Generated output has no timestamp and is not rewritten when unchanged.
+
 ## Built-in integrations
 
 Built-in setups encapsulate platform-specific endpoint and authentication requirements:

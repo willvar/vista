@@ -11,6 +11,7 @@ export type VistaFixture = {
   modelId: string
   workspacePath: string
   modelRequests: ModelRequest[]
+  modelUserAgents: string[]
   pauseModelReplies: (afterText?: boolean) => () => void
   finishDetachedTask: () => void
   api: (path: string, options?: RequestInit) => Promise<any>
@@ -56,6 +57,7 @@ export const test = base.extend<{ vista: VistaFixture; configuredProvider: boole
       : { provider: 'openai-chat', id: 'gpt-6-luna' }
     const modelId = configuredModel.id
     const modelRequests: ModelRequest[] = []
+    const modelUserAgents: string[] = []
     let replyGate: Promise<void> | undefined
     let pauseAfterText = false
     let releaseReplies = () => {}
@@ -88,6 +90,7 @@ export const test = base.extend<{ vista: VistaFixture; configuredProvider: boole
       const streamBeforeGate = pauseAfterText
       if (!titleRequest) {
         modelRequests.push(input)
+        modelUserAgents.push(request.headers['user-agent'] || '')
         if (gate && !streamBeforeGate) await gate
       }
       // A small upstream wait makes request timing measurable on fast loopback.
@@ -288,7 +291,7 @@ export const test = base.extend<{ vista: VistaFixture; configuredProvider: boole
       started = true
       const info = JSON.parse(readFileSync(join(configDirectory, 'state', 'instance.json'), 'utf8')) as { address: string }
       const origin = info.address.startsWith('http') ? info.address : 'http://' + info.address
-      await use({ origin, modelEndpoint, modelId, workspacePath, modelRequests, pauseModelReplies, finishDetachedTask, api: async (path, options = {}) => {
+      await use({ origin, modelEndpoint, modelId, workspacePath, modelRequests, modelUserAgents, pauseModelReplies, finishDetachedTask, api: async (path, options = {}) => {
         const response = await fetch(origin + '/api' + path, { ...options, headers: { 'Content-Type': 'application/json', ...options.headers } })
         if (!response.ok) throw new Error(`Fixture API ${path}: HTTP ${response.status}`)
         const body = await response.text()

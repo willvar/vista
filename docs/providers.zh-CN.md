@@ -24,6 +24,20 @@ WebUI 连接列表来自[服务商配置](../internal/modelcatalog/provider_setu
 
 发现周期分别实现：自定义／Zen 每分钟、Copilot 每五分钟、本地服务每 30 秒。临时错误保留上次成功清单；编辑连接后，过时发现响应失效。见[自定义发现](../internal/server/custom_models.go)、[Copilot 发现](../internal/server/copilot_models.go)及[本地发现](../internal/server/local_models.go)。
 
+## HTTP 客户端身份
+
+关于 Vista 在模型目录下方提供通用请求的 `User-Agent` 设置，可选 Vista、Codex、OpenCode、OhMyPi、Claude Code、Gemini CLI、Kimi Code、Cline、GitHub Copilot 或自定义。选择后先预览通用请求的完整默认请求头，保存后生效。默认格式为 `vista/<版本> (<操作系统>; <架构>)`，例如 `vista/0.1.0 (Linux; x86_64)`；开发构建使用 `dev`。其它预设采用随 Vista 提供的兼容字符串，不实时探测客户端版本。Gemini CLI 预设仅包含产品名和版本前缀，不附带模型相关信息。自定义值允许单行、最多 512 个可打印 ASCII 字符。
+
+[配置和 HTTP 公用实现](../internal/useragent/useragent.go)在每次新的通用请求时读取配置目录下的 `user-agent.json`，常驻 Worker 也会读取最新设置。可配置的默认值用于普通模型 API、模型发现、目录下载、网络搜索／网页读取及远程 MCP 工具请求；连接中显式配置的请求头优先。网页读取遵循所选 UA，失败后尝试排序中的下一个读取服务。
+
+登录、令牌交换及特殊渠道的身份不受此设置影响。Codex 授权、刷新及账号模型请求共用随 Vista 提供的 `codex_cli_rs` 标识和版本；Copilot 设备授权使用其 OAuth 标识，账号查询、模型发现及请求使用随 Vista 提供的 Copilot CLI 标识及配套的编辑器／集成请求头。AWS Bedrock 保留 SDK UA，除非连接明确覆盖；Vertex 凭据及实例元数据、GitLab／SAP／IBM 令牌交换和 MCP OAuth 保留各自 HTTP 客户端或 SDK 的行为。这些路径不读取通用 UA 设置，因此修改或损坏该配置文件不会替换其身份或阻断令牌交换。浏览器请求及独立启动的命令使用各自的 HTTP 客户端。兼容配置和模拟验证不代表已确认真实服务商接受请求或允许相应账号用法。
+
+`GET /api/user-agent` 返回保存的选项、可用预设及解析后的请求头；`PUT` 校验后原子保存，不修改正在进行的请求。
+
+正式版本构建（`make build VERSION=v0.1.0`）会先运行[版本同步脚本](../scripts/update_user_agents.mjs)，从八个客户端的官方 npm 包获取 `latest` 元数据，只接受稳定版本，并生成[内置版本常量](../internal/useragent/versions_generated.go)。获取失败、元数据无效、预发布版本或版本倒退时，保留整份现有快照并中止构建。脚本只更新版本号，不修改 UA 格式，也不安装或运行这些客户端。
+
+`make update-ua` 可单独刷新快照；`node scripts/update_user_agents.mjs --check` 只检查上游版本，不写入文件。普通 `dev` 构建复用现有快照，不获取 UA 元数据。保存发布快照后，可用 `make build VERSION=v0.1.0 UPDATE_UA=0` 复用它进行可复现或多平台重建。生成文件不含时间戳，内容不变时不重写。
+
 ## 内置集成
 
 内置入口封装平台特有的端点和认证要求：

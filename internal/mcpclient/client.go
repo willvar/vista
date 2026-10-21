@@ -18,8 +18,10 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/auth"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+
 	"vista/internal/appdirs"
 	"vista/internal/buildinfo"
+	"vista/internal/useragent"
 	"vista/internal/workerproto"
 )
 
@@ -270,7 +272,7 @@ func (t *boundedTransport) RoundTrip(request *http.Request) (*http.Response, err
 	if t.token != "" {
 		r.Header.Set("Authorization", "Bearer "+t.token)
 	}
-	response, err := t.base.RoundTrip(r)
+	response, err := (useragent.Transport{Base: t.base}).RoundTrip(r)
 	if err != nil {
 		return nil, err
 	}

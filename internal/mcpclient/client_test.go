@@ -17,6 +17,8 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"vista/internal/platform"
+
+	"vista/internal/useragent"
 )
 
 func fixtureServer() *mcp.Server {
@@ -169,8 +171,16 @@ func TestStdioTransport(t *testing.T) {
 }
 
 func TestStreamableHTTPTransportWithBearer(t *testing.T) {
+	wantAgent, agentErr := useragent.Current()
+	if agentErr != nil {
+		t.Fatal(agentErr)
+	}
 	handler := mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return fixtureServer() }, &mcp.StreamableHTTPOptions{JSONResponse: true, Stateless: true})
 	httpServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+
+		if r.UserAgent() != wantAgent {
+			t.Errorf("sent UA %q, want %q", r.UserAgent(), wantAgent)
+		}
 		if r.Header.Get("Authorization") != "Bearer test-token" {
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return

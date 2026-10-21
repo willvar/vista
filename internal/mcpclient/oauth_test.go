@@ -10,19 +10,35 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"vista/internal/appdirs"
+	"vista/internal/useragent"
 )
 
 func TestOAuthLoginPersistsAndRefreshesToken(t *testing.T) {
 	root := t.TempDir()
-	t.Setenv("XDG_CONFIG_HOME", root)
+	switch runtime.GOOS {
+	case "linux":
+		t.Setenv("XDG_CONFIG_HOME", root)
+	case "windows":
+		t.Setenv("AppData", root)
+	default:
+		t.Skip("isolated config override requires Linux or Windows")
+	}
 	configDir, err := appdirs.Config()
 	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(configDir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	const configuredAgent = "ConfiguredMCPClient/1"
+	if err := useragent.Write(configDir, useragent.Config{Preset: "custom", Custom: configuredAgent}); err != nil {
 		t.Fatal(err)
 	}
 	var base string
@@ -52,6 +68,9 @@ func TestOAuthLoginPersistsAndRefreshesToken(t *testing.T) {
 			redirect.RawQuery = q.Encode()
 			http.Redirect(w, r, redirect.String(), http.StatusFound)
 		case "/token":
+			if r.UserAgent() == configuredAgent || r.UserAgent() == "" {
+				t.Errorf("token exchange did not retain SDK identity: %q", r.UserAgent())
+			}
 			if err := r.ParseForm(); err != nil {
 				t.Error(err)
 			}
@@ -73,6 +92,9 @@ func TestOAuthLoginPersistsAndRefreshesToken(t *testing.T) {
 				http.Error(w, "unknown grant", 400)
 			}
 		case "/mcp":
+			if r.UserAgent() != configuredAgent {
+				t.Errorf("ordinary MCP request lost configured UA: %q", r.UserAgent())
+			}
 			auth := r.Header.Get("Authorization")
 			if auth != "Bearer access-1" && auth != "Bearer access-2" {
 				w.Header().Set("WWW-Authenticate", `Bearer resource_metadata="`+base+`/.well-known/oauth-protected-resource/mcp"`)

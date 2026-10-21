@@ -34,7 +34,7 @@ make build
 ./bin/vista start
 ```
 
-`make build` builds and embeds the frontend. Development builds use version `dev`; use `make build VERSION=v0.1.0` for a release version. About Vista shows the version, executable SHA-256, source commit, and host operating system. Builds do not inject a timestamp.
+`make build` builds and embeds the frontend. Development builds use version `dev`; use `make build VERSION=v0.1.0` for a release version. Release builds first refresh the bundled [client UA versions](./docs/providers.md#http-client-identity). About Vista shows the version, executable SHA-256, source commit, and host operating system. Builds do not inject a timestamp.
 
 After `make web`, cross-compile the executable with:
 

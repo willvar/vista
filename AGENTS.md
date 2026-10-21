@@ -19,6 +19,8 @@ Vista supports its own development. Product documentation serves users; developm
 ## Build and Verification
 
 - Set `GOWORK=off` for direct Go commands. `make build` embeds the frontend and uses version `dev`; `make build VERSION=v0.1.0` supplies a release version.
+- Non-`dev` builds refresh bundled UA versions from the clients' official npm packages before compiling; any lookup failure stops the build. Use `make update-ua` to refresh separately. The generated snapshot belongs in release source; `UPDATE_UA=0` reuses that snapshot for reproducible or multiple-platform rebuilds. Do not edit `internal/useragent/versions_generated.go` directly.
+- After each completed batch of development changes, run `make build` to refresh `bin/vista` before handing the work back. An isolated test binary does not satisfy this requirement. Rebuilding does not authorize restarting the running instance.
 - Select relevant checks with `make test <goal>`. Goals are `go`, `frontend`, `e2e`, `integration`, `mcp`, `memory`, and `capacity`. `make test` defaults to `go`; `make test all` runs all seven. See [verification](./docs/testing.md) and the [Makefile](./Makefile).
 - Isolate configurations, ports, browser profiles, and test binaries. Do not replace the user's executable or restart their instance as part of testing. Put generated material under `.vista/`.
 - Tie verification claims to the source, artifact, environment, and checks actually used. Mock protocol tests do not establish live-provider compatibility; cross-compilation does not establish runtime behavior on the target OS.
@@ -49,4 +51,4 @@ Keep each commit focused on one related group. Implementation and directly relat
 
 The formal remote is [willvar/vista](https://github.com/willvar/vista). The former pre-remote exemption for deleting development data and omitting compatibility work no longer applies as a standing rule. Assess persistence and configuration changes against the supported behavior; the historical development rules are retained under `.vista/decisions/`.
 
-Do not commit or push material outside the user's authorized scope.
+Commit or push only when the user explicitly requests that operation. Authorization to edit, build, or test does not authorize a commit or push. Keep all Git operations within the requested scope.

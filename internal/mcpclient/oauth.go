@@ -15,6 +15,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/auth"
 	"github.com/modelcontextprotocol/go-sdk/oauthex"
 	"golang.org/x/oauth2"
+
 	"vista/internal/platform"
 )
 
@@ -211,6 +212,7 @@ func Login(ctx context.Context, config Config, configDir string, openURL func(st
 	path := oauthPath(configDir, config.ID)
 	handlerConfig := &auth.AuthorizationCodeHandlerConfig{
 		RedirectURL: redirectURL,
+		Client:      &http.Client{Timeout: 20 * time.Second},
 		AuthorizationCodeFetcher: func(ctx context.Context, args *auth.AuthorizationArgs) (*auth.AuthorizationResult, error) {
 			openURL(args.URL)
 			select {

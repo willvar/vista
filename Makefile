@@ -1,6 +1,7 @@
 .DEFAULT_GOAL := web
 
 VERSION ?= dev
+UPDATE_UA ?= $(if $(filter dev,$(VERSION)),0,1)
 BUILD_LDFLAGS := -X vista/internal/buildinfo.Version=$(VERSION)
 
 TEST_GOALS := go frontend e2e integration mcp memory capacity
@@ -17,7 +18,7 @@ INTEGRATION_SCRIPTS := artifact background_job catalog checklist copilot_startup
 IMAGE_PROTOCOLS := openai-chat mistral cohere bedrock vercel-gateway \
 	bedrock-mantle-responses sap-ai-core copilot
 
-.PHONY: build test web $(TEST_GOALS) all test-bin test-mcp-fixture \
+.PHONY: build update-ua test web $(TEST_GOALS) all test-bin test-mcp-fixture \
 	test-frontend-unit test-frontend-types check-browser check-sqlite
 # Memory measurements and builds share resources, including with multiple goals.
 .NOTPARALLEL:
@@ -37,7 +38,10 @@ scripts/mcp_upstream/node_modules/.package-lock.json: scripts/mcp_upstream/packa
 web: web/node_modules/.package-lock.json
 	npm --prefix web run build
 
-build: web
+update-ua:
+	node scripts/update_user_agents.mjs
+
+build: $(if $(filter 1,$(UPDATE_UA)),update-ua) web
 	mkdir -p bin
 	GOWORK=off CGO_ENABLED=0 go build -ldflags="$(BUILD_LDFLAGS)" -o bin/vista ./cmd/vista
 
@@ -51,6 +55,7 @@ go:
 
 test-frontend-unit: web/node_modules/.package-lock.json
 	npm --prefix web run test:unit
+	node --test scripts/update_user_agents.test.mjs
 
 test-frontend-types: web/node_modules/.package-lock.json
 	npm --prefix web run typecheck

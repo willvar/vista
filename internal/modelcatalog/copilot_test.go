@@ -13,11 +13,14 @@ import (
 	"strings"
 	"testing"
 
+	"vista/internal/copilotauth"
 	modelcfg "vista/internal/model"
 	"vista/internal/provider"
 )
 
 func TestPinnedCopilotProtocolAndHeaders(t *testing.T) {
+	wantAgent := copilotauth.UserAgent
+
 	for _, check := range []struct{ id, protocol, route string }{
 		{"claude-haiku-4.5", "anthropic", "/v1/messages"},
 		{"gpt-5-mini", "openai-chat", "/chat/completions"},
@@ -29,7 +32,7 @@ func TestPinnedCopilotProtocolAndHeaders(t *testing.T) {
 			calls := 0
 			endpoint := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				calls++
-				if r.URL.Path != check.route || r.Header.Get("Authorization") != "Bearer copilot-token" || r.Header.Get("x-api-key") != "" || r.Header.Get("Openai-Intent") != "conversation-edits" || r.Header.Get("User-Agent") != "vista" || r.Header.Get("X-GitHub-Api-Version") != "2026-08-01" || r.Header.Get("X-Interaction-Type") != "conversation-agent" || r.Header.Get("X-Interaction-Id") != "session-one" || r.Header.Get("x-initiator") != "user" || r.Header.Get("Copilot-Vision-Request") != "" {
+				if r.URL.Path != check.route || r.Header.Get("Authorization") != "Bearer copilot-token" || r.Header.Get("x-api-key") != "" || r.Header.Get("Openai-Intent") != "conversation-edits" || r.Header.Get("User-Agent") != wantAgent || r.Header.Get("X-GitHub-Api-Version") != "2026-08-01" || r.Header.Get("X-Interaction-Type") != "conversation-agent" || r.Header.Get("X-Interaction-Id") != "session-one" || r.Header.Get("x-initiator") != "user" || r.Header.Get("Copilot-Vision-Request") != "" {
 					t.Errorf("Copilot request: %s, headers=%+v", r.URL, r.Header)
 				}
 				var body map[string]any

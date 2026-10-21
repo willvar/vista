@@ -16,6 +16,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"vista/internal/useragent"
 )
 
 var discoveryClient = &http.Client{
@@ -115,7 +117,7 @@ func discoveryJSON(ctx context.Context, method, endpoint, key string, body any, 
 	if key != "" {
 		req.Header.Set("Authorization", "Bearer "+key)
 	}
-	response, err := discoveryClient.Do(req)
+	response, err := useragent.Do(discoveryClient, req)
 	if err != nil {
 		return err
 	}
@@ -280,7 +282,7 @@ func discoverVLLM(ctx context.Context, source LocalSource, base, endpoint string
 	if source.apiKey != "" {
 		request.Header.Set("Authorization", "Bearer "+source.apiKey)
 	}
-	response, err := discoveryClient.Do(request)
+	response, err := useragent.Do(discoveryClient, request)
 	if err != nil {
 		return nil, err
 	}

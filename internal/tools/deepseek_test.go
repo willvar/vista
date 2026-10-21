@@ -12,12 +12,22 @@ import (
 	"testing"
 
 	"vista/internal/workerproto"
+
+	"vista/internal/useragent"
 )
 
 func TestDeepSeekSearchUsesModelSummariesAndPreservesUnicode(t *testing.T) {
+	wantAgent, agentErr := useragent.Current()
+	if agentErr != nil {
+		t.Fatal(agentErr)
+	}
 	query := strings.Repeat("问🙂", 64)
 	summary := strings.Repeat("完整摘要🙂", 1200)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+
+		if r.UserAgent() != wantAgent {
+			t.Errorf("sent UA %q, want %q", r.UserAgent(), wantAgent)
+		}
 		var body map[string]any
 		if r.Method != http.MethodPost || r.Header.Get("Authorization") != "Bearer search-key" || json.NewDecoder(r.Body).Decode(&body) != nil {
 			t.Error("incorrect request or authentication")

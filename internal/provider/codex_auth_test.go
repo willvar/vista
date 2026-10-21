@@ -7,7 +7,10 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
+	"path/filepath"
 	"reflect"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -15,6 +18,7 @@ import (
 	"github.com/google/uuid"
 	"vista/internal/codexauth"
 	modelcfg "vista/internal/model"
+	"vista/internal/useragent"
 )
 
 type codexTestTransport func(*http.Request) (*http.Response, error)
@@ -22,6 +26,12 @@ type codexTestTransport func(*http.Request) (*http.Response, error)
 func (f codexTestTransport) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
 
 func TestCodexAccountRefreshAndToolContinuation(t *testing.T) {
+	if runtime.GOOS == "linux" || runtime.GOOS == "windows" {
+		dir := configureTestUserAgent(t)
+		if err := os.WriteFile(filepath.Join(dir, useragent.Filename), []byte(`{"preset":`), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
 	token := func(version string) string {
 		claims, _ := json.Marshal(map[string]any{"version": version, "exp": time.Now().Add(time.Hour).Unix(), "https://api.openai.com/auth": map[string]string{"chatgpt_account_id": "account"}})
 		return "header." + base64.RawURLEncoding.EncodeToString(claims) + ".signature"
@@ -34,6 +44,9 @@ func TestCodexAccountRefreshAndToolContinuation(t *testing.T) {
 	calls, refreshes := 0, 0
 	var first map[string]any
 	transport := codexTestTransport(func(r *http.Request) (*http.Response, error) {
+		if r.UserAgent() != useragent.Codex() || r.Header.Get("originator") != useragent.CodexOriginator {
+			t.Errorf("native identity lost during inference or refresh: %v", r.Header)
+		}
 		response := func(status int, contentType, body string) (*http.Response, error) {
 			return &http.Response{StatusCode: status, Header: http.Header{"Content-Type": {contentType}}, Body: io.NopCloser(strings.NewReader(body)), Request: r}, nil
 		}

@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	modelcfg "vista/internal/model"
+	"vista/internal/useragent"
 )
 
 // These headers are the stable part of the Codex Responses transport needed
@@ -15,7 +16,7 @@ import (
 // account storage remain outside the model request boundary.
 const (
 	codexBaseURL       = "https://chatgpt.com/backend-api"
-	codexClientVersion = "0.159.0"
+	codexClientVersion = useragent.CodexVersion
 )
 
 func codexResponsesEndpoint(base *url.URL) string {
@@ -34,10 +35,10 @@ func setCodexHeaders(request *http.Request, model modelcfg.Model) {
 		return
 	}
 	request.Header.Set("OpenAI-Beta", "responses=experimental")
-	request.Header.Set("originator", "omp")
+	request.Header.Set("User-Agent", useragent.Codex())
+	request.Header.Set("originator", useragent.CodexOriginator)
 	request.Header.Set("version", codexClientVersion)
 	request.Header.Set("Accept", "text/event-stream")
-	request.Header.Set("User-Agent", "vista")
 	if accountID := codexAccountID(model.APIKey); accountID != "" {
 		request.Header.Set("chatgpt-account-id", accountID)
 	}

@@ -30,7 +30,7 @@ Each open conversation normally owns a resident Worker, subject to admission and
 
 The Server owns SQLite writes and per-conversation event sequences. Workers send results over local pipes. Boundaries including tool starts, task startup/termination, and checkpoints wait for persistence acknowledgments. Browsers receive persisted events and deduplicate SSE replay by sequence. Model text is chunked; tool and process artifacts are read on demand. See [process lifecycle](./process-lifecycle.md).
 
-[Directory resolution](../internal/appdirs/dirs.go) uses `os.UserConfigDir()/vista`. Settings and credentials, including `models.json`, `mcp.json`, `search.json`, global `AGENTS.md`, `skills/`, `omp-models.json`, and `model-catalog-status.json`, live at this root. SQLite, instance records, locks, logs, outputs, and resource originals live in `state/`. Model catalog files are not under `state/`.
+[Directory resolution](../internal/appdirs/dirs.go) uses `os.UserConfigDir()/vista`. Settings and credentials, including `models.json`, `mcp.json`, `search.json`, `user-agent.json`, global `AGENTS.md`, `skills/`, `omp-models.json`, and `model-catalog-status.json`, live at this root. SQLite, instance records, locks, logs, outputs, and resource originals live in `state/`. Model catalog files are not under `state/`.
 
 `GET /api/status` exposes version, cached executable SHA-256, Go source revision/dirty state, and the server OS/version. `internal/buildinfo.Version` defaults to `dev`; the Makefile supplies release versions. No build timestamp is injected. The hash is calculated at startup and is not embedded back into the executable.
 

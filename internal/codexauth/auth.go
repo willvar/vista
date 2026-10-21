@@ -14,6 +14,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"vista/internal/useragent"
 )
 
 // Public native-app client used by Codex's ChatGPT authorization flow.
@@ -123,7 +125,8 @@ func (c *Client) request(ctx context.Context, path, contentType string, body io.
 	}
 	req.Header.Set("Content-Type", contentType)
 	req.Header.Set("Accept", "application/json")
-	req.Header.Set("User-Agent", "vista")
+	req.Header.Set("User-Agent", useragent.Codex())
+	req.Header.Set("originator", useragent.CodexOriginator)
 	res, err := c.HTTP.Do(req)
 	if err != nil {
 		if ctx.Err() != nil {

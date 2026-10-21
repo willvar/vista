@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"strings"
 
+	"vista/internal/copilotauth"
 	modelcfg "vista/internal/model"
 )
 
@@ -26,6 +27,7 @@ func copilotHeaders(request *http.Request, model modelcfg.Model, messages []Chat
 	if model.ProviderID != "github-copilot" {
 		return
 	}
+	copilotauth.SetAPIHeaders(request.Header)
 	for _, message := range messages {
 		if len(message.Images) > 0 {
 			request.Header.Set("Copilot-Vision-Request", "true")
@@ -33,7 +35,6 @@ func copilotHeaders(request *http.Request, model modelcfg.Model, messages []Chat
 		}
 	}
 	request.Header.Set("Openai-Intent", "conversation-edits")
-	request.Header.Set("User-Agent", "vista")
 	request.Header.Set("X-GitHub-Api-Version", "2026-08-01")
 	interaction := model.InteractionType
 	if interaction == "" {

@@ -13,15 +13,18 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
-	"vista/internal/modelcatalog"
 
+	"vista/internal/copilotauth"
+	"vista/internal/modelcatalog"
 	"vista/internal/store"
 )
 
 func TestCopilotDiscoveryOverridesPinnedRouteAndRetainsInventoryOnFailure(t *testing.T) {
+	wantAgent := copilotauth.UserAgent
+
 	var fail atomic.Bool
 	endpoint := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/models" || r.Header.Get("Authorization") != "Bearer copilot-token" || r.Header.Get("User-Agent") != "vista" || r.Header.Get("X-GitHub-Api-Version") != "2026-08-01" {
+		if r.URL.Path != "/models" || r.Header.Get("Authorization") != "Bearer copilot-token" || r.Header.Get("User-Agent") != wantAgent || r.Header.Get("X-GitHub-Api-Version") != "2026-08-01" {
 			t.Errorf("Copilot discovery request: %s, headers=%+v", r.URL, r.Header)
 		}
 		if fail.Load() {

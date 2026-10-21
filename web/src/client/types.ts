@@ -26,6 +26,13 @@ export type OMPCatalogInfo = {
   updating?: boolean
   history?: CatalogCheckRecord[]
 }
+export type UserAgentSettings = {
+  preset: string
+  custom: string
+  value: string
+  presets: { id: string; name: string; value: string }[]
+  maxLength: number
+}
 export type CatalogCheckRecord = Pick<OMPCatalogInfo, 'revision' | 'modelsDevRevision' | 'modelCount' | 'providerCount' | 'updatedAt'> & {
   checkedAt: string
   automatic: boolean

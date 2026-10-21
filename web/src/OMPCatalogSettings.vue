@@ -17,8 +17,6 @@ const historyOpen = ref(false)
 const requestError = ref('')
 const checking = computed(() => updating.value || !!catalog.value?.updating)
 const error = computed(() => requestError.value || (checking.value ? '' : catalog.value?.checkError))
-const result = computed(() => catalog.value?.checkedAt && !checking.value && !error.value
-  ? t(catalog.value.lastCheckChanged ? 'modelCatalogUpdated' : 'modelCatalogCurrent') : '')
 const controller = new AbortController()
 let poll: ReturnType<typeof setInterval> | undefined
 let reading = false
@@ -86,7 +84,6 @@ defineExpose({ headerAction: computed(() => ({ label: checking.value ? 'modelCat
       </div>
     </div>
     <small v-if="catalog" class="omp-catalog-updated">{{ catalog.updatedAt ? t('modelCatalogUpdatedAt', { time: updatedAt(catalog.updatedAt) }) : t('modelCatalogBundled') }}</small>
-    <p v-if="result" class="omp-catalog-result" role="status">{{ result }}</p>
     <a-alert v-if="error" type="error" role="alert" :message="error" />
   </section>
   <a-modal v-model:open="historyOpen" centered :z-index="1200" width="min(640px, calc(100vw - 2rem))" :title="t('modelCatalogHistory')" :footer="null" :styles="{ body: { maxHeight: '70dvh', overflowY: 'auto' } }">
@@ -124,7 +121,6 @@ defineExpose({ headerAction: computed(() => ({ label: checking.value ? 'modelCat
 .omp-catalog-setting p { margin: .5rem 0; color: var(--muted); font-size: var(--font-size-body); line-height: 1.5; }
 .omp-catalog-setting small { color: var(--muted); font-size: var(--font-size-small); }
 .omp-catalog-updated { display: block; margin-top: .5rem; }
-.omp-catalog-setting .omp-catalog-result { color: var(--accent); }
 .omp-catalog-setting .ant-alert { margin-top: .75rem; }
 .omp-catalog-setting :deep(.ant-alert-title) { white-space: pre-wrap; overflow-wrap: anywhere; }
 .omp-catalog-history { color: var(--text); }

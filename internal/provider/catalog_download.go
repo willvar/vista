@@ -11,6 +11,8 @@ import (
 	"math/rand/v2"
 	"net/http"
 	"time"
+
+	"vista/internal/useragent"
 )
 
 const catalogDownloadTimeout = 15 * time.Second
@@ -55,12 +57,11 @@ func fetchCatalogResponse(ctx context.Context, client *http.Client, url, source 
 		return nil, "", false, err
 	}
 	req.Header.Set("Accept", "application/json")
-	req.Header.Set("User-Agent", "Vista")
 	req.Header.Set("Cache-Control", "no-cache")
 	if etag != "" {
 		req.Header.Set("If-None-Match", etag)
 	}
-	response, err := client.Do(req)
+	response, err := useragent.Do(client, req)
 	if err != nil {
 		return nil, "", false, fmt.Errorf("fetch %s catalog: %w", source, err)
 	}

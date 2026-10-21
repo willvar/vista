@@ -22,7 +22,7 @@ make test all
 | 目标 | 当前检查 |
 | --- | --- |
 | `go` | Go 单测、`go vet`、`go test -race` |
-| `frontend` | Node 单测、Vue／TypeScript 检查、国际化校验及内嵌资源构建 |
+| `frontend` | Node 单测、UA 版本同步脚本检查、Vue／TypeScript 检查、国际化校验及内嵌资源构建 |
 | `e2e` | Playwright 桌面、手机竖屏、手机横屏项目 |
 | `integration` | CLI／Server／Worker 原生应用测试，以及持久化、工具、队列、压缩、冲突和故障 smoke 脚本 |
 | `mcp` | SDK stdio／HTTP fixture 及锁定版本的上游 Filesystem／Everything 服务 |

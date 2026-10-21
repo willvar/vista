@@ -22,7 +22,7 @@ make test all
 | Goal | Current checks |
 | --- | --- |
 | `go` | Go unit tests, `go vet`, and `go test -race` |
-| `frontend` | Node unit tests, Vue/TypeScript checking, i18n validation, and embedded asset build |
+| `frontend` | Node unit tests, UA version updater checks, Vue/TypeScript checking, i18n validation, and embedded asset build |
 | `e2e` | Playwright desktop, mobile portrait, and mobile landscape projects |
 | `integration` | Native CLI/Server/Worker application test and smoke scripts for persistence, tools, queues, compaction, conflicts, and faults |
 | `mcp` | SDK stdio/HTTP fixtures and pinned upstream Filesystem/Everything servers |

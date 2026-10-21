@@ -17,6 +17,7 @@ import (
 	"unicode/utf8"
 
 	modelcfg "vista/internal/model"
+	"vista/internal/useragent"
 )
 
 const modelHeaderTimeout = 2 * time.Minute
@@ -227,7 +228,7 @@ var client = &http.Client{Transport: modelHTTPTransport, CheckRedirect: func(*ht
 // blocking read instead of setting http.Client.Timeout on the whole turn.
 func doStreamingRequest(request *http.Request, httpClient *http.Client, idle time.Duration) (*http.Response, error) {
 	ctx, cancel := context.WithCancel(request.Context())
-	response, err := httpClient.Do(request.Clone(ctx))
+	response, err := useragent.Do(httpClient, request.Clone(ctx))
 	if err != nil {
 		cancel()
 		return nil, err

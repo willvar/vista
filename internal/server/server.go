@@ -19,14 +19,15 @@ import (
 	"strings"
 	"sync"
 	"time"
-	"vista/internal/modelcatalog"
 
 	"github.com/google/uuid"
+
 	"vista/internal/appdirs"
 	"vista/internal/buildinfo"
 	"vista/internal/codexauth"
 	"vista/internal/copilotauth"
 	"vista/internal/instance"
+	"vista/internal/modelcatalog"
 	"vista/internal/platform"
 	"vista/internal/provider"
 	"vista/internal/store"
@@ -229,6 +230,7 @@ func (a *App) handler() http.Handler {
 	mux.HandleFunc("/api/resource-storage", a.resourceStorage)
 	mux.HandleFunc("/api/models", a.modelList)
 	mux.HandleFunc("/api/model-catalog", a.ompCatalog)
+	mux.HandleFunc("/api/user-agent", a.userAgentSettings)
 	mux.HandleFunc("/api/model-config", a.modelSettings)
 	mux.HandleFunc("/api/provider-config", a.providerSettings)
 	mux.HandleFunc("/api/provider-auth/codex", a.startProviderLogin)

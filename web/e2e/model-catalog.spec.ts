@@ -46,7 +46,7 @@ test('OMP and models.dev updates live in About while Models manages connections'
     await expect(settings.getByRole('button', { name: 'Connect provider', exact: true })).toHaveCount(0)
 
     release!()
-    await expect(catalog.getByRole('status')).toHaveText('Model catalog updated.')
+    await expect(catalog.getByRole('status')).toHaveCount(0)
     await expect(catalog).toContainText('9,000 models')
     await expect(catalog).toContainText('bbbbbbb')
     await expect(catalog).toContainText('models.dev ccccccc')
@@ -77,7 +77,7 @@ test('OMP and models.dev updates live in About while Models manages connections'
     await expect(catalog).toContainText('bbbbbbb')
     await expect(catalog).toContainText('9,000 models')
     await expect(catalog).toContainText('models.dev ccccccc')
-    await expect(catalog.getByRole('status')).toHaveText('Model catalog updated.')
+    await expect(catalog.getByRole('status')).toHaveCount(0)
     await catalog.getByRole('button', { name: 'Update history', exact: true }).click()
     await expect(history.locator('.omp-catalog-history-record')).toHaveCount(1)
     await page.keyboard.press('Escape')
@@ -112,7 +112,7 @@ test('catalog failure retains its version and allows another check', async ({ pa
   await page.screenshot({ path: testInfo.outputPath('model-catalog-failed.png'), animations: 'disabled' })
   await check.click()
   await expect(catalog.getByRole('alert')).toHaveCount(0)
-  await expect(catalog.getByRole('status')).toHaveText('Check complete. Catalog unchanged.')
+  await expect(catalog.getByRole('status')).toHaveCount(0)
   await catalog.getByRole('button', { name: 'Update history', exact: true }).click()
   const history = page.getByRole('dialog', { name: 'Update history', exact: true })
   const records = history.locator('.omp-catalog-history-record')
@@ -154,7 +154,7 @@ test('automatic catalog checks show progress, persisted errors and recovery', as
   info = recordCheck({ ...info, checkedAt: '2026-10-18T08:00:00Z', nextCheckAt: '2026-10-19T08:09:00Z', checkError: '', lastCheckChanged: false }, true)
   await page.clock.fastForward(5000)
   await expect(catalog.getByRole('alert')).toHaveCount(0)
-  await expect(catalog.getByRole('status')).toHaveText('Check complete. Catalog unchanged.')
+  await expect(catalog.getByRole('status')).toHaveCount(0)
   await expect(history.locator('.omp-catalog-history-record')).toHaveCount(2)
   await expect(history.locator('.omp-catalog-history-record').first()).toContainText('Unchanged')
   await page.keyboard.press('Escape')
@@ -208,6 +208,6 @@ test('a delayed status read cannot overwrite a newer manual check', async ({ pag
     await delivered
     await page.waitForTimeout(100)
     await expect(catalog).toContainText('bbbbbbb')
-    await expect(catalog.getByRole('status')).toHaveText('Model catalog updated.')
+    await expect(catalog.getByRole('status')).toHaveCount(0)
   } finally { release?.() }
 })

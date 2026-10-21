@@ -13,6 +13,7 @@ import (
 	"unicode/utf8"
 
 	"vista/internal/mcpclient"
+	"vista/internal/useragent"
 	"vista/internal/workerproto"
 )
 
@@ -194,7 +195,7 @@ func searchTavily(ctx context.Context, config workerproto.SearchProvider, query 
 		request.Header.Set("Authorization", "Bearer "+config.APIKey)
 	}
 	client := &http.Client{Timeout: 25 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return errors.New("websearch endpoint redirected") }}
-	response, err := client.Do(request)
+	response, err := useragent.Do(client, request)
 	if err != nil {
 		return nil, err
 	}

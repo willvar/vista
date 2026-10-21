@@ -14,6 +14,7 @@ import SkillsSettings from '../SkillsSettings.vue'
 import ResourceStorageSettings from '../ResourceStorageSettings.vue'
 import ProviderLogin from '../ProviderLogin.vue'
 import OMPCatalogSettings from '../OMPCatalogSettings.vue'
+import UserAgentSettings from '../UserAgentSettings.vue'
 import VistaMark from '../VistaMark.vue'
 import { useWorkspace } from '../composables/useWorkspace'
 import { useProviderSettings } from '../composables/useProviderSettings'
@@ -238,6 +239,7 @@ watch(() => route.fullPath, () => {
           </div>
           <div class="debug-mode-setting general-setting"><div><label for="debug-mode">{{ t('debugMode') }}</label><p id="debug-mode-hint">{{ t('debugModeHint') }}</p></div><a-switch id="debug-mode" v-model:checked="debugMode" :aria-label="t('debugMode')" aria-describedby="debug-mode-hint" /></div>
           <OMPCatalogSettings ref="sectionActions" :client="workspace.client" @updated="refreshProviderCatalog" />
+          <UserAgentSettings :client="workspace.client" />
           <dl v-if="serverStatus" class="about-build-info">
             <template v-if="serverStatus.binaryHash">
               <dt>{{ t('binaryHash') }}</dt>

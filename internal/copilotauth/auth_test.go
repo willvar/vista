@@ -5,13 +5,23 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
+
+	"vista/internal/appdirs"
+	"vista/internal/useragent"
 )
 
 func TestDeviceLoginUsesBuiltInClientAndCanBeCanceled(t *testing.T) {
+	wantAgent := oauthUserAgent
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.UserAgent() != wantAgent {
+			t.Errorf("sent UA %q, want %q", r.UserAgent(), wantAgent)
+		}
 		if r.URL.Path != "/login/device/code" {
 			t.Error("canceled login reached token endpoint")
 			return
@@ -23,7 +33,8 @@ func TestDeviceLoginUsesBuiltInClientAndCanBeCanceled(t *testing.T) {
 		fmt.Fprintf(w, `{"verification_uri":%q,"user_code":"CODE","device_code":"private-challenge","interval":1,"expires_in":60}`, "http://"+r.Host+"/verify")
 	}))
 	defer server.Close()
-	client := &Client{Issuer: server.URL, HTTP: server.Client()}
+	client := NewClient()
+	client.Issuer = server.URL
 	device, err := client.Begin(context.Background())
 	if err != nil {
 		t.Fatal(err)
@@ -57,6 +68,66 @@ func TestDeniedOrMalformedCopilotAccountDoesNotReturnCredential(t *testing.T) {
 	defer cancel()
 	if _, err := client.Begin(ctx); err == nil {
 		t.Fatal("invalid issuer accepted")
+	}
+}
+
+func TestCompleteLoginKeepsNativeIdentityWhenGlobalSettingsChange(t *testing.T) {
+	root := t.TempDir()
+	switch runtime.GOOS {
+	case "linux":
+		t.Setenv("XDG_CONFIG_HOME", root)
+	case "windows":
+		t.Setenv("AppData", root)
+	default:
+		t.Skip("isolated config override requires Linux or Windows")
+	}
+	dir, err := appdirs.Config()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := useragent.Write(dir, useragent.Config{Preset: "custom", Custom: "UnrelatedClient/1"}); err != nil {
+		t.Fatal(err)
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.URL.Path == "/copilot_internal/user" {
+			if r.UserAgent() != UserAgent || r.Header.Get("Authorization") != "Bearer test-token" || r.Header.Get("Editor-Version") != UserAgent {
+				t.Errorf("account lookup lost native identity: %v", r.Header)
+			}
+			fmt.Fprint(w, `{"chat_enabled":true}`)
+			return
+		}
+		if r.UserAgent() != oauthUserAgent {
+			t.Errorf("OAuth identity replaced: %q", r.UserAgent())
+		}
+		switch r.URL.Path {
+		case "/login/device/code":
+			fmt.Fprintf(w, `{"verification_uri":%q,"user_code":"CODE","device_code":"private-challenge","interval":1,"expires_in":60}`, "http://"+r.Host+"/verify")
+		case "/login/oauth/access_token":
+			fmt.Fprint(w, `{"access_token":"test-token","token_type":"Bearer"}`)
+		default:
+			t.Errorf("unexpected login path %s", r.URL.Path)
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+	client := NewClient()
+	client.Issuer = server.URL
+	device, err := client.Begin(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, useragent.Filename), []byte(`{"preset":`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+	defer cancel()
+	credential, err := client.Complete(ctx, device)
+	if err != nil || credential.Token != "test-token" {
+		t.Fatalf("global UA settings interfered with login: %+v %v", credential, err)
 	}
 }
 

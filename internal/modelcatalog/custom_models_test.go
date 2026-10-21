@@ -17,7 +17,7 @@ func TestCustomDiscoveryUsesExplicitFormatAndAuthentication(t *testing.T) {
 				pages := 0
 				upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 					pages++
-					if r.Method != http.MethodGet || r.Header.Get("X-Workspace") != "saved-workspace" {
+					if r.Method != http.MethodGet || r.Header.Get("X-Workspace") != "saved-workspace" || r.UserAgent() != "DiscoveryOverride/1" {
 						t.Error("discovery lost headers or generated output")
 					}
 					for _, name := range []string{"Authorization", "x-api-key", "x-goog-api-key"} {
@@ -69,7 +69,7 @@ func TestCustomDiscoveryUsesExplicitFormatAndAuthentication(t *testing.T) {
 				if authentication == "none" {
 					key = ""
 				}
-				models, err := DiscoverCustomModels(context.Background(), Configured{Provider: protocol, ProviderID: "custom", Authentication: authentication, BaseURL: upstream.URL + "/prefix", APIKey: key, Headers: map[string]string{"X-Workspace": "saved-workspace"}})
+				models, err := DiscoverCustomModels(context.Background(), Configured{Provider: protocol, ProviderID: "custom", Authentication: authentication, BaseURL: upstream.URL + "/prefix", APIKey: key, Headers: map[string]string{"X-Workspace": "saved-workspace", "User-Agent": "DiscoveryOverride/1"}})
 				if err != nil || len(models) != 2 {
 					t.Fatalf("models=%d err=%v", len(models), err)
 				}

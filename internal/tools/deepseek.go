@@ -13,6 +13,7 @@ import (
 	"unicode/utf8"
 
 	"vista/internal/mcpclient"
+	"vista/internal/useragent"
 	"vista/internal/workerproto"
 )
 
@@ -42,7 +43,7 @@ func deepSeekRequest(ctx context.Context, client *http.Client, endpoint, key str
 	req.Header.Set("Authorization", "Bearer "+key)
 	apiClient := *client
 	apiClient.CheckRedirect = func(*http.Request, []*http.Request) error { return errors.New("DeepSeek endpoint redirected") }
-	response, err := apiClient.Do(req)
+	response, err := useragent.Do(&apiClient, req)
 	if err != nil {
 		return nil, err
 	}

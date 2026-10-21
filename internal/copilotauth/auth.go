@@ -13,6 +13,8 @@ import (
 	"time"
 
 	"golang.org/x/oauth2"
+
+	"vista/internal/useragent"
 )
 
 // Public device-flow clients also used by OMP's GitHub Copilot integration.
@@ -62,7 +64,7 @@ type Device struct {
 type Credential struct{ Token, APIEndpoint string }
 
 func NewClient() *Client {
-	return &Client{Issuer: "https://github.com", HTTP: &http.Client{Timeout: 15 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error {
+	return &Client{Issuer: "https://github.com", HTTP: &http.Client{Transport: useragent.Transport{UserAgent: oauthUserAgent}, Timeout: 15 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error {
 		return errors.New("Copilot authorization endpoint redirected")
 	}}}
 }
@@ -142,8 +144,8 @@ func (c *Client) account(ctx context.Context, token string) (Credential, error) 
 	}
 	req.Header.Set("Authorization", "Bearer "+token)
 	req.Header.Set("Accept", "application/json")
-	req.Header.Set("User-Agent", "vista")
 	req.Header.Set("X-GitHub-Api-Version", "2025-04-01")
+	SetAPIHeaders(req.Header)
 	response, err := c.HTTP.Do(req)
 	if err != nil {
 		return Credential{}, errors.New("could not check Copilot account")

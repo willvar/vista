@@ -11,6 +11,7 @@ import (
 	"time"
 
 	modelcfg "vista/internal/model"
+	"vista/internal/useragent"
 )
 
 var sapAIAuthClient = &http.Client{Timeout: 15 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error {
@@ -108,7 +109,7 @@ func discoverSAPAIOrchestrationDeployment(ctx context.Context, model modelcfg.Mo
 	}
 	request.Header.Set("Authorization", "Bearer "+model.APIKey)
 	request.Header.Set("AI-Resource-Group", model.ResourceGroup)
-	response, err := sapAIAuthClient.Do(request)
+	response, err := useragent.Do(sapAIAuthClient, request)
 	if err != nil {
 		return "", errors.New("SAP AI Core deployment discovery failed")
 	}

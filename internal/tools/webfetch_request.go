@@ -12,10 +12,9 @@ import (
 	"net/url"
 	"strings"
 
+	"vista/internal/useragent"
 	"vista/internal/workerproto"
 )
-
-const webfetchBrowserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36"
 
 // Choose a usable response before writing anything to the artifact. Failed
 // attempts and challenge pages must never be prepended to recovered content.
@@ -69,7 +68,7 @@ func webfetchResponse(ctx context.Context, client *http.Client, rawURL, format s
 				failures = append(failures, errors.New("Jina Reader: URL is not public or contains credentials"))
 				continue
 			}
-			response, err = webfetchGET(ctx, client, "https://r.jina.ai/"+readerURL, "markdown", "Vista", settings.JinaAPIKey)
+			response, err = webfetchGET(ctx, client, "https://r.jina.ai/"+readerURL, "markdown", settings.JinaAPIKey)
 			if err == nil {
 				err = webfetchResponseError(response, true)
 				if err != nil {
@@ -89,39 +88,23 @@ func webfetchResponse(ctx context.Context, client *http.Client, rawURL, format s
 }
 
 func webfetchDirectResponse(ctx context.Context, client *http.Client, rawURL, format string) (*http.Response, error) {
-	var response *http.Response
-	var err error
-	for _, agent := range []string{webfetchBrowserAgent, "Vista"} {
-		if ctx.Err() != nil {
-			return response, ctx.Err()
-		}
-		response, err = webfetchGET(ctx, client, rawURL, format, agent, "")
-		if err != nil {
-			return nil, err
-		}
-		err = webfetchResponseError(response, false)
-		if err == nil {
-			return response, nil
-		}
-		response.Body.Close()
-		// Definitive errors skip the alternate headers, while the outer chain
-		// can still try the other configured reading method.
-		if response.StatusCode != http.StatusOK && response.StatusCode != http.StatusForbidden && response.StatusCode != http.StatusTooManyRequests && response.StatusCode != http.StatusServiceUnavailable {
-			return response, err
-		}
-		if response.StatusCode == http.StatusTooManyRequests {
-			break // Do not send another immediate request to a rate-limited origin.
-		}
+	response, err := webfetchGET(ctx, client, rawURL, format, "")
+	if err != nil {
+		return nil, err
 	}
+	err = webfetchResponseError(response, false)
+	if err != nil {
+		response.Body.Close()
+	}
+	// Keep the selected UA. The outer chain can try another reading service.
 	return response, err
 }
 
-func webfetchGET(ctx context.Context, client *http.Client, rawURL, format, agent, jinaAPIKey string) (*http.Response, error) {
+func webfetchGET(ctx context.Context, client *http.Client, rawURL, format, jinaAPIKey string) (*http.Response, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
 	if err != nil {
 		return nil, err
 	}
-	req.Header.Set("User-Agent", agent)
 	req.Header.Set("Accept-Language", "en-US,en;q=0.9")
 	accept := "text/html,application/xhtml+xml,application/json;q=0.9,application/xml;q=0.9,text/plain;q=0.8,*/*;q=0.5"
 	if format == "markdown" {
@@ -131,7 +114,7 @@ func webfetchGET(ctx context.Context, client *http.Client, rawURL, format, agent
 	if jinaAPIKey != "" {
 		req.Header.Set("Authorization", "Bearer "+jinaAPIKey)
 	}
-	return client.Do(req)
+	return useragent.Do(client, req)
 }
 
 func webfetchResponseError(response *http.Response, reader bool) error {

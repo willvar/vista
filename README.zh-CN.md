@@ -34,7 +34,7 @@ make build
 ./bin/vista start
 ```
 
-`make build` 会构建并内嵌前端。开发版本号默认为 `dev`；发布时使用 `make build VERSION=v0.1.0`。「关于 Vista」展示版本、可执行文件 SHA-256、源码提交和宿主操作系统，构建不注入时间戳。
+`make build` 会构建并内嵌前端。开发版本号默认为 `dev`；发布时使用 `make build VERSION=v0.1.0`，构建前自动刷新内置的[客户端 UA 版本](./docs/providers.zh-CN.md#http-客户端身份)。「关于 Vista」展示版本、可执行文件 SHA-256、源码提交和宿主操作系统，构建不注入时间戳。
 
 执行 `make web` 后，可交叉编译：
 

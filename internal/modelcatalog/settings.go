@@ -16,9 +16,10 @@ import (
 	"strings"
 	"time"
 	"unicode"
-	"vista/internal/provider"
 
 	"vista/internal/platform"
+	"vista/internal/provider"
+	"vista/internal/useragent"
 )
 
 var customModelDiscoveryClient = &http.Client{
@@ -78,7 +79,7 @@ func FetchCustomModelIDs(ctx context.Context, endpoint, key string) ([]string, e
 	if key != "" {
 		req.Header.Set("Authorization", "Bearer "+key)
 	}
-	response, err := customModelDiscoveryClient.Do(req)
+	response, err := useragent.Do(customModelDiscoveryClient, req)
 	if err != nil {
 		return nil, errors.New("model list is unavailable")
 	}

@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"vista/internal/useragent"
 	"vista/internal/workerproto"
 )
 
@@ -21,27 +22,28 @@ func webfetchResponseFixture(request *http.Request, status int, contentType, bod
 	return &http.Response{StatusCode: status, Header: http.Header{"Content-Type": {contentType}}, Body: io.NopCloser(strings.NewReader(body)), Request: request}
 }
 
-func TestWebfetchRecoversBlockedOriginWithDifferentClientHeaders(t *testing.T) {
+func TestWebfetchUsesConfiguredIdentityAndFallsBackWithoutChangingIt(t *testing.T) {
+	wantAgent, err := useragent.Current()
+	if err != nil {
+		t.Fatal(err)
+	}
 	calls := 0
 	client := &http.Client{Transport: webfetchTransport(func(req *http.Request) (*http.Response, error) {
 		calls++
-		if req.Header.Get("Accept-Language") == "" || !strings.Contains(req.Header.Get("Accept"), "text/html") {
-			t.Fatal("missing normal client request headers")
+		if req.Header.Get("Accept-Language") == "" || !strings.Contains(req.Header.Get("Accept"), "text/html") || req.UserAgent() != wantAgent {
+			t.Fatal("missing request headers or selected UA")
 		}
 		if calls == 1 {
-			if req.UserAgent() != webfetchBrowserAgent {
-				t.Fatal("default client must identify itself as a browser")
-			}
 			return webfetchResponseFixture(req, 403, "text/html", "blocked"), nil
 		}
-		if req.UserAgent() == webfetchBrowserAgent || req.URL.Hostname() == "r.jina.ai" {
-			t.Fatal("did not retry the origin with alternate client headers")
+		if req.URL.Hostname() != "r.jina.ai" {
+			t.Fatal("blocked origin was retried instead of trying the next service")
 		}
-		return webfetchResponseFixture(req, 200, "text/html; charset=utf-8", "<h1>Recovered article</h1><p>正文</p>"), nil
+		return webfetchResponseFixture(req, 200, "text/plain; charset=utf-8", "Title: Recovered article\n\nMarkdown Content:\n正文"), nil
 	})}
 	var output strings.Builder
 	page, err := webfetchWithClient(context.Background(), "https://93.184.216.34/article", "markdown", &output, client, workerproto.WebfetchConfig{})
-	if err != nil || calls != 2 || page.Reader != "vista" || !strings.Contains(output.String(), "正文") || strings.Contains(output.String(), "blocked") {
+	if err != nil || calls != 2 || page.Reader != "jina" || !strings.Contains(output.String(), "正文") || strings.Contains(output.String(), "blocked") {
 		t.Fatalf("recovery: calls=%d, page=%+v, output=%q, err=%v", calls, page, output.String(), err)
 	}
 }
@@ -63,10 +65,7 @@ func TestWebfetchReaderFallbackPreservesEntireDocument(t *testing.T) {
 			})}
 			var output strings.Builder
 			page, err := webfetchWithClient(context.Background(), "https://93.184.216.34/article?id=42", "text", &output, client, workerproto.WebfetchConfig{})
-			wantCalls := 3
-			if status == http.StatusTooManyRequests {
-				wantCalls = 2
-			}
+			wantCalls := 2
 			if err != nil || calls != wantCalls || page.Reader != "jina" || page.Format != "markdown" || page.URL != "https://93.184.216.34/article?id=42" || output.String() != full {
 				t.Fatalf("reader fallback: calls=%d, page=%+v, bytes=%d, error=%v", calls, page, output.Len(), err)
 			}
@@ -91,7 +90,7 @@ func TestWebfetchReaderKeyIsSentOnlyToJina(t *testing.T) {
 	})}
 	var output strings.Builder
 	page, err := webfetchWithClient(context.Background(), "https://93.184.216.34/article", "markdown", &output, client, workerproto.WebfetchConfig{JinaAPIKey: "jina-secret"})
-	if err != nil || calls != 3 || page.Reader != "jina" || output.String() == "" {
+	if err != nil || calls != 2 || page.Reader != "jina" || output.String() == "" {
 		t.Fatalf("Jina key fallback: calls=%d, page=%+v, output=%q, err=%v", calls, page, output.String(), err)
 	}
 }
@@ -117,7 +116,7 @@ func TestWebfetchDoesNotAcceptReaderErrorPagesAsSuccess(t *testing.T) {
 	}
 }
 
-func TestWebfetchDefinitiveErrorsSkipAlternateHeadersAndTryNextMethod(t *testing.T) {
+func TestWebfetchDefinitiveErrorsTryNextMethod(t *testing.T) {
 	for _, status := range []int{http.StatusNotFound, http.StatusUnauthorized, http.StatusGone} {
 		calls := 0
 		client := &http.Client{Transport: webfetchTransport(func(req *http.Request) (*http.Response, error) {
@@ -147,7 +146,7 @@ func TestWebfetchDoesNotSendPrivateTargetsToReader(t *testing.T) {
 			return webfetchResponseFixture(req, 403, "text/html", "Forbidden"), nil
 		})}
 		_, err := webfetchWithClient(context.Background(), target, "markdown", io.Discard, client, workerproto.WebfetchConfig{})
-		if err == nil || calls != 2 {
+		if err == nil || calls != 1 {
 			t.Fatalf("target %q: calls=%d, error=%v", target, calls, err)
 		}
 	}

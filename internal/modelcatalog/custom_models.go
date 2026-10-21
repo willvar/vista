@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"vista/internal/provider"
+	"vista/internal/useragent"
 )
 
 // DiscoverCustomModels uses the explicitly selected API format and the same
@@ -59,7 +60,7 @@ func discoverCustomPages(ctx context.Context, source Configured, endpoint string
 			return nil, errors.New("could not request model list")
 		}
 		request.Header = headers.Clone()
-		response, err := customModelDiscoveryClient.Do(request)
+		response, err := useragent.Do(customModelDiscoveryClient, request)
 		if err != nil {
 			return nil, errors.New("model list is unavailable")
 		}

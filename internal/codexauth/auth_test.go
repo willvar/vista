@@ -15,6 +15,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+
+	"vista/internal/useragent"
 )
 
 func testToken(account, version string) string {
@@ -23,10 +25,14 @@ func testToken(account, version string) string {
 }
 
 func TestDeviceLoginAndPrivateCredential(t *testing.T) {
+	wantAgent := useragent.Codex()
 	for _, interval := range []string{`"1"`, `1`} {
 		t.Run(interval, func(t *testing.T) {
 			var polls atomic.Int32
 			upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.UserAgent() != wantAgent || r.Header.Get("originator") != useragent.CodexOriginator {
+					t.Errorf("sent UA %q, want %q", r.UserAgent(), wantAgent)
+				}
 				switch r.URL.Path {
 				case "/api/accounts/deviceauth/usercode":
 					var input map[string]string
