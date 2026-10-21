@@ -88,4 +88,4 @@ GOWORK=off go run ./scripts/provider_matrix > scripts/provider_matrix/testdata/c
 GOWORK=off go test ./internal/provider ./internal/modelcatalog ./scripts/provider_matrix
 ```
 
-Its `configuration_only`, `unverified_per_model`, and `unverified` fields are evidence boundaries, not a completed acceptance list. Protocol tests use local simulated endpoints; they do not establish every account or model's live compatibility. Local live-service checks have a separate [script](../scripts/live_local_chat_smoke.mjs). Keep environment-specific results under `.vista/acceptance/`; reusable test entry points are in [verification](./testing.md).
+Its `configuration_only`, `unverified_per_model`, and `unverified` fields are evidence boundaries, not a completed acceptance list. Protocol tests use local simulated endpoints; they do not establish every account or model's live compatibility. Local live-service checks have a separate [script](../scripts/live_local_chat_smoke.mjs). Reusable test entry points are in [verification](./testing.md).

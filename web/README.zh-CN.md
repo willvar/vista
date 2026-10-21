@@ -73,4 +73,4 @@ VISTA_DEV_BACKEND=http://127.0.0.1:5186 npm run dev
 VISTA_CHROME=/absolute/path/to/chrome npm run test:e2e -- --list
 ```
 
-[e2e/fixtures.ts](./e2e/fixtures.ts)管理独立配置／状态、明确端口、模拟模型及清理。报告、失败截图、trace 和浏览器 profile 留在 `web/.vista/test-state/`，失败不自动重试。目录测试预设自动检查时间，避免意外访问上游。其他操作系统运行与真实账号／服务商行为需独立检查，不能从此套测试推导。
+[e2e/fixtures.ts](./e2e/fixtures.ts)管理独立配置／状态、明确端口、模拟模型及清理。报告、失败截图、trace 和浏览器 profile 留在 `web/.vista/test-state/`，失败不自动重试。目录测试预设自动检查时间，避免意外访问上游。

@@ -44,7 +44,7 @@ GOWORK=off CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build -o bin/vista-darwin-a
 GOWORK=off CGO_ENABLED=0 GOOS=darwin GOARCH=amd64 go build -o bin/vista-darwin-amd64 ./cmd/vista
 ```
 
-Shell tools use Windows PowerShell on Windows and `/bin/sh` on Linux/macOS. Running Vista does not require a separate shell or database installation. Cross-compilation alone does not verify execution on the target platform.
+Shell tools use Windows PowerShell on Windows and `/bin/sh` on Linux/macOS. Running Vista does not require a separate shell or database installation.
 
 ## Configuration and state directories
 
@@ -96,7 +96,7 @@ make test all
 
 `make test` defaults to `go`; combine goals with `make test frontend memory`. Shared prerequisites run once. Checks install locked dependencies as needed. Browser tests find Chrome/Chromium on `PATH`, or use `VISTA_CHROME`; integration checks require `sqlite3`. Missing prerequisites fail explicitly.
 
-Tests build isolated executables under `.vista/test-state/bin` and use separate configurations, ports, and browser profiles. They do not replace `bin/vista` or restart the user's instance. Simulated services verify deterministic behavior; live model access, account authorization, remote MCP, and target-platform runtime checks require their own environments. Capacity defaults do not establish an 8 GiB endurance result.
+Tests build isolated executables under `.vista/test-state/bin` and use separate configurations, ports, and browser profiles. They do not replace `bin/vista` or restart the user's instance. Prerequisites and test environments are described in [verification](./docs/testing.md).
 
 ## Documentation
 
@@ -107,5 +107,3 @@ Tests build isolated executables under `.vista/test-state/bin` and use separate 
 - [Test goals and capacity measurement](./docs/testing.md)
 - [Frontend, internationalization, and browser checks](./web/README.md)
 - [Context compaction](./docs/context-compaction.md), [resources](./docs/resources.md), and [conversation rollback](./docs/message-revert.md)
-
-Temporary decisions, acceptance procedures, and local results belong under the Git-ignored `.vista/` directory.

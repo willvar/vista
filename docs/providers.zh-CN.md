@@ -88,4 +88,4 @@ GOWORK=off go run ./scripts/provider_matrix > scripts/provider_matrix/testdata/c
 GOWORK=off go test ./internal/provider ./internal/modelcatalog ./scripts/provider_matrix
 ```
 
-其中 `configuration_only`、`unverified_per_model`、`unverified` 表示证据边界，不是完成的验收清单。协议测试使用本地模拟端点，不代表每个账号／模型均已真实兼容。本地真实服务检查有独立[脚本](../scripts/live_local_chat_smoke.mjs)。环境特定结果保存在 `.vista/acceptance/`，可复用测试入口见[验证](./testing.zh-CN.md)。
+其中 `configuration_only`、`unverified_per_model`、`unverified` 表示证据边界，不是完成的验收清单。协议测试使用本地模拟端点，不代表每个账号／模型均已真实兼容。本地真实服务检查有独立[脚本](../scripts/live_local_chat_smoke.mjs)。可复用测试入口见[验证](./testing.zh-CN.md)。

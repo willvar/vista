@@ -44,7 +44,7 @@ GOWORK=off CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build -o bin/vista-darwin-a
 GOWORK=off CGO_ENABLED=0 GOOS=darwin GOARCH=amd64 go build -o bin/vista-darwin-amd64 ./cmd/vista
 ```
 
-Shell 工具在 Windows 使用 Windows PowerShell，在 Linux/macOS 使用 `/bin/sh`。运行 Vista 无需另外安装 shell 或数据库。交叉编译成功不等于已在目标平台验证运行。
+Shell 工具在 Windows 使用 Windows PowerShell，在 Linux/macOS 使用 `/bin/sh`。运行 Vista 无需另外安装 shell 或数据库。
 
 ## 配置与状态目录
 
@@ -96,7 +96,7 @@ make test all
 
 `make test` 默认执行 `go`，可用 `make test frontend memory` 组合目标；共享前置步骤只执行一次。检查按需安装锁定依赖。浏览器测试从 `PATH` 查找 Chrome/Chromium，也可设置 `VISTA_CHROME`；集成检查需要 `sqlite3`，缺少依赖时明确失败。
 
-测试在 `.vista/test-state/bin` 构建隔离产物，并使用独立配置、端口和浏览器 profile，不替换 `bin/vista` 或重启用户实例。模拟服务验证确定行为；真实模型访问、账号授权、远程 MCP 和目标平台运行需另有环境。默认容量负载不能证明已通过 8 GiB 环境的长稳验收。
+测试在 `.vista/test-state/bin` 构建隔离产物，并使用独立配置、端口和浏览器 profile，不替换 `bin/vista` 或重启用户实例。依赖和测试环境见[验证](./docs/testing.zh-CN.md)。
 
 ## 文档
 
@@ -107,5 +107,3 @@ make test all
 - [测试目标与容量测量](./docs/testing.zh-CN.md)
 - [前端、国际化与浏览器检查](./web/README.zh-CN.md)
 - [上下文压缩](./docs/context-compaction.zh-CN.md)、[资源](./docs/resources.zh-CN.md)及[会话回退](./docs/message-revert.zh-CN.md)
-
-临时决策、验收步骤和本地结果放到被 Git 忽略的 `.vista/` 目录。

@@ -50,7 +50,7 @@ Explicit task cancellation also cancels its descendants. Later runs of the same 
 
 When a model proposes a tool-free answer, the run loop checks uncollected required children before finishing. Joined reports are structured runtime evidence (`RuntimeData`), with a shared 16 KiB inline preview and references for rereading. The model performs semantic synthesis. A run can retain multiple formal replies at interjection boundaries; it is not limited to one message for its whole lifetime.
 
-The shared `runScope.modelTurns` allocates turn numbers; it is not a model-call budget. Delegation depth is checked, but there is no unified run-wide deadline, total-call budget, or bounded join-generation counter. Do not infer those guarantees from the Coordinator name.
+The shared `runScope.modelTurns` allocates turn numbers; it is not a model-call budget. Delegation depth is checked, but there is no unified run-wide deadline, total-call budget, or bounded join-generation counter.
 
 Checklists are replacement events scoped to a run, not conversation-global state. New runs start without inheriting the old checklist. Tool-specific validation reports argument errors as tool results. A valid `question` call is main-agent-only and must be alone in its model turn; it persists until answered or superseded. Provider-hosted tools are saved as already executed and are never dispatched as local tools.
 
@@ -80,4 +80,4 @@ Withdrawal/edit submission stops the conversation's work before truncating histo
 
 The [admission implementation](../internal/server/admission.go) uses limits of 64 resident Workers and 20 running conversations for admission, with soft memory reservations. Conversation running counts include background activity. Worker heap/RSS monitoring and Go soft limits are not OS-enforced process memory ceilings. External shell/MCP consumption is observed separately. Component buffer limits and per-operation timeouts do not establish a general workload-capacity guarantee; see [verification](./testing.md).
 
-The service binds to loopback, validates Host/Origin, and runs tools with local user permissions without per-call approval. HTTP/stream failures preserve redacted provider diagnostics for the message area; actual step errors remain in their steps. The platform layer implements Linux, Windows, and macOS process handling; cross-compilation and mock tests do not establish runtime acceptance on each platform.
+The service binds to loopback, validates Host/Origin, and runs tools with local user permissions without per-call approval. HTTP/stream failures preserve redacted provider diagnostics for the message area; actual step errors remain in their steps. The platform layer implements Linux, Windows, and macOS process handling.

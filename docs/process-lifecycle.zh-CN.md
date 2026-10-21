@@ -18,4 +18,4 @@ Windows 使用带 `KILL_ON_JOB_CLOSE` 的 Job Object。启动受管子进程前�
 
 仓库根目录执行 `make test integration` 会覆盖普通 Worker 崩溃、Server 崩溃及 Server/Worker 双崩溃，包含在 `make test all` 中。底层 Linux 集成入口为 `scripts/worker_crash_smoke.mjs` 和 `scripts/background_job_smoke.mjs`；前者可设置 `VISTA_CRASH_MASTER=1`，后者可设置 `VISTA_DOUBLE_CRASH=1`。直接运行脚本时使用独立测试状态和 `VISTA_BIN` 指定待测产物。
 
-跨平台底层测试位于 `internal/platform/platform_test.go`，Windows 另验证父进程突然退出会关闭 Job。`cmd/vista/platform_test.go` 的 `TestNativeApplication` 通过真实应用产物检验启停、配置、Worker、Shell、取消、后台任务与崩溃恢复；设置 `VISTA_TEST_BINARY` 后在目标平台运行。运行验证需要在目标操作系统实际执行，不能从交叉编译成功推导。
+跨平台底层测试位于 `internal/platform/platform_test.go`，Windows 另验证父进程突然退出会关闭 Job。`cmd/vista/platform_test.go` 的 `TestNativeApplication` 通过真实应用产物检验启停、配置、Worker、Shell、取消、后台任务与崩溃恢复；设置 `VISTA_TEST_BINARY` 后在目标平台运行。

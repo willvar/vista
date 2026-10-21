@@ -2,7 +2,7 @@
 
 [简体中文](./testing.zh-CN.md)
 
-Choose checks that cover the affected behavior. Test code and the [Makefile](../Makefile) define the actual workloads; this document does not claim a particular release, machine, or live service passed them.
+The [Makefile](../Makefile) groups checks by behavior. The sections below describe their entry points, dependencies, and environments.
 
 ## Make targets
 
@@ -44,7 +44,7 @@ VISTA_TEST_BINARY=/absolute/path/to/vista GOWORK=off go test ./cmd/vista -run '^
 
 On Windows, set the equivalent environment variables in PowerShell and use the `.exe` path. A cross-compiled `go test -c` executable can run without installing Go on that machine. The test uses temporary configuration and a simulated model, exercising real application Workers, shell/background work, cancellation, startup/shutdown, and crash recovery. Platform-specific tests also cover process ownership and cleanup.
 
-Cross-compilation confirms compilation only. Mock endpoints establish request/stream behavior, not real account authorization or live-provider compatibility. Keep platform- and account-specific records in `.vista/acceptance/` with source revision, executable hash, environment, and exact checks.
+Cross-compilation confirms compilation only. Mock endpoints establish request/stream behavior, not real account authorization or live-provider compatibility.
 
 ## Capacity tools
 
@@ -63,4 +63,4 @@ Record executable SHA-256/source revision, platform/toolchain, parameters, failu
 
 ## Generated provider fixture
 
-The [provider matrix fixture](../scripts/provider_matrix/testdata/catalog.csv) is deterministic catalog/routing data, not a real-provider report. Regeneration and evidence limits are in [providers](./providers.md#protocol-and-verification-boundaries). Temporary decisions, acceptance procedures, traces, and measurements belong under `.vista/`, not public test baselines.
+The [provider matrix fixture](../scripts/provider_matrix/testdata/catalog.csv) is deterministic catalog/routing data, not a real-provider report. Regeneration and evidence limits are in [providers](./providers.md#protocol-and-verification-boundaries).

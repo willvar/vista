@@ -26,4 +26,4 @@ SQLite 保存 `resources` 元数据、`session_resources` 所有权和有序的 
 
 [资源库测试](../internal/resources/library_test.go)、[存储测试](../internal/store/resource_storage_test.go)、[上下文测试](../internal/agent/resource_context_test.go)、[协议图片测试](../internal/provider/media_test.go)及[存储 API 测试](../internal/server/resource_storage_test.go)覆盖完整性、独立归属／文件名、关闭／重启／删除、失败提交、并发清理、选模变化、检查点及工具补读。
 
-前端测试覆盖跨会话迟到的撤回读取；[存储空间 E2E](../web/e2e/resource-storage.spec.ts)和[图片 E2E](../web/e2e/images.spec.ts)使用隔离服务、模拟模型及 Chrome profile 检查界面与持久化，不代表真实上游多模态验收。
+前端测试覆盖跨会话迟到的撤回读取；[存储空间 E2E](../web/e2e/resource-storage.spec.ts)和[图片 E2E](../web/e2e/images.spec.ts)使用隔离服务、模拟模型及 Chrome profile 检查界面与持久化。

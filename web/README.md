@@ -73,4 +73,4 @@ Set `VISTA_CHROME` to the browser executable; direct Playwright runs may set `VI
 VISTA_CHROME=/absolute/path/to/chrome npm run test:e2e -- --list
 ```
 
-[e2e/fixtures.ts](./e2e/fixtures.ts) manages separate configuration/state, explicit ports, simulated model services, and cleanup. Reports, failed screenshots, traces, and browser profiles stay under `web/.vista/test-state/`. Tests run without automatic retries. Catalog tests seed the automatic-check schedule to avoid unintended upstream fetches. Runtime on another OS and live-account/provider behavior require separate checks, not inference from this suite.
+[e2e/fixtures.ts](./e2e/fixtures.ts) manages separate configuration/state, explicit ports, simulated model services, and cleanup. Reports, failed screenshots, traces, and browser profiles stay under `web/.vista/test-state/`. Tests run without automatic retries. Catalog tests seed the automatic-check schedule to avoid unintended upstream fetches.

@@ -2,7 +2,7 @@
 
 [English](./testing.md)
 
-按改动涉及的行为选择检查。实际负载由测试代码和 [Makefile](../Makefile) 定义，本文不宣称某次发布、机器或真实服务已经通过检查。
+测试按检查内容在 [Makefile](../Makefile) 中分组，下文说明入口、依赖和运行环境。
 
 ## Make 目标
 
@@ -44,7 +44,7 @@ VISTA_TEST_BINARY=/absolute/path/to/vista GOWORK=off go test ./cmd/vista -run '^
 
 Windows 在 PowerShell 设置对应环境变量，路径使用 `.exe`。也可运行交叉编译的 `go test -c` 测试程序，无需在目标机器安装 Go。测试使用临时配置和模拟模型，覆盖实际应用 Worker、shell／后台工作、取消、启停及崩溃恢复；平台专用测试另行覆盖进程归属和清理。
 
-交叉编译只证明可编译，模拟端点只证明请求／流行为，不代表真实账号授权或服务商兼容性。平台和账号实测记录保存在 `.vista/acceptance/`，注明源码提交、产物哈希、环境及具体检查。
+交叉编译只证明可编译，模拟端点只证明请求／流行为，不代表真实账号授权或服务商兼容性。
 
 ## 容量工具
 
@@ -63,4 +63,4 @@ Windows 在 PowerShell 设置对应环境变量，路径使用 `.exe`。也可�
 
 ## 生成的服务商基准
 
-[服务商矩阵基准](../scripts/provider_matrix/testdata/catalog.csv)是确定性的目录／路由数据，不是真实服务商报告。生成方式及证据边界见[服务商](./providers.zh-CN.md#协议与验证边界)。临时决策、验收过程、trace 和测量结果属于 `.vista/`，不作为公开测试基准。
+[服务商矩阵基准](../scripts/provider_matrix/testdata/catalog.csv)是确定性的目录／路由数据，不是真实服务商报告。生成方式及证据边界见[服务商](./providers.zh-CN.md#协议与验证边界)。
