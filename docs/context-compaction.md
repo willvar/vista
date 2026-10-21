@@ -17,9 +17,9 @@ up to 128 KiB with a two-second diagnostic deadline.
 The rules adapt the explicit-evidence portion of these MIT sources:
 
 - [Pi overflow.ts, b9ab2a6](https://github.com/badlogic/pi-mono/blob/b9ab2a6238d2c91cf0c6ebf836dfd05883f9db51/packages/ai/src/utils/overflow.ts)
-  — [license](pi-overflow-LICENSE).
+  — [license](../licenses/pi/LICENSE).
 - [OMP error/flags.ts, f1ac114](https://github.com/can1357/oh-my-pi/blob/f1ac114d8d3438bee43010aee559bfe720ba3224/packages/ai/src/error/flags.ts)
-  — [license](omp-overflow-LICENSE).
+  — [license](../licenses/oh-my-pi/LICENSE).
 
 Gateway fixtures cover retained upstream messages/codes and remapped statuses,
 including HTTP 200 JSON error responses. Their shapes were checked against

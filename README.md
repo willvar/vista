@@ -107,3 +107,7 @@ Tests build isolated executables under `.vista/test-state/bin` and use separate 
 - [Test goals and capacity measurement](./docs/testing.md)
 - [Frontend, internationalization, and browser checks](./web/README.md)
 - [Context compaction](./docs/context-compaction.md), [resources](./docs/resources.md), and [conversation rollback](./docs/message-revert.md)
+
+## License
+
+Vista's original code and documentation are licensed under the [MIT License](./LICENSE). Third-party components retain their own licenses and copyrights; the complete [license and attribution notices](./licenses/NOTICE) are included in distribution archives and available at `/licenses` on the running service.

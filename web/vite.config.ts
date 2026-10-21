@@ -2,6 +2,7 @@ import { defineConfig, type Plugin } from 'vite'
 import vue from '@vitejs/plugin-vue'
 import { resolve } from 'node:path'
 import type { IncomingMessage } from 'node:http'
+import { frontendLicensesPlugin } from '../scripts/update_licenses.mjs'
 
 function devOrigin(request: IncomingMessage) {
   return `http://127.0.0.1:${request.socket.localPort}`
@@ -42,7 +43,7 @@ function devApiGuard(backend: URL | undefined): Plugin {
 export default defineConfig(({ command }) => {
   const backend = command === 'serve' ? backendAddress() : undefined
   return {
-    plugins: [vue(), ...(command === 'serve' ? [devApiGuard(backend)] : [])],
+    plugins: [vue(), frontendLicensesPlugin(), ...(command === 'serve' ? [devApiGuard(backend)] : [])],
     ...(command === 'build' ? { define: { 'process.env.NODE_ENV': JSON.stringify('production') } } : {}),
     build: {
       emptyOutDir: false,

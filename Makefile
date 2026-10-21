@@ -18,7 +18,7 @@ INTEGRATION_SCRIPTS := artifact background_job catalog checklist copilot_startup
 IMAGE_PROTOCOLS := openai-chat mistral cohere bedrock vercel-gateway \
 	bedrock-mantle-responses sap-ai-core copilot
 
-.PHONY: build update-ua test web $(TEST_GOALS) all test-bin test-mcp-fixture \
+.PHONY: build update-ua licenses check-licenses package test web $(TEST_GOALS) all test-bin test-mcp-fixture \
 	test-frontend-unit test-frontend-types check-browser check-sqlite
 # Memory measurements and builds share resources, including with multiple goals.
 .NOTPARALLEL:
@@ -41,9 +41,18 @@ web: web/node_modules/.package-lock.json
 update-ua:
 	node scripts/update_user_agents.mjs
 
-build: $(if $(filter 1,$(UPDATE_UA)),update-ua) web
+licenses: web
+	node scripts/update_licenses.mjs
+
+check-licenses: web
+	node scripts/update_licenses.mjs --check
+
+build: $(if $(filter 1,$(UPDATE_UA)),update-ua) licenses
 	mkdir -p bin
 	GOWORK=off CGO_ENABLED=0 go build -ldflags="$(BUILD_LDFLAGS)" -o bin/vista ./cmd/vista
+
+package: build
+	python3 scripts/package_release.py --binary bin/vista --version "$(VERSION)" --output-dir .vista/dist
 
 test: $(if $(filter-out test,$(MAKECMDGOALS)),,go)
 	@:
@@ -56,6 +65,7 @@ go:
 test-frontend-unit: web/node_modules/.package-lock.json
 	npm --prefix web run test:unit
 	node --test scripts/update_user_agents.test.mjs
+	node --test scripts/update_licenses.test.mjs
 
 test-frontend-types: web/node_modules/.package-lock.json
 	npm --prefix web run typecheck

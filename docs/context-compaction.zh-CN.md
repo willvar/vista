@@ -10,8 +10,8 @@ Vista 负责识别上下文超限，不通过模型 ID、OMP 目录、用量百�
 
 显式证据规则改编自以下 MIT 来源：
 
-- Pi 的 `overflow.ts`，版本 `b9ab2a6238d2c91cf0c6ebf836dfd05883f9db51`，见[许可](./pi-overflow-LICENSE)；
-- OMP 的 `error/flags.ts`，版本 `f1ac114d8d3438bee43010aee559bfe720ba3224`，见[许可](./omp-overflow-LICENSE)。
+- Pi 的 `overflow.ts`，版本 `b9ab2a6238d2c91cf0c6ebf836dfd05883f9db51`，见[许可](../licenses/pi/LICENSE)；
+- OMP 的 `error/flags.ts`，版本 `f1ac114d8d3438bee43010aee559bfe720ba3224`，见[许可](../licenses/oh-my-pi/LICENSE)。
 
 中转 fixture 覆盖保留上游消息／代码、改写 HTTP 状态及 HTTP 200 JSON 错误等形态，参考 New API `7de10f2c602b50122017556e8a09cb7c488c273c`、One API `8df4a2670b98266bd287c698243fff327d9748cf` 的错误封装。这些是源码形态的本地测试，不是真实服务成功率报告。
 

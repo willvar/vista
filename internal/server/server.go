@@ -32,6 +32,7 @@ import (
 	"vista/internal/provider"
 	"vista/internal/store"
 	"vista/internal/workerproto"
+	"vista/licenses"
 )
 
 //go:embed assets/app.js assets/vista-web.css
@@ -226,6 +227,10 @@ func Run(portOverride int) error {
 }
 func (a *App) handler() http.Handler {
 	mux := http.NewServeMux()
+	mux.HandleFunc("GET /licenses", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		http.ServeContent(w, r, "THIRD_PARTY_NOTICES", time.Time{}, strings.NewReader(licenses.Text))
+	})
 	mux.HandleFunc("/api/status", a.status)
 	mux.HandleFunc("/api/resource-storage", a.resourceStorage)
 	mux.HandleFunc("/api/models", a.modelList)

@@ -107,3 +107,7 @@ make test all
 - [测试目标与容量测量](./docs/testing.zh-CN.md)
 - [前端、国际化与浏览器检查](./web/README.zh-CN.md)
 - [上下文压缩](./docs/context-compaction.zh-CN.md)、[资源](./docs/resources.zh-CN.md)及[会话回退](./docs/message-revert.zh-CN.md)
+
+## 许可证
+
+Vista 的原创代码和文档采用 [MIT 许可证](./LICENSE)。第三方组件保留各自的许可证和版权声明；完整的[许可及署名声明](./licenses/NOTICE)随发布压缩包提供，也可通过运行中服务的 `/licenses` 地址查看。

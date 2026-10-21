@@ -1,5 +1,6 @@
 {
   "name": "vista-mcp-upstream-smoke",
+  "license": "MIT",
   "private": true,
   "version": "1.0.0",
   "description": "Pinned external MCP servers for Vista Agent interoperability checks",
