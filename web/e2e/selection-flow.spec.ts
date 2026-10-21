@@ -1,0 +1,131 @@
+import { closeSettings, openSettingsSection } from './settings-navigation'
+import { test, expect } from './fixtures'
+
+test('real server keeps manual choice separate from automatic selection and learns reply feedback', async ({ page, vista }, testInfo) => {
+  await page.emulateMedia({ reducedMotion: 'no-preference' })
+  const session = await vista.api('/sessions', { method: 'POST', body: '{}' })
+  const catalog = await vista.api('/models')
+  const model = catalog.models.find((item: { key: string }) => item.key === catalog.default)
+  const choices: string[] = model.reasoningOptions || []
+  expect(choices.length).toBeGreaterThan(1)
+  const manualEffort = choices[1]
+  const effortLabel = manualEffort.charAt(0).toUpperCase() + manualEffort.slice(1)
+  const select = async (name: string, option: string) => {
+    await page.getByRole('combobox', { name, exact: true }).click()
+    await page.locator('.ant-select-dropdown:visible').getByText(option, { exact: true }).click()
+  }
+  const openGeneralSettings = async () => {
+    if (page.viewportSize()!.width <= 830) await page.locator('.mobile-sessions-trigger:visible').click()
+    await page.locator('.settings-trigger').click()
+    await expect(page).toHaveURL(url => url.pathname === (page.viewportSize()!.width <= 830 ? '/settings' : '/settings/general') && url.searchParams.get('session') === session.id)
+    await openSettingsSection(page, 'general')
+  }
+  const changeMode = async (mode: 'Automatic' | 'Choose model', refresh = false) => {
+    await openGeneralSettings()
+    await select('Model selection', mode)
+    await expect.poll(async () => (await vista.api('/preferences')).lastMode).toBe(mode === 'Automatic' ? 'auto' : 'manual')
+    await expect.poll(async () => (await vista.api('/sessions')).find((item: { id: string }) => item.id === session.id).selectionMode).toBe(mode === 'Automatic' ? 'auto' : 'manual')
+    if (refresh) {
+      await page.reload()
+      await expect(page.locator('.model-selection-setting')).toContainText(mode)
+      await page.getByRole('combobox', { name: 'Model selection', exact: true }).scrollIntoViewIfNeeded()
+      await page.screenshot({ path: testInfo.outputPath('selection-settings.png'), animations: 'disabled' })
+    }
+    await closeSettings(page)
+    await expect(page.locator('.sender-card').getByRole('combobox', { name: 'Model selection', exact: true })).toHaveCount(0)
+    await expect(page.locator('.composer-mode')).toHaveCount(0)
+  }
+  await page.goto(`${vista.origin}/sessions/${session.id}`)
+  await expect(page.getByRole('dialog')).toContainText('Help Vista learn what works for you')
+  await page.getByRole('button', { name: 'Got it', exact: true }).click()
+  const smallScreen = page.viewportSize()!.width <= 830
+  const reasoning = page.locator('.composer-reasoning')
+  const effort = reasoning.getByRole('slider', { name: 'Reasoning effort', exact: true })
+  if (smallScreen) {
+    await expect(effort).toHaveCount(0)
+    await select('Reasoning effort', effortLabel)
+    await expect.poll(async () => (await vista.api('/preferences')).reasoningByModelId[model.id]).toBe(manualEffort)
+    const highest = choices.at(-1)!
+    await select('Reasoning effort', highest.charAt(0).toUpperCase() + highest.slice(1))
+  } else {
+    await expect(effort).toHaveAttribute('aria-valuemax', String(choices.length - 1))
+    const track = reasoning.locator('.ant-slider')
+    const trackBox = await track.boundingBox()
+    const trackColor = await reasoning.locator('.ant-slider-track').evaluate(element => getComputedStyle(element).backgroundColor)
+    await track.click({ position: { x: trackBox!.width / (choices.length - 1), y: trackBox!.height / 2 } })
+    await expect(effort).toHaveAttribute('aria-valuetext', effortLabel)
+    expect(await effort.evaluate(element => element.getAnimations().some(animation => animation instanceof CSSTransition && animation.transitionProperty === 'left'))).toBe(true)
+    await effort.press('ArrowLeft')
+    await expect(effort).toHaveAttribute('aria-valuenow', '0')
+    await effort.press('ArrowRight')
+    await expect(effort).toHaveAttribute('aria-valuetext', effortLabel)
+    const handle = await effort.boundingBox()
+    await page.mouse.move(handle!.x + handle!.width / 2, handle!.y + handle!.height / 2)
+    await page.mouse.down()
+    await page.mouse.move(trackBox!.x + trackBox!.width, trackBox!.y + trackBox!.height / 2, { steps: 8 })
+    await page.mouse.up()
+    await expect(effort).toHaveAttribute('aria-valuenow', String(choices.length - 1))
+    await effort.press('End')
+    await page.mouse.move(0, 0)
+    await reasoning.evaluate(element => Promise.all(element.getAnimations({ subtree: true }).map(animation => animation.finished.catch(() => {}))))
+    expect(await reasoning.locator('.ant-slider-track').evaluate(element => getComputedStyle(element).backgroundColor)).not.toBe(trackColor)
+  }
+  await page.screenshot({ path: testInfo.outputPath('reasoning-high-light.png'), animations: 'disabled' })
+  await page.emulateMedia({ colorScheme: 'dark' })
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark')
+  await page.screenshot({ path: testInfo.outputPath('reasoning-high-dark.png'), animations: 'disabled' })
+  await page.emulateMedia({ reducedMotion: 'reduce' })
+  if (!smallScreen) {
+    await effort.press('Home')
+    expect(await effort.evaluate(element => element.getAnimations().some(animation => animation instanceof CSSTransition && animation.transitionProperty === 'left'))).toBe(false)
+  }
+  await page.emulateMedia({ colorScheme: 'light', reducedMotion: 'no-preference' })
+  if (smallScreen) await select('Reasoning effort', effortLabel)
+  else await effort.press('ArrowRight')
+  await expect.poll(async () => (await vista.api('/preferences')).reasoningByModelId[model.id]).toBe(manualEffort)
+  await changeMode('Automatic', true)
+  await expect(page.locator('.sender-card').getByRole('combobox')).toHaveCount(1)
+  await expect(page.locator('.composer-model, .composer-reasoning')).toHaveCount(0)
+  await select('Preference', 'Quality')
+  await expect(page.locator('.composer-tier')).toContainText('Quality')
+  await select('Preference', 'Fast')
+  await expect(page.getByRole('dialog')).toHaveCount(0)
+  await expect(page.locator('.composer-tier')).toContainText('Fast')
+  await page.locator('.sender-card textarea').fill('Hi')
+  await page.locator('.sender-card textarea').press('Enter')
+  await expect(page.locator('article.assistant')).toContainText('Mock reply: Hi')
+  await expect(page.getByRole('button', { name: 'Send', exact: true })).toBeVisible()
+  const reply = (await vista.api(`/sessions/${session.id}/messages`)).find((item: { role: string }) => item.role === 'assistant')
+  expect(reply).toBeTruthy()
+  await page.getByRole('button', { name: 'Helpful answer', exact: true }).click()
+  await expect.poll(async () => (await vista.api(`/sessions/${session.id}/feedback`)).feedback[reply.id]).toBe('up')
+  await page.getByRole('button', { name: 'Unhelpful answer', exact: true }).click()
+  await expect.poll(async () => (await vista.api(`/sessions/${session.id}/feedback`)).feedback[reply.id]).toBe('down')
+  await changeMode('Choose model')
+  await expect(page.locator('.sender-card').getByRole('combobox')).toHaveCount(smallScreen ? 2 : 1)
+  if (!smallScreen) await expect(effort).toHaveAttribute('aria-valuetext', effortLabel)
+  await expect(page.locator('.composer-tier')).toHaveCount(0)
+  await expect(page.locator('.composer-reasoning')).toContainText(effortLabel)
+  await expect(page.locator('.composer-model')).toContainText(model.modelName || model.id)
+  await expect(page.locator('.context-usage')).toBeVisible()
+  const send = await page.getByRole('button', { name: 'Send', exact: true }).boundingBox()
+  expect(send!.x + send!.width).toBeLessThanOrEqual(page.viewportSize()!.width + 1)
+  expect(send!.y + send!.height).toBeLessThanOrEqual(page.viewportSize()!.height + 1)
+  await page.screenshot({ path: testInfo.outputPath('selection-flow.png'), animations: 'disabled' })
+  if (testInfo.project.name === 'desktop') {
+    // Appearance settings without a background conversation changes the new-session default.
+    await page.goto(`${vista.origin}/settings/general`)
+    await select('Model selection', 'Automatic')
+    await expect.poll(async () => (await vista.api('/preferences')).lastMode).toBe('auto')
+    await page.reload()
+    await expect(page.locator('.model-selection-setting')).toContainText('Automatic')
+    const before = (await vista.api('/sessions')).length
+    await closeSettings(page)
+    await page.locator('.brand-home').click()
+    await expect(page).toHaveURL(url => url.pathname === '/')
+    expect((await vista.api('/sessions')).length).toBe(before)
+    await expect(page.locator('.welcome .sender-card')).toBeVisible()
+    await expect(page.locator('.composer-tier')).toContainText('Fast')
+    await expect(page.locator('.composer-model, .composer-reasoning, .composer-mode')).toHaveCount(0)
+  }
+})

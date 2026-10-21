@@ -1,0 +1,10 @@
+{
+  "name": "vista-mcp-upstream-smoke",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Pinned external MCP servers for Vista Agent interoperability checks",
+  "dependencies": {
+    "@modelcontextprotocol/server-everything": "2026.8.31",
+    "@modelcontextprotocol/server-filesystem": "2026.8.31"
+  }
+}

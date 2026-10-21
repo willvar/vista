@@ -1,0 +1,102 @@
+import type { VistaFixture } from './fixtures'
+import type { Memories, Session } from '../src/client/types'
+import { test, expect } from './fixtures'
+
+async function run(vista: VistaFixture, sessionID: string, content: string) {
+  await vista.api(`/sessions/${sessionID}/messages`, { method: 'POST', body: JSON.stringify({ content, modelKey: 'test' }) })
+  await expect.poll(async () => (await vista.api('/sessions') as Session[]).find(session => session.id === sessionID)?.latestRunStatus).toBe('succeeded')
+}
+
+test('memories in Personalization support editing, conflicts and deletion in light and dark themes', async ({ page, vista }, testInfo) => {
+  await page.goto(`${vista.origin}/settings/personalization`)
+  const section = page.getByRole('region', { name: 'Memory', exact: true })
+  await section.scrollIntoViewIfNeeded()
+  await expect(section.getByText('No saved preferences yet.', { exact: false })).toBeVisible()
+  await section.getByRole('button', { name: 'Add memory', exact: true }).click()
+  const editor = section.getByRole('textbox', { name: 'Preference', exact: true })
+  await expect(editor).toBeFocused()
+  await editor.fill('回答简明。')
+  await section.getByRole('button', { name: 'Save changes', exact: true }).click()
+  await expect(section.locator('.memory-text')).toHaveText('回答简明。')
+  await page.reload()
+  await section.scrollIntoViewIfNeeded()
+  await expect(section.locator('.memory-text')).toHaveText('回答简明。')
+  await section.getByRole('button', { name: 'Edit memory: 回答简明。', exact: true }).click()
+  await expect(editor).toBeFocused()
+  await editor.fill('Use concise answers with sources.')
+  await section.getByRole('button', { name: 'Save changes', exact: true }).click()
+  await expect(section.locator('.memory-text')).toHaveText('Use concise answers with sources.')
+
+  for (const theme of ['light', 'dark']) {
+    await page.evaluate(value => localStorage.setItem('vista-appearance', value), theme)
+    await page.reload()
+    await expect(page.locator('html')).toHaveAttribute('data-theme', theme)
+    await section.scrollIntoViewIfNeeded()
+    await expect(section.locator('.memory-text')).toBeVisible()
+    const layout = await section.evaluate(element => {
+      const box = element.getBoundingClientRect()
+      return { left: box.left, right: box.right, width: innerWidth, overflow: element.scrollWidth - element.clientWidth }
+    })
+    expect(layout.left).toBeGreaterThanOrEqual(0)
+    expect(layout.right).toBeLessThanOrEqual(layout.width)
+    expect(layout.overflow).toBeLessThanOrEqual(2)
+    await page.screenshot({ path: testInfo.outputPath(`memory-${theme}.png`), animations: 'disabled' })
+  }
+
+  await section.getByRole('button', { name: 'Edit memory: Use concise answers with sources.', exact: true }).click()
+  await editor.fill('stale UI draft')
+  const snapshot: Memories = await vista.api('/memories')
+  const memory = snapshot.memories[0]
+  await vista.api('/memories', { method: 'POST', body: JSON.stringify({ action: 'update', id: memory.id, previousText: memory.text, text: 'Changed by another session.' }) })
+  await section.getByRole('button', { name: 'Save changes', exact: true }).click()
+  await expect(section.getByRole('alert')).toContainText('This memory was changed or deleted')
+  await expect(editor).toHaveValue('stale UI draft')
+  expect((await vista.api('/memories')).memories[0].text).toBe('Changed by another session.')
+  await section.getByRole('button', { name: 'Cancel', exact: true }).click()
+  await section.getByRole('button', { name: 'Refresh memories', exact: true }).click()
+  await expect(section.locator('.memory-text')).toHaveText('Changed by another session.')
+  await section.getByRole('button', { name: 'Delete memory: Changed by another session.', exact: true }).click()
+  await expect(section.locator('.memory-text')).toHaveCount(0)
+  expect((await vista.api('/memories')).memories).toEqual([])
+})
+
+test.describe('model-managed preferences', () => {
+  test.use({ memoryTool: true })
+  test('a real Worker saves and removes preferences that are loaded in other sessions', async ({ page, vista }) => {
+    await vista.api('/preferences', { method: 'PATCH', body: JSON.stringify({ feedbackInvitationSeen: true }) })
+    const first: Session = await vista.api('/sessions', { method: 'POST', body: '{}' })
+    await run(vista, first.id, 'Remember concise answers')
+    const snapshot: Memories = await vista.api('/memories')
+    expect(snapshot.memories.map(memory => memory.text)).toEqual(['Keep answers concise.'])
+    const toolResults = vista.modelRequests.flatMap(request => request.messages || []).filter(message => message.role === 'tool')
+    expect(toolResults.some(message => String(message.content).includes('"action":"add"') && String(message.content).includes(snapshot.memories[0].id))).toBe(true)
+
+    await page.goto(`${vista.origin}/sessions/${first.id}`)
+    const trace = page.locator('.run-trace')
+    await trace.getByRole('button', { name: 'Execution process', exact: true }).click()
+    await trace.locator('.antd-thought-chain-node-title').filter({ hasText: 'Memory' }).click()
+    await expect(trace.locator('.trace-result-summary')).toHaveText('Memory added')
+    await expect(trace.locator('.trace-step-content')).toContainText('Keep answers concise.')
+
+    await page.goto(`${vista.origin}/settings/personalization`)
+    const section = page.getByRole('region', { name: 'Memory', exact: true })
+    await section.scrollIntoViewIfNeeded()
+    await expect(section.locator('.memory-text')).toHaveText('Keep answers concise.')
+    const second: Session = await vista.api('/sessions', { method: 'POST', body: '{}' })
+    await run(vista, second.id, 'An independent question')
+    const request = vista.modelRequests.at(-1)!
+    expect(String(request.messages?.[0].content)).toContain('Keep answers concise.')
+    expect(String(request.messages?.[0].content)).toContain('global instructions take precedence')
+    await run(vista, first.id, 'Forget my preference')
+    expect((await vista.api('/memories')).memories).toEqual([])
+    await run(vista, second.id, 'Another independent question')
+    expect(String(vista.modelRequests.at(-1)!.messages?.[0].content)).not.toContain('Keep answers concise.')
+    await run(vista, first.id, 'Continue after forgetting')
+    const afterDeletion = vista.modelRequests.at(-1)!.messages!
+    expect(String(afterDeletion[0].content)).toContain("User's saved preferences at run start:\n[]")
+    expect(String(afterDeletion[0].content)).toContain("earlier runs' memory tool results are historical")
+    expect(afterDeletion.some(message => message.role === 'tool' && String(message.content).includes('"action":"add"'))).toBe(true)
+    await section.getByRole('button', { name: 'Refresh memories', exact: true }).click()
+    await expect(section.locator('.memory-text')).toHaveCount(0)
+  })
+})
