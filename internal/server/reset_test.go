@@ -58,6 +58,9 @@ func writeResetFixture(t *testing.T, path, value string) {
 }
 
 func TestResetAllReopensEmptyDataAndKeepsInstanceLock(t *testing.T) {
+	for _, key := range []string{"VISTA_OPENAI_API_KEY", "VISTA_ANTHROPIC_API_KEY", "VISTA_GEMINI_API_KEY", "VISTA_MISTRAL_API_KEY", "VISTA_DEFAULT_MODEL"} {
+		t.Setenv(key, "")
+	}
 	h, handler := resetFixture(t)
 	app := h.app
 	ctx := context.Background()
@@ -100,6 +103,9 @@ func TestResetAllReopensEmptyDataAndKeepsInstanceLock(t *testing.T) {
 	}
 	if h.app == app || app.ctx.Err() == nil {
 		t.Fatal("old in-memory state was retained")
+	}
+	if catalog := h.app.modelsSnapshot(); catalog.Default != "" || len(catalog.Models) != 0 {
+		t.Fatalf("reset retained an unconfigured model: %+v", catalog)
 	}
 	for _, path := range paths {
 		// Some defaults (such as search ordering) are freshly generated on load.

@@ -391,9 +391,6 @@ func (a *App) status(w http.ResponseWriter, r *http.Request) {
 		}
 		break
 	}
-	if providerName == "" && models.Default == "demo" {
-		providerName = "demo"
-	}
 	jsonOut(w, map[string]any{"state": "running", "version": buildinfo.Version, "binaryHash": a.buildInfo.BinaryHash, "sourceCommit": a.buildInfo.SourceCommit, "sourceModified": a.buildInfo.SourceModified, "hostOS": a.hostOS, "address": "http://" + r.Host, "provider": providerName, "model": defaultModel.ID, "defaultModel": defaultModelLabel, "defaultModelKey": models.Default, "uptimeSeconds": int(time.Since(a.started).Seconds()), "sessions": map[string]int{"total": counts.Total, "open": counts.Open, "closed": counts.Total - counts.Open, "running": counts.Running, "idle": counts.Open - counts.Running, "unavailable": unavailable, "workers": count}, "managedBackgroundProcesses": counts.Jobs, "eventStreams": a.hub.subscriberCount(), "eventStreamLimit": maxEventStreams, "memory": map[string]uint64{"heapBytes": mem.HeapAlloc, "rssBytes": platform.RSS(), "peakRssBytes": platform.PeakRSS()}, "workerMetrics": workerMetrics, "sampledAt": time.Now().UTC().Format(time.RFC3339)})
 }
 

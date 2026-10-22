@@ -20,7 +20,7 @@ func TestCatalogConnectionUsesAllModelsWithoutSetupSelection(t *testing.T) {
 		t.Fatal(err)
 	}
 	ctx := context.Background()
-	base := modelCatalog{Default: "demo", Models: []configuredModel{{Key: "demo"}}}
+	base := modelCatalog{}
 	app := &App{configDir: dir, models: base, baseModels: base}
 	for _, name := range []string{"First", "Second"} {
 		if err := app.changeProviderSettings(ctx, http.MethodPost, providerSettingsInput{Name: name, Provider: "catalog", ProviderID: "zai", APIKey: name + "-key"}); err != nil {
@@ -75,7 +75,7 @@ func TestProviderSetupReadbackMasksCredentials(t *testing.T) {
 	if err := os.Chmod(dir, 0700); err != nil {
 		t.Fatal(err)
 	}
-	base := modelCatalog{Default: "demo", Models: []configuredModel{{Key: "demo"}}}
+	base := modelCatalog{}
 	app := &App{configDir: dir, models: base, baseModels: base}
 	input := providerSettingsInput{Provider: "catalog", ProviderID: "google-vertex", Project: "test-project", Location: "us-central1", CredentialMode: "accessToken", AccessToken: "private-google-token", IDs: []string{"gemini-2.5-flash"}}
 	if err := app.changeProviderSettings(context.Background(), http.MethodPost, input); err != nil {
@@ -118,7 +118,7 @@ func TestProviderConnectionLifecycle(t *testing.T) {
 	if err := os.Chmod(dir, 0700); err != nil {
 		t.Fatal(err)
 	}
-	base := modelCatalog{Default: "demo", Models: []configuredModel{{Key: "demo"}}}
+	base := modelCatalog{}
 	app := &App{dir: filepath.Join(dir, "state"), configDir: dir, models: base, baseModels: base}
 	call := func(handler http.HandlerFunc, method string, input any) *httptest.ResponseRecorder {
 		t.Helper()
@@ -174,7 +174,7 @@ func TestProviderConnectionLifecycle(t *testing.T) {
 	if response := call(app.providerSettings, http.MethodDelete, providerSettingsInput{Key: anchor}); response.Code != http.StatusNoContent {
 		t.Fatalf("disconnect: %d %s", response.Code, response.Body.String())
 	}
-	if catalog := app.modelsSnapshot(); len(catalog.Models) != 1 || catalog.Default != "demo" {
+	if catalog := app.modelsSnapshot(); len(catalog.Models) != 0 || catalog.Default != "" {
 		t.Fatal("disconnect left provider models available")
 	}
 }
@@ -205,7 +205,7 @@ func TestProviderAccountsAtSameEndpointStayIndependent(t *testing.T) {
 	if err := os.Chmod(dir, 0700); err != nil {
 		t.Fatal(err)
 	}
-	base := modelCatalog{Default: "demo", Models: []configuredModel{{Key: "demo"}}}
+	base := modelCatalog{}
 	app := &App{dir: filepath.Join(dir, "state"), configDir: dir, models: base, baseModels: base}
 	call := func(handler http.HandlerFunc, method string, input any) *httptest.ResponseRecorder {
 		t.Helper()
@@ -303,7 +303,7 @@ func TestZenAccountsStayIndependent(t *testing.T) {
 	if err := os.Chmod(dir, 0700); err != nil {
 		t.Fatal(err)
 	}
-	base := modelCatalog{Default: "demo", Models: []configuredModel{{Key: "demo"}}}
+	base := modelCatalog{}
 	app := &App{dir: filepath.Join(dir, "state"), configDir: dir, baseModels: base, models: base}
 	for _, name := range []string{"Work", "Personal"} {
 		input := providerSettingsInput{Name: name, Provider: "catalog", ProviderID: "opencode-go", APIKey: "zen-key"}
@@ -330,7 +330,7 @@ func TestZenConnectionAutomaticallyIncludesSupportedModels(t *testing.T) {
 	if err := os.Chmod(dir, 0700); err != nil {
 		t.Fatal(err)
 	}
-	base := modelCatalog{Default: "demo", Models: []configuredModel{{Key: "demo"}}}
+	base := modelCatalog{}
 	app := &App{dir: filepath.Join(dir, "state"), configDir: dir, baseModels: base, models: base}
 	response := httptest.NewRecorder()
 	app.providerSettings(response, httptest.NewRequest(http.MethodPost, "/api/provider-config", strings.NewReader(`{"provider":"catalog","providerId":"opencode-go","apiKey":"zen-key"}`)))

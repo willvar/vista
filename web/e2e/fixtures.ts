@@ -277,7 +277,7 @@ export const test = base.extend<{ vista: VistaFixture; configuredProvider: boole
     writeFileSync(join(configDirectory, 'model-catalog-status.json'), JSON.stringify({ nextCheckAt: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString() }), { mode: 0o600 })
     writeFileSync(join(configDirectory, 'models.json'), JSON.stringify(configuredProvider
       ? { default: 'test', models: [{ key: 'test', name: 'Layout test', ...configuredModel, baseUrl: modelEndpoint, apiKey: 'test-key', ...(imageModel ? { inputModalities: ['text', 'image'] } : {}) }] }
-      : { default: 'demo', models: [{ key: 'demo' }] }), { mode: 0o600 })
+      : { default: '', models: [] }), { mode: 0o600 })
     const reservation = createPortReservation()
     await new Promise<void>(done => reservation.listen(0, '127.0.0.1', done))
     const reservedAddress = reservation.address()

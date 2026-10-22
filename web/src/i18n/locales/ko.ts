@@ -729,7 +729,6 @@ export default {
   "imageUnsupported": "선택한 모델은 이미지를 입력받을 수 없습니다.",
   "modelUnavailable": "모델 사용 불가",
   "custom": "사용자 지정",
-  "demo": "데모",
   "reasoningNone": "끄기",
   "reasoningMinimal": "최소",
   "reasoningLow": "낮음",

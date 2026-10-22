@@ -17,7 +17,6 @@ func TestModelSelectionStatisticsAPIHighestConfigurationAndReset(t *testing.T) {
 	ctx := context.Background()
 	a.models.Models[0].Name = "First provider"
 	a.models.Models = append(a.models.Models,
-		configuredModel{Key: "demo"},
 		configuredModel{Key: "duplicate", ID: "gpt-6-luna", Provider: "openai-responses", Name: "Second provider", BaseURL: "https://other.example/v1"},
 		configuredModel{Key: "unknown", ID: "unknown-model", Provider: "openai-chat", Name: "Third provider"},
 	)
@@ -64,7 +63,7 @@ func TestModelSelectionStatisticsAPIHighestConfigurationAndReset(t *testing.T) {
 
 func TestModelSelectionWithoutProviderHasNoCandidatesOrStatistics(t *testing.T) {
 	a := selectionApp(t)
-	a.models = modelCatalog{Default: "demo", Models: []configuredModel{{Key: "demo"}}}
+	a.models = modelCatalog{}
 	w := httptest.NewRecorder()
 	a.modelSelectionStats(w, httptest.NewRequest(http.MethodGet, "/api/model-selection/stats", nil))
 	var result struct {

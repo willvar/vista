@@ -729,7 +729,6 @@ export default {
   "imageUnsupported": "Le modèle choisi ne prend pas en charge les images.",
   "modelUnavailable": "modèle indisponible",
   "custom": "Personnalisé",
-  "demo": "Démo",
   "reasoningNone": "Désactivé",
   "reasoningMinimal": "Minimal",
   "reasoningLow": "Faible",

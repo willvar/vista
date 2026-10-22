@@ -729,7 +729,6 @@ export default {
   "imageUnsupported": "選択中のモデルは画像を入力できません。",
   "modelUnavailable": "モデルを利用できません",
   "custom": "カスタム",
-  "demo": "デモ",
   "reasoningNone": "オフ",
   "reasoningMinimal": "最小",
   "reasoningLow": "低",

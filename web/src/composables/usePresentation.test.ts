@@ -86,11 +86,10 @@ test('model search retains catalog name, original ID and provider without changi
 
 test('shared model choices naturally sort provider groups and catalog names without mutating the catalog', () => {
   const models: ModelInfo[] = [
-    { key: 'provider10-model', connectionId: 'connection10', name: 'Provider 10', provider: 'openai-chat', id: 'last-id', modelName: 'Model 1' },
+    { key: 'demo', connectionId: 'connection10', name: 'Provider 10', provider: 'openai-chat', id: 'last-id', modelName: 'Model 1' },
     { key: 'provider2-ten', connectionId: 'connection2', name: 'Provider 2', provider: 'openai-chat', id: 'a-first-id', modelName: 'Model 10' },
     { key: 'provider2-two', connectionId: 'connection2', name: 'Provider 2', provider: 'openai-responses', id: 'z-last-id', modelName: 'model 2' },
     { key: 'provider2-raw', connectionId: 'connection2', name: 'Provider 2', provider: 'openai-chat', id: 'model 3' },
-    { key: 'demo', name: 'Demo', provider: '', id: 'demo' },
   ]
   const keys = models.map(model => model.key)
   const providerLabel = (model: ModelInfo) => model.name!

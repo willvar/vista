@@ -22,8 +22,8 @@ func directoryTestApp(t *testing.T) *App {
 	if err := os.Chmod(dir, 0700); err != nil {
 		t.Fatal(err)
 	}
-	demo := modelCatalog{Default: "demo", Models: []configuredModel{{Key: "demo"}}}
-	return &App{configDir: dir, models: demo, baseModels: demo}
+	empty := modelCatalog{}
+	return &App{configDir: dir, models: empty, baseModels: empty}
 }
 
 func TestModelSettingsRemotePreparationAllowsReadsAndRejectsStaleCommit(t *testing.T) {
@@ -170,11 +170,11 @@ func TestModelDiscoveryRejectsOlderResponsesAndDisconnectedSources(t *testing.T)
 				t.Fatal("third discovery did not start")
 			}
 			app.modelMu.Lock()
-			app.publishBaseModelsLocked(modelCatalog{Default: "demo", Models: []configuredModel{{Key: "demo"}}})
+			app.publishBaseModelsLocked(modelCatalog{})
 			app.modelMu.Unlock()
 			closeThird.Do(func() { close(releaseThird) })
 			<-done
-			if got := app.modelsSnapshot(); len(got.Models) != 1 || got.Default != "demo" {
+			if got := app.modelsSnapshot(); len(got.Models) != 0 || got.Default != "" {
 				t.Fatalf("disconnected inventory returned: %+v", got)
 			}
 			if len(app.copilotInventories) != 0 || len(app.customInventories) != 0 {

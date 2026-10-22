@@ -58,11 +58,7 @@ func (a *App) refreshLocalModels(ctx context.Context) {
 }
 
 func (a *App) rebuildModelsLocked() {
-	catalog := modelCatalog{Default: a.baseModels.Default}
-	demoOnly := len(a.baseModels.Models) == 1 && a.baseModels.Models[0].Key == "demo"
-	if demoOnly {
-		catalog.Default = ""
-	}
+	catalog := modelCatalog{Default: a.baseModels.Default, Models: []configuredModel{}}
 	seenKeys := make(map[string]bool, len(a.baseModels.Models))
 	seenModels := make(map[string]bool, len(a.baseModels.Models))
 	copilot := make(map[string]configuredModel)
@@ -78,9 +74,6 @@ func (a *App) rebuildModelsLocked() {
 		}
 	}
 	for _, model := range a.baseModels.Models {
-		if demoOnly {
-			break
-		}
 		if model.ProviderID == "github-copilot" {
 			if _, ready := a.copilotInventories[modelcatalog.CopilotSourceID(model)]; ready {
 				if remote, ok := copilot[modelcatalog.Identity(model)]; ok {
@@ -157,9 +150,7 @@ func (a *App) rebuildModelsLocked() {
 			seenModels[identity] = true
 		}
 	}
-	if len(catalog.Models) == 0 && demoOnly {
-		catalog = a.baseModels
-	} else if len(catalog.Models) == 0 {
+	if len(catalog.Models) == 0 {
 		catalog.Default = ""
 	} else if !seenKeys[catalog.Default] {
 		catalog.Default = catalog.Models[0].Key

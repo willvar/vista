@@ -726,7 +726,6 @@ export default {
   "imageUnsupported": "The selected model cannot receive images.",
   "modelUnavailable": "model unavailable",
   "custom": "Custom",
-  "demo": "Demo",
   "reasoningNone": "Off",
   "reasoningMinimal": "Minimal",
   "reasoningLow": "Low",

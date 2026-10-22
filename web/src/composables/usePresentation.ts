@@ -46,7 +46,6 @@ export function modelPickerOptions(models: readonly ModelInfo[], locale: string,
   const compare = new Intl.Collator(locale, { numeric: true, sensitivity: 'base' }).compare
   const groups = new Map<string, { key: string; label: string; models: ModelInfo[] }>()
   for (const model of models) {
-    if (model.key === 'demo') continue
     const key = model.connectionId || JSON.stringify([model.name, model.providerId || model.provider, model.baseUrl])
     if (!groups.has(key)) groups.set(key, { key, label: providerLabel(model), models: [] })
     groups.get(key)!.models.push(model)
@@ -96,7 +95,7 @@ export function usePresentation(catalog: Ref<ModelCatalog>) {
     const source = model.name || (provider === 'opencode' ? 'Zen' : provider === 'opencode-go' ? 'Zen Go'
       : (model.provider === 'openai-chat' || model.provider === 'openai-responses') && (!model.providerId || model.providerId === 'openai')
         ? (model.baseUrl ? `${t('custom')} (${endpointHost(model.baseUrl)})` : t('custom'))
-        : model.providerId || model.provider || t('demo'))
+        : model.providerId || model.provider || t('customProvider'))
     return formatModelWithReasoning(`${source} · ${displayModelName(model)}`, effort)
   }
   function settingProviderName(model: Pick<ModelInfo, 'name' | 'providerId' | 'provider'>) {

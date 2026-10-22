@@ -729,7 +729,6 @@ export default {
   "imageUnsupported": "当前模型不支持图片输入。",
   "modelUnavailable": "模型不可用",
   "custom": "自定义",
-  "demo": "演示",
   "reasoningNone": "关闭",
   "reasoningMinimal": "极低",
   "reasoningLow": "低",

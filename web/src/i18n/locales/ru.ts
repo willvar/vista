@@ -729,7 +729,6 @@ export default {
   "imageUnsupported": "Выбранная модель не принимает изображения.",
   "modelUnavailable": "модель недоступна",
   "custom": "Свой",
-  "demo": "Демо",
   "reasoningNone": "Выкл.",
   "reasoningMinimal": "Минимальная",
   "reasoningLow": "Низкая",

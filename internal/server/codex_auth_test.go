@@ -42,7 +42,7 @@ func codexTestApp(t *testing.T, ready <-chan struct{}) *App {
 	if err := os.Chmod(dir, 0700); err != nil {
 		t.Fatal(err)
 	}
-	base := modelCatalog{Default: "demo", Models: []configuredModel{{Key: "demo"}}}
+	base := modelCatalog{}
 	app := &App{configDir: dir, models: base, baseModels: base, codexAuthClient: &codexauth.Client{Issuer: upstream.URL, HTTP: upstream.Client()}}
 	t.Cleanup(func() {
 		app.providerLoginMu.Lock()
@@ -155,7 +155,7 @@ func TestCodexLoginConnectReloadReauthenticateAndDisconnect(t *testing.T) {
 	if _, err := os.Stat(path); !os.IsNotExist(err) {
 		t.Fatal("disconnect retained account credential")
 	}
-	if models := app.modelsSnapshot(); len(models.Models) != 1 || models.Models[0].Key != "demo" {
+	if models := app.modelsSnapshot(); len(models.Models) != 0 || models.Default != "" {
 		t.Fatal("disconnect retained Codex inventory")
 	}
 }

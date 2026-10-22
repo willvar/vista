@@ -569,6 +569,57 @@ func TestCloudflareGatewayRequiresAccountOrBaseURL(t *testing.T) {
 	}
 }
 
+func TestModelCatalogWithoutProvidersIsEmpty(t *testing.T) {
+	for _, key := range []string{"VISTA_OPENAI_API_KEY", "VISTA_ANTHROPIC_API_KEY", "VISTA_GEMINI_API_KEY", "VISTA_MISTRAL_API_KEY", "VISTA_DEFAULT_MODEL"} {
+		t.Setenv(key, "")
+	}
+	for name, data := range map[string]string{
+		"fresh":              "",
+		"saved empty":        `{"default":"","models":[]}`,
+		"legacy placeholder": `{"default":"demo","models":[{"key":"demo"}]}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			dir := t.TempDir()
+			if data != "" {
+				if err := os.WriteFile(filepath.Join(dir, "models.json"), []byte(data), 0600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			catalog, err := Load(dir)
+			if err != nil || len(catalog.Models) != 0 || catalog.Default != "" {
+				t.Fatalf("empty catalog: %+v, err=%v", catalog, err)
+			}
+			if public, err := json.Marshal(catalog.Public()); err != nil || string(public) != "[]" {
+				t.Fatalf("empty public inventory: %s, err=%v", public, err)
+			}
+			if _, _, err := catalog.Resolve(""); err == nil {
+				t.Fatal("empty catalog resolved a model")
+			}
+		})
+	}
+	if err := Validate(Catalog{Default: "missing"}); err == nil {
+		t.Fatal("empty catalog accepted a nonexistent default")
+	}
+	if err := Validate(Catalog{Default: "demo", Models: []Configured{{Key: "demo"}}}); err == nil {
+		t.Fatal("new model configuration accepted a missing API format")
+	}
+}
+
+func TestConfiguredModelMayUseDemoKey(t *testing.T) {
+	dir := t.TempDir()
+	data := `{"default":"demo","models":[{"key":"demo","provider":"openai-chat","id":"test-model","apiKey":"test-key"}]}`
+	if err := os.WriteFile(filepath.Join(dir, "models.json"), []byte(data), 0600); err != nil {
+		t.Fatal(err)
+	}
+	catalog, err := Load(dir)
+	if err != nil || catalog.Default != "demo" || len(catalog.Models) != 1 {
+		t.Fatalf("configured model lost: %+v, err=%v", catalog, err)
+	}
+	if model, key, err := catalog.Resolve(""); err != nil || key != "demo" || model.ID != "test-model" || model.Provider != "openai-chat" {
+		t.Fatalf("configured model did not resolve: %+v, key=%q, err=%v", model, key, err)
+	}
+}
+
 func TestBothEnvironmentProvidersCanBeConfigured(t *testing.T) {
 	t.Setenv("VISTA_OPENAI_API_KEY", "openai-key")
 	t.Setenv("VISTA_ANTHROPIC_API_KEY", "anthropic-key")

@@ -46,9 +46,6 @@ func (a *App) modelSettings(w http.ResponseWriter, r *http.Request) {
 		}
 		items := make([]modelSetting, 0, len(catalog.Models))
 		for _, model := range catalog.Models {
-			if model.Key == "demo" {
-				continue
-			}
 			mode := "apiKey"
 			if model.ProviderID == "custom" {
 				mode = model.Authentication

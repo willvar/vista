@@ -92,10 +92,10 @@ func TestCopilotDiscoveryRequiresConfiguredModel(t *testing.T) {
 	}))
 	defer endpoint.Close()
 	t.Setenv("GITHUB_TOKEN", "ambient-token")
-	base := modelCatalog{Default: "demo", Models: []configuredModel{{Key: "demo"}}}
+	base := modelCatalog{}
 	app := &App{models: base, baseModels: base, localModels: map[string][]configuredModel{}}
 	app.refreshCopilotModels(context.Background())
-	if calls.Load() != 0 || len(app.modelsSnapshot().Models) != 1 {
+	if calls.Load() != 0 || len(app.modelsSnapshot().Models) != 0 {
 		t.Fatal("ambient token triggered Copilot discovery")
 	}
 	if _, err := modelcatalog.DiscoverCopilotModels(context.Background(), configuredModel{BaseURL: "http://example.com", APIKey: "token"}); err == nil {
@@ -266,20 +266,23 @@ func TestCopilotDiscoverySeparatesAccountsAtOneEndpoint(t *testing.T) {
 	}
 }
 
-func TestDemoStatusStillNamesDemoProvider(t *testing.T) {
+func TestStatusWithoutProviderHasNoDefaultModel(t *testing.T) {
 	st, err := store.Open(filepath.Join(t.TempDir(), "vista.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer st.Close()
-	app := &App{store: st, workers: map[string]*worker{}, models: modelCatalog{Default: "demo", Models: []configuredModel{{Key: "demo"}}}, started: time.Now()}
+	app := &App{store: st, workers: map[string]*worker{}, models: modelCatalog{}, started: time.Now()}
 	w := httptest.NewRecorder()
 	app.status(w, httptest.NewRequest(http.MethodGet, "/api/status", nil))
 	var status struct {
-		Provider string `json:"provider"`
-		Default  string `json:"defaultModel"`
+		State      string `json:"state"`
+		Provider   string `json:"provider"`
+		Model      string `json:"model"`
+		Default    string `json:"defaultModel"`
+		DefaultKey string `json:"defaultModelKey"`
 	}
-	if w.Code != http.StatusOK || json.Unmarshal(w.Body.Bytes(), &status) != nil || status.Provider != "demo" || status.Default != "demo" {
-		t.Fatalf("demo status changed: %d %s", w.Code, w.Body.String())
+	if w.Code != http.StatusOK || json.Unmarshal(w.Body.Bytes(), &status) != nil || status.State != "running" || status.Provider != "" || status.Model != "" || status.Default != "" || status.DefaultKey != "" {
+		t.Fatalf("empty status: %d %s", w.Code, w.Body.String())
 	}
 }

@@ -103,7 +103,7 @@ func TestCatalogProviderSetupLifecycle(t *testing.T) {
 				}
 			}
 			removed, err := ChangeConnection(ctx, edited, true, http.MethodDelete, ConnectionInput{Key: anchor.Key})
-			if err != nil || len(removed.Models) != 0 {
+			if err != nil || len(removed.Models) != 0 || removed.Default != "" {
 				t.Fatalf("disconnect failed: %v", err)
 			}
 		})

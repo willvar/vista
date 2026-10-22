@@ -729,7 +729,6 @@ export default {
   "imageUnsupported": "Das gewählte Modell unterstützt keine Bilder.",
   "modelUnavailable": "Modell nicht verfügbar",
   "custom": "Benutzerdefiniert",
-  "demo": "Demo",
   "reasoningNone": "Aus",
   "reasoningMinimal": "Minimal",
   "reasoningLow": "Niedrig",

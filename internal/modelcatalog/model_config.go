@@ -178,6 +178,10 @@ func Read(dir string) (Catalog, bool, error) {
 	if err := decoder.Decode(&extra); err != io.EOF {
 		return Catalog{}, false, errors.New("models.json has extra data")
 	}
+	// Read previously saved empty catalogs without restoring their placeholder.
+	if catalog.Default == "demo" && len(catalog.Models) == 1 && catalog.Models[0].Key == "demo" && catalog.Models[0].Provider == "" {
+		catalog = Catalog{Models: []Configured{}}
+	}
 	return catalog, true, nil
 }
 
@@ -219,7 +223,7 @@ func ValidCustomProviderBaseURL(value string) bool {
 }
 
 func FromEnvironment() (Catalog, error) {
-	catalog := Catalog{}
+	catalog := Catalog{Models: []Configured{}}
 	if key := os.Getenv("VISTA_OPENAI_API_KEY"); key != "" {
 		id := os.Getenv("VISTA_OPENAI_MODEL")
 		if id == "" {
@@ -251,11 +255,8 @@ func FromEnvironment() (Catalog, error) {
 		}
 		catalog.Models = append(catalog.Models, Configured{Key: "mistral", Provider: "mistral", ProviderID: "mistral", ID: id, BaseURL: os.Getenv("VISTA_MISTRAL_BASE_URL"), APIKey: key})
 	}
-	if len(catalog.Models) == 0 {
-		catalog.Models = []Configured{{Key: "demo"}}
-	}
 	catalog.Default = os.Getenv("VISTA_DEFAULT_MODEL")
-	if catalog.Default == "" {
+	if catalog.Default == "" && len(catalog.Models) > 0 {
 		catalog.Default = catalog.Models[0].Key
 	}
 	if err := Validate(catalog); err != nil {
@@ -265,8 +266,8 @@ func FromEnvironment() (Catalog, error) {
 }
 
 func Validate(catalog Catalog) error {
-	if len(catalog.Models) == 0 || len(catalog.Models) > 16 {
-		return errors.New("configure 1–16 models")
+	if len(catalog.Models) > 16 {
+		return errors.New("configure at most 16 models")
 	}
 	seen := map[string]bool{}
 	for _, item := range catalog.Models {
@@ -299,10 +300,7 @@ func Validate(catalog Catalog) error {
 			}
 		}
 		if item.Provider == "" {
-			if item.Key != "demo" || item.ProviderID != "" || item.ID != "" || item.APIKey != "" || item.BaseURL != "" || item.Tools != nil || item.Context != 0 || item.ReasoningSummary != "" || item.ResponsesRoute != modelcfg.ResponsesRouteUnknown {
-				return errors.New("demo model configuration is invalid")
-			}
-			continue
+			return errors.New("model API format is required")
 		}
 		if len(item.inputModalities) > 0 && len(item.InputModalities) > 0 {
 			return fmt.Errorf("model %q cannot override catalog input modalities", item.Key)
@@ -325,13 +323,16 @@ func Validate(catalog Catalog) error {
 		}
 
 	}
-	if !seen[catalog.Default] {
+	if !seen[catalog.Default] && (len(catalog.Models) != 0 || catalog.Default != "") {
 		return errors.New("default model key is not configured")
 	}
 	return nil
 }
 
 func (c Catalog) Resolve(key string) (modelcfg.Model, string, error) {
+	if len(c.Models) == 0 {
+		return modelcfg.Model{}, "", errors.New("connect a model provider first")
+	}
 	if key == "" {
 		key = c.Default
 	}

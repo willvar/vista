@@ -34,7 +34,7 @@ func TestCopilotBrowserLoginLifecycle(t *testing.T) {
 	defer upstream.Close()
 	dir := t.TempDir()
 	_ = os.Chmod(dir, 0700)
-	base := modelCatalog{Default: "demo", Models: []configuredModel{{Key: "demo"}}}
+	base := modelCatalog{}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	app := &App{ctx: ctx, configDir: dir, models: base, baseModels: base, copilotAuthClient: &copilotauth.Client{Issuer: upstream.URL, HTTP: upstream.Client()}}
@@ -154,7 +154,7 @@ func TestCopilotAdvancedLoginSettingsPersistAndReconnect(t *testing.T) {
 	if err := os.Chmod(dir, 0700); err != nil {
 		t.Fatal(err)
 	}
-	base := modelCatalog{Default: "demo", Models: []configuredModel{{Key: "demo"}}}
+	base := modelCatalog{}
 	client := &copilotauth.Client{Issuer: standard.URL, HTTP: standard.Client()}
 	app := &App{ctx: ctx, configDir: dir, models: base, baseModels: base, copilotAuthClient: client}
 	call := func(method, id string, input any) providerLogin {

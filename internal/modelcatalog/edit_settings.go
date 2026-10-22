@@ -92,6 +92,7 @@ func ChangeConnection(ctx context.Context, raw Catalog, exists bool, method stri
 		}
 		raw.Models = retained
 		if len(raw.Models) == 0 {
+			raw.Default = ""
 			return raw, nil
 		}
 		foundDefault := false

@@ -52,8 +52,8 @@ func TestNamedCustomResponsesDiscoveryAndReply(t *testing.T) {
 	if err := os.Chmod(dir, 0700); err != nil {
 		t.Fatal(err)
 	}
-	demo := modelCatalog{Default: "demo", Models: []configuredModel{{Key: "demo"}}}
-	app := &App{dir: filepath.Join(dir, "state"), configDir: dir, baseModels: demo, models: demo}
+	empty := modelCatalog{}
+	app := &App{dir: filepath.Join(dir, "state"), configDir: dir, baseModels: empty, models: empty}
 	base := upstream.URL + "/v1"
 	discovery := httptest.NewRecorder()
 	app.discoverCustomModels(discovery, httptest.NewRequest(http.MethodPost, "/api/model-discovery", strings.NewReader(`{"provider":"openai-responses","credentialMode":"bearer","baseUrl":"`+base+`","apiKey":"private-key"}`)))
@@ -110,7 +110,7 @@ func TestCustomProvidersWithSameModelIDKeepDistinctKeys(t *testing.T) {
 	if err := os.Chmod(dir, 0700); err != nil {
 		t.Fatal(err)
 	}
-	app := &App{dir: filepath.Join(dir, "state"), configDir: dir, baseModels: modelCatalog{Default: "demo", Models: []configuredModel{{Key: "demo"}}}}
+	app := &App{dir: filepath.Join(dir, "state"), configDir: dir, baseModels: modelCatalog{}}
 	for _, item := range []struct{ name, endpoint string }{{"Herdex", "http://127.0.0.1:12001/v1"}, {"Other", "http://127.0.0.1:12002/v1"}} {
 		if err := app.changeProviderSettings(context.Background(), http.MethodPost, providerSettingsInput{Name: item.name, Provider: "openai-chat", ProviderID: "custom", CredentialMode: "bearer", BaseURL: item.endpoint, APIKey: "private-key", IDs: []string{"gpt-6-astra"}}); err != nil {
 			t.Fatal(err)
@@ -137,8 +137,8 @@ func TestCustomDiscoveryUsesSelectedFormatWithoutProbingInference(t *testing.T) 
 	if err := os.Chmod(dir, 0700); err != nil {
 		t.Fatal(err)
 	}
-	demo := modelCatalog{Default: "demo", Models: []configuredModel{{Key: "demo"}}}
-	app := &App{dir: filepath.Join(dir, "state"), configDir: dir, baseModels: demo, models: demo}
+	empty := modelCatalog{}
+	app := &App{dir: filepath.Join(dir, "state"), configDir: dir, baseModels: empty, models: empty}
 	base := upstream.URL + "/v1"
 	discovery := httptest.NewRecorder()
 	app.discoverCustomModels(discovery, httptest.NewRequest(http.MethodPost, "/api/model-discovery", strings.NewReader(`{"provider":"openai-responses","credentialMode":"bearer","baseUrl":"`+base+`","apiKey":"private-key"}`)))
@@ -280,8 +280,8 @@ func TestZenDiscoveryExcludesAbsentLegacyModelAndSaveRejectsIt(t *testing.T) {
 	if err := os.Chmod(dir, 0700); err != nil {
 		t.Fatal(err)
 	}
-	demo := modelCatalog{Default: "demo", Models: []configuredModel{{Key: "demo"}}}
-	app := &App{dir: filepath.Join(dir, "state"), configDir: dir, baseModels: demo, models: demo}
+	empty := modelCatalog{}
+	app := &App{dir: filepath.Join(dir, "state"), configDir: dir, baseModels: empty, models: empty}
 	response := httptest.NewRecorder()
 	app.discoverZenModels(response, httptest.NewRequest(http.MethodPost, "/api/zen-model-discovery", strings.NewReader(`{"providerId":"opencode-go"}`)))
 	if response.Code != http.StatusBadRequest {
@@ -442,8 +442,8 @@ func TestModelSettingsSaveLiveAndKeepCredentialsPrivate(t *testing.T) {
 	if err := app.changeProviderSettings(context.Background(), http.MethodDelete, providerSettingsInput{Key: reloaded.Models[0].Key}); err != nil {
 		t.Fatal(err)
 	}
-	if app.modelsSnapshot().Default != "demo" {
-		t.Fatal("disconnect did not restore demo")
+	if catalog := app.modelsSnapshot(); catalog.Default != "" || len(catalog.Models) != 0 {
+		t.Fatal("disconnect did not leave an empty catalog")
 	}
 }
 
@@ -468,8 +468,8 @@ func TestModelSettingsUseConfigurationDirectory(t *testing.T) {
 	if err := os.WriteFile(stateFile, stateContents, 0600); err != nil {
 		t.Fatal(err)
 	}
-	demo := modelCatalog{Default: "demo", Models: []configuredModel{{Key: "demo"}}}
-	app := &App{dir: stateDir, configDir: configDir, baseModels: demo, models: demo}
+	empty := modelCatalog{}
+	app := &App{dir: stateDir, configDir: configDir, baseModels: empty, models: empty}
 	if err := app.changeProviderSettings(context.Background(), http.MethodPost, providerSettingsInput{Name: "Example", Provider: "openai-chat", ProviderID: "custom", CredentialMode: "bearer", BaseURL: "http://127.0.0.1:12001/v1", APIKey: "test-key", IDs: []string{"test-model"}}); err != nil {
 		t.Fatalf("save configuration: %v", err)
 	}

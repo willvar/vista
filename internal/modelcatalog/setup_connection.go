@@ -27,7 +27,7 @@ func replaceConnection(ctx context.Context, raw Catalog, previous *Configured, s
 			if previous.ConnectionID != "" {
 				connectionID = previous.ConnectionID
 			}
-		} else if model.Key != "demo" {
+		} else {
 			retained = append(retained, model)
 		}
 	}

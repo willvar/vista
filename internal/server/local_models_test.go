@@ -45,7 +45,7 @@ func TestLocalInventoryRefreshAndTransientFailure(t *testing.T) {
 	t.Setenv("VISTA_OLLAMA_BASE_URL", ollama.URL+"/v1")
 	t.Setenv("VISTA_LMSTUDIO_BASE_URL", studio.URL+"/v1")
 	t.Setenv("VISTA_VLLM_BASE_URL", vllm.URL+"/v1")
-	base := modelCatalog{Default: "demo", Models: []configuredModel{{Key: "demo"}}}
+	base := modelCatalog{}
 	app := &App{models: base, baseModels: base, localModels: map[string][]configuredModel{}}
 	app.refreshLocalModels(context.Background())
 	first := app.modelsSnapshot()

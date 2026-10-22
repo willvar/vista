@@ -123,6 +123,8 @@ test.describe('first launch without a provider', () => {
       if (request.method() === 'POST' && /^\/api\/sessions\/[^/]+\/messages$/.test(path)) messageRequests++
     })
     expect(await vista.api('/sessions')).toHaveLength(0)
+    expect(await vista.api('/models')).toEqual({ default: '', models: [] })
+    expect(await vista.api('/status')).toMatchObject({ provider: '', model: '', defaultModel: '', defaultModelKey: '' })
     const sender = page.locator('.sender-card')
     await expect(sender).toBeVisible()
     await expect(sender).toHaveText('Connect a provider to get started')
