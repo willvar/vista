@@ -14,7 +14,7 @@ Vista supports its own development. Product documentation serves users; developm
 - Public documents describe current implementation. Check behavior against source and relevant tests; do not turn intended behavior, catalog metadata, or mock tests into claims of verified live support.
 - Keep repository workflow rules here. Public documentation should not repeat these rules or contain superseded development phases, local decision history, or temporary acceptance status.
 - Store plans, decisions, POCs, acceptance checklists/results, and local diagnostics under ignored `.vista/`, for example `.vista/plans/`, `.vista/decisions/`, and `.vista/acceptance/`. Move lasting implemented contracts into the relevant maintained document.
-- Maintain this `AGENTS.md` in English. Other permanent Markdown documents use English in the unsuffixed file and Simplified Chinese in `.zh-CN.md`, with reciprocal language links. Keep both editions and relative links consistent.
+- Maintain this `AGENTS.md` in English. Other permanent Markdown documents use English in the unsuffixed file and Simplified Chinese in `.zh-CN.md`, with reciprocal language links. Keep both editions and relative links consistent. Embedded system skills and their supporting documents are English-only; the UI may localize its controls.
 - Vista's original code and documentation use MIT (`LICENSE`). Preserve third-party license, copyright, and NOTICE texts in their original language; project licensing does not replace them.
 - Generated regression fixtures belong with their tests, not in a public reports directory. Do not publish user configuration, credentials, traces, screenshots, or machine-specific measurements.
 

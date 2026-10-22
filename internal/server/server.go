@@ -305,6 +305,8 @@ func (a *App) handler() http.Handler {
 	mux.HandleFunc("/api/user-agent", a.userAgentSettings)
 	mux.HandleFunc("/api/model-config", a.modelSettings)
 	mux.HandleFunc("/api/provider-config", a.providerSettings)
+	mux.HandleFunc("/api/provider-import", a.importProviders)
+	mux.HandleFunc("/api/extension-import", a.importExtensions)
 	mux.HandleFunc("/api/provider-auth/codex", a.startProviderLogin)
 	mux.HandleFunc("/api/provider-auth/codex/", a.providerLoginStatus)
 	mux.HandleFunc("/api/provider-auth/copilot", a.startProviderLogin)

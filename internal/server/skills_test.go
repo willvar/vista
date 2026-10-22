@@ -2,6 +2,7 @@ package server
 
 import (
 	"encoding/json"
+	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
@@ -35,7 +36,7 @@ func TestSkillsSettingsDiscoverEditToggleAndDelete(t *testing.T) {
 		}
 	}
 	empty := mcpAPI(t, a, "GET", "/skills", nil, 200)
-	if !strings.Contains(empty.Body.String(), `"skills":[]`) {
+	if !strings.Contains(empty.Body.String(), `"id":"system:vista-guide"`) || strings.Contains(empty.Body.String(), `"source":"user"`) {
 		t.Fatalf("unexpected empty settings: %s", empty.Body.String())
 	}
 	if info, err := os.Stat(filepath.Join(a.configDir, "skills")); err != nil || !info.IsDir() {
@@ -99,6 +100,37 @@ func TestSkillsSettingsDiscoverEditToggleAndDelete(t *testing.T) {
 	}
 }
 
+func TestSystemSkillCanBeViewedButNeverMutatedOrExtracted(t *testing.T) {
+	a := &App{configDir: t.TempDir()}
+	path := "/skills/system:vista-guide"
+	view := mcpAPI(t, a, "GET", path, nil, 200)
+	if !strings.Contains(view.Body.String(), "state/instance.json") {
+		t.Fatal("system guide is not readable")
+	}
+	for _, language := range []string{"en", "zh-CN", "fr"} {
+		request := httptest.NewRequest(http.MethodGet, "/api"+path, nil)
+		request.Header.Set("X-Vista-Language", language)
+		localized := httptest.NewRecorder()
+		a.skillSetting(localized, request)
+		if localized.Code != 200 || localized.Body.String() != view.Body.String() {
+			t.Fatalf("UI language changed the embedded skill document: %s", language)
+		}
+	}
+	for _, method := range []string{"PUT", "PATCH", "DELETE"} {
+		mcpAPI(t, a, method, path, map[string]any{"disabled": true, "content": "overwrite"}, 403)
+	}
+	files, err := os.ReadDir(a.configDir)
+	if err != nil || len(files) != 0 {
+		t.Fatal("viewing or mutating a system skill created files", err)
+	}
+	seedSkillFiles(t, a, "vista-guide", [][2]string{{"SKILL.md", "---\nname: user guide\ndescription: My own guide\n---\nCustom rules"}})
+	mcpAPI(t, a, "DELETE", "/skills/vista-guide", nil, 204)
+	view = mcpAPI(t, a, "GET", path, nil, 200)
+	if strings.Contains(view.Body.String(), "Custom rules") {
+		t.Fatal("user skill shadowed the embedded identity")
+	}
+}
+
 func TestSkillsSettingsRejectInvalidChanges(t *testing.T) {
 	a := &App{configDir: t.TempDir()}
 	for _, path := range []string{"/skills/.hidden", "/skills/CON", "/skills/a%5Cb", "/skills/bad.", "/skills/a/b"} {
@@ -106,7 +138,7 @@ func TestSkillsSettingsRejectInvalidChanges(t *testing.T) {
 	}
 	seedSkillFiles(t, a, "valid", [][2]string{{"SKILL.md", "Keep me"}})
 	mcpAPI(t, a, "PATCH", "/skills/valid", map[string]string{}, 400)
-	mcpAPI(t, a, "PUT", "/skills/valid", map[string]string{"content": "overwrite"}, 409)
+	mcpAPI(t, a, "PUT", "/skills/valid", map[string]string{"content": "---\nname: valid\ndescription: Example\n---\n"}, 409)
 	got, err := os.ReadFile(filepath.Join(a.configDir, "skills", "valid", "SKILL.md"))
 	if err != nil || string(got) != "Keep me" {
 		t.Fatalf("invalid update overwrote skill: %q %v", got, err)
@@ -144,10 +176,33 @@ func TestSkillsSettingsDoNotFollowExternalSymlinks(t *testing.T) {
 		t.Fatal(err)
 	}
 	mcpAPI(t, a, "GET", "/skills/skill", nil, 500)
-	mcpAPI(t, a, "PUT", "/skills/skill", map[string]string{"content": "overwrite", "sha256": skillDigest([]byte("External content"))}, 500)
+	mcpAPI(t, a, "PUT", "/skills/skill", map[string]string{"content": "---\nname: valid\ndescription: Example\n---\n", "sha256": skillDigest([]byte("External content"))}, 500)
 	mcpAPI(t, a, "DELETE", "/skills/skill", nil, 204)
 	got, err := os.ReadFile(target)
 	if err != nil || string(got) != "External content" {
 		t.Fatalf("external content modified: %q %v", got, err)
 	}
+}
+
+func TestSkillsSettingsPreserveLongInstructionsAndUnicodeDescriptions(t *testing.T) {
+	a := &App{configDir: t.TempDir()}
+	description := strings.Repeat("中", 1024)
+	content := "---\nname: example\ndescription: " + description + "\n---\n" + strings.Repeat("Long instructions.\n", 2000)
+	seedSkillFiles(t, a, "example", [][2]string{{"SKILL.md", content}})
+	view := mcpAPI(t, a, "GET", "/skills/example", nil, 200)
+	var document struct{ Content, SHA256 string }
+	if err := json.Unmarshal(view.Body.Bytes(), &document); err != nil || document.Content != content {
+		t.Fatalf("long skill was not returned intact: %v", err)
+	}
+	updated := content + strings.Repeat("Keep all instructions.\n", 20000)
+	mcpAPI(t, a, "PUT", "/skills/example", map[string]string{"content": updated, "sha256": document.SHA256}, 204)
+	list, err := tools.DiscoverSkills(filepath.Join(a.configDir, "skills"))
+	if err != nil || len(list) != 1 || list[0].Description != description {
+		t.Fatalf("valid Unicode skill was hidden: count=%d error=%v", len(list), err)
+	}
+	if got, err := os.ReadFile(filepath.Join(a.configDir, "skills", "example", "SKILL.md")); err != nil || string(got) != updated {
+		t.Fatalf("skill was not preserved: %v", err)
+	}
+	rejected := strings.Replace(updated, description, description+"中", 1)
+	mcpAPI(t, a, "PUT", "/skills/example", map[string]string{"content": rejected, "sha256": skillDigest([]byte(updated))}, 400)
 }

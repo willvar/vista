@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"maps"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -30,6 +31,7 @@ type mcpSetting struct {
 	workerproto.MCPServer
 	HasToken        bool     `json:"hasToken"`
 	HasClientSecret bool     `json:"hasClientSecret"`
+	HeaderNames     []string `json:"headerNames,omitempty"`
 	Authorized      bool     `json:"authorized"`
 	Check           mcpCheck `json:"check"`
 }
@@ -43,6 +45,7 @@ func (a *App) currentMCPServers() []workerproto.MCPServer {
 	for _, config := range a.mcpServers {
 		if !config.Disabled {
 			config.Args = append([]string(nil), config.Args...)
+			config.Headers = maps.Clone(config.Headers)
 			configs = append(configs, config)
 		}
 	}
@@ -76,6 +79,8 @@ func (a *App) mcpSettings(w http.ResponseWriter, r *http.Request) {
 		for _, config := range a.mcpServers {
 			item := mcpSetting{MCPServer: config, HasToken: config.Token != "", HasClientSecret: config.ClientSecret != "", Check: a.mcpChecks[config.ID]}
 			item.Token, item.ClientSecret = "", ""
+			item.HeaderNames = slices.Sorted(maps.Keys(config.Headers))
+			item.Headers = nil
 			item.Authorized = config.OAuth && mcpclient.OAuthConfigured(a.configDir, config)
 			if item.Check.Status == "" {
 				item.Check.Status = "unchecked"
@@ -135,8 +140,24 @@ func (a *App) mcpSettings(w http.ResponseWriter, r *http.Request) {
 		config.Name = strings.TrimSpace(config.Name)
 		if config.Transport == "stdio" {
 			config.Endpoint, config.Token, config.ClientID, config.ClientSecret, config.OAuth = "", "", "", "", false
+			config.Headers = nil
 		} else {
 			config.Command, config.Directory, config.Args = "", "", nil
+			if config.Headers == nil {
+				config.Headers = maps.Clone(previous.Headers)
+			} else {
+				for name, value := range config.Headers {
+					if value != "" {
+						continue
+					}
+					for savedName, savedValue := range previous.Headers {
+						if strings.EqualFold(name, savedName) {
+							config.Headers[name] = savedValue
+							break
+						}
+					}
+				}
+			}
 			if config.OAuth {
 				config.Token = ""
 				if config.ClientSecret == "" && !input.ClearClientSecret && config.ClientID == previous.ClientID && config.Endpoint == previous.Endpoint && previous.OAuth {
@@ -319,6 +340,11 @@ func (a *App) checkMCP(ctx context.Context, config workerproto.MCPServer) ([]mcp
 func mcpError(err error, config workerproto.MCPServer) string {
 	message := err.Error()
 	for _, secret := range []string{config.Token, config.ClientSecret} {
+		if secret != "" {
+			message = strings.ReplaceAll(message, secret, "[redacted]")
+		}
+	}
+	for _, secret := range config.Headers {
 		if secret != "" {
 			message = strings.ReplaceAll(message, secret, "[redacted]")
 		}

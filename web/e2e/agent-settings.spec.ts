@@ -18,7 +18,7 @@ const test = base.extend<{}, { mockOrigin: string }>({
 })
 
 async function mockAgentSettings(page: Page, origin: string, section = 'general') {
-  const saved = { instructions: 'Keep responses concise.', instructionsPath: '/home/test/.config/vista/AGENTS.md', maxBytes: 4096, delegationDepth: 1, maxDelegationDepth: 8 }
+  const saved = { instructions: 'Keep responses concise.', instructionsPath: '/home/test/.config/vista/AGENTS.md', delegationDepth: 1, maxDelegationDepth: 8 }
   const puts: { instructions?: string; delegationDepth?: number }[] = []
   const forbidden: string[] = []
   const unexpected: string[] = []
@@ -184,9 +184,8 @@ test('full-screen instructions keep an unsaved draft, focus the editor and scrol
   const editor = dialog.getByRole('textbox', { name: 'Global instructions', exact: true })
   await expect(editor).toBeFocused()
   await expect(editor).toHaveValue(fixture.saved.instructions)
-  const draft = Array.from({ length: 90 }, (_, index) => `${index + 1}. Keep this constraint.`).join('\n') + '\n保留用户指定的要求。'
+  const draft = Array.from({ length: 1800 }, (_, index) => `${index + 1}. Keep this constraint.`).join('\n') + '\n保留用户指定的要求。'
   await editor.fill(draft)
-  await expect(dialog.getByRole('status')).toHaveText(`${Buffer.byteLength(draft)} / 4096 bytes`)
   const viewport = page.viewportSize()!
   const bounds = await dialog.boundingBox()
   expect(bounds!.x).toBe(0)
@@ -211,14 +210,14 @@ test('full-screen instructions keep an unsaved draft, focus the editor and scrol
 
   await expand.click()
   await expect(editor).toHaveValue(draft)
-  await editor.fill('中'.repeat(1400))
-  await expect(dialog.locator('.instructions-editor-count.error')).toHaveText('4200 / 4096 bytes')
+  await editor.fill('中'.repeat(18000))
+  await expect(editor).not.toHaveClass(/ant-input-status-error/)
   await dialog.getByRole('button', { name: 'Exit full screen', exact: true }).click()
   await expect(dialog).toBeHidden()
   const save = settings.getByRole('form', { name: 'Global instructions', exact: true }).getByRole('button', { name: 'Save changes', exact: true })
-  await expect(save).toBeDisabled()
+  await expect(save).toBeEnabled()
   await expand.click()
-  await expect(editor).toHaveValue('中'.repeat(1400))
+  await expect(editor).toHaveValue('中'.repeat(18000))
   await editor.fill(draft)
   await dialog.getByRole('button', { name: 'Exit full screen', exact: true }).click()
   await expect(dialog).toBeHidden()

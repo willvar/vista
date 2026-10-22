@@ -72,6 +72,12 @@ OMP 和 models.dev 提供模型资料，Vista 负责路由与认证，自定义�
 
 MCP 设置保存为 `mcp.json`，稳定 ID 与显示名称分离。每次执行独立拥有 MCP 连接，本地服务不是全局永久进程。设置中的连接检查使用独立临时握手；OAuth 仅在授权、握手成功且连接配置未变时发布凭据。界面和状态入口见[前端](../web/README.zh-CN.md)。
 
+系统技能从 [`internal/tools/systemskills/`](../internal/tools/systemskills/) 的内置文件夹发现。每个文件夹只提供英文 `SKILL.md` 及配套文档，新增文件夹无需逐技能修改注册表或界面。`system:<文件夹>` 标识与 `skill://system/<文件夹>/` 读取路径独立于用户文件夹；`read_skill` 直接读取内置 Markdown，不释放文件。设置界面和运行时使用同一份英文元数据与文档，不随界面语言切换。用户技能仍位于配置根目录的普通文件夹中。
+
+`POST /api/extension-import` 接受 `source: "opencode"`、`kind: "mcp" | "skills"`、`action: "preview" | "import"`、可选 `configPath` 和来源工作目录 `directory`（绝对路径，默认 Vista 启动目录）。确认时需要返回的 `fingerprint` 及选中的 `ids`，并重新读取来源配置及解析后的引用；技能指纹还包含每个文件的内容和可执行权限。来源改变后须重新预览。预览不返回凭据、不保存配置；导入保留已有目标，不修改来源文件。
+
+MCP 导入同时接受 v2 的 `mcp.servers` 和 v1 的平铺服务条目，同一文档内优先使用原生条目；保留禁用状态，解析本地命令和目录，转移兼容的 Bearer 令牌、自定义 HTTP 请求头或 OAuth 客户端设置。设置读取不返回请求头的值，可在高级设置中保留、替换或删除。不支持的环境变量、超时及传输选项会跳过，不会静默丢弃。OAuth 服务可能需要在 Vista 重新授权。技能导入扫描全局 `skill/`、`skills/` 和 `skills` 中配置的路径（v2 数组或 v1 的 `paths`／`urls` 对象），先暂存完整副本，再独占创建新目标，失败时清理本次新建目录。远程技能 URL 及不支持的文件／链接结构不会导入。两类导入都不执行来源插件或 MCP 命令。
+
 ## 资源、回退与限制
 
 原始附件位于 `state/resources/<哈希前缀>/<SHA-256>`，SQLite 只存元数据和归属，不存图片字节。新附件及显式 `read_resource` 结果只激活下一次请求的视觉输入，规范历史和检查点保留引用。见[资源约定](./resources.zh-CN.md)。

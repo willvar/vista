@@ -23,6 +23,7 @@ export const regionalOverrides = {
     providerWaiting: 'Waiting for authorisation… This page updates automatically.',
   },
   'de-CH': {
+    extensionImportFileCount: '{count} Dateien einschliesslich Hilfsdateien',
     resetVistaAfter: 'Vista wird neu gestartet und diese Seite öffnet die neue Adresse. Dateien und externe Dienste ausserhalb von Vista bleiben unverändert.',
     memoryInvalid: 'Gib eine gültige Vorliebe innerhalb der Grössenbegrenzung ein.',
     mcpOAuthHint: 'Server speichern und anschliessend im Browser autorisieren.',

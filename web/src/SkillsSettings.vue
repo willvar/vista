@@ -2,11 +2,11 @@
 import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { Alert as AAlert, Button as AButton, Input as AInput, Modal as AModal, Switch as ASwitch, TextArea as ATextarea } from 'antdv-next'
-import { DeleteOutlined, EditOutlined, FileMarkdownOutlined, SearchOutlined } from '@antdv-next/icons'
+import { DeleteOutlined, EditOutlined, EyeOutlined, FileMarkdownOutlined, SearchOutlined } from '@antdv-next/icons'
 import ConfirmPopover from './ConfirmPopover.vue'
 import { useWorkspace } from './composables/useWorkspace'
 
-type Skill = { id: string; name: string; description: string; path: string; disabled: boolean; error?: string }
+type Skill = { id: string; name: string; description: string; path: string; source: 'system' | 'user'; disabled: boolean; error?: string }
 type SkillDocument = { content: string; sha256: string; files: string[] }
 const emit = defineEmits<{ 'modal-open': [open: boolean] }>()
 const { t } = useI18n({ useScope: 'global' })
@@ -14,14 +14,13 @@ const { client } = useWorkspace()
 const lifetime = new AbortController()
 const skills = ref<Skill[]>([])
 const directory = ref('')
-const maxSkills = ref(100)
-const maxBytes = ref(32768)
 const query = ref('')
 const loading = ref(true)
 const busy = ref(false)
 const error = ref('')
 const saved = ref(false)
 const visibleSkills = computed(() => skills.value.filter(skill => `${skill.name} ${skill.description} ${skill.id}`.toLowerCase().includes(query.value.trim().toLowerCase())))
+const hasUserSkills = computed(() => skills.value.some(skill => skill.source !== 'system'))
 const editorOpen = ref(false)
 const editing = ref<Skill | null>(null)
 const documentLoading = ref(false)
@@ -32,17 +31,14 @@ const deleting = ref('')
 const deleteError = ref('')
 let editorController: AbortController | undefined
 let editorGeneration = 0
-const contentBytes = computed(() => new TextEncoder().encode(draft.content).byteLength)
-const canSave = computed(() => !loading.value && !documentLoading.value && !!editing.value && !!draft.sha256 && !!draft.content.trim() && contentBytes.value <= maxBytes.value)
+const canSave = computed(() => !loading.value && !documentLoading.value && !!editing.value && editing.value.source !== 'system' && !!draft.sha256 && !!draft.content.trim())
 const skillURL = (id: string) => `/skills/${encodeURIComponent(id)}`
 
 async function refresh() {
-  const result = await client.request<{ skills: Skill[]; directory: string; maxSkills: number; maxBytes: number }>('/skills', { signal: lifetime.signal })
+  const result = await client.request<{ skills: Skill[]; directory: string }>('/skills', { signal: lifetime.signal })
   if (lifetime.signal.aborted) return
   skills.value = result.skills
   directory.value = result.directory
-  maxSkills.value = result.maxSkills
-  maxBytes.value = result.maxBytes
 }
 async function load() {
   loading.value = true
@@ -95,7 +91,7 @@ async function save() {
   finally { busy.value = false }
 }
 async function toggle(skill: Skill, enabled: boolean) {
-  if (busy.value) return
+  if (busy.value || skill.source === 'system') return
   busy.value = true
   error.value = ''
   saved.value = false
@@ -108,7 +104,7 @@ async function toggle(skill: Skill, enabled: boolean) {
   finally { busy.value = false }
 }
 async function remove(skill: Skill) {
-  if (busy.value) return
+  if (busy.value || skill.source === 'system') return
   busy.value = true
   deleteError.value = ''
   saved.value = false
@@ -127,7 +123,7 @@ onUnmounted(() => {
   editorController?.abort()
   emit('modal-open', false)
 })
-defineExpose({ headerAction: computed(() => ({ label: 'refresh', run: load, disabled: loading.value || busy.value, loading: loading.value })) })
+defineExpose({ imported: async () => { await load(); saved.value = true }, headerAction: computed(() => ({ label: 'refresh', run: load, disabled: loading.value || busy.value, loading: loading.value })) })
 </script>
 
 <template>
@@ -138,28 +134,27 @@ defineExpose({ headerAction: computed(() => ({ label: 'refresh', run: load, disa
     <a-button v-if="error" :disabled="busy || loading" @click="load">{{ t('retry') }}</a-button>
     <a-input v-if="skills.length" v-model:value="query" allow-clear :placeholder="t('skillsSearch')" :aria-label="t('skillsSearch')"><template #prefix><SearchOutlined aria-hidden="true" /></template></a-input>
     <p v-if="loading" class="skills-hint" role="status">{{ t('skillsLoading') }}</p>
-    <p v-else-if="!skills.length && !error" class="skills-empty">{{ t('skillsEmpty') }}</p>
+    <p v-else-if="!hasUserSkills && !query && !error" class="skills-empty">{{ t('skillsEmpty') }}</p>
     <p v-else-if="!visibleSkills.length && !error" class="skills-empty">{{ t('skillsNoMatch') }}</p>
     <p v-if="saved" class="skills-saved" role="status">{{ t('skillsSaved') }}</p>
     <article v-for="skill in visibleSkills" :key="skill.id" class="skill-card" :data-skill="skill.id">
-      <div class="skill-heading"><div class="skill-name"><FileMarkdownOutlined aria-hidden="true" /><strong>{{ skill.name }}</strong><span v-if="skill.disabled" class="skill-badge">{{ t('skillDisabled') }}</span></div><a-switch :checked="!skill.disabled" :disabled="busy || !!skill.error" :aria-label="t('skillEnable', { name: skill.name })" @update:checked="toggle(skill, !!$event)" /></div>
+      <div class="skill-heading"><div class="skill-name"><FileMarkdownOutlined aria-hidden="true" /><strong>{{ skill.name }}</strong><span class="skill-badge">{{ t(skill.source === 'system' ? 'skillSystem' : 'skillUser') }}</span><span v-if="skill.disabled" class="skill-badge">{{ t('skillDisabled') }}</span></div><a-switch v-if="skill.source !== 'system'" :checked="!skill.disabled" :disabled="busy || !!skill.error" :aria-label="t('skillEnable', { name: skill.name })" @update:checked="toggle(skill, !!$event)" /></div>
       <p v-if="skill.description" class="skill-description">{{ skill.description }}</p>
-      <small class="skill-path">{{ skill.id }}/SKILL.md</small>
+      <small class="skill-path">{{ skill.source === 'system' ? t('skillSystemHint') : `${skill.id}/SKILL.md` }}</small>
       <p v-if="skill.error" class="skill-error" role="alert">{{ skill.error }}</p>
-      <div class="skill-actions"><a-button size="small" :disabled="busy" :aria-label="t('skillEditName', { name: skill.name })" @click="edit(skill)"><EditOutlined aria-hidden="true" />{{ t('edit') }}</a-button><ConfirmPopover :show="deleting === skill.id" :message="t('skillDeleteConfirm', { name: skill.name })" :cancel-text="t('cancel')" :confirm-text="t('delete')" :busy="busy" :error="deleteError" popover-class="skill-delete-popover" @update:show="deleting = $event ? skill.id : ''; deleteError = ''" @confirm="remove(skill)"><template #trigger><a-button type="text" size="small" danger :disabled="busy" :aria-label="t('skillDeleteName', { name: skill.name })"><DeleteOutlined /></a-button></template></ConfirmPopover></div>
+      <div class="skill-actions"><a-button size="small" :disabled="busy" :aria-label="t(skill.source === 'system' ? 'skillViewName' : 'skillEditName', { name: skill.name })" @click="edit(skill)"><component :is="skill.source === 'system' ? EyeOutlined : EditOutlined" aria-hidden="true" />{{ t(skill.source === 'system' ? 'skillView' : 'edit') }}</a-button><ConfirmPopover v-if="skill.source !== 'system'" :show="deleting === skill.id" :message="t('skillDeleteConfirm', { name: skill.name })" :cancel-text="t('cancel')" :confirm-text="t('delete')" :busy="busy" :error="deleteError" popover-class="skill-delete-popover" @update:show="deleting = $event ? skill.id : ''; deleteError = ''" @confirm="remove(skill)"><template #trigger><a-button type="text" size="small" danger :disabled="busy" :aria-label="t('skillDeleteName', { name: skill.name })"><DeleteOutlined /></a-button></template></ConfirmPopover></div>
     </article>
-    <p v-if="skills.length >= maxSkills" class="skills-hint">{{ t('skillsLimit', { count: maxSkills }) }}</p>
   </div>
 
-  <a-modal :open="editorOpen" centered :z-index="1200" width="min(800px, calc(100vw - 2rem))" :title="t('skillEdit')" :footer="null" :closable="!busy" :keyboard="!busy" :mask-closable="!busy" destroy-on-hidden :styles="{ body: { maxHeight: 'calc(100dvh - 10rem)', overflowY: 'auto', overscrollBehavior: 'contain' } }" @cancel="closeEditor">
+  <a-modal :open="editorOpen" centered :z-index="1200" width="min(800px, calc(100vw - 2rem))" :title="t(editing?.source === 'system' ? 'skillView' : 'skillEdit')" :footer="null" :closable="!busy" :keyboard="!busy" :mask-closable="!busy" destroy-on-hidden :styles="{ body: { maxHeight: 'calc(100dvh - 10rem)', overflowY: 'auto', overscrollBehavior: 'contain' } }" @cancel="closeEditor">
     <form v-if="editorOpen" class="skill-form" @submit.prevent="save">
       <a-alert v-if="formError" type="error" role="alert" :message="formError" />
-      <p v-if="editing" class="skill-path">{{ editing.path }}</p>
+      <p v-if="editing" class="skill-path">{{ editing.source === 'system' ? t('skillSystemHint') : editing.path }}</p>
       <p v-if="documentLoading" role="status" class="skills-hint">{{ t('skillsLoading') }}</p>
-      <label for="skill-content">SKILL.md<a-textarea id="skill-content" v-model:value="draft.content" class="skill-content-input" :auto-size="false" :disabled="busy || documentLoading || !draft.sha256" aria-label="SKILL.md" aria-describedby="skill-content-hint" :status="contentBytes > maxBytes ? 'error' : undefined" /></label>
-      <p id="skill-content-hint" class="skills-hint">{{ t('skillContentHint') }}</p>
-      <details v-if="supportingFiles.length" class="skill-supporting-files"><summary>{{ t('skillSupportingFiles', { count: supportingFiles.length }) }}</summary><ul><li v-for="path in supportingFiles" :key="path">{{ path }}</li></ul><small class="skills-hint">{{ t('skillSupportingFilesHint') }}</small></details>
-      <div class="skill-form-footer"><small class="skills-hint" :class="{ 'skill-error': contentBytes > maxBytes }">{{ t('instructionBytes', { current: contentBytes, max: maxBytes }) }}</small><div class="skill-form-actions"><a-button :disabled="busy" @click="closeEditor">{{ t('cancel') }}</a-button><a-button html-type="submit" type="primary" :loading="busy" :disabled="busy || !canSave">{{ t('saveChanges') }}</a-button></div></div>
+      <label for="skill-content">SKILL.md<a-textarea id="skill-content" v-model:value="draft.content" class="skill-content-input" :auto-size="false" :readonly="editing?.source === 'system'" :disabled="busy || documentLoading || !draft.sha256" aria-label="SKILL.md" :aria-describedby="editing?.source === 'system' ? undefined : 'skill-content-hint'" /></label>
+      <p v-if="editing?.source !== 'system'" id="skill-content-hint" class="skills-hint">{{ t('skillContentHint') }}</p>
+      <details v-if="supportingFiles.length" class="skill-supporting-files"><summary>{{ t('skillSupportingFiles', { count: supportingFiles.length }) }}</summary><ul><li v-for="path in supportingFiles" :key="path">{{ path }}</li></ul><small v-if="editing?.source !== 'system'" class="skills-hint">{{ t('skillSupportingFilesHint') }}</small></details>
+      <div class="skill-form-footer"><div class="skill-form-actions"><a-button :disabled="busy" @click="closeEditor">{{ t(editing?.source === 'system' ? 'close' : 'cancel') }}</a-button><a-button v-if="editing?.source !== 'system'" html-type="submit" type="primary" :loading="busy" :disabled="busy || !canSave">{{ t('saveChanges') }}</a-button></div></div>
     </form>
   </a-modal>
 </template>

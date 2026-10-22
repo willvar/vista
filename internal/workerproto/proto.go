@@ -44,18 +44,19 @@ type SearchProvider struct {
 	APIKey   string `json:"apiKey,omitempty"`
 }
 type MCPServer struct {
-	ID           string   `json:"id"`
-	Disabled     bool     `json:"disabled,omitempty"`
-	Name         string   `json:"name"`
-	Transport    string   `json:"transport"`
-	Command      string   `json:"command,omitempty"`
-	Args         []string `json:"args,omitempty"`
-	Directory    string   `json:"directory,omitempty"`
-	Endpoint     string   `json:"endpoint,omitempty"`
-	Token        string   `json:"token,omitempty"`
-	OAuth        bool     `json:"oauth,omitempty"`
-	ClientID     string   `json:"clientId,omitempty"`
-	ClientSecret string   `json:"clientSecret,omitempty"`
+	ID           string            `json:"id"`
+	Disabled     bool              `json:"disabled,omitempty"`
+	Name         string            `json:"name"`
+	Transport    string            `json:"transport"`
+	Command      string            `json:"command,omitempty"`
+	Args         []string          `json:"args,omitempty"`
+	Directory    string            `json:"directory,omitempty"`
+	Endpoint     string            `json:"endpoint,omitempty"`
+	Token        string            `json:"token,omitempty"`
+	Headers      map[string]string `json:"headers,omitempty"`
+	OAuth        bool              `json:"oauth,omitempty"`
+	ClientID     string            `json:"clientId,omitempty"`
+	ClientSecret string            `json:"clientSecret,omitempty"`
 }
 
 type Message struct {

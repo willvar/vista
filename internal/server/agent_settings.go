@@ -26,18 +26,17 @@ func (a *App) agentSettings(w http.ResponseWriter, r *http.Request) {
 	case http.MethodGet:
 		instructions, err := agentconfig.Read(a.configDir)
 		if err != nil {
-			http.Error(w, "could not read agent settings", http.StatusInternalServerError)
+			http.Error(w, fmt.Sprintf("could not read global instructions: %v", err), http.StatusInternalServerError)
 			return
 		}
 		settings, err := agentconfig.ReadSettings(a.configDir)
 		if err != nil {
-			http.Error(w, "could not read agent settings", http.StatusInternalServerError)
+			http.Error(w, fmt.Sprintf("could not read delegation settings: %v", err), http.StatusInternalServerError)
 			return
 		}
 		w.Header().Set("Cache-Control", "no-store")
-		jsonOut(w, map[string]any{"instructions": instructions, "instructionsPath": agentconfig.InstructionsPath(a.configDir), "maxBytes": agentconfig.MaxInstructionsBytes, "delegationDepth": settings.DelegationDepth, "maxDelegationDepth": agentconfig.MaxDelegationDepth})
+		jsonOut(w, map[string]any{"instructions": instructions, "instructionsPath": agentconfig.InstructionsPath(a.configDir), "delegationDepth": settings.DelegationDepth, "maxDelegationDepth": agentconfig.MaxDelegationDepth})
 	case http.MethodPut:
-		r.Body = http.MaxBytesReader(w, r.Body, 32<<10)
 		var input struct {
 			Instructions    *string           `json:"instructions"`
 			DelegationDepth presentRawMessage `json:"delegationDepth"`
@@ -65,19 +64,15 @@ func (a *App) agentSettings(w http.ResponseWriter, r *http.Request) {
 			}
 			settings.DelegationDepth = *depth
 		}
-		if input.Instructions != nil && len(*input.Instructions) > agentconfig.MaxInstructionsBytes {
-			http.Error(w, "agent instructions exceed 4096 bytes", http.StatusBadRequest)
-			return
-		}
 		if input.Instructions != nil {
 			if err := agentconfig.Write(a.configDir, *input.Instructions); err != nil {
-				http.Error(w, "could not save agent settings", http.StatusInternalServerError)
+				http.Error(w, fmt.Sprintf("could not save global instructions: %v", err), http.StatusInternalServerError)
 				return
 			}
 		}
 		if input.DelegationDepth.set {
 			if err := agentconfig.WriteSettings(a.configDir, settings); err != nil {
-				http.Error(w, "could not save agent settings", http.StatusInternalServerError)
+				http.Error(w, fmt.Sprintf("could not save delegation settings: %v", err), http.StatusInternalServerError)
 				return
 			}
 		}

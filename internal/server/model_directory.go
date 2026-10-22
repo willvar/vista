@@ -164,6 +164,10 @@ func settingsHTTPError(w http.ResponseWriter, err error, status int) {
 			code = "method_not_allowed"
 		}
 		detail = modelcatalog.NewSettingsError(code, err.Error(), nil)
+	} else if detail.Message != err.Error() {
+		// errors.As retains the recovery code, but its nested message omits
+		// useful context such as the connection that failed a batch import.
+		detail = modelcatalog.NewSettingsError(detail.Code, err.Error(), detail.Details)
 	}
 	switch detail.Code {
 	case "settings_conflict":

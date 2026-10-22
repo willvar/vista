@@ -36,7 +36,7 @@ func DiscoverProjectInstructions(target string) ([]InstructionFile, error) {
 		for _, relative := range []string{"AGENTS.md", "CLAUDE.md", filepath.Join(".github", "copilot-instructions.md")} {
 			path := filepath.Join(ancestors[i], relative)
 			info, err := os.Lstat(path)
-			if err == nil && info.Mode().IsRegular() && info.Size() <= maxSkillBytes {
+			if err == nil && info.Mode().IsRegular() {
 				files = append(files, InstructionFile{Path: path, Bytes: info.Size()})
 			}
 		}

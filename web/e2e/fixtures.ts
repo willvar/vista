@@ -284,7 +284,7 @@ export const test = base.extend<{ vista: VistaFixture; configuredProvider: boole
     if (!reservedAddress || typeof reservedAddress === 'string') throw new Error('Test port reservation failed')
     const port = String(reservedAddress.port)
     await new Promise<void>((done, reject) => reservation.close(error => error ? reject(error) : done()))
-    const env = { ...process.env, XDG_CONFIG_HOME: state, APPDATA: state, VISTA_NO_BROWSER: '1', VISTA_PORT: port }
+    const env = { ...process.env, XDG_CONFIG_HOME: state, XDG_DATA_HOME: join(state, 'data'), OPENCODE_CONFIG: '', OPENCODE_CONFIG_DIR: '', APPDATA: state, VISTA_NO_BROWSER: '1', VISTA_PORT: port }
     let started = false
     try {
       execFileSync(binary, ['start'], { env, stdio: 'ignore', timeout: 15_000 })

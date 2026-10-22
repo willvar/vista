@@ -13,16 +13,16 @@ import (
 	"go.yaml.in/yaml/v3"
 )
 
-const MaxSkills = 100
-const MaxSkillBytes = 32 << 10
+// Agent Skills limits descriptions by Unicode characters, not UTF-8 bytes.
+const MaxSkillDescriptionChars = 1024
 const SkillDisabledFile = ".vista-disabled"
-const maxSkillBytes = MaxSkillBytes
 const skillPageBytes = 1536
 
 type SkillInfo struct {
 	Name        string `json:"name"`
 	Description string `json:"description"`
 	Path        string `json:"path"`
+	Source      string `json:"source"`
 }
 type SkillPage struct {
 	Path       string `json:"path"`
@@ -61,7 +61,7 @@ func ListSkills(directory string) ([]SkillEntry, error) {
 			continue
 		}
 		path := filepath.Join(directory, entry.Name(), "SKILL.md")
-		item := SkillEntry{ID: entry.Name(), SkillInfo: SkillInfo{Name: entry.Name(), Path: path}}
+		item := SkillEntry{ID: entry.Name(), SkillInfo: SkillInfo{Name: entry.Name(), Path: path, Source: "user"}}
 		_, markerErr := root.Lstat(filepath.Join(entry.Name(), SkillDisabledFile))
 		item.Disabled = !errors.Is(markerErr, os.ErrNotExist)
 		func() {
@@ -70,8 +70,8 @@ func ListSkills(directory string) ([]SkillEntry, error) {
 				item.Error = err.Error()
 				return
 			}
-			if !info.Mode().IsRegular() || info.Size() > MaxSkillBytes {
-				item.Error = "SKILL.md must be a regular file of at most 32 KiB"
+			if !info.Mode().IsRegular() {
+				item.Error = "SKILL.md must be a regular file"
 				return
 			}
 			file, err := root.Open(filepath.Join(entry.Name(), "SKILL.md"))
@@ -80,7 +80,7 @@ func ListSkills(directory string) ([]SkillEntry, error) {
 				return
 			}
 			defer file.Close()
-			b, err := io.ReadAll(io.LimitReader(file, MaxSkillBytes+1))
+			b, err := io.ReadAll(file)
 			if err != nil {
 				item.Error = err.Error()
 				return
@@ -105,9 +105,6 @@ func DiscoverSkills(directory string) ([]SkillInfo, error) {
 	if err != nil {
 		return nil, err
 	}
-	if len(entries) > MaxSkills {
-		return nil, errors.New("skill directory has more than 100 skills")
-	}
 	result := []SkillInfo{}
 	for _, item := range entries {
 		if !item.Disabled && item.Error == "" {
@@ -118,12 +115,12 @@ func DiscoverSkills(directory string) ([]SkillInfo, error) {
 }
 
 func SkillMetadata(content string) (string, string, error) {
-	if len(content) > MaxSkillBytes || !utf8.ValidString(content) || strings.ContainsRune(content, 0) {
-		return "", "", errors.New("SKILL.md exceeds 32 KiB or is not UTF-8 text")
+	if !utf8.ValidString(content) || strings.ContainsRune(content, 0) {
+		return "", "", errors.New("SKILL.md must be UTF-8 text without NUL characters")
 	}
 	content = strings.ReplaceAll(strings.TrimPrefix(content, "\ufeff"), "\r\n", "\n")
 	if !strings.HasPrefix(content, "---\n") {
-		return "", "", nil
+		return "", "", errors.New("SKILL.md must begin with YAML frontmatter")
 	}
 	lines := strings.Split(content[4:], "\n")
 	end := 0
@@ -140,13 +137,26 @@ func SkillMetadata(content string) (string, string, error) {
 	if err := yaml.Unmarshal([]byte(strings.Join(lines[:end], "\n")), &metadata); err != nil {
 		return "", "", errors.New("invalid SKILL.md frontmatter: " + err.Error())
 	}
-	if len(metadata.Name) > 100 || len(metadata.Description) > 500 {
-		return "", "", errors.New("skill name must be at most 100 bytes and description at most 500 bytes")
+	name, description := strings.TrimSpace(metadata.Name), strings.TrimSpace(metadata.Description)
+	if name == "" || description == "" {
+		return "", "", errors.New("skill name and description are required")
 	}
-	return strings.TrimSpace(metadata.Name), strings.TrimSpace(metadata.Description), nil
+	if utf8.RuneCountInString(description) > MaxSkillDescriptionChars {
+		return "", "", errors.New("skill description must be at most 1024 characters")
+	}
+	// Consume names leniently: cosmetic naming violations must not hide an
+	// otherwise usable skill. The path remains the skill's unambiguous identity.
+	return name, description, nil
 }
 
 func ReadSkill(path string, offset int) (SkillPage, error) {
+	if strings.HasPrefix(path, systemSkillPrefix) {
+		content, err := systemSkillFile(path)
+		if err != nil {
+			return SkillPage{}, err
+		}
+		return skillTextPage(path, content, offset)
+	}
 	path, err := absolute(path)
 	if err != nil {
 		return SkillPage{}, err
@@ -166,20 +176,24 @@ func readPagedText(path string, offset int) (SkillPage, error) {
 	if err != nil {
 		return SkillPage{}, err
 	}
-	if !info.Mode().IsRegular() || info.Size() > maxSkillBytes {
-		return SkillPage{}, errors.New("skill must be a regular file of at most 32 KiB")
+	if !info.Mode().IsRegular() {
+		return SkillPage{}, errors.New("instruction file must be a regular file")
 	}
 	f, err := os.Open(path)
 	if err != nil {
 		return SkillPage{}, err
 	}
 	defer f.Close()
-	b, err := io.ReadAll(io.LimitReader(f, maxSkillBytes+1))
+	b, err := io.ReadAll(f)
 	if err != nil {
 		return SkillPage{}, err
 	}
-	if len(b) > maxSkillBytes || !utf8.Valid(b) {
-		return SkillPage{}, errors.New("skill exceeds 32 KiB or is not UTF-8 text")
+	return skillTextPage(path, b, offset)
+}
+
+func skillTextPage(path string, b []byte, offset int) (SkillPage, error) {
+	if !utf8.Valid(b) || strings.ContainsRune(string(b), 0) {
+		return SkillPage{}, errors.New("instruction file must be UTF-8 text without NUL characters")
 	}
 	if offset < 0 || offset > len(b) || !utf8.Valid(b[:offset]) {
 		return SkillPage{}, errors.New("invalid skill byte offset")

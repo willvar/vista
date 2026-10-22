@@ -12,6 +12,7 @@ type MCPServer = {
   id: string; name: string; transport: 'stdio' | 'http'; disabled?: boolean
   command?: string; args?: string[]; directory?: string; endpoint?: string
   oauth?: boolean; clientId?: string; hasToken: boolean; hasClientSecret: boolean
+  headerNames?: string[]
   authorized: boolean; check: Check
 }
 type Tool = { name: string; description: string; inputSchema: unknown }
@@ -32,13 +33,15 @@ const deleteError = ref('')
 const editorOpen = ref(false)
 const editing = ref<MCPServer | null>(null)
 const formError = ref('')
-const draft = reactive({ name: '', transport: 'http', command: '', args: '', directory: '', endpoint: '', auth: 'none', token: '', clientId: '', clientSecret: '', clearClientSecret: false, disabled: false })
+const draft = reactive({ name: '', transport: 'http', command: '', args: '', directory: '', endpoint: '', auth: 'none', token: '', clientId: '', clientSecret: '', clearClientSecret: false, disabled: false, headers: [] as { name: string; value: string }[] })
 const transportOptions = computed(() => [{ label: t('mcpHTTP'), value: 'http' }, { label: t('mcpStdio'), value: 'stdio' }])
 const argsExample = '-y\n@modelcontextprotocol/server-filesystem\n/home/user/project'
 const authOptions = computed(() => [{ label: t('mcpAuthNone'), value: 'none' }, { label: t('mcpBearerToken'), value: 'token' }, { label: 'OAuth', value: 'oauth' }])
 const canSave = computed(() => {
   if (!draft.name.trim() || [...draft.name.trim()].length > 64 || /\p{Cc}/u.test(draft.name)) return false
   if (draft.transport === 'stdio') return !!draft.command.trim() && !!draft.directory.trim()
+  const names = draft.headers.map(header => header.name.trim().toLowerCase()).filter(Boolean)
+  if (new Set(names).size !== names.length || draft.headers.some(header => !header.name.trim() && header.value)) return false
   return !!draft.endpoint.trim() && (draft.auth !== 'token' || !!draft.token.trim() || !!editing.value?.hasToken)
 })
 
@@ -67,6 +70,7 @@ function edit(server?: MCPServer) {
     directory: server?.directory || defaultDirectory.value, endpoint: server?.endpoint || '',
     auth: server?.oauth ? 'oauth' : server?.hasToken ? 'token' : 'none',
     token: '', clientId: server?.clientId || '', clientSecret: '', clearClientSecret: false,
+    headers: (server?.headerNames || []).map(name => ({ name, value: '' })),
     disabled: !!server?.disabled,
   })
   formError.value = ''
@@ -76,6 +80,10 @@ function closeEditor() {
   if (busy.value) return
   editorOpen.value = false
   draft.token = draft.clientSecret = ''
+  draft.headers = []
+}
+function canReuseHeader(name: string) {
+  return editing.value?.headerNames?.some(saved => saved.toLowerCase() === name.trim().toLowerCase())
 }
 async function save() {
   if (busy.value || !canSave.value) return
@@ -91,6 +99,7 @@ async function save() {
       token: draft.auth === 'token' ? draft.token.trim() : '', clearToken: draft.auth !== 'token',
       clientId: draft.auth === 'oauth' ? draft.clientId.trim() : '',
       clientSecret: draft.auth === 'oauth' ? draft.clientSecret.trim() : '', clearClientSecret: draft.clearClientSecret,
+      headers: Object.fromEntries(draft.headers.filter(header => header.name.trim()).map(header => [header.name.trim(), header.value])),
     } : { command: draft.command.trim(), directory: draft.directory.trim(), args: draft.args ? draft.args.split('\n') : [] }),
   }
   try {
@@ -98,6 +107,7 @@ async function save() {
     if (lifetime.signal.aborted) return
     editorOpen.value = false
     draft.token = draft.clientSecret = ''
+    draft.headers = []
     saved.value = true
     await refresh().catch(cause => { if (!lifetime.signal.aborted) error.value = String(cause) })
   } catch (cause) { if (!lifetime.signal.aborted) formError.value = String(cause) }
@@ -242,7 +252,7 @@ onUnmounted(() => {
   closeLogin()
   emit('modal-open', false)
 })
-defineExpose({ headerAction: computed(() => ({ label: 'mcpAdd', run: () => edit(), disabled: loading.value || busy.value || servers.value.length >= maxServers.value, loading: false })) })
+defineExpose({ imported: async () => { await load(); saved.value = true }, headerAction: computed(() => ({ label: 'mcpAdd', run: () => edit(), disabled: loading.value || busy.value || servers.value.length >= maxServers.value, loading: false })) })
 </script>
 
 <template>
@@ -293,6 +303,17 @@ defineExpose({ headerAction: computed(() => ({ label: 'mcpAdd', run: () => edit(
             <a-button v-if="editing?.hasClientSecret" size="small" :disabled="busy" @click="draft.clearClientSecret = !draft.clearClientSecret; draft.clientSecret = ''">{{ t(draft.clearClientSecret ? 'mcpKeepSecret' : 'mcpClearSecret') }}</a-button>
           </details>
         </template>
+        <details class="provider-advanced" :open="editing?.headerNames?.length ? true : undefined">
+          <summary>{{ t('advancedSettings') }}</summary>
+          <div class="provider-headers">
+            <div v-for="(header, index) in draft.headers" :key="index" class="provider-header-row">
+              <label>{{ t('headerName') }}<a-input v-model:value="header.name" :aria-label="`${t('headerName')} ${index + 1}`" placeholder="X-API-Key" :maxlength="256" :disabled="busy" /></label>
+              <label>{{ t('headerValue') }}<a-input-password v-model:value="header.value" :aria-label="`${t('headerValue')} ${index + 1}`" :placeholder="canReuseHeader(header.name) ? t('reuseSavedHeader') : t('headerValue')" :maxlength="8192" :disabled="busy" /></label>
+              <a-button type="text" html-type="button" :disabled="busy" :aria-label="`${t('removeHeader')} ${index + 1}`" @click="draft.headers.splice(index, 1)">×</a-button>
+            </div>
+            <a-button html-type="button" size="small" :disabled="busy || draft.headers.length >= 32" @click="draft.headers.push({ name: '', value: '' })">{{ t('addHeader') }}</a-button>
+          </div>
+        </details>
       </template>
       <div class="mcp-form-actions"><a-button :disabled="busy" @click="closeEditor">{{ t('cancel') }}</a-button><a-button html-type="submit" type="primary" :loading="busy" :disabled="busy || !canSave">{{ t('saveChanges') }}</a-button></div>
     </form>

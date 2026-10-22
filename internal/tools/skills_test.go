@@ -1,6 +1,7 @@
 package tools
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -14,7 +15,7 @@ func TestDiscoverAndPageSkills(t *testing.T) {
 		t.Fatal(err)
 	}
 	path := filepath.Join(directory, "SKILL.md")
-	content := "---\nname: review\ndescription: Check code carefully\n---\n" + strings.Repeat("reference content\n", 200)
+	content := "---\nname: review\ndescription: Check code carefully\n---\n" + strings.Repeat("reference content 中文\n", 2000)
 	if err := os.WriteFile(path, []byte(content), 0600); err != nil {
 		t.Fatal(err)
 	}
@@ -46,6 +47,57 @@ func TestDiscoverAndPageSkills(t *testing.T) {
 	}
 	if _, err := ReadSkill(filepath.Join(root, "wrong.md"), 0); err == nil {
 		t.Fatal("non-skill path accepted")
+	}
+}
+
+func TestSkillDescriptionUsesUnicodeCharacters(t *testing.T) {
+	for _, letter := range []string{"a", "中", "🦄"} {
+		for _, count := range []int{640, 1024, 1025} {
+			t.Run(fmt.Sprintf("%s-%d", letter, count), func(t *testing.T) {
+				description := strings.Repeat(letter, count)
+				_, got, err := SkillMetadata("---\nname: example\ndescription: " + description + "\n---\nInstructions")
+				if count <= MaxSkillDescriptionChars {
+					if err != nil || got != description {
+						t.Fatalf("valid description was rejected or changed: %v", err)
+					}
+				} else if err == nil || !strings.Contains(err.Error(), "1024 characters") {
+					t.Fatalf("expected character limit error, got %v", err)
+				}
+			})
+		}
+	}
+}
+
+func TestSkillsRequireUsableMetadata(t *testing.T) {
+	for _, content := range []string{
+		"Plain Markdown", "---\nname: example\n---\n", "---\ndescription: Example\n---\n",
+		"---\nname: example\ndescription: '  '\n---\n", "---\nname: [broken\n---\n",
+	} {
+		if _, _, err := SkillMetadata(content); err == nil {
+			t.Fatalf("unusable metadata was accepted: %q", content)
+		}
+	}
+}
+
+func TestSkillDiscoveryDoesNotFailWhenDirectoryExceeds100Entries(t *testing.T) {
+	root := t.TempDir()
+	for i := range 105 {
+		dir := filepath.Join(root, fmt.Sprintf("skill-%d", i))
+		if err := os.Mkdir(dir, 0700); err != nil {
+			t.Fatal(err)
+		}
+		content := fmt.Sprintf("---\nname: skill-%d\ndescription: Example\n---\n", i)
+		if err := os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte(content), 0600); err != nil {
+			t.Fatal(err)
+		}
+		if i < 2 {
+			if err := os.WriteFile(filepath.Join(dir, SkillDisabledFile), nil, 0600); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	if skills, err := DiscoverSkills(root); err != nil || len(skills) != 103 {
+		t.Fatalf("large skill directory is unavailable: count=%d error=%v", len(skills), err)
 	}
 }
 

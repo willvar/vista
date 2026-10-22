@@ -185,11 +185,16 @@ func TestStreamableHTTPTransportWithBearer(t *testing.T) {
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return
 		}
+		if r.Header.Get("CONTEXT7_API_KEY") != "context-secret" {
+			http.Error(w, "missing custom authentication header", http.StatusUnauthorized)
+			return
+		}
 		handler.ServeHTTP(w, r)
 	}))
 	defer httpServer.Close()
-	checkServer(t, Config{ID: "remote", Name: "remote", Transport: "http", Endpoint: httpServer.URL, Token: "test-token"})
-	connection, err := Open(context.Background(), Config{ID: "remote", Name: "remote", Transport: "http", Endpoint: httpServer.URL, Token: "test-token"})
+	config := Config{ID: "remote", Name: "remote", Transport: "http", Endpoint: httpServer.URL, Token: "test-token", Headers: map[string]string{"CONTEXT7_API_KEY": "context-secret"}}
+	checkServer(t, config)
+	connection, err := Open(context.Background(), config)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -202,5 +207,26 @@ func TestStreamableHTTPTransportWithBearer(t *testing.T) {
 	}
 	if _, err := Open(context.Background(), Config{ID: "bad", Name: "bad", Transport: "stdio", Command: "relative", Directory: filepath.Join(t.TempDir(), "x")}); err == nil {
 		t.Fatal("relative stdio command was accepted")
+	}
+}
+
+func TestMCPRequestHeadersRejectAmbiguousAuthenticationAndProtocolOverrides(t *testing.T) {
+	for name, config := range map[string]Config{
+		"duplicate":      {Headers: map[string]string{"X-Key": "one", "x-key": "two"}},
+		"newline":        {Headers: map[string]string{"X-Key": "one\r\ntwo"}},
+		"invalid name":   {Headers: map[string]string{"X Key": "one"}},
+		"token conflict": {Token: "token", Headers: map[string]string{"Authorization": "Basic test"}},
+		"oauth conflict": {OAuth: true, Headers: map[string]string{"Authorization": "Basic test"}},
+		"protocol":       {Headers: map[string]string{"MCP-Protocol-Version": "wrong"}},
+		"session":        {Headers: map[string]string{"MCP-Session-Id": "wrong"}},
+		"accept":         {Headers: map[string]string{"Accept": "wrong"}},
+		"framing":        {Headers: map[string]string{"Content-Length": "0"}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			config.ID, config.Name, config.Transport, config.Endpoint = "test", "test", "http", "https://example.invalid/mcp"
+			if ValidateConfig(config) == nil {
+				t.Fatal("invalid headers accepted")
+			}
+		})
 	}
 }

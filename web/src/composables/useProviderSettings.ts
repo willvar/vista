@@ -50,8 +50,6 @@ export function useProviderSettings({ client, refresh, error }: SettingsDependen
   const agentInstructions = ref('')
   const agentInstructionsPath = ref('')
   const savedAgentInstructions = ref('')
-  const agentInstructionsMaxBytes = ref(4096)
-  const agentInstructionsBytes = computed(() => new TextEncoder().encode(agentInstructions.value).length)
   const delegationDepth = ref<number | null>(1)
   const savedDelegationDepth = ref(1)
   const maxDelegationDepth = ref(8)
@@ -60,7 +58,7 @@ export function useProviderSettings({ client, refresh, error }: SettingsDependen
   const agentSettingsError = ref('')
   const agentSettingsSaved = ref(false)
   const canSaveAgentInstructions = computed(() => !agentSettingsLoading.value && !agentSettingsBusy.value
-    && agentInstructionsBytes.value <= agentInstructionsMaxBytes.value && agentInstructions.value !== savedAgentInstructions.value)
+    && agentInstructions.value !== savedAgentInstructions.value)
   const canSaveDelegationDepth = computed(() => !agentSettingsLoading.value && !agentSettingsBusy.value
     && delegationDepth.value !== null && Number.isInteger(delegationDepth.value)
     && delegationDepth.value >= 0 && delegationDepth.value <= maxDelegationDepth.value
@@ -75,7 +73,6 @@ export function useProviderSettings({ client, refresh, error }: SettingsDependen
       agentInstructions.value = result.instructions
       agentInstructionsPath.value = result.instructionsPath
       savedAgentInstructions.value = result.instructions
-      agentInstructionsMaxBytes.value = result.maxBytes
       delegationDepth.value = result.delegationDepth
       savedDelegationDepth.value = result.delegationDepth
       maxDelegationDepth.value = result.maxDelegationDepth
@@ -287,7 +284,7 @@ export function useProviderSettings({ client, refresh, error }: SettingsDependen
   return {
     languagePreference, languageChoice, languageOptions, regionOptions, settingsBusy, settingsError,
     providerDisconnectTarget, providerDisconnectError, settings,
-    agentInstructions, agentInstructionsPath, savedAgentInstructions, agentInstructionsMaxBytes, agentInstructionsBytes,
+    agentInstructions, agentInstructionsPath, savedAgentInstructions,
     delegationDepth, maxDelegationDepth, canSaveAgentInstructions, canSaveDelegationDepth,
     agentSettingsBusy, agentSettingsLoading, agentSettingsError, agentSettingsSaved,
     loadAgentSettings, saveAgentSettings, modelDraft, modelFormOpen, chosenModels,

@@ -2,16 +2,12 @@ package agentconfig
 
 import (
 	"errors"
-	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"unicode/utf8"
 
 	"vista/internal/platform"
 )
-
-const MaxInstructionsBytes = 4096
 
 const filename = "AGENTS.md"
 
@@ -21,15 +17,10 @@ func InstructionsPath(dir string) string {
 }
 
 func Read(dir string) (string, error) {
-	file, err := os.Open(InstructionsPath(dir))
+	data, err := os.ReadFile(InstructionsPath(dir))
 	if errors.Is(err, os.ErrNotExist) {
 		return "", nil
 	}
-	if err != nil {
-		return "", err
-	}
-	defer file.Close()
-	data, err := io.ReadAll(io.LimitReader(file, MaxInstructionsBytes+1))
 	if err != nil {
 		return "", err
 	}
@@ -80,9 +71,6 @@ func writePrivateFile(dir, name string, data []byte, remove bool) error {
 }
 
 func validate(instructions string) error {
-	if len(instructions) > MaxInstructionsBytes {
-		return fmt.Errorf("agent instructions exceed %d bytes", MaxInstructionsBytes)
-	}
 	if !utf8.ValidString(instructions) {
 		return errors.New("agent instructions must be UTF-8")
 	}

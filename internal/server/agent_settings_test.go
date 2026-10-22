@@ -26,7 +26,7 @@ func TestAgentSettingsAPI(t *testing.T) {
 	var initial struct {
 		InstructionsPath string `json:"instructionsPath"`
 	}
-	if err := json.Unmarshal(result.Body.Bytes(), &initial); err != nil || result.Code != http.StatusOK || !strings.Contains(result.Body.String(), `"maxBytes":4096`) || initial.InstructionsPath != filepath.Join(app.configDir, "AGENTS.md") {
+	if err := json.Unmarshal(result.Body.Bytes(), &initial); err != nil || result.Code != http.StatusOK || initial.InstructionsPath != filepath.Join(app.configDir, "AGENTS.md") {
 		t.Fatalf("initial settings: %d %s", result.Code, result.Body.String())
 	}
 	if result := request(http.MethodPut, `{"instructions":"Reply in Chinese."}`); result.Code != http.StatusNoContent {
@@ -41,7 +41,7 @@ func TestAgentSettingsAPI(t *testing.T) {
 	if result := request(http.MethodGet, ""); result.Code != http.StatusOK || !strings.Contains(result.Body.String(), "Reply in Chinese.") || result.Header().Get("Cache-Control") != "no-store" {
 		t.Fatalf("saved settings: %d %s", result.Code, result.Body.String())
 	}
-	for _, body := range []string{`{}`, `{"instructions":"x","other":true}`, `{"instructions":"` + strings.Repeat("x", 4097) + `"}`} {
+	for _, body := range []string{`{}`, `{"instructions":"x","other":true}`} {
 		if result := request(http.MethodPut, body); result.Code != http.StatusBadRequest {
 			t.Fatalf("invalid settings accepted: %d %s", result.Code, result.Body.String())
 		}
@@ -98,8 +98,59 @@ func TestAgentSettingsDelegationDepthAPI(t *testing.T) {
 		}
 		check("retained", 0)
 	}
-	if result := request(http.MethodPut, `{"instructions":"`+strings.Repeat("x", agentconfig.MaxInstructionsBytes+1)+`","delegationDepth":2}`); result.Code != http.StatusBadRequest {
-		t.Fatalf("oversized instructions accepted: %d %s", result.Code, result.Body.String())
-	}
 	check("retained", 0)
+}
+
+func TestAgentSettingsPreserveLongExternalAndEditedInstructions(t *testing.T) {
+	app := &App{configDir: t.TempDir()}
+	if err := os.Chmod(app.configDir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	path := agentconfig.InstructionsPath(app.configDir)
+	instructions := strings.Repeat("保留完整规则。\n", 2000)
+	if err := os.WriteFile(path, []byte(instructions), 0600); err != nil {
+		t.Fatal(err)
+	}
+	for _, edit := range []bool{false, true} {
+		if edit {
+			instructions += strings.Repeat("Additional instructions.\n", 2000)
+			body, err := json.Marshal(map[string]any{"instructions": instructions, "delegationDepth": 0})
+			if err != nil {
+				t.Fatal(err)
+			}
+			w := httptest.NewRecorder()
+			app.agentSettings(w, httptest.NewRequest(http.MethodPut, "/api/agent-settings", strings.NewReader(string(body))))
+			if w.Code != http.StatusNoContent {
+				t.Fatalf("long instructions were rejected: %d %s", w.Code, w.Body.String())
+			}
+		}
+		w := httptest.NewRecorder()
+		app.agentSettings(w, httptest.NewRequest(http.MethodGet, "/api/agent-settings", nil))
+		var got struct{ Instructions string }
+		if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil || w.Code != http.StatusOK || got.Instructions != instructions {
+			t.Fatalf("long instructions were not returned intact: status=%d error=%v", w.Code, err)
+		}
+		if data, err := os.ReadFile(path); err != nil || string(data) != instructions {
+			t.Fatalf("instructions changed on disk: %v", err)
+		}
+	}
+}
+
+func TestAgentSettingsReadErrorsIdentifyFailedDocument(t *testing.T) {
+	for _, tc := range []struct{ file, content, want string }{
+		{"AGENTS.md", "invalid UTF-8: \xff", "could not read global instructions: agent instructions must be UTF-8"},
+		{"agent-settings.json", "{", "could not read delegation settings:"},
+	} {
+		t.Run(tc.file, func(t *testing.T) {
+			app := &App{configDir: t.TempDir()}
+			if err := os.WriteFile(filepath.Join(app.configDir, tc.file), []byte(tc.content), 0600); err != nil {
+				t.Fatal(err)
+			}
+			w := httptest.NewRecorder()
+			app.agentSettings(w, httptest.NewRequest(http.MethodGet, "/api/agent-settings", nil))
+			if w.Code != http.StatusInternalServerError || !strings.Contains(w.Body.String(), tc.want) {
+				t.Fatalf("unhelpful read error: %d %s", w.Code, w.Body.String())
+			}
+		})
+	}
 }

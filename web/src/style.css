@@ -458,9 +458,6 @@ a {
 }
 .instructions-file-location { margin: 0; color: var(--muted); font-size: var(--font-size-body); line-height: 1.6; }
 .instructions-file-location code { display: block; font: var(--font-size-small)/1.6 var(--font-mono, monospace); overflow-wrap: anywhere; }
-.instructions-editor-count, .agent-instructions-footer>small { font-size: var(--font-size-small); }
-.instructions-editor-count { color: var(--muted); align-self: flex-end; }
-.instructions-editor-count.error { color: var(--danger); }
 .instructions-editor-input.ant-input {
   flex: 1;
   min-height: 0;

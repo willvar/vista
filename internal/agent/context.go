@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"os"
 	"path/filepath"
 	"runtime"
 
@@ -15,6 +14,7 @@ import (
 	"vista/internal/platform"
 	"vista/internal/provider"
 	"vista/internal/store"
+	"vista/internal/tools"
 	"vista/internal/workerproto"
 )
 
@@ -109,9 +109,13 @@ func prepareContext(ctx context.Context, command workerproto.Command, emit func(
 		}
 	}
 	root := filepath.Join(configDir, "skills")
-	if info, err := os.Stat(root); err == nil && info.IsDir() {
-		messages[0].Content += " User skill directory: " + root + ". Discover only if relevant."
+	messages[0].Content += "\nVista configuration directory: " + configDir + "; user skill directory: " + root + "."
+	skills, err := tools.AvailableSkills(root)
+	if err != nil {
+		return preparedContext{}, fmt.Errorf("discover skills: %w", err)
 	}
+	catalog, _ := json.Marshal(skills)
+	messages[0].Content += "\nAvailable skills (name, description, path, source): " + string(catalog) + ". Read the full relevant SKILL.md before applying it; resolve its relative references from its directory. System skill:// paths are embedded documents: use read_skill for them and their references. Use list_skills to refresh this catalog when needed."
 	toolset := builtinTools()
 	toolSchemas := toolset.schemas(depth, delegationLimit, len(command.MCPServers) > 0)
 	if len(command.MCPServers) > 0 {

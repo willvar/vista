@@ -80,7 +80,7 @@ async function mockMCP(page: Page, origin: string) {
     if (method === 'GET') {
       if (path === '/preferences') return reply({ userId: 'mcp-settings-user', lastMode: 'manual', lastTier: 'speed', manualModelKey: '', reasoningByModelId: {}, feedbackInvitationSeen: true })
       if (path === '/models') return reply({ default: '', models: [] })
-      if (path === '/agent-settings') return reply({ instructions: '', instructionsPath: '/home/test/.config/vista/AGENTS.md', maxBytes: 4096, delegationDepth: 1, maxDelegationDepth: 8 })
+      if (path === '/agent-settings') return reply({ instructions: '', instructionsPath: '/home/test/.config/vista/AGENTS.md', delegationDepth: 1, maxDelegationDepth: 8 })
       if (path === '/sessions') return reply([])
       if (path === '/status') return reply({ state: 'running', sessions: { total: 0, open: 0, closed: 0, running: 0, workers: 0 }, workerMetrics: [] })
     }

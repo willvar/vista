@@ -18,6 +18,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/auth"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+	"golang.org/x/net/http/httpguts"
 
 	"vista/internal/appdirs"
 	"vista/internal/buildinfo"
@@ -107,7 +108,7 @@ func openWithHandler(ctx context.Context, config Config, handler auth.OAuthHandl
 	case "http":
 		base := http.DefaultTransport.(*http.Transport).Clone()
 		base.DisableKeepAlives = true
-		httpClient := &http.Client{Transport: &boundedTransport{base: base, token: config.Token, limit: outputLimit}, Timeout: max(30*time.Second, connectTimeout), CheckRedirect: func(*http.Request, []*http.Request) error { return errors.New("MCP endpoint redirected") }}
+		httpClient := &http.Client{Transport: &boundedTransport{base: base, token: config.Token, headers: config.Headers, limit: outputLimit}, Timeout: max(30*time.Second, connectTimeout), CheckRedirect: func(*http.Request, []*http.Request) error { return errors.New("MCP endpoint redirected") }}
 		transport = &mcp.StreamableClientTransport{Endpoint: config.Endpoint, HTTPClient: httpClient, MaxRetries: -1, MaxEventSize: outputLimit, DisableStandaloneSSE: true, OAuthHandler: handler}
 	}
 	connectCtx, cancel := context.WithTimeout(ctx, connectTimeout)
@@ -141,8 +142,31 @@ func ValidateConfig(config Config) error {
 	if len(config.Token) > 4096 || len(config.ClientID) > 1024 || len(config.ClientSecret) > 4096 {
 		return errors.New("invalid MCP credential length")
 	}
+	if len(config.Headers) > 32 {
+		return errors.New("configure at most 32 MCP request headers")
+	}
+	seenHeaders, headerBytes := map[string]bool{}, 0
+	for name, value := range config.Headers {
+		key := http.CanonicalHeaderKey(name)
+		if !httpguts.ValidHeaderFieldName(name) || !httpguts.ValidHeaderFieldValue(value) || seenHeaders[key] {
+			return errors.New("MCP request headers contain an invalid or duplicate name or value")
+		}
+		switch key {
+		case "Host", "Content-Length", "Transfer-Encoding", "Connection", "Accept", "Content-Type", "Mcp-Protocol-Version", "Mcp-Session-Id":
+			return errors.New("MCP request headers cannot override HTTP framing or MCP protocol headers")
+		case "Authorization":
+			if config.OAuth || config.Token != "" {
+				return errors.New("MCP Authorization header conflicts with token or OAuth authentication")
+			}
+		}
+		seenHeaders[key] = true
+		headerBytes += len(name) + len(value)
+	}
+	if headerBytes > 8192 {
+		return errors.New("MCP request headers exceed 8 KiB")
+	}
 	if config.Transport == "stdio" {
-		if config.OAuth || config.ClientID != "" || config.ClientSecret != "" || config.Token != "" {
+		if config.OAuth || config.ClientID != "" || config.ClientSecret != "" || config.Token != "" || len(config.Headers) > 0 {
 			return errors.New("MCP stdio servers do not accept HTTP credentials")
 		}
 		if !filepath.IsAbs(config.Command) || !filepath.IsAbs(config.Directory) || len(config.Args) > 32 {
@@ -261,14 +285,18 @@ func (s *Server) CallTool(ctx context.Context, name string, arguments json.RawMe
 }
 
 type boundedTransport struct {
-	base  http.RoundTripper
-	token string
-	limit int
+	base    http.RoundTripper
+	token   string
+	headers map[string]string
+	limit   int
 }
 
 func (t *boundedTransport) RoundTrip(request *http.Request) (*http.Response, error) {
 	r := request.Clone(request.Context())
 	r.Header = request.Header.Clone()
+	for name, value := range t.headers {
+		r.Header.Set(name, value)
+	}
 	if t.token != "" {
 		r.Header.Set("Authorization", "Bearer "+t.token)
 	}

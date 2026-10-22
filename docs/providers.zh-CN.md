@@ -24,6 +24,18 @@ WebUI 连接列表来自[服务商配置](../internal/modelcatalog/provider_setu
 
 发现周期分别实现：自定义／Zen 每分钟、Copilot 每五分钟、本地服务每 30 秒。临时错误保留上次成功清单；编辑连接后，过时发现响应失效。见[自定义发现](../internal/server/custom_models.go)、[Copilot 发现](../internal/server/copilot_models.go)及[本地发现](../internal/server/local_models.go)。
 
+## 导入连接
+
+在模型连接中，点击加号旁的导入按钮进入 OpenCode 导入弹框。打开弹框不会读取文件，点击**读取配置**后才预览连接。建议在连接列表为空时导入，确认前可选择条目；已连接的相同服务商及地址会跳过，当前默认模型保持不变。
+
+导入器自动识别 OpenCode v1 和 v2。读取全局 `opencode.json` / `opencode.jsonc`，将 `provider` / `npm` / `options` 与 `providers` / `package` / `settings` 归一化后再合并文件层；同一文档中，新格式条目整体替换同名的旧格式条目。遵循 XDG 路径及 `OPENCODE_CONFIG` / `OPENCODE_CONFIG_DIR` 的附加文件层。同时扫描 `auth.json` 和以只读方式打开的 `opencode.db` 中的 `credential` 表；不含该表的 v1 会话数据库会跳过。指定凭据路径后只读取该文件，根据内容识别 JSON／SQLite。数据库内优先选择激活的凭据，再按创建时间及 ID 选择。实际导入结果相同的凭据会去重；不同凭据会按来源列出为互斥选项，初始不选中，由用户确认。配置中的 API Key 优先于登录凭据。
+
+支持 JSONC、服务商级环境变量／文件引用、内置服务商的 canonical 别名、常见 API Key、兼容的 OpenAI Codex／Copilot 凭据及已识别的原生／AI SDK 包。受支持的自定义包映射为 Vista 的五种 API 格式；无法等价转换的传输／请求体／兼容性覆盖及不支持的认证会列出跳过原因。
+
+检测到插件时，范围说明会追加提示：未识别到的连接可以尝试让智能体协助导入。导入器不会加载或执行插件，动态生成的连接需另外检查。仅导入连接，不求值项目／远程／内联配置，也不转移会话、工具和模型偏好。MCP 服务和技能文件夹在各自设置中单独导入。
+
+`POST /api/provider-import` 传入 `source: "opencode"`、`action: "preview"`，可附带 `configPath`／`credentialPath`，返回检测到的路径、插件、指纹及可选／跳过条目，不返回凭据。响应以 `credentialPaths` 列出凭据文件，冲突条目包含 `credentialGroup` 和 `credentialSource`，同组只能选择一个来源。预览不访问服务商、不写入配置。确认时传入 `action: "import"`、指纹及选中的 `ids`；来源变化后须重新预览。选中的连接经过正常校验／发现流程，一次保存模型配置；失败会指出连接并保留已脱敏的上游原因，连接列表不变，并移除新暂存的 Codex 凭据。凭据由 Vista 保存，不修改 OpenCode 文件，后续更改也不同步。
+
 ## HTTP 客户端身份
 
 关于 Vista 在模型目录下方提供通用请求的 `User-Agent` 设置，可选 Vista、Codex、OpenCode、OhMyPi、Claude Code、Gemini CLI、Kimi Code、Cline、GitHub Copilot 或自定义。选择后先预览通用请求的完整默认请求头，保存后生效。默认格式为 `vista/<版本> (<操作系统>; <架构>)`，例如 `vista/0.1.0 (Linux; x86_64)`；开发构建使用 `dev`。其它预设采用随 Vista 提供的兼容字符串，不实时探测客户端版本。Gemini CLI 预设仅包含产品名和版本前缀，不附带模型相关信息。自定义值允许单行、最多 512 个可打印 ASCII 字符。

@@ -264,12 +264,49 @@ func TestMCPSettingsConcurrentEditDiscardsStaleCheck(t *testing.T) {
 	}
 }
 
-func TestMCPSettingsSnapshotsDoNotAliasArgs(t *testing.T) {
-	a := &App{mcpServers: []workerproto.MCPServer{{ID: "local", Name: "local", Args: []string{"original"}}}}
+func TestMCPSettingsSnapshotsDoNotAliasArgsOrHeaders(t *testing.T) {
+	a := &App{mcpServers: []workerproto.MCPServer{{ID: "local", Name: "local", Args: []string{"original"}, Headers: map[string]string{"X-Key": "original"}}}}
 	got := a.currentMCPServers()
 	got[0].Args[0] = "changed"
 	if a.currentMCPServers()[0].Args[0] != "original" {
 		t.Fatal("execution mutated saved MCP arguments")
+	}
+	got[0].Headers["X-Key"] = "changed"
+	if a.currentMCPServers()[0].Headers["X-Key"] != "original" {
+		t.Fatal("execution mutated saved MCP request headers")
+	}
+}
+
+func TestMCPSettingsCustomHeadersAreRedactedPreservedReplacedAndRemoved(t *testing.T) {
+	a := &App{configDir: mcpConfigDir(t)}
+	config := workerproto.MCPServer{ID: "context7", Name: "Context7", Transport: "http", Endpoint: "https://example.invalid/mcp", Headers: map[string]string{"CONTEXT7_API_KEY": "original-secret"}}
+	mcpAPI(t, a, "POST", "/mcp-config", config, 204)
+	view := mcpAPI(t, a, "GET", "/mcp-config", nil, 200).Body.String()
+	if strings.Contains(view, "original-secret") || strings.Contains(view, `"headers":`) || !strings.Contains(view, `"headerNames":["CONTEXT7_API_KEY"]`) {
+		t.Fatal("MCP header readback exposed credentials or omitted editable names")
+	}
+	config.Headers = nil
+	config.Name = "Renamed"
+	mcpAPI(t, a, "PUT", "/mcp-config", config, 204)
+	if a.currentMCPServers()[0].Headers["CONTEXT7_API_KEY"] != "original-secret" {
+		t.Fatal("editing another field discarded imported custom headers")
+	}
+	config.Headers = map[string]string{"context7_api_key": ""}
+	mcpAPI(t, a, "PUT", "/mcp-config", config, 204)
+	if a.currentMCPServers()[0].Headers["context7_api_key"] != "original-secret" {
+		t.Fatal("blank saved header did not preserve its value case-insensitively")
+	}
+	config.Headers = map[string]string{"CONTEXT7_API_KEY": "updated-secret"}
+	mcpAPI(t, a, "PUT", "/mcp-config", config, 204)
+	if a.currentMCPServers()[0].Headers["CONTEXT7_API_KEY"] != "updated-secret" {
+		t.Fatal("header replacement did not take effect")
+	}
+	if got := mcpError(fmt.Errorf("upstream rejected %s", "updated-secret"), a.currentMCPServers()[0]); strings.Contains(got, "updated-secret") {
+		t.Fatal("MCP check error exposed the custom header credential")
+	}
+	mcpAPI(t, a, "PUT", "/mcp-config", map[string]any{"id": config.ID, "name": config.Name, "transport": "http", "endpoint": config.Endpoint, "headers": map[string]string{}}, 204)
+	if len(a.currentMCPServers()[0].Headers) != 0 {
+		t.Fatal("removing all request headers failed")
 	}
 }
 

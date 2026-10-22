@@ -1,0 +1,25 @@
+# Settings contracts
+
+Read existing settings before changing them. Send JSON bodies with `Content-Type: application/json`; HTTP errors must be surfaced before claiming success. Responses redact saved credentials; blank fields usually preserve secrets on edits. Do not copy redacted GET responses into PUT requests blindly.
+
+## Model connections
+
+- `GET /api/model-config` lists saved connection anchors. `GET /api/provider-config` lists built-in setup choices and their supported fields. `GET /api/models` lists currently usable models.
+- `POST /api/provider-config` creates a connection; `PUT` edits one using its anchor `key`; `DELETE` removes that connection with `{"key":"..."}`. Read the current setup list before forming the request.
+- Custom connection fields: `name`, `providerId: "custom"`, `provider` (one of `openai-chat`, `openai-responses`, `anthropic`, `gemini`, `cohere`), `baseUrl`, `credentialMode` (`none`, `bearer`, `x-api-key`, `x-goog-api-key`), optional `apiKey`, and `headers`. Authentication and API format are independent. Vista discovers models; provide `ids` only if discovery is unavailable and the user has a known model ID. A failure returns a `code`, `message`, and optional `details`.
+- Built-in connections use `provider: "catalog"`, their `providerId`, and the fields/modes from `/api/provider-config`. Do not convert OAuth credentials to API keys. Use the WebUI login flow when credentials cannot be transferred.
+- `POST /api/provider-import` accepts `source: "opencode"`, `action: "preview"` or `"import"`, optional absolute `configPath` and `credentialPath`. Confirmation also requires the preview `fingerprint` and selected `ids`. Declarative OpenCode v1/v2 configuration and portable credentials are recognized automatically. Preview reads `auth.json` and the read-only v2 credential database; an explicit `credentialPath` reads only that file. Different credentials for one connection have `credentialGroup` / `credentialSource`; choose at most one entry per group. Plugins are reported without execution. Existing connections are kept; one failed selected connection prevents the entire batch from saving. Deselect a failed connection or repair its source credentials before retrying.
+
+## MCP and skills
+
+- `GET /api/mcp-config` returns servers, `maxServers`, and `defaultDirectory`. `POST` adds and `PUT` edits a server; edits include its stable `id`. `PATCH` sets `disabled`; `DELETE` removes by `id`.
+- MCP fields: `name`, `transport` (`stdio` or `http`). Local servers need absolute `command`, `directory`, and `args` as an array. HTTP servers need `endpoint`, optionally `token`, custom `headers`, or `oauth: true` with `clientId`/`clientSecret`. GET exposes saved `headerNames`, not values; omit `headers` to preserve them, use blank values for existing names to reuse them, or send `{}` to remove all. Custom `Authorization` cannot be combined with token/OAuth authentication. Non-loopback HTTP is unsupported. Saving does not execute the command; checks and logins are separate WebUI actions. An active execution keeps its original MCP configuration.
+- `GET /api/skills` returns system and user skills and the user `directory`. System skill IDs start with `system:`; they are embedded, immutable, and read with `read_skill` using `skill://system/...`. User skills live in folders containing `SKILL.md` plus optional supporting files under the returned directory. Use complete folders rather than copying only the entrypoint.
+- `GET /api/skills/<id>` reads a skill. User-only mutations: `PUT {content, sha256}` updates `SKILL.md`, `PATCH {disabled}` toggles availability, and `DELETE` removes the entire folder. Re-read before editing if the digest changed. Refresh discovers files directly; no database registration is required.
+- `POST /api/extension-import` imports OpenCode v1/v2 MCP services or skill folders: `source: "opencode"`, `kind: "mcp"` or `"skills"`, `action: "preview"` or `"import"`, optional `configPath` and absolute source `directory`. Confirmation requires the preview `fingerprint` and selected `ids`. Preview entries include skip reasons; preserve incompatible settings rather than silently discarding them. Existing destinations are never overwritten. Skills are copied as complete folders including assets and scripts; MCP commands are not started. Changed sources require rereading, and OAuth services may require authorization in Vista.
+
+## Personalization
+
+- `GET /api/agent-settings` reads global instructions and delegation limits; `PUT` updates the supplied fields. Global instructions are the configuration-root `AGENTS.md`. Directory-scoped `AGENTS.md` rules are read on demand and nearer rules take precedence in their scope.
+- `GET /api/memories` lists saved preferences. The main agent's `memory` tool updates explicit lasting preferences. Child agents inherit preferences but cannot call `memory`. Do not turn a one-off request into permanent memory.
+- Settings persist for future runs. Explain whether a connection was merely saved, its model list was fetched, or a real model/MCP request was verified.

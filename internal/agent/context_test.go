@@ -21,6 +21,7 @@ import (
 	"vista/internal/provider"
 	"vista/internal/resources"
 	"vista/internal/store"
+	"vista/internal/tools"
 	"vista/internal/workerproto"
 )
 
@@ -85,23 +86,29 @@ func TestPreparedContextRetainsTaskInstructionsHistoryAndToolOrder(t *testing.T)
 			if err != nil {
 				t.Fatal(err)
 			}
-			wantSystem := systemPrompt + "\nRuntime OS: " + runtime.GOOS + "; shell: " + platform.ShellName() + ".\n\nUser's global instructions:\nKeep user constraints."
-			if tc.depth > 0 {
-				wantSystem += delegatedReportPrompt
+			wantSystem := prepared.systemBase
+			for _, fragment := range []string{systemPrompt, "Runtime OS: " + runtime.GOOS + "; shell: " + platform.ShellName(), "User's global instructions:\nKeep user constraints.", "User's saved preferences at run start:\n[]", `[{"text":"Inspect","status":"done"},{"text":"Verify","status":"pending"}]`, "Vista configuration directory: " + config, "user skill directory: " + skills} {
+				if !strings.Contains(wantSystem, fragment) {
+					t.Fatalf("runtime context omitted %q", fragment)
+				}
 			}
-			wantSystem += "\n\nUser's saved preferences at run start:\n[]\nTreat these as defaults; the current request and user's global instructions take precedence. Successful memory edits in this run supersede this snapshot; earlier runs' memory tool results are historical."
-			wantSystem += "\nCurrent run checklist snapshot; later update_checklist tool results supersede it: [{\"text\":\"Inspect\",\"status\":\"done\"},{\"text\":\"Verify\",\"status\":\"pending\"}]"
-			wantSystem += " User skill directory: " + skills + ". Discover only if relevant."
+			if strings.Contains(wantSystem, delegatedReportPrompt) != (tc.depth > 0) || strings.Contains(wantSystem, delegationPrompt) != (tc.depth < 2) {
+				t.Fatal("delegation instructions do not follow task depth")
+			}
+			if strings.Contains(wantSystem, "Configured MCP servers:") != tc.mcp {
+				t.Fatal("MCP context does not follow configured servers")
+			}
 			wantTools := slices.Clone(always)
 			if tc.depth == 0 {
 				wantTools = append(wantTools, "update_checklist", "memory", "question")
 			}
 			if tc.mcp {
-				wantSystem += " Configured MCP servers: [{\"id\":\"files\",\"name\":\"files\"},{\"id\":\"search\",\"name\":\"search\"}]. Use the server id in MCP tool arguments. Discover tools before calling them."
+				if !strings.Contains(wantSystem, `[{"id":"files","name":"files"},{"id":"search","name":"search"}]`) {
+					t.Fatal("MCP identities omitted from runtime context")
+				}
 				wantTools = append(wantTools, "mcp_list_tools", "mcp_call_tool")
 			}
 			if tc.depth < 2 {
-				wantSystem += delegationPrompt
 				wantTools = append(wantTools, "delegate", "await_agent", "cancel_agent")
 			}
 			wantMessages := []provider.ChatMessage{
@@ -112,7 +119,7 @@ func TestPreparedContextRetainsTaskInstructionsHistoryAndToolOrder(t *testing.T)
 			}
 			wantMessages[len(wantMessages)-1] = wantMessages[len(wantMessages)-1].WithVisualInput(true)
 			if !reflect.DeepEqual(prepared.messages, wantMessages) || prepared.systemBase != wantSystem {
-				t.Fatalf("context messages or prompt bytes changed: %#v", prepared.messages)
+				t.Fatalf("context messages or assembled system prompt changed: %#v", prepared.messages)
 			}
 			var gotTools []string
 			for _, schema := range prepared.schemas {
@@ -166,6 +173,143 @@ func TestPreparedContextDoesNotInheritEarlierRunChecklist(t *testing.T) {
 				t.Fatal("historical checklist was changed", items, err)
 			}
 		})
+	}
+}
+
+func TestAgentSendsLongGlobalInstructionsAndDiscoversSkillsBeforeActivation(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", root)
+	config := filepath.Join(root, "vista")
+	for _, id := range []string{"review", "disabled", "invalid"} {
+		if err := os.MkdirAll(filepath.Join(config, "skills", id), 0700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	global := strings.Repeat("保留完整的全局规则。\n", 2000)
+	if err := agentconfig.Write(config, global); err != nil {
+		t.Fatal(err)
+	}
+	skill := "---\nname: review\ndescription: Review requested changes\n---\nRead the evidence before reviewing."
+	path := filepath.Join(config, "skills", "review", "SKILL.md")
+	for id, content := range map[string]string{"review": skill, "disabled": "---\nname: disabled\ndescription: DISABLED_SKILL\n---\n", "invalid": "no frontmatter"} {
+		if err := os.WriteFile(filepath.Join(config, "skills", id, "SKILL.md"), []byte(content), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(config, "skills", "disabled", ".vista-disabled"), nil, 0600); err != nil {
+		t.Fatal(err)
+	}
+	requests := 0
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests++
+		var body struct {
+			Messages []struct{ Role, Content string }
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil || len(body.Messages) == 0 {
+			t.Errorf("invalid model request: %v", err)
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		system := body.Messages[0].Content
+		if !strings.Contains(system, global) || !strings.Contains(system, "Review requested changes") || !strings.Contains(system, path) {
+			t.Error("full global instructions or available skill metadata did not reach the model")
+		}
+		if strings.Contains(system, "Read the evidence before reviewing.") || strings.Contains(system, "DISABLED_SKILL") || strings.Contains(system, "no frontmatter") {
+			t.Error("inactive skill bodies or unavailable skills leaked into the initial context")
+		}
+		if requests == 1 {
+			args, _ := json.Marshal(map[string]string{"path": path})
+			call := provider.ToolCall{ID: "read-review", Type: "function"}
+			call.Function.Name, call.Function.Arguments = "read_skill", string(args)
+			continuationToolCalls(w, call)
+			return
+		}
+		last := body.Messages[len(body.Messages)-1]
+		var page struct{ Content string }
+		if err := json.Unmarshal([]byte(last.Content), &page); err != nil || last.Role != "tool" || page.Content != skill {
+			t.Errorf("activated skill did not reach the next model request intact: %v", err)
+		}
+		continuationAnswer(w, "Reviewed.")
+	}))
+	defer upstream.Close()
+	command := workerproto.Command{RunID: "skills-run", Prompt: "Review the changes.", Model: modelcfg.Model{Provider: "openai-chat", ID: "fixture", BaseURL: upstream.URL, APIKey: "fixture"}}
+	answer, err := Run(context.Background(), command, func(workerproto.Result) error { return nil })
+	if err != nil || answer != "Reviewed." || requests != 2 {
+		t.Fatalf("global instructions or skill activation failed: answer=%q requests=%d error=%v", answer, requests, err)
+	}
+}
+
+func TestAgentDiscoversAndLoadsSystemSkillsWithoutUserFiles(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", root)
+	systemSkills := tools.SystemSkills()
+	if len(systemSkills) == 0 {
+		t.Fatal("no system skills bundled")
+	}
+	skill := systemSkills[0]
+	want, _, err := tools.SystemSkillDocument(skill.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	requests := 0
+	var content string
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests++
+		var body struct {
+			Messages []struct{ Role, Content string }
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil || len(body.Messages) == 0 {
+			t.Errorf("invalid model request: %v", err)
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		for _, entry := range systemSkills {
+			if !strings.Contains(body.Messages[0].Content, entry.Path) || !strings.Contains(body.Messages[0].Content, entry.Description) {
+				t.Error("system skill metadata missing from runtime context", entry.ID)
+			}
+		}
+		call := provider.ToolCall{ID: fmt.Sprintf("skill-%d", requests), Type: "function"}
+		call.Function.Name, call.Function.Arguments = "list_skills", "{}"
+		if requests == 1 {
+			continuationToolCalls(w, call)
+			return
+		}
+		last := body.Messages[len(body.Messages)-1]
+		if last.Role != "tool" {
+			t.Errorf("skill result is not a tool message: %s", last.Role)
+		}
+		offset := 0
+		if requests == 2 {
+			var listed []tools.SkillInfo
+			if err := json.Unmarshal([]byte(last.Content), &listed); err != nil || len(listed) != len(systemSkills) || listed[0].Path != skill.Path {
+				t.Errorf("default list_skills omitted embedded metadata: %+v %v", listed, err)
+			}
+		} else {
+			var page tools.SkillPage
+			if err := json.Unmarshal([]byte(last.Content), &page); err != nil || page.NextOffset <= len(content) {
+				t.Errorf("system skill page did not reach the model: %+v %v", page, err)
+				continuationAnswer(w, "Invalid page")
+				return
+			}
+			content += page.Content
+			if !page.Truncated {
+				continuationAnswer(w, "Loaded skill")
+				return
+			}
+			offset = page.NextOffset
+		}
+		args, _ := json.Marshal(map[string]any{"path": skill.Path, "offset": offset})
+		call.Function.Name, call.Function.Arguments = "read_skill", string(args)
+		continuationToolCalls(w, call)
+	}))
+	defer upstream.Close()
+	command := workerproto.Command{RunID: "embedded-skill", Prompt: "Read the available system skill.", Model: modelcfg.Model{Provider: "openai-chat", ID: "fixture", BaseURL: upstream.URL, APIKey: "fixture"}}
+	answer, err := Run(context.Background(), command, func(workerproto.Result) error { return nil })
+	if err != nil || answer != "Loaded skill" || content != string(want) {
+		t.Fatalf("system skill activation failed: answer=%q bytes=%d/%d error=%v", answer, len(content), len(want), err)
+	}
+	if _, err := os.Stat(filepath.Join(root, "vista", "skills")); !os.IsNotExist(err) {
+		t.Fatal("runtime extracted embedded skills to the user filesystem", err)
 	}
 }
 

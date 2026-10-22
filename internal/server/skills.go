@@ -77,12 +77,26 @@ func (a *App) skillSettings(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	jsonOut(w, map[string]any{"skills": entries, "directory": filepath.Join(a.configDir, "skills"), "maxSkills": tools.MaxSkills, "maxBytes": tools.MaxSkillBytes})
+	entries = append(tools.SystemSkills(), entries...)
+	jsonOut(w, map[string]any{"skills": entries, "directory": filepath.Join(a.configDir, "skills")})
 }
 
 func (a *App) skillSetting(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
 	id := strings.TrimPrefix(r.URL.Path, "/api/skills/")
+	if strings.HasPrefix(id, "system:") {
+		content, files, err := tools.SystemSkillDocument(id)
+		if err != nil {
+			skillHTTPError(w, err)
+			return
+		}
+		if r.Method != http.MethodGet {
+			http.Error(w, "system skills are read-only and updated with Vista", http.StatusForbidden)
+			return
+		}
+		jsonOut(w, map[string]any{"content": string(content), "sha256": skillDigest(content), "files": files})
+		return
+	}
 	if !validSkillPath(id) || strings.Contains(id, "/") || strings.HasPrefix(id, ".") {
 		http.Error(w, "invalid skill folder name", http.StatusBadRequest)
 		return
@@ -147,7 +161,6 @@ func (a *App) skillSetting(w http.ResponseWriter, r *http.Request) {
 		}
 		jsonOut(w, map[string]any{"content": string(content), "sha256": skillDigest(content), "files": files})
 	case http.MethodPut:
-		r.Body = http.MaxBytesReader(w, r.Body, 8*tools.MaxSkillBytes)
 		var input struct {
 			Content string `json:"content"`
 			SHA256  string `json:"sha256"`
@@ -212,21 +225,21 @@ func readManagedSkill(root *os.Root) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	if !info.Mode().IsRegular() || info.Size() > tools.MaxSkillBytes {
-		return nil, errors.New("SKILL.md must be a regular file of at most 32 KiB")
+	if !info.Mode().IsRegular() {
+		return nil, errors.New("SKILL.md must be a regular file")
 	}
 	file, err := root.Open("SKILL.md")
 	if err != nil {
 		return nil, err
 	}
 	defer file.Close()
-	b, err := io.ReadAll(io.LimitReader(file, tools.MaxSkillBytes+1))
+	b, err := io.ReadAll(file)
 	if err != nil {
 		return nil, err
 	}
 	// Invalid frontmatter remains editable; the save path validates the repair.
-	if len(b) > tools.MaxSkillBytes || !utf8.Valid(b) {
-		return nil, errors.New("SKILL.md exceeds 32 KiB or is not UTF-8 text")
+	if !utf8.Valid(b) {
+		return nil, errors.New("SKILL.md must be UTF-8 text")
 	}
 	return b, nil
 }

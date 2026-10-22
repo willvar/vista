@@ -2,7 +2,7 @@
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
-import { ArrowLeftOutlined, RightOutlined, SkinOutlined, UserOutlined, ApiOutlined, InfoCircleOutlined, SearchOutlined, LinkOutlined, BookOutlined, SunOutlined, MoonOutlined, DesktopOutlined, HddOutlined, ExclamationCircleOutlined, FullscreenOutlined, FullscreenExitOutlined, PlusOutlined, ReloadOutlined, CloseOutlined, RobotOutlined, TeamOutlined, CompassOutlined, ToolOutlined, CommentOutlined, FolderOpenOutlined, FolderOutlined, FileTextOutlined } from '@antdv-next/icons'
+import { ArrowLeftOutlined, RightOutlined, SkinOutlined, UserOutlined, ApiOutlined, InfoCircleOutlined, SearchOutlined, LinkOutlined, BookOutlined, SunOutlined, MoonOutlined, DesktopOutlined, HddOutlined, ExclamationCircleOutlined, FullscreenOutlined, FullscreenExitOutlined, PlusOutlined, ImportOutlined, ReloadOutlined, CloseOutlined, RobotOutlined, TeamOutlined, CompassOutlined, ToolOutlined, CommentOutlined, FolderOpenOutlined, FolderOutlined, FileTextOutlined } from '@antdv-next/icons'
 import { Alert as AAlert, Button as AButton, Input as AInput, InputNumber as AInputNumber, InputPassword as AInputPassword, Modal as AModal, TextArea as ATextarea, Select as ASelect, Switch as ASwitch, Tooltip as ATooltip, type TextAreaRef } from 'antdv-next'
 import WorkspaceModal from '../WorkspaceModal.vue'
 import ConfirmPopover from '../ConfirmPopover.vue'
@@ -13,6 +13,7 @@ import MCPSettings from '../MCPSettings.vue'
 import SkillsSettings from '../SkillsSettings.vue'
 import ResourceStorageSettings from '../ResourceStorageSettings.vue'
 import ProviderLogin from '../ProviderLogin.vue'
+import ConfigurationImport from '../ConfigurationImport.vue'
 import OMPCatalogSettings from '../OMPCatalogSettings.vue'
 import UserAgentSettings from '../UserAgentSettings.vue'
 import ResetVistaSettings from '../ResetVistaSettings.vue'
@@ -79,12 +80,15 @@ function back() {
 const mcpModalOpen = ref(false)
 const skillModalOpen = ref(false)
 const resetModalOpen = ref(false)
+const providerImportOpen = ref(false)
+const providerImport = ref<InstanceType<typeof ConfigurationImport>>()
+const importedCount = ref(0)
 const instructionsEditorOpen = ref(false)
 const instructionsEditor = ref<TextAreaRef>()
 const {
   languagePreference, languageChoice, languageOptions, regionOptions, settingsBusy, settingsError,
   providerDisconnectTarget, providerDisconnectError, settings,
-  agentInstructions, agentInstructionsPath, agentInstructionsMaxBytes, agentInstructionsBytes,
+  agentInstructions, agentInstructionsPath,
   delegationDepth, maxDelegationDepth, canSaveAgentInstructions, canSaveDelegationDepth,
   agentSettingsBusy, agentSettingsLoading, agentSettingsError, agentSettingsSaved,
   loadAgentSettings, saveAgentSettings, modelDraft, modelFormOpen, chosenModels,
@@ -95,7 +99,15 @@ const {
   saveProvider, retryModelDiscovery, providerConnected, setDefaultModel, confirmDisconnectProvider, updateProviderDisconnect,
 } = useProviderSettings(workspace)
 type HeaderAction = { label: string; run: () => unknown; disabled: boolean; loading: boolean }
-const sectionActions = ref<{ headerAction: HeaderAction } | null>(null)
+const sectionActions = ref<{ headerAction: HeaderAction; imported?: () => unknown } | null>(null)
+const importKind = computed(() => route.name === 'settings-mcp' ? 'mcp' : route.name === 'settings-skills' ? 'skills' : 'providers')
+const importTitleKey = computed(() => importKind.value === 'providers' ? 'providerImport' : importKind.value === 'mcp' ? 'mcpImport' : 'skillsImport')
+const canImport = computed(() => ['settings', 'settings-mcp', 'settings-skills'].includes(String(route.name)))
+function onImported(count: number) {
+  importedCount.value = count
+  if (importKind.value === 'providers') void providerConnected()
+  else void sectionActions.value?.imported?.()
+}
 const headerAction = computed<HeaderAction | undefined>(() => route.name === 'settings'
   ? { label: 'connectProvider', run: startProviderConnection, disabled: settingsBusy.value, loading: false }
   : ['settings-mcp', 'settings-skills', 'settings-storage', 'settings-about'].includes(String(route.name)) ? sectionActions.value?.headerAction : undefined)
@@ -113,6 +125,7 @@ function focusInstructionsEditor(open: boolean) {
 }
 
 watch(() => route.fullPath, () => {
+  importedCount.value = 0
   instructionsEditorOpen.value = false
   providerDisconnectTarget.value = null
   cancelModelForm()
@@ -122,11 +135,12 @@ watch(() => route.fullPath, () => {
 </script>
 
 <template>
-<WorkspaceModal :open="true" width="max-content" :keyboard="!providerDisconnectTarget && !modelFormOpen && !mcpModalOpen && !skillModalOpen && !resetModalOpen && !instructionsEditorOpen" @cancel="backToWorkspace"><section class="workspace settings-page modal-page" :class="{ 'settings-index': settingsIndex }">
+<WorkspaceModal :open="true" width="max-content" :keyboard="!providerDisconnectTarget && !modelFormOpen && !providerImportOpen && !mcpModalOpen && !skillModalOpen && !resetModalOpen && !instructionsEditorOpen" @cancel="backToWorkspace"><section class="workspace settings-page modal-page" :class="{ 'settings-index': settingsIndex }">
         <div class="conversation-header">
           <a-button type="text" class="page-back" :aria-label="t(settingsIndex ? 'backToConversation' : 'backToSettings')" @click="back"><ArrowLeftOutlined /></a-button>
           <div class="page-heading"><small v-if="!settingsIndex">{{ t('settingsHeading') }}</small><h2 ref="pageHeading" tabindex="-1">{{ settingsTitle }}</h2></div>
           <div class="settings-header-actions">
+            <a-button v-if="canImport" type="text" class="settings-header-action settings-header-button" :aria-label="t(importTitleKey)" :title="t(importTitleKey)" :disabled="importKind === 'providers' ? settingsBusy : headerAction?.disabled" @click="importedCount = 0; providerImport?.show()"><template #icon><ImportOutlined aria-hidden="true" /></template></a-button>
             <a-button v-if="headerAction" type="text" class="settings-header-action settings-header-button" :aria-label="t(headerAction.label)" :title="t(headerAction.label)" :disabled="headerAction.disabled" :loading="headerAction.loading" @click="headerAction.run()">
               <template #icon><PlusOutlined v-if="route.name === 'settings' || route.name === 'settings-mcp'" aria-hidden="true" /><ReloadOutlined v-else aria-hidden="true" /></template>
             </a-button>
@@ -143,6 +157,7 @@ watch(() => route.fullPath, () => {
         <MCPSettings ref="sectionActions" v-if="route.name === 'settings-mcp'" @modal-open="mcpModalOpen = $event" />
         <SkillsSettings ref="sectionActions" v-if="route.name === 'settings-skills'" @modal-open="skillModalOpen = $event" />
         <ResourceStorageSettings ref="sectionActions" v-if="route.name === 'settings-storage'" />
+        <ConfigurationImport v-if="canImport" :key="importKind" ref="providerImport" :kind="importKind" @modal-open="providerImportOpen = $event" @imported="onImported" />
         <div v-if="route.name === 'settings-general'" class="settings-content appearance-settings-content">
           <div class="general-setting appearance-setting"><label id="appearance-label">{{ t('colorMode') }}</label><div class="appearance-options" role="group" aria-labelledby="appearance-label"><button v-for="mode in appearances" :key="mode.value" type="button" class="appearance-option" :class="{ selected: appearance === mode.value }" :aria-pressed="appearance === mode.value" @click="setAppearance(mode.value)"><span class="appearance-preview" :data-mode="mode.value"><i></i><span><b></b><b></b><b></b></span></span><span class="appearance-option-label"><component :is="mode.icon" aria-hidden="true" />{{ t(`appearance${mode.value[0]!.toUpperCase()}${mode.value.slice(1)}`) }}</span></button></div></div>
           <div class="locale-settings general-setting" :class="{ 'locale-settings-auto': regionOptions.length <= 1 }">
@@ -171,7 +186,7 @@ watch(() => route.fullPath, () => {
               <p v-if="agentInstructionsPath" class="instructions-file-location">{{ t('globalInstructionsFile') }}<code>{{ agentInstructionsPath }}</code></p>
               <a-textarea :disabled="agentSettingsLoading || agentSettingsBusy" id="agent-instructions" v-model:value="agentInstructions" :auto-size="{ minRows: 9, maxRows: 18 }" :placeholder="t('globalInstructionsPlaceholder')" :aria-label="t('globalInstructions')" aria-describedby="global-instructions-hint" />
             </div>
-            <div class="agent-instructions-footer"><small :class="{ error: agentInstructionsBytes > agentInstructionsMaxBytes }">{{ t('instructionBytes', { current: agentInstructionsBytes, max: agentInstructionsMaxBytes }) }}</small><a-button html-type="submit" type="primary" :loading="agentSettingsBusy" :disabled="!canSaveAgentInstructions">{{ t('saveChanges') }}</a-button></div>
+            <div class="agent-instructions-footer"><a-button html-type="submit" type="primary" :loading="agentSettingsBusy" :disabled="!canSaveAgentInstructions">{{ t('saveChanges') }}</a-button></div>
             <aside class="instructions-local-example" aria-labelledby="instructions-local-heading">
               <div id="instructions-local-heading" class="instructions-local-heading">{{ t('instructionsDirectoryTitle') }}</div>
               <div class="instructions-local-flow">
@@ -226,6 +241,7 @@ watch(() => route.fullPath, () => {
             <p>{{ t('addProviderHint') }}</p>
           </div>
           <a-alert v-if="settingsError && !modelFormOpen" type="error" role="alert" :message="settingsError" />
+          <a-alert v-if="importedCount" type="success" role="status" :message="t('providerImportSuccess', { count: importedCount })" />
           <div v-if="settings.models.length" class="default-model-setting"><label>{{ t('defaultModel') }}<a-select :value="modelCatalog.default" :options="modelChoices" show-search option-filter-prop="searchText" option-label-prop="fullLabel" :disabled="settingsBusy" @update:value="setDefaultModel(String($event))" /></label></div>
           <div v-if="providerGroups.length" class="configured-providers"><h3>{{ t('connectedProviders') }}</h3>
             <div v-for="group in providerGroups" :key="group.key" class="configured-provider">
@@ -266,8 +282,7 @@ watch(() => route.fullPath, () => {
     <template #title><div class="instructions-editor-heading"><span>{{ t('globalInstructions') }}</span><a-button @click="instructionsEditorOpen = false"><FullscreenExitOutlined aria-hidden="true" />{{ t('exitFullscreenEdit') }}</a-button></div></template>
     <a-textarea ref="instructionsEditor" id="fullscreen-agent-instructions" v-model:value="agentInstructions" class="instructions-editor-input"
       :disabled="agentSettingsLoading || agentSettingsBusy" :auto-size="false" :aria-label="t('globalInstructions')"
-      :status="agentInstructionsBytes > agentInstructionsMaxBytes ? 'error' : undefined" :placeholder="t('globalInstructionsPlaceholder')" />
-    <small class="instructions-editor-count" :class="{ error: agentInstructionsBytes > agentInstructionsMaxBytes }" role="status">{{ t('instructionBytes', { current: agentInstructionsBytes, max: agentInstructionsMaxBytes }) }}</small>
+      :placeholder="t('globalInstructionsPlaceholder')" />
   </a-modal>
   <a-modal :open="modelFormOpen" centered :z-index="1200" width="min(640px, calc(100vw - 2rem))"
     class="provider-connection-modal" :title="editingProvider ? t('editProviderConnection') : t('connectProvider')"

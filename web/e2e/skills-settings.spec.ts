@@ -1,15 +1,38 @@
 import { openSettingsSection } from './settings-navigation'
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { test, expect } from './fixtures'
 
 const review = '---\nname: Code review\ndescription: Check changes and tests\n---\n\nRead references/checklist.md before reviewing.\n'
 
+test('multiple system skills use their own metadata and can only be viewed', async ({ page, vista }) => {
+  const catalog = await vista.api('/skills')
+  const extra = { id: 'system:another-guide', name: 'Another guide', description: 'A separate built-in capability', source: 'system', path: 'skill://system/another-guide/SKILL.md' }
+  await page.route('**/api/skills', route => route.fulfill({ json: { ...catalog, skills: [...catalog.skills, extra] } }))
+  await page.route(/\/api\/skills\/system(?::|%3A)another-guide$/, route => route.fulfill({ json: { content: 'Independent embedded instructions', sha256: 'test-hash', files: ['references/extra.md'] } }))
+  await page.goto(`${vista.origin}/settings/skills`)
+  for (const skill of [...catalog.skills.filter((skill: { source: string }) => skill.source === 'system'), extra]) {
+    const card = page.locator(`[data-skill="${skill.id}"]`)
+    await expect(card).toContainText(skill.description)
+    await expect(card).toContainText('System')
+    await expect(card.getByRole('switch')).toHaveCount(0)
+    await expect(card.getByRole('button', { name: /^Delete / })).toHaveCount(0)
+    await card.getByRole('button', { name: `View ${skill.name}`, exact: true }).click()
+    const viewer = page.getByRole('dialog', { name: 'View skill', exact: true })
+    await expect(viewer.getByLabel('SKILL.md', { exact: true })).toHaveAttribute('readonly', '')
+    await expect(viewer.getByRole('button', { name: 'Save changes', exact: true })).toHaveCount(0)
+    if (skill.id === extra.id) await expect(viewer.getByLabel('SKILL.md', { exact: true })).toHaveValue('Independent embedded instructions')
+    await viewer.locator('.skill-form-footer').getByRole('button', { name: 'Close', exact: true }).click()
+    await expect(viewer).toBeHidden()
+  }
+  expect(readdirSync(catalog.directory)).toEqual([])
+})
+
 test('local skills can be refreshed, edited, searched, disabled and deleted in settings', async ({ page, vista }, testInfo) => {
   await vista.api('/preferences', { method: 'PATCH', body: JSON.stringify({ feedbackInvitationSeen: true }) })
   await page.goto(`${vista.origin}/settings/general`)
   await openSettingsSection(page, 'skills')
-  await expect(page.locator('.skills-empty')).toContainText('No skills yet')
+  await expect(page.locator('.skills-empty')).toContainText('No user skills yet')
   await expect(page.locator('.skills-directory')).toContainText('Place skill folders containing SKILL.md in this directory, then click Refresh.')
   await expect(page.getByRole('button', { name: 'Add skill', exact: true })).toHaveCount(0)
   await expect(page.locator('.skills-settings input[type="file"]')).toHaveCount(0)
@@ -38,7 +61,7 @@ test('local skills can be refreshed, edited, searched, disabled and deleted in s
   await expect(card.getByRole('switch')).toHaveAttribute('aria-checked', 'false')
   await page.reload()
   await expect(card).toContainText('Disabled')
-  expect((await vista.api('/skills')).skills[0].disabled).toBe(true)
+  expect((await vista.api('/skills')).skills.find((skill: { id: string }) => skill.id === 'review').disabled).toBe(true)
   await card.getByRole('switch').click()
   await expect(card.getByRole('switch')).toHaveAttribute('aria-checked', 'true')
 
@@ -61,9 +84,9 @@ test('local skills can be refreshed, edited, searched, disabled and deleted in s
   await expect(confirmation).toContainText('scripts and supporting files')
   await page.locator('.skill-delete-popover').getByRole('button', { name: 'Delete', exact: true }).click()
   await expect(card).toHaveCount(0)
-  await expect(page.locator('.skills-empty')).toContainText('No skills yet')
+  await expect(page.locator('.skills-empty')).toContainText('No user skills yet')
   await page.reload()
-  expect((await vista.api('/skills')).skills).toEqual([])
+  expect((await vista.api('/skills')).skills.filter((skill: { source: string }) => skill.source === 'user')).toEqual([])
 })
 
 test('editing a local skill preserves its binary assets and references', async ({ page, vista }, testInfo) => {
@@ -87,7 +110,7 @@ test('editing a local skill preserves its binary assets and references', async (
   await expect(editor.locator('summary')).toHaveText('3 supporting files')
   await editor.locator('summary').click()
   await expect(editor.locator('.skill-supporting-files')).toContainText('assets/sample.bin')
-  const longContent = review + 'Keep the full supporting evidence. 中文资料。\n'.repeat(250)
+  const longContent = review.replace('Check changes and tests', '中'.repeat(1024)) + 'Keep the full supporting evidence. 中文资料。\n'.repeat(2000)
   await editor.getByLabel('SKILL.md', { exact: true }).fill(longContent)
   await editor.getByRole('button', { name: 'Save changes', exact: true }).scrollIntoViewIfNeeded()
   const layout = await editor.evaluate(element => ({ width: element.scrollWidth - element.clientWidth, form: element.querySelector('form')!.scrollWidth - element.querySelector('form')!.clientWidth }))
@@ -105,7 +128,7 @@ test('failed requests and late document responses keep the current editor and sa
   const { directory } = await vista.api('/skills')
   for (const id of ['first', 'second']) {
     mkdirSync(join(directory, id))
-    writeFileSync(join(directory, id, 'SKILL.md'), `# ${id}\nOriginal instructions`)
+    writeFileSync(join(directory, id, 'SKILL.md'), `---\nname: ${id}\ndescription: Example\n---\nOriginal instructions`)
   }
   await page.route('**/api/skills', async route => {
     await route.fulfill({ status: 503, body: 'Temporary skill read failure' })
@@ -132,18 +155,20 @@ test('failed requests and late document responses keep the current editor and sa
   await expect(editor).toBeHidden()
   await expect(page).toHaveURL(/\/settings\/skills$/)
   await second.getByRole('button', { name: 'Edit second', exact: true }).click()
-  await expect(editor.getByLabel('SKILL.md', { exact: true })).toHaveValue('# second\nOriginal instructions')
+  const original = '---\nname: second\ndescription: Example\n---\nOriginal instructions'
+  const updated = '---\nname: second\ndescription: Example\n---\nUpdated second instructions'
+  await expect(editor.getByLabel('SKILL.md', { exact: true })).toHaveValue(original)
   release()
-  await editor.getByLabel('SKILL.md', { exact: true }).fill('Updated second instructions')
+  await editor.getByLabel('SKILL.md', { exact: true }).fill(updated)
   await page.route('**/api/skills/second', route => route.request().method() === 'PUT' ? route.fulfill({ status: 500, body: 'Could not save skill' }) : route.continue())
   await editor.getByRole('button', { name: 'Save changes', exact: true }).click()
   await expect(editor.getByRole('alert')).toContainText('Could not save skill')
-  await expect(editor.getByLabel('SKILL.md', { exact: true })).toHaveValue('Updated second instructions')
-  expect((await vista.api('/skills/second')).content).toBe('# second\nOriginal instructions')
+  await expect(editor.getByLabel('SKILL.md', { exact: true })).toHaveValue(updated)
+  expect((await vista.api('/skills/second')).content).toBe(original)
   await page.unroute('**/api/skills/second')
   await editor.getByRole('button', { name: 'Save changes', exact: true }).click()
   await expect(editor).toBeHidden()
-  expect((await vista.api('/skills/second')).content).toBe('Updated second instructions')
+  expect((await vista.api('/skills/second')).content).toBe(updated)
   await first.getByRole('button', { name: 'Edit first', exact: true }).click()
   release()
   await expect(editor).toBeVisible()
