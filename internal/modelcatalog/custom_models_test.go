@@ -171,6 +171,18 @@ func TestCustomDiscoveryRecoveryIncludesRestrictedModelLists(t *testing.T) {
 	}
 }
 
+func TestModelListErrorPreservesExpiredKeyReasonWithoutCredentials(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+		_, _ = w.Write([]byte(`{"error":{"type":"authentication_error","code":"api_key_expired","message":"Create a new API key. Rejected: expired-secret"}}`))
+	}))
+	defer upstream.Close()
+	_, err := FetchCustomModelIDs(context.Background(), upstream.URL+"/models", "expired-secret")
+	if err == nil || !strings.Contains(err.Error(), "api_key_expired") || !strings.Contains(err.Error(), "Create a new API key") || strings.Contains(err.Error(), "expired-secret") {
+		t.Fatalf("incorrect discovery diagnostic: %v", err)
+	}
+}
+
 func TestCustomDiscoveryRejectsRepeatedPagination(t *testing.T) {
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write([]byte(`{"models":[{"name":"models/gemini-test"}],"nextPageToken":"repeat"}`))

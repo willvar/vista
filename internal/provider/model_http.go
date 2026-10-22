@@ -54,6 +54,12 @@ func (e *ModelHTTPError) Error() string {
 	return message
 }
 
+// ModelListHTTPError uses the same bounded diagnostics as inference, redacting
+// discovery credentials before the upstream explanation reaches settings.
+func ModelListHTTPError(response *http.Response, apiKey string, headers map[string]string) error {
+	return modelErrorForDisplay(modelHTTPError("model list", response), modelcfg.Model{APIKey: apiKey, Headers: headers})
+}
+
 func modelHTTPError(provider string, response *http.Response) error {
 	result := &ModelHTTPError{Provider: provider, StatusCode: response.StatusCode}
 	if seconds, err := strconv.Atoi(strings.TrimSpace(response.Header.Get("Retry-After"))); err == nil && seconds > 0 && seconds <= 86400 {

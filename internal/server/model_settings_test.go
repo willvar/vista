@@ -228,16 +228,17 @@ func TestCustomModelDiscoveryAndBatchSave(t *testing.T) {
 	}
 }
 
-func TestCustomModelDiscoveryFailureDoesNotExposeBody(t *testing.T) {
+func TestCustomModelDiscoveryFailurePreservesReasonWithoutRawBodyOrCredentials(t *testing.T) {
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		http.Error(w, "sensitive upstream details", 403)
+		w.WriteHeader(http.StatusForbidden)
+		_, _ = w.Write([]byte(`{"error":{"code":"invalid_api_key","message":"Replace rejected-key"},"request":{"private":"sensitive upstream details"}}`))
 	}))
 	defer upstream.Close()
 	app := &App{}
-	request := httptest.NewRequest(http.MethodPost, "/api/model-discovery", strings.NewReader(`{"provider":"openai-chat","credentialMode":"bearer","baseUrl":"`+upstream.URL+`/v1","apiKey":"test"}`))
+	request := httptest.NewRequest(http.MethodPost, "/api/model-discovery", strings.NewReader(`{"provider":"openai-chat","credentialMode":"bearer","baseUrl":"`+upstream.URL+`/v1","apiKey":"rejected-key"}`))
 	response := httptest.NewRecorder()
 	app.discoverCustomModels(response, request)
-	if response.Code != 502 || strings.Contains(response.Body.String(), "sensitive upstream details") {
+	if response.Code != 502 || !strings.Contains(response.Body.String(), "invalid_api_key") || !strings.Contains(response.Body.String(), "Replace [redacted]") || strings.Contains(response.Body.String(), "rejected-key") || strings.Contains(response.Body.String(), "sensitive upstream details") {
 		t.Fatalf("unsafe failure: %d %s", response.Code, response.Body.String())
 	}
 }

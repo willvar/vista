@@ -65,8 +65,9 @@ func discoverCustomPages(ctx context.Context, source Configured, endpoint string
 			return nil, errors.New("model list is unavailable")
 		}
 		if response.StatusCode != http.StatusOK {
+			err := provider.ModelListHTTPError(response, source.APIKey, source.Headers)
 			response.Body.Close()
-			return nil, &provider.ModelHTTPError{Provider: "model list", StatusCode: response.StatusCode}
+			return nil, err
 		}
 		data, err := io.ReadAll(io.LimitReader(response.Body, (4<<20)+1))
 		response.Body.Close()

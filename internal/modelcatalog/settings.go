@@ -85,7 +85,7 @@ func FetchCustomModelIDs(ctx context.Context, endpoint, key string) ([]string, e
 	}
 	defer response.Body.Close()
 	if response.StatusCode != http.StatusOK {
-		return nil, errors.New("model list returned HTTP " + strconv.Itoa(response.StatusCode))
+		return nil, provider.ModelListHTTPError(response, key, nil)
 	}
 	payload, err := io.ReadAll(io.LimitReader(response.Body, (4<<20)+1))
 	if err != nil || len(payload) > 4<<20 {
