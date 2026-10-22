@@ -9,7 +9,6 @@ import (
 	"syscall"
 	"testing"
 	"time"
-	"unsafe"
 
 	"golang.org/x/sys/windows"
 )
@@ -53,13 +52,8 @@ func TestWindowsDetachHelper(t *testing.T) {
 		return
 	}
 	root := os.Args[len(os.Args)-1]
-	job, err := newProcessJob()
+	job, err := newProcessJob(windows.JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE | windows.JOB_OBJECT_LIMIT_BREAKAWAY_OK)
 	if err != nil {
-		os.Exit(2)
-	}
-	limits := windows.JOBOBJECT_EXTENDED_LIMIT_INFORMATION{}
-	limits.BasicLimitInformation.LimitFlags = windows.JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE | windows.JOB_OBJECT_LIMIT_BREAKAWAY_OK
-	if _, err := windows.SetInformationJobObject(job, windows.JobObjectExtendedLimitInformation, uintptr(unsafe.Pointer(&limits)), uint32(unsafe.Sizeof(limits))); err != nil {
 		os.Exit(2)
 	}
 	if err := windows.AssignProcessToJobObject(job, windows.CurrentProcess()); err != nil {
@@ -70,6 +64,45 @@ func TestWindowsDetachHelper(t *testing.T) {
 	if err := cmd.Start(); err != nil {
 		os.Exit(2)
 	}
+	os.Exit(0)
+}
+
+func TestWindowsDetachedControlSurvivesManagedParent(t *testing.T) {
+	root := t.TempDir()
+	launcher := nativeHelper("idle", filepath.Join(root, "unused.pid"))
+	launcher.Args = []string{launcher.Path, "-test.run=^TestWindowsControlHelper$", "--", root}
+	if output, err := launcher.CombinedOutput(); err != nil {
+		t.Fatalf("managed parent: %v %s", err, output)
+	}
+	pid := waitNativePID(t, filepath.Join(root, "detached.pid"))
+	process, err := os.FindProcess(pid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = process.Kill(); _ = process.Release() }()
+	if !IsAlive(pid) {
+		t.Fatal("independent control died with the supervised parent")
+	}
+	managed := waitNativePID(t, filepath.Join(root, "managed.pid"))
+	waitNativeExit(t, managed)
+}
+
+func TestWindowsControlHelper(t *testing.T) {
+	if len(os.Args) < 3 || os.Args[len(os.Args)-2] != "--" {
+		return
+	}
+	root := os.Args[len(os.Args)-1]
+	managed := nativeHelper("idle", filepath.Join(root, "managed.pid"))
+	if err := Start(managed); err != nil {
+		os.Exit(2)
+	}
+	waitNativePID(t, filepath.Join(root, "managed.pid"))
+	control := nativeHelper("idle", filepath.Join(root, "detached.pid"))
+	Detach(control)
+	if err := control.Start(); err != nil {
+		os.Exit(3)
+	}
+	waitNativePID(t, filepath.Join(root, "detached.pid"))
 	os.Exit(0)
 }
 

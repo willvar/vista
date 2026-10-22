@@ -102,7 +102,7 @@ type App struct {
 	searchConfig           searchSettingsConfig
 }
 
-func Run(portOverride int) error {
+func Run(portOverride int, onReady func(context.Context) func()) error {
 	build, buildErr := buildinfo.Read()
 	if buildErr != nil {
 		log.Printf("binary hash unavailable: %v", buildErr)
@@ -198,6 +198,11 @@ func Run(portOverride int) error {
 	}
 	defer os.Remove(filepath.Join(dir, "instance.json"))
 	log.Printf("Vista listening on %s", address)
+	if onReady != nil {
+		if closeControls := onReady(ctx); closeControls != nil {
+			defer closeControls()
+		}
+	}
 	err = srv.Serve(listener)
 	if errors.Is(err, http.ErrServerClosed) {
 		return nil

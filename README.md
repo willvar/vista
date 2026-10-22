@@ -10,7 +10,9 @@ Vista is a general-purpose agent for Linux, Windows, and macOS. Describe a goal 
 
 Download the archive for your system from [GitHub Releases](https://github.com/willvar/vista/releases/latest) and extract it.
 
-Run `vista` (or `vista.exe` on Windows). It starts the local service in the background and opens the default browser. The default address is `http://127.0.0.1:5186/`.
+Run `vista`; on Windows, you can also double-click `vista.exe`. It starts the service in the background and opens the default browser. Opening it again uses the running instance. The default address is `http://127.0.0.1:5186/`.
+
+On Windows, the running service has a notification-area icon. Click or double-click it to open Vista; right-click for Restart, Status, and Stop. Status opens a native window with service, conversation, process, memory, and build information. Stop removes the icon along with stopping the service.
 
 Connect a model provider in Settings before sending the first message. Built-in connections provide their authentication and protocol settings; custom connections let you choose the conversation API format and authentication independently. Model availability follows the connected account or service.
 

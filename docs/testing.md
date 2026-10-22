@@ -39,10 +39,10 @@ Make builds test executables under `.vista/test-state/bin` and uses separate con
 Build the application for the target OS, then run its application test there:
 
 ```sh
-VISTA_TEST_BINARY=/absolute/path/to/vista GOWORK=off go test ./cmd/vista -run '^TestNativeApplication$' -count=1
+VISTA_TEST_BINARY=/absolute/path/to/vista GOWORK=off go test ./cmd/vista -run '^TestNative(Application|ResetPort|WindowsDesktopLauncher|WindowsTray.*)$' -count=1
 ```
 
-On Windows, set the equivalent environment variables in PowerShell and use the `.exe` path. A cross-compiled `go test -c` executable can run without installing Go on that machine. The test uses temporary configuration and a simulated model, exercising real application Workers, shell/background work, cancellation, startup/shutdown, and crash recovery. Platform-specific tests also cover process ownership and cleanup.
+On Windows, set the equivalent environment variables in PowerShell and use the `.exe` path. A cross-compiled `go test -c` executable can run without installing Go on that machine. The tests use temporary configuration and a simulated model, exercising real application Workers, shell/background work, cancellation, startup/shutdown, reset, and crash recovery. The Windows desktop-launch test uses a private Explorer-named parent and browser command to check startup, reopening, and the native startup-error dialog without opening the user's browser. Tray checks cover click notifications, the context menu, parsed/long native status, icon restoration, Restart, and Stop. Icon registration checks require an interactive Windows session with Explorer; a headless run skips that test. Platform-specific tests also cover process ownership and cleanup.
 
 Cross-compilation confirms compilation only. Mock endpoints establish request/stream behavior, not real account authorization or live-provider compatibility.
 

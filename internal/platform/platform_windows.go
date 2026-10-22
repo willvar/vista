@@ -87,13 +87,13 @@ var processScope struct {
 	err    error
 }
 
-func newProcessJob() (windows.Handle, error) {
+func newProcessJob(flags uint32) (windows.Handle, error) {
 	job, err := windows.CreateJobObject(nil, nil)
 	if err != nil {
 		return 0, err
 	}
 	limits := windows.JOBOBJECT_EXTENDED_LIMIT_INFORMATION{}
-	limits.BasicLimitInformation.LimitFlags = windows.JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
+	limits.BasicLimitInformation.LimitFlags = flags
 	if _, err := windows.SetInformationJobObject(job, windows.JobObjectExtendedLimitInformation, uintptr(unsafe.Pointer(&limits)), uint32(unsafe.Sizeof(limits))); err != nil {
 		windows.CloseHandle(job)
 		return 0, err
@@ -103,7 +103,10 @@ func newProcessJob() (windows.Handle, error) {
 
 func ownProcessTree() error {
 	processScope.Do(func() {
-		job, err := newProcessJob()
+		// Explicitly detached lifecycle commands must survive Server exit.
+		// Managed children still inherit this scope at creation, and their
+		// individual Jobs forbid breakaway before they are resumed.
+		job, err := newProcessJob(windows.JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE | windows.JOB_OBJECT_LIMIT_BREAKAWAY_OK)
 		if err == nil {
 			err = windows.AssignProcessToJobObject(job, windows.CurrentProcess())
 			if err != nil {
@@ -125,7 +128,7 @@ func Start(cmd *exec.Cmd) (err error) {
 	if err := ownProcessTree(); err != nil {
 		return fmt.Errorf("create process supervision scope: %w", err)
 	}
-	job, err := newProcessJob()
+	job, err := newProcessJob(windows.JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE)
 	if err != nil {
 		return err
 	}

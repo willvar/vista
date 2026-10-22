@@ -47,3 +47,17 @@ func TestRestartValidatesConfiguredPortBeforeStopping(t *testing.T) {
 		t.Fatalf("expected environment port validation, got %v", err)
 	}
 }
+
+func TestDesktopLaunchIsNotRejectedByCobra(t *testing.T) {
+	root := newRootCommand()
+	if cobra.MousetrapHelpText != "" {
+		t.Fatal("Cobra's Explorer guard would exit before Vista starts")
+	}
+	called := false
+	root.PreRunE = nil
+	root.RunE = func(*cobra.Command, []string) error { called = true; return nil }
+	root.SetArgs([]string{})
+	if err := root.Execute(); err != nil || !called {
+		t.Fatalf("no-argument launcher did not run: called=%v error=%v", called, err)
+	}
+}

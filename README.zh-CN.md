@@ -10,7 +10,9 @@ Vista 是适用于 Linux、Windows 和 macOS 的通用型智能体。在浏览�
 
 从 [GitHub Releases](https://github.com/willvar/vista/releases/latest) 下载适合当前系统的压缩包并解压。
 
-运行 `vista`（Windows 使用 `vista.exe`），它会在后台启动本机服务并打开默认浏览器，默认地址为 `http://127.0.0.1:5186/`。
+运行 `vista`；Windows 也可以直接双击 `vista.exe`。它会在后台启动服务并打开默认浏览器，再次打开会复用已运行的实例。默认地址为 `http://127.0.0.1:5186/`。
+
+Windows 服务运行时会显示托盘图标，单击或双击可打开 Vista；右键提供 Restart（重启）、Status（状态）和 Stop（停止）。Status 通过原生窗口展示服务、会话、进程、内存及构建信息。Stop 停止服务并移除图标。
 
 发送第一条消息前，先在设置中连接模型服务商。内置连接封装认证和协议配置；自定义连接可独立选择对话 API 格式与认证方式。可用模型由所连接的账号或服务决定。
 

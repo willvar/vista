@@ -20,13 +20,34 @@ import (
 	"vista/internal/worker"
 )
 
+var desktopLaunch bool
+
 func main() {
-	if err := newRootCommand().Execute(); err != nil {
+	desktopLaunch = prepareLauncher()
+	command := newRootCommand()
+	if desktopLaunch {
+		command.SilenceErrors, command.SilenceUsage = true, true
+	}
+	if err := command.Execute(); err != nil {
+		if desktopLaunch {
+			action := "start"
+			if len(os.Args) > 1 && (os.Args[1] == "restart" || os.Args[1] == "stop") {
+				action = os.Args[1]
+			}
+			message := "Vista could not " + action + ".\n\n" + err.Error()
+			if d, dirErr := dir(); dirErr == nil {
+				message += "\n\nLog: " + filepath.Join(d, "server.log")
+			}
+			showLauncherError(message)
+		}
 		os.Exit(1)
 	}
 }
 
 func newRootCommand() *cobra.Command {
+	// Vista is also a desktop launcher. Cobra's default Explorer guard exits
+	// before RunE and would prevent double-click startup on Windows.
+	cobra.MousetrapHelpText = ""
 	var port int
 	root := &cobra.Command{Use: "vista", Short: "Vista local agent", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error { return start(port) }}
 	root.CompletionOptions.DisableDefaultCmd = true
@@ -44,7 +65,7 @@ func newRootCommand() *cobra.Command {
 	addPortFlag(restartCommand, &port)
 	root.AddCommand(restartCommand)
 	root.AddCommand(&cobra.Command{Use: "status", RunE: func(*cobra.Command, []string) error { return status() }})
-	serveCommand := &cobra.Command{Use: "serve", Hidden: true, Args: cobra.NoArgs, RunE: func(*cobra.Command, []string) error { return server.Run(port) }}
+	serveCommand := &cobra.Command{Use: "serve", Hidden: true, Args: cobra.NoArgs, RunE: func(*cobra.Command, []string) error { return server.Run(port, startDesktopControls) }}
 	addPortFlag(serveCommand, &port)
 	root.AddCommand(serveCommand)
 	root.AddCommand(&cobra.Command{Use: "worker", Hidden: true, RunE: func(*cobra.Command, []string) error { return worker.Run() }})
@@ -135,6 +156,9 @@ func start(portOverride int) error {
 	return fmt.Errorf("Vista failed to start; see %s", filepath.Join(d, "server.log"))
 }
 func request(method, path string) (*http.Response, error) {
+	return requestContext(context.Background(), method, path)
+}
+func requestContext(ctx context.Context, method, path string) (*http.Response, error) {
 	d, err := dir()
 	if err != nil {
 		return nil, err
@@ -143,7 +167,7 @@ func request(method, path string) (*http.Response, error) {
 	if !ok {
 		return nil, os.ErrNotExist
 	}
-	req, err := http.NewRequest(method, x.Address+path, nil)
+	req, err := http.NewRequestWithContext(ctx, method, x.Address+path, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -223,6 +247,10 @@ func openBrowser(url string) {
 		return
 	}
 	if err := platform.OpenBrowser(url); err != nil {
+		if desktopLaunch {
+			showLauncherError("Vista is running, but could not open the browser.\n\nOpen this address in your browser:\n" + url)
+			return
+		}
 		fmt.Fprintln(os.Stderr, "Could not open the browser automatically. Paste the URL above into your browser's address bar, not the terminal.")
 		return
 	}
