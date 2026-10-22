@@ -18,5 +18,5 @@ func HostOS() string {
 			name = "Windows 10"
 		}
 	}
-	return fmt.Sprintf("%s (%d.%d.%d)", name, info.MajorVersion, info.MinorVersion, info.BuildNumber)
+	return fmt.Sprintf("%s · %d.%d.%d", name, info.MajorVersion, info.MinorVersion, info.BuildNumber)
 }

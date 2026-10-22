@@ -270,7 +270,7 @@ watch(() => route.fullPath, () => {
             </template>
             <template v-if="serverStatus.hostOS">
               <dt>{{ t('hostOS') }}</dt>
-              <dd>{{ serverStatus.hostOS }}</dd>
+              <dd><code>{{ serverStatus.hostOS }}</code></dd>
             </template>
           </dl>
         </div>
