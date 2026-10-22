@@ -76,7 +76,7 @@ func (a *App) startMCPLoginLocked(w http.ResponseWriter, config workerproto.MCPS
 	ctx, cancel := context.WithDeadline(parent, expires)
 	login := &mcpLogin{ID: uuid.NewString(), ServerID: config.ID, Name: config.Name, Status: "starting", ExpiresAt: expires, cancel: cancel}
 	a.mcpLogins[login.ID] = login
-	go a.runMCPLogin(ctx, login, config, staging)
+	a.background.Go(func() { a.runMCPLogin(ctx, login, config, staging) })
 	jsonOut(w, login)
 }
 

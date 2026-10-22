@@ -49,7 +49,7 @@ func (a *App) resourceStorage(w http.ResponseWriter, r *http.Request) {
 	a.storageMu.Lock()
 	if a.storageStatus.Phase != "running" {
 		a.storageStatus = resourceStorageStatus{Phase: "running", Action: input.Action, Stats: a.storageStatus.Stats}
-		go a.runResourceStorage(input.Action)
+		a.background.Go(func() { a.runResourceStorage(input.Action) })
 	}
 	result := a.storageStatus
 	a.storageMu.Unlock()

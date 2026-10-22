@@ -52,6 +52,8 @@ type worker struct {
 	overBudget      bool
 }
 type App struct {
+	background             sync.WaitGroup
+	closeContext           context.CancelFunc
 	sessionMutations       sync.Map // Per-session HTTP/queued-dispatch serialization.
 	storageMu              sync.Mutex
 	skillsMu               sync.Mutex
@@ -128,68 +130,62 @@ func Run(portOverride int) error {
 		return fmt.Errorf("lock Vista instance: %w", err)
 	}
 	defer instance.Unlock(lock)
-	listener, err := net.Listen("tcp", config.Address())
+	socket, err := net.Listen("tcp", config.Address())
 	if err != nil {
 		return fmt.Errorf("listen on %s: %w", config.Address(), err)
 	}
+	listener := &runtimeListener{listener: socket}
 	defer listener.Close()
-	st, err := store.Open(filepath.Join(dir, "vista.db"))
-	if err != nil {
-		return err
-	}
-	defer st.Close()
-	owners, err := st.WorkerOwners(context.Background())
-	if err != nil {
-		return fmt.Errorf("read Worker ownership records: %w", err)
-	}
-	for _, owner := range owners {
-		if err := platform.KillOwnedSession(owner.PID, owner.StartTime); err != nil && !errors.Is(err, platform.ErrIdentityMismatch) {
-			return fmt.Errorf("clean up previous Worker for session %s: %w", owner.SessionID, err)
-		}
-		if err := st.ClearWorkerOwner(context.Background(), owner); err != nil {
-			return fmt.Errorf("clear previous Worker ownership record: %w", err)
-		}
-	}
-	if _, err := st.InterruptRunning(context.Background(), ""); err != nil {
-		return fmt.Errorf("reconcile interrupted executions: %w", err)
-	}
-	if _, err := st.InterruptJobs(context.Background(), "", "Server restarted before the background job result was confirmed"); err != nil {
-		return fmt.Errorf("reconcile background jobs: %w", err)
-	}
-	if _, err := st.InterruptArtifacts(context.Background(), "", "Server restarted before output completeness was confirmed"); err != nil {
-		return fmt.Errorf("reconcile output artifacts: %w", err)
-	}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	if err := provider.LoadOMPCatalog(configDir); err != nil {
-		log.Printf("local OMP catalog unavailable; using bundled metadata: %v", err)
+	open := func() (*App, error) {
+		app, err := loadApp(ctx, cancel, configDir, dir, build)
+		if err != nil {
+			return nil, err
+		}
+		if err := app.start(); err != nil {
+			app.closeContext()
+			app.stopAll()
+			app.background.Wait()
+			_ = app.store.Close()
+			return nil, err
+		}
+		return app, nil
 	}
-	models, err := modelcatalog.Load(configDir)
+	app, err := open()
 	if err != nil {
 		return err
 	}
-	mcpServers, err := loadMCPConfig(configDir)
-	if err != nil {
-		return err
+	handler := newAppHandler(app, open)
+	defer handler.close()
+	srv := &http.Server{Handler: app.host(handler), ReadHeaderTimeout: 5 * time.Second, MaxHeaderBytes: 16 << 10}
+	handler.restart = func() (string, error) {
+		// The saved port was deleted. Resolve startup defaults and external
+		// environment again, rather than carrying the previous CLI launch port.
+		config, err := LoadRuntimeConfig(configDir, 0)
+		if err != nil {
+			return "", err
+		}
+		address := "http://" + config.Address()
+		if config.Address() != listener.Addr().String() {
+			next, err := net.Listen("tcp", config.Address())
+			if err != nil {
+				return "", fmt.Errorf("listen after reset on %s: %w", config.Address(), err)
+			}
+			if err := instance.Write(dir, instance.Info{PID: os.Getpid(), Address: address}); err != nil {
+				next.Close()
+				return "", err
+			}
+			if err := listener.replace(next); err != nil {
+				return "", err
+			}
+		}
+		// All previous API work has drained; retire idle connections to the old
+		// address. The reset response itself requests Connection: close.
+		srv.SetKeepAlivesEnabled(false)
+		srv.SetKeepAlivesEnabled(true)
+		return address, nil
 	}
-	searchConfigs, err := searchProviders()
-	if err != nil {
-		return err
-	}
-	searchSettings, err := loadSearchSettings(configDir)
-	if err != nil {
-		return err
-	}
-	app := &App{workers: map[string]*worker{}, workerFailures: map[string]workerFailureWindow{}, store: st, dir: dir, configDir: configDir, started: time.Now(), buildInfo: build, hostOS: platform.HostOS(), ctx: ctx, cancel: cancel, models: models, baseModels: models, localModels: map[string][]configuredModel{}, customInventories: map[string][]configuredModel{}, mcpServers: mcpServers, searchProviders: searchConfigs, searchConfig: searchSettings}
-	app.initCatalogUpdates()
-	go app.pollModelCatalog(ctx)
-	app.refreshLocalModels(ctx)
-	go app.pollLocalModels(ctx)
-	go app.refreshCustomModels(ctx)
-	go app.pollCustomModels(ctx)
-	go app.refreshCopilotModels(ctx)
-	go app.pollCopilotModels(ctx)
-	srv := &http.Server{Handler: app.handler(), ReadHeaderTimeout: 5 * time.Second, MaxHeaderBytes: 16 << 10}
 	go func() {
 		<-ctx.Done()
 		shutdown, c := context.WithTimeout(context.Background(), 10*time.Second)
@@ -201,30 +197,101 @@ func Run(portOverride int) error {
 		return err
 	}
 	defer os.Remove(filepath.Join(dir, "instance.json"))
-	items, err := st.List(ctx)
-	if err != nil {
-		return err
-	}
-	for _, item := range items {
-		if item.Open {
-			if err := app.startWorker(item.ID); err != nil {
-				log.Printf("restore worker %s: %v", item.ID, err)
-			} else {
-				go app.launchQueuedInput(item.ID)
-			}
-		}
-	}
 	log.Printf("Vista listening on %s", address)
 	err = srv.Serve(listener)
-	app.stopAll()
-	if _, e := st.InterruptRunning(context.Background(), ""); e != nil {
-		log.Printf("shutdown interrupt record failed: %v", e)
-	}
 	if errors.Is(err, http.ErrServerClosed) {
 		return nil
 	}
 	return err
 }
+
+// loadApp opens one generation of user data. The HTTP listener and instance lock
+// outlive it so a full reset can replace all configuration and state in place.
+func loadApp(parent context.Context, cancel context.CancelFunc, configDir, dir string, build buildinfo.Metadata) (_ *App, err error) {
+	st, err := store.Open(filepath.Join(dir, "vista.db"))
+	if err != nil {
+		return nil, err
+	}
+	defer func() {
+		if err != nil {
+			_ = st.Close()
+		}
+	}()
+	owners, err := st.WorkerOwners(context.Background())
+	if err != nil {
+		return nil, fmt.Errorf("read Worker ownership records: %w", err)
+	}
+	for _, owner := range owners {
+		if err := platform.KillOwnedSession(owner.PID, owner.StartTime); err != nil && !errors.Is(err, platform.ErrIdentityMismatch) {
+			return nil, fmt.Errorf("clean up previous Worker for session %s: %w", owner.SessionID, err)
+		}
+		if err := st.ClearWorkerOwner(context.Background(), owner); err != nil {
+			return nil, fmt.Errorf("clear previous Worker ownership record: %w", err)
+		}
+	}
+	if _, err := st.InterruptRunning(context.Background(), ""); err != nil {
+		return nil, fmt.Errorf("reconcile interrupted executions: %w", err)
+	}
+	if _, err := st.InterruptJobs(context.Background(), "", "Server restarted before the background job result was confirmed"); err != nil {
+		return nil, fmt.Errorf("reconcile background jobs: %w", err)
+	}
+	if _, err := st.InterruptArtifacts(context.Background(), "", "Server restarted before output completeness was confirmed"); err != nil {
+		return nil, fmt.Errorf("reconcile output artifacts: %w", err)
+	}
+	ctx, closeContext := context.WithCancel(parent)
+	defer func() {
+		if err != nil {
+			closeContext()
+		}
+	}()
+	if err := provider.LoadOMPCatalog(configDir); err != nil {
+		log.Printf("local OMP catalog unavailable; using bundled metadata: %v", err)
+	}
+	models, err := modelcatalog.Load(configDir)
+	if err != nil {
+		return nil, err
+	}
+	mcpServers, err := loadMCPConfig(configDir)
+	if err != nil {
+		return nil, err
+	}
+	searchConfigs, err := searchProviders()
+	if err != nil {
+		return nil, err
+	}
+	searchSettings, err := loadSearchSettings(configDir)
+	if err != nil {
+		return nil, err
+	}
+	app := &App{workers: map[string]*worker{}, workerFailures: map[string]workerFailureWindow{}, store: st, dir: dir, configDir: configDir, started: time.Now(), buildInfo: build, hostOS: platform.HostOS(), ctx: ctx, cancel: cancel, closeContext: closeContext, models: models, baseModels: models, localModels: map[string][]configuredModel{}, customInventories: map[string][]configuredModel{}, mcpServers: mcpServers, searchProviders: searchConfigs, searchConfig: searchSettings}
+	app.initCatalogUpdates()
+	return app, nil
+}
+
+func (a *App) start() error {
+	items, err := a.store.List(a.ctx)
+	if err != nil {
+		return err
+	}
+	a.background.Go(func() { a.pollModelCatalog(a.ctx) })
+	a.refreshLocalModels(a.ctx)
+	a.background.Go(func() { a.pollLocalModels(a.ctx) })
+	a.background.Go(func() { a.refreshCustomModels(a.ctx) })
+	a.background.Go(func() { a.pollCustomModels(a.ctx) })
+	a.background.Go(func() { a.refreshCopilotModels(a.ctx) })
+	a.background.Go(func() { a.pollCopilotModels(a.ctx) })
+	for _, item := range items {
+		if item.Open {
+			if err := a.startWorker(item.ID); err != nil {
+				log.Printf("restore worker %s: %v", item.ID, err)
+			} else {
+				a.background.Go(func() { a.launchQueuedInput(item.ID) })
+			}
+		}
+	}
+	return nil
+}
+
 func (a *App) handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /licenses", func(w http.ResponseWriter, r *http.Request) {

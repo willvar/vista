@@ -8,6 +8,8 @@ Windows 使用带 `KILL_ON_JOB_CLOSE` 的 Job Object。启动受管子进程前�
 
 关闭 Vista 会话会停止 Worker，切换页面或关闭浏览器不会。
 
+确认全部重置后，会在 Server 进程内重启应用运行时。`internal/server/reset.go` 拦截新的 API 操作，取消旧运行时上下文，等待请求及 `App.background` 工作结束，停止 Worker 并核对遗留进程归属，再关闭 SQLite 并删除用户数据。所有可能写入运行文件、凭据或持久化状态的异步操作，都必须归入 `App.background`，或由已跟踪的调用者同步等待。实例锁始终保留。重新打开空数据后，如果重置后的端口发生变化，`runtimeListener` 会更换监听套接字；旧连接上的重置请求保留到返回新地址。失败时其他 API 保持不可用，但仍可重试重置或停止服务。
+
 后台 shell job 和 `detached` 子任务都归属 Vista 会话，可以跨过一次前台执行的结束或取消。`required` 子任务阻塞父任务提交，`best_effort` 在父任务收尾时取消。显式停止子任务会取消其现有后代，包括 detached 后代；正常父任务收尾保留 detached 工作。
 
 子任务启动先持久化并 ACK，再返回任务 ID 和执行模型调用；终态与报告也在确认落盘后才供父任务收集。后台任务及其后代在父执行结束后仍可向原执行过程写入模型正文、工具记录和报告；它们不生成新的正式 assistant 消息。状态保存在 `agent_tasks`，报告正文复用事件与模型输出分块。Worker 退出、会话关闭或 Vista 重启会把未完成任务记录为中断，不自动恢复副作用。
@@ -18,4 +20,4 @@ Windows 使用带 `KILL_ON_JOB_CLOSE` 的 Job Object。启动受管子进程前�
 
 仓库根目录执行 `make test integration` 会覆盖普通 Worker 崩溃、Server 崩溃及 Server/Worker 双崩溃，包含在 `make test all` 中。底层 Linux 集成入口为 `scripts/worker_crash_smoke.mjs` 和 `scripts/background_job_smoke.mjs`；前者可设置 `VISTA_CRASH_MASTER=1`，后者可设置 `VISTA_DOUBLE_CRASH=1`。直接运行脚本时使用独立测试状态和 `VISTA_BIN` 指定待测产物。
 
-跨平台底层测试位于 `internal/platform/platform_test.go`，Windows 另验证父进程突然退出会关闭 Job。`cmd/vista/platform_test.go` 的 `TestNativeApplication` 通过真实应用产物检验启停、配置、Worker、Shell、取消、后台任务与崩溃恢复；设置 `VISTA_TEST_BINARY` 后在目标平台运行。
+跨平台底层测试位于 `internal/platform/platform_test.go`，Windows 另验证父进程突然退出会关闭 Job。`cmd/vista/platform_test.go` 的 `TestNativeApplication` 通过真实应用产物检验启停、配置、Worker、Shell、取消、后台任务与崩溃恢复；`TestNativeResetPort` 验证重置、端口切换、实例发现和端口冲突后的重试。设置 `VISTA_TEST_BINARY` 后在目标平台运行。

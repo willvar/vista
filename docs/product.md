@@ -52,6 +52,8 @@ Editing and withdrawing sent messages roll back conversation/model history only.
 - MCP connections supply tools over local stdio or remote Streamable HTTP, with enable/disable controls and connection-scoped credentials. They do not provide MCP resources, prompts, sampling, or elicitation.
 - Network Queries configures separate search and page-reading services, order, keys, and initial output lengths. Search returns sources and summaries; page reading retrieves a known URL.
 
+With Debug mode enabled, About Vista offers a confirmed full reset. It stops running tasks, managed background processes and logins, then deletes all conversations, attached resources, connections and credentials, user skills, global instructions, memory and other Vista settings. The current browser's Vista preferences and drafts are cleared, the runtime restarts, and the page opens the first-use screen at its new address. External files and services, including files previously changed by tools, are not reverted. The listener uses the default port after reset, or the port specified by the process environment; the previous launch port is discarded. Browser preferences in other clients and settings supplied through the process environment are outside this reset.
+
 ## Current boundaries
 
 Vista binds to loopback and runs tools with the service user's local permissions. There is no per-tool approval or filesystem rollback. Conversations share the real filesystem and have no fixed project directory; tools require explicit target paths. Optimistic checks in file-writing tools do not cover arbitrary shell writes.

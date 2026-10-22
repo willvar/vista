@@ -15,6 +15,7 @@ import ResourceStorageSettings from '../ResourceStorageSettings.vue'
 import ProviderLogin from '../ProviderLogin.vue'
 import OMPCatalogSettings from '../OMPCatalogSettings.vue'
 import UserAgentSettings from '../UserAgentSettings.vue'
+import ResetVistaSettings from '../ResetVistaSettings.vue'
 import VistaMark from '../VistaMark.vue'
 import { useWorkspace } from '../composables/useWorkspace'
 import { useProviderSettings } from '../composables/useProviderSettings'
@@ -77,6 +78,7 @@ function back() {
 }
 const mcpModalOpen = ref(false)
 const skillModalOpen = ref(false)
+const resetModalOpen = ref(false)
 const instructionsEditorOpen = ref(false)
 const instructionsEditor = ref<TextAreaRef>()
 const {
@@ -120,7 +122,7 @@ watch(() => route.fullPath, () => {
 </script>
 
 <template>
-<WorkspaceModal :open="true" width="max-content" :keyboard="!providerDisconnectTarget && !modelFormOpen && !mcpModalOpen && !skillModalOpen && !instructionsEditorOpen" @cancel="backToWorkspace"><section class="workspace settings-page modal-page" :class="{ 'settings-index': settingsIndex }">
+<WorkspaceModal :open="true" width="max-content" :keyboard="!providerDisconnectTarget && !modelFormOpen && !mcpModalOpen && !skillModalOpen && !resetModalOpen && !instructionsEditorOpen" @cancel="backToWorkspace"><section class="workspace settings-page modal-page" :class="{ 'settings-index': settingsIndex }">
         <div class="conversation-header">
           <a-button type="text" class="page-back" :aria-label="t(settingsIndex ? 'backToConversation' : 'backToSettings')" @click="back"><ArrowLeftOutlined /></a-button>
           <div class="page-heading"><small v-if="!settingsIndex">{{ t('settingsHeading') }}</small><h2 ref="pageHeading" tabindex="-1">{{ settingsTitle }}</h2></div>
@@ -238,6 +240,7 @@ watch(() => route.fullPath, () => {
             <p class="about-tagline">{{ t('vistaTagline') }}</p>
           </div>
           <div class="debug-mode-setting general-setting"><div><label for="debug-mode">{{ t('debugMode') }}</label><p id="debug-mode-hint">{{ t('debugModeHint') }}</p></div><a-switch id="debug-mode" v-model:checked="debugMode" :aria-label="t('debugMode')" aria-describedby="debug-mode-hint" /></div>
+          <ResetVistaSettings v-if="debugMode" @modal-open="resetModalOpen = $event" />
           <OMPCatalogSettings ref="sectionActions" :client="workspace.client" @updated="refreshProviderCatalog" />
           <UserAgentSettings :client="workspace.client" />
           <dl v-if="serverStatus" class="about-build-info">

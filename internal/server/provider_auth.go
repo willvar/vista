@@ -187,7 +187,7 @@ func (a *App) startProviderLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	a.providerLogins[login.ID] = login
-	go a.completeProviderLogin(ctx, login)
+	a.background.Go(func() { a.completeProviderLogin(ctx, login) })
 	jsonOut(w, login)
 }
 

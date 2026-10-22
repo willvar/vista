@@ -2159,17 +2159,17 @@ body {
   outline: 2px solid var(--accent);
   outline-offset: 3px;
 }
-.ant-btn.ant-btn-primary {
+.ant-btn.ant-btn-primary:not(.ant-btn-dangerous) {
   background: var(--primary);
   border-color: var(--primary);
   color: var(--primary-text);
 }
-.ant-btn.ant-btn-primary:not(:disabled):hover {
+.ant-btn.ant-btn-primary:not(.ant-btn-dangerous):not(:disabled):hover {
   background: var(--primary-hover);
   border-color: var(--primary-hover);
   color: var(--primary-text);
 }
-.ant-btn.ant-btn-primary:disabled {
+.ant-btn.ant-btn-primary:not(.ant-btn-dangerous):disabled {
   background: var(--hover);
   border-color: var(--border-subtle);
   color: var(--faint);

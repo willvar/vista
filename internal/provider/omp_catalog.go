@@ -187,6 +187,16 @@ func CurrentOMPCatalog() *OMPCatalogSnapshot {
 	return ompCatalogData.Load()
 }
 
+// RestoreBundledOMPCatalog drops downloaded metadata from the active process
+// after a full reset, without fetching any external catalog.
+func RestoreBundledOMPCatalog() error {
+	catalog, err := decodeOMPCatalog(bundledOMPCatalog)
+	if err == nil {
+		catalog.Activate()
+	}
+	return err
+}
+
 func ensureOMPCatalog() bool { return CurrentOMPCatalog() != nil }
 
 // Activate publishes a fully validated snapshot in a single operation.

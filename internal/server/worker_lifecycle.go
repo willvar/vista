@@ -127,7 +127,7 @@ func (a *App) startWorkerUsing(id string, launch func(context.Context, string) (
 		}
 		return err
 	}
-	go a.readWorkerOutput(id, w, scanner)
+	a.background.Go(func() { a.readWorkerOutput(id, w, scanner) })
 	return nil
 }
 
@@ -228,7 +228,7 @@ func (a *App) recoverWorker(id string) {
 		}
 		if err := a.startWorkerUsing(id, a.launchOpenWorker); err == nil {
 			log.Printf("worker %s recovered", id)
-			go a.launchQueuedInput(id)
+			a.background.Go(func() { a.launchQueuedInput(id) })
 			return
 		}
 		log.Printf("worker %s restart %d failed: %v", id, attempt+1, err)

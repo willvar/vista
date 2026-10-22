@@ -65,7 +65,7 @@ func (a *App) inputQueue(w http.ResponseWriter, r *http.Request, sessionID strin
 			return
 		}
 		a.hub.notify(sessionID)
-		go a.launchQueuedInput(sessionID)
+		a.background.Go(func() { a.launchQueuedInput(sessionID) })
 		jsonOut(w, map[string]any{"event": event})
 		return
 	}

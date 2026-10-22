@@ -92,7 +92,7 @@ e2e: check-browser web
 	VISTA_BIN="$(TEST_E2E_BIN)" VISTA_CHROME="$(VISTA_CHROME)" npm --prefix web run test:e2e -- --max-failures=1
 
 integration: check-sqlite test-bin
-	VISTA_TEST_BINARY="$(TEST_BIN)" GOWORK=off CGO_ENABLED=0 go test ./cmd/vista -run '^TestNativeApplication$$' -count=1
+	VISTA_TEST_BINARY="$(TEST_BIN)" GOWORK=off CGO_ENABLED=0 go test ./cmd/vista -run '^TestNative(Application|ResetPort)$$' -count=1
 	@set -eu; \
 	for script in $(INTEGRATION_SCRIPTS); do \
 		printf '\nRunning scripts/%s_smoke.mjs\n' "$$script"; \

@@ -182,3 +182,30 @@ func TestOMPCatalogActivationIsSafeForConcurrentReaders(t *testing.T) {
 	}
 	readers.Wait()
 }
+
+func TestRestoreBundledCatalogDropsDownloadedMetadata(t *testing.T) {
+	original := CurrentOMPCatalog()
+	t.Cleanup(original.Activate)
+	revision := ompSourceRevision([]byte(ompTestSource))
+	next, err := FetchOMPCatalog(context.Background(), ompDownloadClient(t, revision, ompTestSource))
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	if err := next.Save(dir); err != nil {
+		t.Fatal(err)
+	}
+	if err := LoadOMPCatalog(dir); err != nil {
+		t.Fatal(err)
+	}
+	if err := RestoreBundledOMPCatalog(); err != nil {
+		t.Fatal(err)
+	}
+	if CurrentOMPCatalog().Info().Revision == revision {
+		t.Fatal("reset retained downloaded metadata")
+	}
+	// A later explicit reload must not be fooled by the pre-reset stat cache.
+	if err := LoadOMPCatalog(dir); err != nil || CurrentOMPCatalog().Info().Revision != revision {
+		t.Fatalf("catalog could not reload after reset: %v", err)
+	}
+}

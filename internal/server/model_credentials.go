@@ -46,7 +46,11 @@ func (c *workerResultConsumer) credentials(result workerproto.Result) error {
 	}
 	// Exchange outside the result reader: an expired credential must not stall
 	// progress or completion events from other tasks in this Worker.
-	go func() {
+	async := c.async
+	if async == nil {
+		async = func(fn func()) { go fn() }
+	}
+	async(func() {
 		ctx, cancel := context.WithTimeout(c.ctx, 30*time.Second)
 		defer cancel()
 		if request.Deadline > 0 {
@@ -74,6 +78,6 @@ func (c *workerResultConsumer) credentials(result workerproto.Result) error {
 			ack.Error = err.Error()
 		}
 		_ = c.send(ack) // A closed Worker has no remaining credential consumer.
-	}()
+	})
 	return nil
 }

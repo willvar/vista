@@ -324,7 +324,7 @@ func (a *App) submitMessage(w http.ResponseWriter, r *http.Request, sessionID st
 		return
 	}
 	a.hub.notify(sessionID)
-	go a.generateSessionTitle(sessionID, message.ID, model)
+	a.background.Go(func() { a.generateSessionTitle(sessionID, message.ID, model) })
 	if err := a.dispatchRun(r.Context(), sessionID, runID, message, model); err != nil {
 		http.Error(w, err.Error(), 503)
 		return
@@ -502,7 +502,7 @@ func (a *App) readWorkerOutput(id string, w *worker, scanner *bufio.Scanner) {
 	a.mu.Unlock()
 	if !stopping {
 		if restartAllowed {
-			go a.recoverWorker(id)
+			a.background.Go(func() { a.recoverWorker(id) })
 		} else {
 			log.Printf("worker %s automatic restart suppressed after repeated exits; retry manually", id)
 		}
@@ -588,7 +588,7 @@ func (a *App) launchQueuedInput(sessionID string) {
 		return
 	}
 	a.hub.notify(sessionID)
-	go a.generateSessionTitle(sessionID, message.ID, model)
+	a.background.Go(func() { a.generateSessionTitle(sessionID, message.ID, model) })
 	if err := a.dispatchRun(a.ctx, sessionID, runID, *message, model); err != nil {
 		log.Printf("session %s queued input dispatch: %v", sessionID, err)
 		return

@@ -22,6 +22,7 @@ import (
 // no process ownership; the caller decides what to do when consumption fails.
 type workerResultConsumer struct {
 	done               <-chan struct{}
+	async              func(func())
 	refreshCredentials func(context.Context, modelcfg.Model) (modelcfg.Model, error)
 	ctx                context.Context
 	store              *store.Store
@@ -37,14 +38,14 @@ type workerResultConsumer struct {
 func (a *App) workerResultConsumer(id string, w *worker) *workerResultConsumer {
 	return &workerResultConsumer{
 		ctx: a.ctx, store: a.store, sessionID: id, stateDir: a.dir,
-		done: w.done, refreshCredentials: a.refreshModelCredentials,
+		done: w.done, refreshCredentials: a.refreshModelCredentials, async: a.background.Go,
 		send:   w.send,
 		notify: func() { a.hub.notify(id) },
 		pollInput: func(runID string, reply *workerproto.CompletedReply) (*workerproto.Command, error) {
 			return a.pullInterjection(a.ctx, id, runID, reply)
 		},
 		metrics:  func(metrics workerproto.Metrics) { a.recordWorkerMetrics(id, w, metrics) },
-		finished: func() { go a.launchQueuedInput(id) },
+		finished: func() { a.background.Go(func() { a.launchQueuedInput(id) }) },
 	}
 }
 

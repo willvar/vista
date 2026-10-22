@@ -79,8 +79,8 @@ func (a *App) commitModelSettingsLocked(ctx context.Context, snapshot modelSetti
 	}
 	a.publishBaseModelsLocked(resolved)
 	if a.ctx != nil {
-		go a.refreshCustomModels(a.ctx)
-		go a.refreshCopilotModels(a.ctx)
+		a.background.Go(func() { a.refreshCustomModels(a.ctx) })
+		a.background.Go(func() { a.refreshCopilotModels(a.ctx) })
 	}
 	return a.removeDisconnectedCodex(snapshot.raw, raw)
 }
