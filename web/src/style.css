@@ -1560,9 +1560,9 @@ body {
 .delegation-depth-example>strong { font-size: 20px; font-weight: 600; }
 .delegation-depth-example>span { color: var(--text-secondary); font-size: var(--font-size-small); line-height: 1.6; }
 .delegation-tree { position: relative; width: 100%; max-width: 120px; height: 104px; }
-.delegation-tree svg { display: block; width: 100%; height: 100%; overflow: visible; }
-.delegation-tree path { fill: none; stroke: var(--border-strong); stroke-width: 1; stroke-linecap: round; stroke-linejoin: round; vector-effect: non-scaling-stroke; }
-.delegation-tree-agent { position: absolute; display: flex; align-items: center; justify-content: center; width: 20px; height: 20px; transform: translate(-50%,-50%); border: 1px solid var(--border-strong); border-radius: 5px; color: var(--accent); background: var(--surface); font-size: 13px; }
+.delegation-tree>svg { display: block; width: 100%; height: 100%; overflow: visible; }
+.delegation-tree>svg path { fill: none; stroke: var(--border-strong); stroke-width: 1; stroke-linecap: round; stroke-linejoin: round; vector-effect: non-scaling-stroke; }
+.delegation-tree-agent { position: absolute; display: flex; align-items: center; justify-content: center; width: 20px; height: 20px; transform: translate(-50%,-50%); border: 1px solid var(--border-strong); border-radius: 5px; color: var(--accent); background: var(--surface); font-size: 14px; }
 .delegation-tree-main { color: var(--accent-text); background: var(--accent); border-color: var(--accent); }
 .delegation-depth-tradeoffs { display: flex; flex-direction: column; gap: 10px; margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--border); }
 .delegation-depth-tradeoffs>div { display: flex; align-items: baseline; gap: 8px; }

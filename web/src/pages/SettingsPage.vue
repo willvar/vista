@@ -220,7 +220,7 @@ watch(() => route.fullPath, () => {
                         <path v-if="depth >= 1" d="M50 24V32 M25 40V32H75V40" />
                         <path v-if="depth >= 2" d="M25 60V68 M12.5 76V68H37.5V76 M75 60V68 M62.5 76V68H87.5V76" />
                       </svg>
-                      <span v-for="node in delegationNodes.filter(node => node.level <= depth)" :key="`${node.level}-${node.x}`" class="delegation-tree-agent" :class="{ 'delegation-tree-main': node.level === 0 }" :style="{ left: `${node.x}%`, top: `${node.y}%` }"><RobotOutlined /></span>
+                      <span v-for="node in delegationNodes.filter(node => node.level <= depth)" :key="`${node.level}-${node.x}`" class="delegation-tree-agent" :class="{ 'delegation-tree-main': node.level === 0 }" :style="{ left: `${node.x}%`, top: `${node.y}%` }"><UserOutlined /></span>
                     </div>
                     <span>{{ t(label) }}</span>
                   </div>
