@@ -1,4 +1,7 @@
 export default {
+  "deletePendingConfirm": "Delete this pending message? {content}",
+  "removeSearchKeyConfirm": "Remove the saved API key for {name}?",
+  "resourceStorageCleanConfirm": "Permanently delete unreferenced resources ({files}, {size})?",
   "skillSystem": "System",
   "skillUser": "User",
   "skillSystemHint": "Built into Vista and updated with each version.",

@@ -65,6 +65,9 @@ export const regionalOverrides = {
     noModelConfigured: 'No hay modelos disponibles. Conecta un proveedor en Configuración antes de enviar.',
   },
   'pt-PT': {
+    deletePendingConfirm: 'Eliminar esta mensagem pendente? {content}',
+    removeSearchKeyConfirm: 'Remover a chave de API guardada de {name}?',
+    resourceStorageCleanConfirm: 'Eliminar permanentemente os recursos sem referências ({files}, {size})?',
     instructionsExampleDirectory: "A sua pasta",
     instructionsCreateFile: "Crie este ficheiro e escreva as regras",
     instructionsLocalScope: "Estas regras aplicam-se apenas a esta pasta e às suas subpastas. Em caso de conflito, o teu pedido atual tem prioridade sobre as regras da pasta, e estas sobre as instruções globais; as regras das subpastas têm prioridade sobre as da pasta superior.",

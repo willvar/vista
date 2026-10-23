@@ -2,6 +2,9 @@
 import type en from './en.ts'
 
 export default {
+  "deletePendingConfirm": "删除这条待发送消息？{content}",
+  "removeSearchKeyConfirm": "移除 {name} 已保存的 API Key？",
+  "resourceStorageCleanConfirm": "永久删除无引用资源（{files}，{size}）？",
   "skillSystem": "系统",
   "skillUser": "用户",
   "skillSystemHint": "内置于 Vista，随版本更新。",

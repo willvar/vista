@@ -1,5 +1,5 @@
 import { openSettingsSection } from './settings-navigation'
-import { test as base, expect, type Page } from '@playwright/test'
+import { test as base, expect, type Page, type Locator } from '@playwright/test'
 import { createServer } from 'vite'
 import { resolve } from 'node:path'
 
@@ -79,6 +79,10 @@ async function editKey(page: Page, name: string, title = `Edit ${name} API key`)
   await expect(dialog.getByLabel(`${name} API Key`, { exact: true })).toBeEnabled()
   return dialog
 }
+async function removeSavedKey(page: Page, dialog: Locator) {
+  await dialog.getByRole('button', { name: 'Remove saved key', exact: true }).click()
+  await page.locator('.search-key-remove-popover').getByRole('button', { name: 'Delete', exact: true }).click()
+}
 
 test('DeepSeek search and fetch keys are configured and cleared independently', async ({ page, mockOrigin }, testInfo) => {
   const fixture = await mockSearchSettings(page, mockOrigin)
@@ -111,7 +115,28 @@ test('DeepSeek search and fetch keys are configured and cleared independently', 
   await expect(badge(fetch)).toHaveText('Paid quota')
   const clearSearch = await open(search, 'Used for web search.')
   await expect(clearSearch.getByLabel('DeepSeek API Key', { exact: true })).toHaveValue('')
+  const confirmation = page.locator('.search-key-remove-popover')
+  const beforeRemoval = fixture.writes.length
   await clearSearch.getByRole('button', { name: 'Remove saved key', exact: true }).click()
+  await expect(confirmation.getByRole('alertdialog')).toContainText('DeepSeek · Web search')
+  expect(fixture.writes).toHaveLength(beforeRemoval)
+  expect(fixture.keys.deepseek).toBe('search-only-secret')
+  await confirmation.getByRole('button', { name: 'Cancel', exact: true }).click()
+  await expect(confirmation).toBeHidden()
+  await expect(clearSearch).toBeVisible()
+  await clearSearch.getByRole('button', { name: 'Remove saved key', exact: true }).click()
+  await expect(confirmation).toBeVisible()
+  await page.keyboard.press('Escape')
+  await expect(confirmation).toBeHidden()
+  await expect(clearSearch).toBeVisible()
+  await expect(page.locator('.settings-page')).toBeVisible()
+  expect(fixture.writes).toHaveLength(beforeRemoval)
+  fixture.failSave = true
+  await removeSavedKey(page, clearSearch)
+  await expect(confirmation.getByRole('alert')).toContainText('Could not save search settings')
+  expect(fixture.keys.deepseek).toBe('search-only-secret')
+  fixture.failSave = false
+  await confirmation.getByRole('button', { name: 'Delete', exact: true }).click()
   await expect(clearSearch).toBeHidden()
   await expect(badge(search)).toHaveText('Not configured')
   await expect(badge(fetch)).toHaveText('Paid quota')
@@ -119,6 +144,9 @@ test('DeepSeek search and fetch keys are configured and cleared independently', 
   expect(fixture.keys['deepseek-fetch']).toBe('fetch-only-secret')
   const clearFetch = await open(fetch, 'Used for page reading.')
   await clearFetch.getByRole('button', { name: 'Remove saved key', exact: true }).click()
+  await expect(confirmation.getByRole('alertdialog')).toContainText('DeepSeek · Page reading')
+  expect(fixture.keys['deepseek-fetch']).toBe('fetch-only-secret')
+  await confirmation.getByRole('button', { name: 'Delete', exact: true }).click()
   await expect(clearFetch).toBeHidden()
   await expect(badge(fetch)).toHaveText('Not configured')
   expect(fixture.unexpected).toEqual([])
@@ -229,7 +257,7 @@ test('search and reader keys save, survive reload without readback, and can be r
   for (const name of names) {
     const id = name === 'Jina Reader' ? 'jina' : name.toLowerCase()
     const form = await editKey(page, name)
-    await form.getByRole('button', { name: 'Remove saved key', exact: true }).click()
+    await removeSavedKey(page, form)
     await expect(form).toBeHidden()
     await expect(settings.locator(`[data-provider="${id}"] .search-quota-tag`)).toHaveText(name === 'Exa' ? 'Paid quota' : 'Free quota')
     const cleared = await editKey(page, name)

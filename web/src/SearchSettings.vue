@@ -1,9 +1,10 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, reactive, ref } from 'vue'
+import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { Alert as AAlert, Button as AButton, Checkbox as ACheckbox, InputNumber as AInputNumber, InputPassword as AInputPassword, Modal as AModal } from 'antdv-next'
 import { ArrowDownOutlined, ArrowUpOutlined, EditOutlined, SearchOutlined, FileTextOutlined, RobotOutlined, GlobalOutlined } from '@antdv-next/icons'
 import { useWorkspace } from './composables/useWorkspace'
+import ConfirmPopover from './ConfirmPopover.vue'
 
 type SearchProvider = { name: string; source: 'settings' | 'environment' | 'none' }
 const names: Record<string, string> = { exa: 'Exa', firecrawl: 'Firecrawl', parallel: 'Parallel', tavily: 'Tavily', deepseek: 'DeepSeek', 'deepseek-fetch': 'DeepSeek' }
@@ -14,6 +15,7 @@ const orderSections: { key: OrderKind; title: string; hint: string; preview: Pre
   { key: 'order', title: 'searchOrder', hint: 'searchOrderHint', preview: 'summaryLength', previewTitle: 'searchPreviewLength', previewHint: 'searchPreviewHint', defaultLength: 1000 },
   { key: 'fetchOrder', title: 'fetchOrder', hint: 'fetchOrderHint', preview: 'fetchPreviewLength', previewTitle: 'fetchPreviewLength', previewHint: 'fetchPreviewHint', defaultLength: 8000 },
 ]
+const emit = defineEmits<{ 'modal-open': [open: boolean] }>()
 const { t } = useI18n({ useScope: 'global' })
 const { client } = useWorkspace()
 const providers = ref<SearchProvider[]>([])
@@ -32,6 +34,11 @@ function orderDirty(key: OrderKind) { return orders[key].join(',') !== savedOrde
 const editing = ref('')
 const keyDraft = ref('')
 const keyError = ref('')
+const removingKey = ref(false)
+const removeKeyError = ref('')
+const removalName = computed(() => editing.value.startsWith('deepseek')
+  ? `${providerName(editing.value)} · ${t(editing.value === 'deepseek-fetch' ? 'webFetchLabel' : 'webSearchLabel')}`
+  : providerName(editing.value))
 const editingSource = computed(() => keySource(editing.value))
 const canSaveKey = computed(() => {
   const key = keyDraft.value.trim()
@@ -42,7 +49,8 @@ const busy = ref('')
 const error = ref('')
 const updated = ref('')
 const controller = new AbortController()
-onUnmounted(() => controller.abort())
+watch(editing, value => emit('modal-open', !!value), { flush: 'sync' })
+onUnmounted(() => { controller.abort(); emit('modal-open', false) })
 
 async function refresh() {
   const result = await client.request<{ providers: SearchProvider[]; order: string[]; fetchOrder: string[]; jinaReader: SearchProvider; deepseekFetch: SearchProvider } & Record<PreviewKind, number>>('/search-config', { signal: controller.signal })
@@ -89,12 +97,16 @@ function editKey(name: string) {
   editing.value = name
   keyDraft.value = ''
   keyError.value = ''
+  removingKey.value = false
+  removeKeyError.value = ''
 }
 function closeKeyEditor() {
   if (busy.value) return
   editing.value = ''
   keyDraft.value = ''
   keyError.value = ''
+  removingKey.value = false
+  removeKeyError.value = ''
 }
 function move(key: OrderKind, index: number, direction: number) {
   const target = index + direction
@@ -143,6 +155,7 @@ async function updateKey(remove = false) {
   if (!name || busy.value || loading.value || (!remove && !canSaveKey.value)) return
   busy.value = name
   keyError.value = ''
+  removeKeyError.value = ''
   updated.value = ''
   let saved = false
   try {
@@ -156,7 +169,12 @@ async function updateKey(remove = false) {
       updated.value = name
       saved = true
     }
-  } catch (cause) { if (!controller.signal.aborted) keyError.value = String(cause) }
+  } catch (cause) {
+    if (!controller.signal.aborted) {
+      if (remove) removeKeyError.value = String(cause)
+      else keyError.value = String(cause)
+    }
+  }
   finally { busy.value = '' }
   if (saved) closeKeyEditor()
 }
@@ -260,7 +278,7 @@ async function updateKey(remove = false) {
     </section>
   </div>
   <a-modal :open="!!editing" centered :z-index="1200" width="min(480px, calc(100vw - 2rem))"
-    :title="t('editSearchKey', { name: providerName(editing) })" :footer="null" :closable="!busy" :keyboard="!busy" :mask-closable="!busy" destroy-on-hidden
+    :title="t('editSearchKey', { name: providerName(editing) })" :footer="null" :closable="!busy" :keyboard="!busy && !removingKey" :mask-closable="!busy && !removingKey" destroy-on-hidden
     :styles="{ body: { maxHeight: 'calc(100dvh - 10rem)', overflowY: 'auto', overscrollBehavior: 'contain' } }" @cancel="closeKeyEditor">
     <form v-if="editing" class="search-key-form" :aria-label="providerName(editing)" @submit.prevent="updateKey()">
       <a-alert v-if="keyError" type="error" role="alert" :message="keyError" />
@@ -271,7 +289,9 @@ async function updateKey(remove = false) {
       <a-input-password id="search-provider-key" v-model:value="keyDraft" :aria-label="`${providerName(editing)} API Key`" :maxlength="4096" :disabled="!!busy" autocomplete="new-password" :placeholder="editingSource === 'settings' ? t('reuseSavedKey') : t('enterApiKey')" />
       <p v-if="editingSource === 'environment'" class="search-settings-hint">{{ t('searchKeyEnvironmentHint') }}</p>
       <div class="search-key-actions">
-        <a-button v-if="editingSource === 'settings'" html-type="button" danger :disabled="!!busy" @click="updateKey(true)">{{ t('removeSearchKey') }}</a-button>
+        <ConfirmPopover v-if="editingSource === 'settings'" :show="removingKey" :message="t('removeSearchKeyConfirm', { name: removalName })" :cancel-text="t('cancel')" :confirm-text="t('delete')" :busy="!!busy" :error="removeKeyError" :z-index="1300" popover-class="search-key-remove-popover" @update:show="removingKey = $event; removeKeyError = ''" @confirm="updateKey(true)">
+          <template #trigger><a-button html-type="button" danger :disabled="!!busy">{{ t('removeSearchKey') }}</a-button></template>
+        </ConfirmPopover>
         <div><a-button html-type="button" :disabled="!!busy" @click="closeKeyEditor">{{ t('cancel') }}</a-button><a-button html-type="submit" type="primary" :loading="!!busy" :disabled="!!busy || !canSaveKey">{{ t('saveChanges') }}</a-button></div>
       </div>
     </form>

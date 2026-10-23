@@ -2,6 +2,9 @@ import type en from './en.ts'
 
 
 export default {
+  "deletePendingConfirm": "이 대기 중인 메시지를 삭제할까요? {content}",
+  "removeSearchKeyConfirm": "{name}에 저장된 API 키를 삭제할까요?",
+  "resourceStorageCleanConfirm": "참조되지 않는 리소스({files}, {size})를 영구 삭제할까요?",
   "skillSystem": "시스템",
   "skillUser": "사용자",
   "skillSystemHint": "Vista에 내장되며 버전과 함께 업데이트됩니다.",

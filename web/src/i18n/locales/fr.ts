@@ -2,6 +2,9 @@ import type en from './en.ts'
 
 
 export default {
+  "deletePendingConfirm": "Supprimer ce message en attente ? {content}",
+  "removeSearchKeyConfirm": "Supprimer la clé API enregistrée pour {name} ?",
+  "resourceStorageCleanConfirm": "Supprimer définitivement les ressources sans référence ({files}, {size}) ?",
   "skillSystem": "Système",
   "skillUser": "Utilisateur",
   "skillSystemHint": "Intégrée à Vista et mise à jour avec chaque version.",

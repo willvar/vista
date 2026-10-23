@@ -2,6 +2,9 @@ import type en from './en.ts'
 
 
 export default {
+  "deletePendingConfirm": "Удалить это ожидающее сообщение? {content}",
+  "removeSearchKeyConfirm": "Удалить сохранённый API-ключ для {name}?",
+  "resourceStorageCleanConfirm": "Безвозвратно удалить ресурсы без ссылок ({files}, {size})?",
   "skillSystem": "Системный",
   "skillUser": "Пользовательский",
   "skillSystemHint": "Встроен в Vista и обновляется вместе с версией.",

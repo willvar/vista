@@ -2,6 +2,9 @@ import type en from './en.ts'
 
 
 export default {
+  "deletePendingConfirm": "¿Eliminar este mensaje pendiente? {content}",
+  "removeSearchKeyConfirm": "¿Eliminar la clave de API guardada de {name}?",
+  "resourceStorageCleanConfirm": "¿Eliminar permanentemente los recursos sin referencias ({files}, {size})?",
   "skillSystem": "Sistema",
   "skillUser": "Usuario",
   "skillSystemHint": "Integrada en Vista; se actualiza con cada versión.",

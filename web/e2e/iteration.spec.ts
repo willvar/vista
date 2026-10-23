@@ -85,6 +85,41 @@ async function withinViewport(page: Page) {
   expect(problems).toEqual([])
 }
 
+test('pending deletion requires confirmation and Escape keeps the task running', async ({ page, mockOrigin }) => {
+  const fixture = await mockWorkspace(page, mockOrigin)
+  await page.getByRole('button', { name: 'Got it', exact: true }).click()
+  const deletes: string[] = []
+  const stops: string[] = []
+  page.on('request', request => {
+    const path = new URL(request.url()).pathname
+    if (request.method() === 'DELETE' && path.includes('/inputs/')) deletes.push(path)
+    if (path.endsWith('/cancel')) stops.push(path)
+  })
+  const item = page.locator('[data-input-id="pending-2"]')
+  const remove = item.getByRole('button', { name: 'Delete pending message', exact: true })
+  const confirmation = page.locator('.pending-delete-popover')
+  await remove.click()
+  await expect(confirmation.getByRole('alertdialog')).toContainText('Use the sunny corner.')
+  expect(deletes).toEqual([])
+  await confirmation.getByRole('button', { name: 'Cancel', exact: true }).click()
+  await expect(confirmation).toBeHidden()
+  await expect(item).toBeVisible()
+  expect(deletes).toEqual([])
+  await remove.click()
+  await expect(confirmation).toBeVisible()
+  await page.keyboard.press('Escape')
+  await expect(confirmation).toBeHidden()
+  await expect(item).toBeVisible()
+  expect(stops).toEqual([])
+  expect(fixture.session.executing).toBe(true)
+  await remove.click()
+  await expect(confirmation).toBeVisible()
+  await confirmation.getByRole('button', { name: 'Delete', exact: true }).click()
+  await expect(item).toHaveCount(0)
+  expect(deletes).toEqual(['/api/sessions/iteration-session/inputs/pending-2'])
+  expect(stops).toEqual([])
+})
+
 test('independent selection, voluntary feedback, pending controls, and context fit the viewport', async ({ page, mockOrigin }, testInfo) => {
   const fixture = await mockWorkspace(page, mockOrigin)
   const smallScreen = page.viewportSize()!.width <= 830
@@ -159,6 +194,7 @@ test('independent selection, voluntary feedback, pending controls, and context f
   await page.getByRole('button', { name: 'Resume', exact: true }).click()
   await expect(page.locator('.pending-inputs')).not.toContainText('Pending messages paused')
   await page.locator('[data-input-id="pending-2"]').getByRole('button', { name: 'Delete pending message', exact: true }).click()
+  await page.locator('.pending-delete-popover').getByRole('button', { name: 'Delete', exact: true }).click()
   await expect(page.locator('[data-input-id="pending-2"]')).toHaveCount(0)
 
   fixture.session.title = 'Plan a small garden with native plants, a narrow path, and a practical budget '.repeat(6).trim()

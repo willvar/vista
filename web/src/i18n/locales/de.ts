@@ -2,6 +2,9 @@ import type en from './en.ts'
 
 
 export default {
+  "deletePendingConfirm": "Diese ausstehende Nachricht löschen? {content}",
+  "removeSearchKeyConfirm": "Den gespeicherten API-Schlüssel für {name} entfernen?",
+  "resourceStorageCleanConfirm": "Nicht referenzierte Ressourcen dauerhaft löschen ({files}, {size})?",
   "skillSystem": "System",
   "skillUser": "Benutzer",
   "skillSystemHint": "In Vista integriert; wird mit jeder Version aktualisiert.",

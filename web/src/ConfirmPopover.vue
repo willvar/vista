@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { onUnmounted, ref, watch } from 'vue'
 import { Alert, Popconfirm } from 'antdv-next'
-const props = defineProps<{ show: boolean; message: string; cancelText: string; confirmText: string; busy?: boolean; error?: string; popoverClass: string }>()
+const props = defineProps<{ show: boolean; message: string; cancelText: string; confirmText: string; busy?: boolean; error?: string; popoverClass: string; zIndex?: number }>()
 const emit = defineEmits<{ 'update:show': [show: boolean]; confirm: [] }>()
 const confirming = ref(false)
 function confirm() { confirming.value = true; emit('confirm') }
@@ -22,7 +22,7 @@ watch(() => props.show, show => {
 onUnmounted(() => window.removeEventListener('keydown', onEscape, true))
 </script>
 <template>
-  <Popconfirm :open="show" placement="top" :z-index="1200"
+  <Popconfirm :open="show" placement="top" :z-index="zIndex ?? 1200"
     :root-class="['confirmation-popover', popoverClass].join(' ')"
     :styles="{ root: { maxWidth: 'min(360px, calc(100vw - 2rem))' } }"
     :title="confirmText" :cancel-text="cancelText" :ok-text="confirmText"

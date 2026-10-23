@@ -3,6 +3,7 @@ import { computed, ref, watch } from 'vue'
 import { Button, TextArea } from 'antdv-next'
 import { DeleteOutlined, EditOutlined, RollbackOutlined, ArrowUpOutlined, PlayCircleOutlined } from '@antdv-next/icons'
 import { useI18n } from 'vue-i18n'
+import ConfirmPopover from './ConfirmPopover.vue'
 import type { QueuedInput } from './client/types'
 const props = defineProps<{
   items: QueuedInput[]; paused: boolean; busy: Record<string, boolean>
@@ -11,12 +12,21 @@ const props = defineProps<{
 const emit = defineEmits<{ resume: [] }>()
 const { t } = useI18n()
 const editing = ref('')
+const deleting = ref('')
 const content = ref('')
 const allPaused = computed(() => props.items.every(item => item.status === 'paused'))
-watch(() => props.items, items => { if (!items.some(item => item.id === editing.value)) editing.value = '' })
+watch(() => props.items, items => {
+  if (!items.some(item => item.id === editing.value)) editing.value = ''
+  if (!items.some(item => item.id === deleting.value && item.status !== 'delivering')) deleting.value = ''
+}, { deep: true })
 async function save(item: QueuedInput) {
   if (!content.value.trim() && !item.imageCount) return
   if (await props.mutate(item, 'edit', { content: content.value })) editing.value = ''
+}
+async function remove(item: QueuedInput) {
+  if (props.busy[item.id]) return
+  const current = props.items.find(input => input.id === item.id && input.status !== 'delivering')
+  if (!current || await props.mutate(current, 'delete')) deleting.value = ''
 }
 </script>
 <template>
@@ -32,10 +42,12 @@ async function save(item: QueuedInput) {
         <template v-else>
           <p>{{ item.content || t('attachedImage') }}</p>
           <div class="pending-input-actions">
-            <Button size="small" type="text" :title="t('editPending')" :aria-label="t('editPending')" :disabled="busy[item.id] || item.status === 'delivering'" @click="editing = item.id; content = item.content"><EditOutlined /></Button>
+            <Button size="small" type="text" :title="t('editPending')" :aria-label="t('editPending')" :disabled="busy[item.id] || item.status === 'delivering'" @click="deleting = ''; editing = item.id; content = item.content"><EditOutlined /></Button>
             <Button size="small" type="text" :title="t('withdrawPending')" :aria-label="t('withdrawPending')" :disabled="busy[item.id] || item.status === 'delivering'" @click="mutate(item, 'withdraw')"><RollbackOutlined /></Button>
             <Button v-if="item.mode === 'later'" size="small" type="text" :title="t('promotePending')" :aria-label="t('promotePending')" :disabled="busy[item.id] || item.status === 'delivering'" @click="mutate(item, 'edit', { mode: 'now' })"><ArrowUpOutlined /></Button>
-            <Button size="small" type="text" :title="t('deletePending')" :aria-label="t('deletePending')" :disabled="busy[item.id] || item.status === 'delivering'" @click="mutate(item, 'delete')"><DeleteOutlined /></Button>
+            <ConfirmPopover :show="deleting === item.id" :message="t('deletePendingConfirm', { content: item.content || t('attachedImage') })" :cancel-text="t('cancel')" :confirm-text="t('delete')" :busy="busy[item.id]" popover-class="pending-delete-popover" @update:show="deleting = $event ? item.id : ''" @confirm="remove(item)">
+              <template #trigger><Button size="small" type="text" :title="t('deletePending')" :aria-label="t('deletePending')" :disabled="busy[item.id] || item.status === 'delivering'"><DeleteOutlined /></Button></template>
+            </ConfirmPopover>
           </div>
         </template>
       </div>

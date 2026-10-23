@@ -79,6 +79,9 @@ function back() {
 }
 const mcpModalOpen = ref(false)
 const skillModalOpen = ref(false)
+const memoryModalOpen = ref(false)
+const searchModalOpen = ref(false)
+const storageModalOpen = ref(false)
 const resetModalOpen = ref(false)
 const providerImportOpen = ref(false)
 const providerImport = ref<InstanceType<typeof ConfigurationImport>>()
@@ -135,7 +138,7 @@ watch(() => route.fullPath, () => {
 </script>
 
 <template>
-<WorkspaceModal :open="true" width="max-content" :keyboard="!providerDisconnectTarget && !modelFormOpen && !providerImportOpen && !mcpModalOpen && !skillModalOpen && !resetModalOpen && !instructionsEditorOpen" @cancel="backToWorkspace"><section class="workspace settings-page modal-page" :class="{ 'settings-index': settingsIndex }">
+<WorkspaceModal :open="true" width="max-content" :keyboard="!providerDisconnectTarget && !modelFormOpen && !providerImportOpen && !mcpModalOpen && !skillModalOpen && !memoryModalOpen && !searchModalOpen && !storageModalOpen && !resetModalOpen && !instructionsEditorOpen" @cancel="backToWorkspace"><section class="workspace settings-page modal-page" :class="{ 'settings-index': settingsIndex }">
         <div class="conversation-header">
           <a-button type="text" class="page-back" :aria-label="t(settingsIndex ? 'backToConversation' : 'backToSettings')" @click="back"><ArrowLeftOutlined /></a-button>
           <div class="page-heading"><small v-if="!settingsIndex">{{ t('settingsHeading') }}</small><h2 ref="pageHeading" tabindex="-1">{{ settingsTitle }}</h2></div>
@@ -153,10 +156,10 @@ watch(() => route.fullPath, () => {
         <nav class="settings-nav" :aria-label="t('settings')">
           <router-link v-for="section in sections" :key="section.name" :to="{ name: section.name, query: route.query }" :class="{ active: route.name === section.name }" :aria-current="route.name === section.name ? 'page' : undefined"><component :is="section.icon" aria-hidden="true" /><span>{{ t(section.label) }}</span><RightOutlined class="settings-nav-chevron" aria-hidden="true" /></router-link>
         </nav>
-        <SearchSettings v-if="route.name === 'settings-search'" />
+        <SearchSettings v-if="route.name === 'settings-search'" @modal-open="searchModalOpen = $event" />
         <MCPSettings ref="sectionActions" v-if="route.name === 'settings-mcp'" @modal-open="mcpModalOpen = $event" />
         <SkillsSettings ref="sectionActions" v-if="route.name === 'settings-skills'" @modal-open="skillModalOpen = $event" />
-        <ResourceStorageSettings ref="sectionActions" v-if="route.name === 'settings-storage'" />
+        <ResourceStorageSettings ref="sectionActions" v-if="route.name === 'settings-storage'" @modal-open="storageModalOpen = $event" />
         <ConfigurationImport v-if="canImport" :key="importKind" ref="providerImport" :kind="importKind" @modal-open="providerImportOpen = $event" @imported="onImported" />
         <div v-if="route.name === 'settings-general'" class="settings-content appearance-settings-content">
           <div class="general-setting appearance-setting"><label id="appearance-label">{{ t('colorMode') }}</label><div class="appearance-options" role="group" aria-labelledby="appearance-label"><button v-for="mode in appearances" :key="mode.value" type="button" class="appearance-option" :class="{ selected: appearance === mode.value }" :aria-pressed="appearance === mode.value" @click="setAppearance(mode.value)"><span class="appearance-preview" :data-mode="mode.value"><i></i><span><b></b><b></b><b></b></span></span><span class="appearance-option-label"><component :is="mode.icon" aria-hidden="true" />{{ t(`appearance${mode.value[0]!.toUpperCase()}${mode.value.slice(1)}`) }}</span></button></div></div>
@@ -203,7 +206,7 @@ watch(() => route.fullPath, () => {
               <p class="instructions-local-scope">{{ t('instructionsLocalScope') }}</p>
             </aside>
           </form>
-          <MemorySettings />
+          <MemorySettings @modal-open="memoryModalOpen = $event" />
           <form class="delegation-depth-form" :aria-label="t('delegationDepth')" @submit.prevent="saveAgentSettings('delegationDepth')">
             <div class="general-setting">
               <label for="delegation-depth">{{ t('delegationDepth') }}</label>

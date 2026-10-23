@@ -1,12 +1,14 @@
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { Alert as AAlert, Button as AButton, TextArea as ATextarea, type TextAreaRef } from 'antdv-next'
 import { DeleteOutlined, EditOutlined, PlusOutlined, ReloadOutlined, CommentOutlined, BookOutlined, RobotOutlined } from '@antdv-next/icons'
+import ConfirmPopover from './ConfirmPopover.vue'
 import { useWorkspace } from './composables/useWorkspace'
 import { VistaAPIError } from './client/vista'
 import type { Memories, Memory } from './client/types'
 
+const emit = defineEmits<{ 'modal-open': [open: boolean] }>()
 const { t } = useI18n({ useScope: 'global' })
 const { client } = useWorkspace()
 const snapshot = ref<Memories>({ memories: [], maxCount: 128, maxBytes: 4096, maxTotalBytes: 32768 })
@@ -15,6 +17,8 @@ const loading = ref(false)
 const busy = ref(false)
 const error = ref('')
 const editing = ref<Memory | 'new' | null>(null)
+const deleting = ref('')
+const deleteError = ref('')
 const draft = ref('')
 const editor = ref<TextAreaRef>()
 let disposed = false
@@ -39,6 +43,8 @@ function message(failure: unknown) {
 
 async function load() {
   if (busy.value) return
+  deleting.value = ''
+  deleteError.value = ''
   readController?.abort()
   const controller = readController = new AbortController()
   const version = ++generation
@@ -55,6 +61,8 @@ async function load() {
 }
 
 async function startEdit(memory: Memory | 'new') {
+  deleting.value = ''
+  deleteError.value = ''
   editing.value = memory === 'new' ? memory : { ...memory }
   draft.value = memory === 'new' ? '' : memory.text
   error.value = ''
@@ -66,6 +74,7 @@ async function change(action: 'add' | 'update' | 'remove', memory?: Memory) {
   if (busy.value) return
   busy.value = true
   error.value = ''
+  deleteError.value = ''
   readController?.abort()
   const version = ++generation
   loading.value = false
@@ -77,9 +86,13 @@ async function change(action: 'add' | 'update' | 'remove', memory?: Memory) {
       snapshot.value = result
       editing.value = null
       draft.value = ''
+      if (action === 'remove') deleting.value = ''
     }
   } catch (failure) {
-    if (!disposed && generation === version) error.value = message(failure)
+    if (!disposed && generation === version) {
+      if (action === 'remove') deleteError.value = message(failure)
+      else error.value = message(failure)
+    }
   } finally {
     if (!disposed && generation === version) busy.value = false
   }
@@ -90,7 +103,8 @@ function save() {
   void change(editing.value === 'new' ? 'add' : 'update', editing.value === 'new' ? undefined : editing.value)
 }
 onMounted(load)
-onBeforeUnmount(() => { disposed = true; generation++; readController?.abort() })
+watch(deleting, value => emit('modal-open', !!value), { flush: 'sync' })
+onBeforeUnmount(() => { disposed = true; generation++; readController?.abort(); emit('modal-open', false) })
 </script>
 
 <template>
@@ -128,7 +142,12 @@ onBeforeUnmount(() => { disposed = true; generation++; readController?.abort() }
           </template>
           <template v-else>
             <p class="memory-text">{{ memory.text }}</p>
-            <div class="memory-row-actions"><a-button type="text" :aria-label="t('editMemory', { text: memory.text })" :title="t('edit')" :disabled="busy || !!editing" @click="startEdit(memory)"><template #icon><EditOutlined /></template></a-button><a-button type="text" danger :aria-label="t('removeMemory', { text: memory.text })" :title="t('delete')" :disabled="busy || !!editing" @click="change('remove', memory)"><template #icon><DeleteOutlined /></template></a-button></div>
+            <div class="memory-row-actions">
+              <a-button type="text" :aria-label="t('editMemory', { text: memory.text })" :title="t('edit')" :disabled="busy || !!editing" @click="startEdit(memory)"><template #icon><EditOutlined /></template></a-button>
+              <ConfirmPopover :show="deleting === memory.id" :message="t('removeMemory', { text: memory.text })" :cancel-text="t('cancel')" :confirm-text="t('delete')" :busy="busy" :error="deleteError" popover-class="memory-delete-popover" @update:show="deleting = $event ? memory.id : ''; deleteError = ''" @confirm="change('remove', memory)">
+                <template #trigger><a-button type="text" danger :aria-label="t('removeMemory', { text: memory.text })" :title="t('delete')" :disabled="busy || !!editing"><template #icon><DeleteOutlined /></template></a-button></template>
+              </ConfirmPopover>
+            </div>
           </template>
         </li>
       </ul>

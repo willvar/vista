@@ -2,6 +2,9 @@ import type en from './en.ts'
 
 
 export default {
+  "deletePendingConfirm": "この送信待ちメッセージを削除しますか？{content}",
+  "removeSearchKeyConfirm": "{name} の保存済み API キーを削除しますか？",
+  "resourceStorageCleanConfirm": "参照のないリソース（{files}、{size}）を完全に削除しますか？",
   "skillSystem": "システム",
   "skillUser": "ユーザー",
   "skillSystemHint": "Vista に内蔵され、バージョン更新に合わせて更新されます。",

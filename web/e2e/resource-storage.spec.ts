@@ -36,10 +36,15 @@ test('originals survive compaction and closing, and become cleanable only after 
   await send(second.id, 'Same original, another session', 'second.png')
   await vista.api(`/sessions/${second.id}/close`, { method: 'POST', body: '{}' })
   let interruptedPolls = 0
+  let cleanRequests = 0
   await page.route('**/api/resource-storage', route => {
     if (route.request().method() === 'GET' && interruptedPolls === 0) {
       interruptedPolls++
       return route.fulfill({ status: 503, body: 'Temporary status connection failure' })
+    }
+    if (route.request().method() === 'POST' && route.request().postDataJSON().action === 'clean') {
+      cleanRequests++
+      if (cleanRequests === 1) return route.fulfill({ status: 503, body: 'Temporary cleanup failure' })
     }
     return route.continue()
   })
@@ -81,7 +86,27 @@ test('originals survive compaction and closing, and become cleanable only after 
     await page.screenshot({ path: testInfo.outputPath(`resource-storage-${theme}.png`), animations: 'disabled' })
   }
   await clean.click()
+  const confirmation = page.locator('.resource-clean-popover')
+  await expect(confirmation.getByRole('alertdialog')).toContainText(`1 file, ${original.length} B`)
+  expect(cleanRequests).toBe(0)
+  await expect(cards.nth(0)).toContainText('1 file')
+  await confirmation.getByRole('button', { name: 'Cancel', exact: true }).click()
+  await expect(confirmation).toBeHidden()
+  expect(cleanRequests).toBe(0)
+  await clean.click()
+  await expect(confirmation).toBeVisible()
+  await page.keyboard.press('Escape')
+  await expect(confirmation).toBeHidden()
+  await expect(page.locator('.resource-storage-settings')).toBeVisible()
+  expect(cleanRequests).toBe(0)
+  await clean.click()
+  await confirmation.getByRole('button', { name: 'Delete', exact: true }).click()
+  await expect(confirmation.getByRole('alert')).toContainText('Temporary cleanup failure')
+  await expect(cards.nth(0)).toContainText('1 file')
+  await confirmation.getByRole('button', { name: 'Delete', exact: true }).click()
+  await expect(confirmation).toBeHidden()
   await expect(page.locator('.storage-progress')).toContainText(`Cleaned 1 file and freed ${original.length} B.`)
+  expect(cleanRequests).toBe(2)
   await expect(cards.nth(0)).toContainText('0 files')
   await expect(clean).toBeDisabled()
   await page.reload()

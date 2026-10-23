@@ -1,17 +1,24 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { Alert as AAlert, Button as AButton, Spin as ASpin } from 'antdv-next'
 import { DeleteOutlined } from '@antdv-next/icons'
 import { useWorkspace } from './composables/useWorkspace'
 import { formatDateTime } from './ui/datetime.ts'
+import ConfirmPopover from './ConfirmPopover.vue'
 
 type Stats = { totalBytes: number; totalCount: number; referencedBytes: number; referencedCount: number; cleanableBytes: number; cleanableCount: number; scannedAt: string }
 type Status = { phase: string; action?: string; stats?: Stats; deletedCount: number; deletedBytes: number; error?: string }
+const emit = defineEmits<{ 'modal-open': [open: boolean] }>()
 const { t, locale } = useI18n({ useScope: 'global' })
 const { client } = useWorkspace()
 const status = ref<Status>({ phase: 'idle', deletedCount: 0, deletedBytes: 0 })
 const error = ref('')
+const cleanOpen = ref(false)
+const cleanMessage = computed(() => t('resourceStorageCleanConfirm', {
+  files: t('resourceStorageCount', { count: status.value.stats?.cleanableCount || 0 }),
+  size: size(status.value.stats?.cleanableBytes || 0),
+}))
 const submitting = ref(false)
 const busy = computed(() => submitting.value || status.value.phase === 'running')
 const controller = new AbortController()
@@ -42,14 +49,19 @@ async function poll() {
 }
 async function start(action: 'scan' | 'clean') {
   if (busy.value) return
+  if (action === 'scan') cleanOpen.value = false
   submitting.value = true
   error.value = ''
-  try { accept(await client.request<Status>('/resource-storage', { method: 'POST', body: JSON.stringify({ action }), signal: controller.signal })) }
+  try {
+    accept(await client.request<Status>('/resource-storage', { method: 'POST', body: JSON.stringify({ action }), signal: controller.signal }))
+    if (action === 'clean') cleanOpen.value = false
+  }
   catch (failure) { if (!disposed) error.value = String(failure) }
   finally { submitting.value = false }
 }
 onMounted(() => { void start('scan') })
-onBeforeUnmount(() => { disposed = true; controller.abort(); if (timer) clearTimeout(timer) })
+watch(cleanOpen, value => emit('modal-open', value), { flush: 'sync' })
+onBeforeUnmount(() => { disposed = true; controller.abort(); if (timer) clearTimeout(timer); emit('modal-open', false) })
 const cards = computed(() => [
   { label: 'resourceStorageTotal', bytes: status.value.stats?.totalBytes, count: status.value.stats?.totalCount },
   { label: 'resourceStorageReferenced', bytes: status.value.stats?.referencedBytes, count: status.value.stats?.referencedCount },
@@ -69,14 +81,16 @@ defineExpose({ headerAction: computed(() => ({ label: 'resourceStorageRefresh', 
     </div>
     <p class="storage-description">{{ t('resourceStorageRetention') }}</p>
     <div class="storage-actions">
-      <a-button :disabled="busy || !status.stats?.cleanableCount" @click="start('clean')"><template #icon><DeleteOutlined aria-hidden="true" /></template>{{ t('resourceStorageClean') }}</a-button>
+      <ConfirmPopover :show="cleanOpen" :message="cleanMessage" :cancel-text="t('cancel')" :confirm-text="t('delete')" :busy="busy" :error="error" popover-class="resource-clean-popover" @update:show="cleanOpen = $event; error = ''" @confirm="start('clean')">
+        <template #trigger><a-button :disabled="busy || !status.stats?.cleanableCount"><template #icon><DeleteOutlined aria-hidden="true" /></template>{{ t('resourceStorageClean') }}</a-button></template>
+      </ConfirmPopover>
     </div>
     <div class="storage-progress" role="status" aria-live="polite">
       <template v-if="busy"><a-spin size="small" /><span>{{ t(status.action === 'clean' ? 'resourceStorageCleaning' : 'resourceStorageScanning') }}<template v-if="status.deletedCount"> {{ t('resourceStorageFreed', { count: status.deletedCount, size: size(status.deletedBytes) }) }}</template></span></template>
       <span v-else-if="status.action === 'clean' && !error">{{ t('resourceStorageFreed', { count: status.deletedCount, size: size(status.deletedBytes) }) }}</span>
     </div>
     <small v-if="status.stats" class="storage-description">{{ t('resourceStorageScannedAt', { time: formatDateTime(status.stats.scannedAt, locale) }) }}</small>
-    <a-alert v-if="error" type="error" show-icon :title="error" />
+    <a-alert v-if="error && !cleanOpen" type="error" show-icon :title="error" />
   </div>
 </template>
 
