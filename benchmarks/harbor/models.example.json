@@ -1,0 +1,15 @@
+{
+  "default": "benchmark",
+  "models": [
+    {
+      "key": "benchmark",
+      "name": "Benchmark connection",
+      "provider": "openai-chat",
+      "providerId": "custom",
+      "authentication": "bearer",
+      "id": "YOUR_MODEL_ID",
+      "baseUrl": "https://provider.example.invalid/v1",
+      "apiKey": "REPLACE_WITH_YOUR_API_KEY"
+    }
+  ]
+}

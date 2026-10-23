@@ -1,0 +1,43 @@
+{
+  "dataset": "terminal-bench-sample@2.0",
+  "repository": "https://github.com/laude-institute/terminal-bench-2-0-sample.git",
+  "commit": "7e917f35c281188532772312d4ad91ca9274febc",
+  "tasks": [
+    "build-cython-ext",
+    "fix-code-vulnerability",
+    "log-summary-date-ranges"
+  ],
+  "selection": "Preselected infrastructure, code repair, and data-processing examples; not a random or representative success-rate sample.",
+  "verifiers": "Original task verifiers, unchanged.",
+  "timeouts": "Original task.toml limits, no multipliers.",
+  "concurrency": 1,
+  "attempts_per_task_per_round": 1,
+  "harness_retries": 0,
+  "instruction_wrapper": "Environment working directory, then original task text; complete file reference only above Vista API 8192-byte limit.",
+  "files": {
+    "build-cython-ext/environment/Dockerfile": "f8928b0ba4a6a2f244f7846cffc77dae5712378ca710fbecb680655eb083c7e3",
+    "build-cython-ext/instruction.md": "be4a4feef9bf9bd8e5efc93ccfc8f9bdeb91987dcc1fd98106625d8bc0833fa2",
+    "build-cython-ext/solution/solve.sh": "41bbdde88617070366a70e518eedca466a4ea1acd7e96899b2fb7da988e40abc",
+    "build-cython-ext/task.toml": "f61b6197005e8083ba1ee310678498c847ddf5a5b2733aab1d46e13d9663edba",
+    "build-cython-ext/tests/test.sh": "e0a4095ea39e0d6d4d3d518d61265748cbba84e02c15f13da257e4868384a289",
+    "build-cython-ext/tests/test_outputs.py": "6549f1a8e04b6163ec08877e6f6b9868bf94563f3a3c72ac1fba9c512c31689e",
+    "fix-code-vulnerability/environment/Dockerfile": "f825603ca80dfabe9f4ca5f68d9033fe186ccc2a293098f34fec5924be037097",
+    "fix-code-vulnerability/instruction.md": "414c65941b05de7a83af19aeae2c6cea8f6f2422e40e03bb15e9781b5cfd15da",
+    "fix-code-vulnerability/solution/solve.sh": "c55fd8eed51aa99e600ce37f5db0aa900c8eec2d743a641fe69778dd452fca0b",
+    "fix-code-vulnerability/task.toml": "14003117684614493b6288103e8cfc8629fb7eb71df538cd1c93945bb8be3c53",
+    "fix-code-vulnerability/tests/test.sh": "57f8dc003056731bd851067ed509be59a62b177aa4ded10a5169e6b3bcb2fc45",
+    "fix-code-vulnerability/tests/test_outputs.py": "c006a5de95b69bd78055aa26cc055734dbd50718ede25d331f767bfee4ef7f26",
+    "log-summary-date-ranges/environment/Dockerfile": "aebfefe46768b20cf0f990991f32f0af3b6ee3092e274de39a9a5189ce236878",
+    "log-summary-date-ranges/environment/log_generator_deterministic.py": "beb6eff59979e9aa0be63ce8a0f1b0df1178f92871f04ba9f76fa70cf8beb81c",
+    "log-summary-date-ranges/instruction.md": "c1d4516ad4ec2238209740eaf01291df9ab48b0028a3fc5df383c6f831453484",
+    "log-summary-date-ranges/solution/solve.sh": "9f6a8ee8947bdf1c0f31b530b6194ae998d66841a3b785fa2e246ee840350ab6",
+    "log-summary-date-ranges/task.toml": "aa6b5d0875c05fbd1eb4fe258fdcf2f57c96e757e794ccab73106f5a8b8121ce",
+    "log-summary-date-ranges/tests/test.sh": "fc9835e405cbbb0389d09b6482294a11e8f7ea4b856ec88162b8239c8b4b4d67",
+    "log-summary-date-ranges/tests/test_outputs.py": "2fc06a6ce1944ad82f84fb437395fa75ed8c0eadd385b92e375c27e5bc9cb2b4"
+  },
+  "runtime_images": {
+    "ghcr.io/laude-institute/terminal-bench/log-summary-date-ranges:2.0": "ghcr.io/laude-institute/terminal-bench/log-summary-date-ranges@sha256:277e7926a960bd0c9db733f50ce9861635abad6f5281910a33759d89e52bf9ab",
+    "ghcr.io/laude-institute/terminal-bench/fix-code-vulnerability:2.0": "ghcr.io/laude-institute/terminal-bench/fix-code-vulnerability@sha256:6c6c05a370f3593e721d4322b4f17815b36bc43fcce695d6ddaf79faa79f55bf",
+    "ghcr.io/laude-institute/terminal-bench/build-cython-ext:2.0": "ghcr.io/laude-institute/terminal-bench/build-cython-ext@sha256:522b53af90f23a92e05200d735e3368d0bbc6423e4b5a71a261a106bcb8e9aff"
+  }
+}

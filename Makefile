@@ -11,6 +11,8 @@ TEST_E2E_BIN := $(TEST_STATE)/bin/vista-e2e
 TEST_MCP_FIXTURE := $(TEST_STATE)/bin/mcp-fixture
 TEST_ENV = VISTA_BIN="$(TEST_BIN)" VISTA_MCP_FIXTURE="$(TEST_MCP_FIXTURE)" VISTA_TEST_TMPDIR="$(TEST_STATE)"
 VISTA_CHROME ?= $(shell command -v google-chrome || command -v google-chrome-stable || command -v chromium || command -v chromium-browser)
+HARBOR_PYTHON ?= $(CURDIR)/.vista/benchmarks/harbor/venv/bin/python
+BENCHMARK_ARGS ?= --help
 
 INTEGRATION_SCRIPTS := artifact background_job catalog checklist copilot_startup \
 	escaped_input execution_efficiency gemini history iteration_flow long_context \
@@ -18,7 +20,7 @@ INTEGRATION_SCRIPTS := artifact background_job catalog checklist copilot_startup
 IMAGE_PROTOCOLS := openai-chat mistral cohere bedrock vercel-gateway \
 	bedrock-mantle-responses sap-ai-core copilot
 
-.PHONY: build update-ua licenses check-licenses package test web $(TEST_GOALS) all test-bin test-mcp-fixture \
+.PHONY: build update-ua licenses check-licenses package test web benchmark $(TEST_GOALS) all test-bin test-mcp-fixture \
 	test-frontend-unit test-frontend-types check-browser check-sqlite
 # Memory measurements and builds share resources, including with multiple goals.
 .NOTPARALLEL:
@@ -53,6 +55,9 @@ build: $(if $(filter 1,$(UPDATE_UA)),update-ua) licenses
 
 package: build
 	python3 scripts/package_release.py --binary bin/vista --version "$(VERSION)" --output-dir .vista/dist
+
+benchmark:
+	"$(HARBOR_PYTHON)" benchmarks/harbor/run.py $(BENCHMARK_ARGS)
 
 test: $(if $(filter-out test,$(MAKECMDGOALS)),,go)
 	@:
