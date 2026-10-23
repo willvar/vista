@@ -86,9 +86,9 @@ func TestRepeatedCompactionIncludesRuntimeReportsAtTail(t *testing.T) {
 			defer cancel()
 			compactor := newExecutionCompactor(messages)
 			for pass := 0; pass < 2; pass++ {
-				before := provider.EstimateRequestTokens(messages, nil)
+				before := provider.EstimateRequestTokens(ctx, messages, nil)
 				next, changed, err := compactor.compact(ctx, command, messages, nil, func(workerproto.Result) error { return nil }, &runScope{}, 0)
-				if err != nil || !changed || provider.EstimateRequestTokens(next, nil) >= before {
+				if err != nil || !changed || provider.EstimateRequestTokens(ctx, next, nil) >= before {
 					t.Fatalf("pass %d failed to release report context: changed=%t err=%v", pass, changed, err)
 				}
 				if !reflect.DeepEqual(next[:3], messages[:3]) {
@@ -132,7 +132,7 @@ func TestJoinedReportsCompactAndRemainReadable(t *testing.T) {
 					t.Error(err)
 					return
 				}
-				if request.Messages[0].Content == executionSummaryPrompt {
+				if strings.HasPrefix(request.Messages[0].Content, executionSummaryPrompt) {
 					summaries.Add(1)
 					for _, message := range request.Messages {
 						for i := range full {

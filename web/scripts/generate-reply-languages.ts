@@ -15,7 +15,7 @@ export function replyLanguageNames() {
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
-  const path = new URL('../../internal/workerproto/language_names.json', import.meta.url)
+  const path = new URL('../../internal/replylanguage/language_names.json', import.meta.url)
   const expected = JSON.stringify(replyLanguageNames(), null, 2) + '\n'
   if (process.argv.includes('--check')) {
     let current = ''

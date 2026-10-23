@@ -29,6 +29,9 @@ func TestDelegateRetainsCompleteTaskInstructions(t *testing.T) {
 					w.WriteHeader(http.StatusBadRequest)
 					return
 				}
+				if system := request.Messages[0].Content; strings.Count(system, "Default to replies in") != 1 || !strings.Contains(system, "Default to replies in Traditional Chinese (Taiwan)") || strings.Contains(system, "Match the task's language") {
+					t.Errorf("main or child language policy was lost or contradicted: %s", system)
+				}
 				if request.Messages[1].Content == task {
 					continuationAnswer(w, "child complete")
 					return
@@ -52,7 +55,9 @@ func TestDelegateRetainsCompleteTaskInstructions(t *testing.T) {
 			}))
 			defer server.Close()
 			childStarted, childFinished, delegateFinished := false, false, false
-			answer, err := Run(context.Background(), continuationCommand(server.URL, rootPrompt), func(event workerproto.Result) error {
+			command := continuationCommand(server.URL, rootPrompt)
+			command.ReplyLanguage = "zh-TW"
+			answer, err := Run(context.Background(), command, func(event workerproto.Result) error {
 				if event.Kind == "agent_task" && event.Task != nil {
 					if event.Task.ID == "main" {
 						if event.Task.Title != textPrefix(rootPrompt, 300) {

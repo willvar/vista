@@ -60,7 +60,9 @@ Main model messages and tool results are saved to immutable history files, commi
 
 Automatic compaction requires explicit upstream context-overflow evidence. Manual compaction shares summary/checkpoint storage while idle. Catalog windows and retained-token estimates do not trigger it. Checkpoints replace prior history through event and input cutoffs, preserving tool pairing, resource references, and provider replay fields. Summary failure does not replace the active checkpoint. See [context compaction](./context-compaction.md).
 
-Global instructions, preferences, current checklist, language, and available tool information are rebuilt for execution. Project and skill bodies are read on demand. Model/protocol switches strip incompatible provider-owned replay data while keeping portable text, tool pairs, and resource references.
+Global instructions, preferences, current checklist, and available tool information are rebuilt for execution. Project and skill bodies are read on demand. Model/protocol switches strip incompatible provider-owned replay data while keeping portable text, tool pairs, and resource references.
+
+Reply language is request metadata, inherited by child tasks and refreshed when an interjection supplies a new preference. The shared model-request entry point applies the policy from `internal/replylanguage` to a request-local copy before protocol conversion; conversation, title, and compaction prompts do not define separate language policies. Explicit user language requests override the default; absent a valid preference, the default follows the user's message. Token estimates use the same preparation path, and generated language instructions are not saved in model history or checkpoints.
 
 ## Providers and tools
 

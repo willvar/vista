@@ -5,7 +5,7 @@ import (
 	"database/sql"
 	"errors"
 
-	"vista/internal/workerproto"
+	"vista/internal/replylanguage"
 )
 
 // ReplyLanguage is session metadata, separate from the model's message history.
@@ -20,7 +20,7 @@ func (s *Store) ReplyLanguage(ctx context.Context, sessionID string) (string, er
 }
 
 func (s *Store) SetReplyLanguage(ctx context.Context, sessionID, code string) error {
-	if workerproto.ReplyLanguageName(code) == "" {
+	if replylanguage.Name(code) == "" {
 		return errors.New("unsupported reply language")
 	}
 	tx, err := s.db.BeginTx(ctx, nil)

@@ -48,7 +48,7 @@ test('regional catalogs share base wording and only retain actual regional diffe
 })
 
 test('all regions have matching backend reply languages without independent translation files', () => {
-  const names = JSON.parse(readFileSync(new URL('../../../internal/workerproto/language_names.json', import.meta.url), 'utf8'))
+  const names = JSON.parse(readFileSync(new URL('../../../internal/replylanguage/language_names.json', import.meta.url), 'utf8'))
   assert.deepEqual(names, replyLanguageNames())
   assert.deepEqual(Object.keys(names).sort(), languages.map(language => language.value).sort())
   assert.equal(names['en-GB'], 'British English')

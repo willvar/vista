@@ -55,7 +55,7 @@ VISTA_DEV_BACKEND=http://127.0.0.1:5186 npm run dev
 
 简体中文维护 `src/i18n/locales/zh-CN.ts`，校订位于 `src/i18n/chinese-overrides.ts`。`scripts/generate-chinese.ts` 使用锁定的 OpenCC JS 生成台湾（`twp`）、香港／澳门（`hk`）、新加坡／马来西亚词条，不直接编辑生成文件。生成保留占位符、行内代码及 URL；OpenCC 仅用于构建，不进入浏览器运行代码。
 
-其他地区文案差异在 `src/i18n/regional-overrides.ts`，新增语言需登记组件库 locale。`scripts/generate-reply-languages.ts` 从同一注册表生成 `internal/workerproto/language_names.json`。开发和生产构建均执行这两类生成，`check:i18n` 拒绝过期结果。测试覆盖键、语法、占位符、地区匹配／格式、后端语言名及复数。
+其他地区文案差异在 `src/i18n/regional-overrides.ts`，新增语言需登记组件库 locale。`scripts/generate-reply-languages.ts` 从同一注册表生成 `internal/replylanguage/language_names.json`。开发和生产构建均执行这两类生成，`check:i18n` 拒绝过期结果。测试覆盖键、语法、占位符、地区匹配／格式、后端语言名及复数。
 
 ## 浏览器检查
 

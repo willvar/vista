@@ -9,6 +9,7 @@ import (
 
 	modelcfg "vista/internal/model"
 	"vista/internal/provider"
+	"vista/internal/replylanguage"
 	"vista/internal/workerproto"
 )
 
@@ -81,7 +82,7 @@ func executionTranscript(messages []provider.ChatMessage, groups []executionGrou
 }
 
 func (c *executionCompactor) compact(ctx context.Context, command workerproto.Command, messages []provider.ChatMessage, schemas []map[string]any, emit func(workerproto.Result) error, scope *runScope, depth int) ([]provider.ChatMessage, bool, error) {
-	estimate := provider.EstimateRequestTokens(messages, schemas)
+	estimate := provider.EstimateRequestTokens(ctx, messages, schemas)
 	status := &workerproto.CompactionStatus{RunID: command.RunID, Phase: "compacting", Manual: command.Action == "compact"}
 	if depth == 0 {
 		if err := emit(workerproto.Result{RunID: command.RunID, Kind: "context_status", Context: status}); err != nil {
@@ -186,7 +187,7 @@ func (c *executionCompactor) compact(ctx context.Context, command workerproto.Co
 			next = append(next, message)
 		}
 	}
-	if provider.EstimateRequestTokens(next, schemas) >= estimate {
+	if provider.EstimateRequestTokens(ctx, next, schemas) >= estimate {
 		return messages, false, errors.New("context compaction did not reduce the request; original context was retained")
 	}
 	if err := ctx.Err(); err != nil {
@@ -195,7 +196,7 @@ func (c *executionCompactor) compact(ctx context.Context, command workerproto.Co
 	var checkpoint *workerproto.ContextCheckpoint
 	var err error
 	if depth == 0 && command.SessionID != "" && command.MessageSequence > 0 {
-		checkpoint, err = saveContextCheckpoint(command, next)
+		checkpoint, err = saveContextCheckpoint(ctx, command, next)
 		if err != nil {
 			return messages, false, err
 		}
@@ -203,7 +204,7 @@ func (c *executionCompactor) compact(ctx context.Context, command workerproto.Co
 	status.Phase = "compacted"
 	var usage *workerproto.ContextUsage
 	if depth == 0 {
-		usage = &workerproto.ContextUsage{RunID: command.RunID, Tokens: provider.EstimateRequestTokens(next, schemas)}
+		usage = &workerproto.ContextUsage{RunID: command.RunID, Tokens: provider.EstimateRequestTokens(ctx, next, schemas)}
 	}
 	if err := emit(workerproto.Result{RunID: command.RunID, Kind: "context_notice", Status: "succeeded", Turn: scope.modelTurns.Load(), Depth: depth, Content: summary, Context: status, Checkpoint: checkpoint, ContextUsage: usage}); err != nil {
 		return messages, false, err
@@ -215,13 +216,14 @@ func (c *executionCompactor) compact(ctx context.Context, command workerproto.Co
 // CompactSession performs maintenance without creating a user/assistant reply
 // or running tools. The same compactor handles automatic recovery in run().
 func CompactSession(ctx context.Context, command workerproto.Command, emit func(workerproto.Result) error) error {
+	ctx = replylanguage.WithDefault(ctx, command.ReplyLanguage)
 	command.Action = "compact"
 	prepared, err := prepareSessionContext(ctx, command)
 	if err != nil {
 		return err
 	}
 	schemas := prepared.applyModel(prepared.messages, command.Model)
-	if err := emitContextUsage(command, prepared.messages, schemas, 0, emit); err != nil {
+	if err := emitContextUsage(ctx, command, prepared.messages, schemas, 0, emit); err != nil {
 		return err
 	}
 	c := newExecutionCompactor(prepared.messages)

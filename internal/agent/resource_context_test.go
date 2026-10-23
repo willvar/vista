@@ -54,11 +54,11 @@ func TestResourceRequestsRetainOriginalsAcrossModelSwitchesAndReferenceOnlyCheck
 		if messages[1].Content != "inspect" || len(messages[1].Images) != 0 || !reflect.DeepEqual(messages[1].Resources, []resources.Ref{ref}) {
 			t.Fatal("request materialization mutated canonical context")
 		}
-		if _, err := saveContextCheckpoint(command, request); accepts && err == nil {
+		if _, err := saveContextCheckpoint(ctx, command, request); accepts && err == nil {
 			t.Fatal("checkpoint accepted request-local image bytes")
 		}
 	}
-	cp, err := saveContextCheckpoint(command, messages)
+	cp, err := saveContextCheckpoint(ctx, command, messages)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -140,7 +140,7 @@ func TestCompactedHistoricalImageCanBeListedAndRereadWithoutAddingChatMessages(t
 	command := workerproto.Command{SessionID: "session", RunID: "current", MessageSequence: current.Sequence, Prompt: "Look again", Model: modelcfg.Model{Provider: "openai-chat", ID: "fixture", BaseURL: upstream.URL, APIKey: "fixture"}}
 	// Simulate the committed result of compaction, with the old attachment absent
 	// from retained context. The session ownership is independent of this file.
-	checkpoint, err := saveContextCheckpoint(command, []provider.ChatMessage{{Role: "system"}, {Role: "assistant", Content: executionSummaryPrefix + "Earlier image was inspected; use list_resources to retrieve it."}, {Role: "user", Content: "Look again"}})
+	checkpoint, err := saveContextCheckpoint(ctx, command, []provider.ChatMessage{{Role: "system"}, {Role: "assistant", Content: executionSummaryPrefix + "Earlier image was inspected; use list_resources to retrieve it."}, {Role: "user", Content: "Look again"}})
 	if err != nil {
 		t.Fatal(err)
 	}

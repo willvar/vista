@@ -3,7 +3,7 @@ package server
 import (
 	"net/http"
 
-	"vista/internal/workerproto"
+	"vista/internal/replylanguage"
 )
 
 func (a *App) saveReplyLanguage(w http.ResponseWriter, r *http.Request, sessionID string) bool {
@@ -11,7 +11,7 @@ func (a *App) saveReplyLanguage(w http.ResponseWriter, r *http.Request, sessionI
 	if code == "" {
 		return true
 	}
-	if workerproto.ReplyLanguageName(code) == "" {
+	if replylanguage.Name(code) == "" {
 		http.Error(w, "unsupported reply language", http.StatusBadRequest)
 		return false
 	}

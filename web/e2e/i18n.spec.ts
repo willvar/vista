@@ -214,7 +214,7 @@ for (const { browser, locale, reply } of cases) {
       ]) {
         await openSettingsSection(page, path!)
         await expect(page.locator('.page-heading h2')).toHaveText(label!)
-        const button = page.locator('.settings-header-action')
+        const button = page.getByRole('button', { name: action!, exact: true })
         await expect(button).toHaveAttribute('aria-label', action!)
         await expect(button).toBeEnabled()
         await expect(page.locator('.settings-content').getByRole('button', { name: action!, exact: true })).toHaveCount(0)

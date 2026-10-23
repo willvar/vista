@@ -72,6 +72,7 @@ func ModelTurnStream(ctx context.Context, model modelcfg.Model, messages []ChatM
 }
 
 func ModelTurnStreamWithReasoning(ctx context.Context, model modelcfg.Model, messages []ChatMessage, schemas []map[string]any, onText, onReasoning func(string) error) (Turn, error) {
+	messages = prepareRequestMessages(ctx, messages)
 	messages = projectToolImages(messages)
 	if err := validateImageMessages(messages); err != nil {
 		return Turn{}, err

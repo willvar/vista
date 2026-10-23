@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"vista/internal/agent"
 	"vista/internal/store"
 	"vista/internal/workerproto"
 )
@@ -40,6 +41,22 @@ func TestContextUsageRestoresLiveEstimateAndRebuildsIdleContext(t *testing.T) {
 		return usage
 	}
 	empty := read()
+	if err := db.SetReplyLanguage(ctx, "session", "en-GB"); err != nil {
+		t.Fatal(err)
+	}
+	model, _, err := a.modelsSnapshot().Resolve("fixture")
+	if err != nil {
+		t.Fatal(err)
+	}
+	expected, err := agent.EstimateSessionContext(ctx, workerproto.Command{SessionID: "session", Model: model, ReplyLanguage: "en-GB"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	localized := read()
+	if localized.Tokens != expected || localized.Tokens == empty.Tokens {
+		t.Fatalf("idle estimate lost the saved language: empty=%d selected=%d expected=%d", empty.Tokens, localized.Tokens, expected)
+	}
+	empty = localized
 	if _, _, err := db.BeginRun(ctx, "session", "run", "u", "Retain this user task"); err != nil {
 		t.Fatal(err)
 	}

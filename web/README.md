@@ -55,7 +55,7 @@ Language registration and client matching are in `src/i18n/languages.ts`; region
 
 Maintain Simplified Chinese in `src/i18n/locales/zh-CN.ts`, with corrections in `src/i18n/chinese-overrides.ts`. `scripts/generate-chinese.ts` uses locked OpenCC JS to generate Taiwan (`twp`), Hong Kong/Macau (`hk`), and Singapore/Malaysia catalogs. Do not edit generated catalogs directly. Generation preserves placeholders, inline code, and URLs; OpenCC is a build dependency, not browser runtime code.
 
-Other regional wording is maintained in `src/i18n/regional-overrides.ts`. Register component-library locale support when adding languages. `scripts/generate-reply-languages.ts` derives `internal/workerproto/language_names.json` from the same language registry. Dev and production builds generate both outputs; `check:i18n` rejects stale generation. Tests cover keys, syntax, placeholders, region matching/formatting, backend names, and plural forms.
+Other regional wording is maintained in `src/i18n/regional-overrides.ts`. Register component-library locale support when adding languages. `scripts/generate-reply-languages.ts` derives `internal/replylanguage/language_names.json` from the same language registry. Dev and production builds generate both outputs; `check:i18n` rejects stale generation. Tests cover keys, syntax, placeholders, region matching/formatting, backend names, and plural forms.
 
 ## Browser checks
 

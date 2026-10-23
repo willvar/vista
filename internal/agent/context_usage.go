@@ -6,6 +6,7 @@ import (
 	"vista/internal/agentconfig"
 	"vista/internal/appdirs"
 	"vista/internal/provider"
+	"vista/internal/replylanguage"
 	"vista/internal/workerproto"
 )
 
@@ -27,18 +28,19 @@ func prepareSessionContext(ctx context.Context, command workerproto.Command) (pr
 // schemas are all included, including while the Session is idle.
 // This is read-only and never calls a model or starts a Worker.
 func EstimateSessionContext(ctx context.Context, command workerproto.Command) (int64, error) {
+	ctx = replylanguage.WithDefault(ctx, command.ReplyLanguage)
 	prepared, err := prepareSessionContext(ctx, command)
 	if err != nil {
 		return 0, err
 	}
-	return provider.EstimateRequestTokens(prepared.messages, prepared.applyModel(prepared.messages, command.Model)), nil
+	return provider.EstimateRequestTokens(ctx, prepared.messages, prepared.applyModel(prepared.messages, command.Model)), nil
 }
 
-func emitContextUsage(command workerproto.Command, messages []provider.ChatMessage, schemas []map[string]any, depth int, emit func(workerproto.Result) error) error {
+func emitContextUsage(ctx context.Context, command workerproto.Command, messages []provider.ChatMessage, schemas []map[string]any, depth int, emit func(workerproto.Result) error) error {
 	if depth != 0 {
 		return nil
 	}
 	return emit(workerproto.Result{RunID: command.RunID, Kind: "context_usage", ContextUsage: &workerproto.ContextUsage{
-		RunID: command.RunID, Tokens: provider.EstimateRequestTokens(messages, schemas),
+		RunID: command.RunID, Tokens: provider.EstimateRequestTokens(ctx, messages, schemas),
 	}})
 }

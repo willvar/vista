@@ -1,6 +1,7 @@
 package provider
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -195,10 +196,10 @@ func (message ChatMessage) EstimateTokens() int64 {
 	return total
 }
 
-// EstimateRequestTokens measures messages and tool schemas with the same heuristic.
-func EstimateRequestTokens(messages []ChatMessage, schemas []map[string]any) int64 {
+// EstimateRequestTokens includes the same shared instructions as model dispatch.
+func EstimateRequestTokens(ctx context.Context, messages []ChatMessage, schemas []map[string]any) int64 {
 	var total int64
-	for _, message := range messages {
+	for _, message := range prepareRequestMessages(ctx, messages) {
 		total += message.EstimateTokens()
 	}
 	encoded, _ := json.Marshal(schemas)

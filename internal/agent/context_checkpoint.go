@@ -23,12 +23,12 @@ type contextCheckpoint struct {
 	Messages []provider.ChatMessage
 }
 
-func saveContextCheckpoint(command workerproto.Command, messages []provider.ChatMessage) (*workerproto.ContextCheckpoint, error) {
+func saveContextCheckpoint(ctx context.Context, command workerproto.Command, messages []provider.ChatMessage) (*workerproto.ContextCheckpoint, error) {
 	path, err := saveContextFile(command, messages[1:], "context-*.gob")
 	if err != nil {
 		return nil, err
 	}
-	return &workerproto.ContextCheckpoint{Path: path, ThroughSequence: command.MessageSequence, InputTokens: provider.EstimateRequestTokens(messages, nil)}, nil
+	return &workerproto.ContextCheckpoint{Path: path, ThroughSequence: command.MessageSequence, InputTokens: provider.EstimateRequestTokens(ctx, messages, nil)}, nil
 }
 
 func saveContextFile(command workerproto.Command, messages []provider.ChatMessage, pattern string) (string, error) {

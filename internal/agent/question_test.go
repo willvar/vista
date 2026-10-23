@@ -92,7 +92,7 @@ func TestQuestionHistoryPairsAnswersAcrossRestartCompactionAndFollowingRuns(t *t
 					t.Error(err)
 					return
 				}
-				if request.Instructions == executionSummaryPrompt {
+				if strings.HasPrefix(request.Instructions, executionSummaryPrompt) {
 					summaries.Add(1)
 					compactionResponse(w, []any{compactionText("Earlier evidence retained.")})
 					return

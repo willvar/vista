@@ -53,8 +53,13 @@ func (a *App) contextUsage(w http.ResponseWriter, r *http.Request, sessionID str
 		return
 	}
 	model.Key = key
+	language, err := a.store.ReplyLanguage(ctx, sessionID)
+	if err != nil {
+		http.Error(w, "could not load reply language", 500)
+		return
+	}
 	tokens, err := agent.EstimateSessionContext(ctx, workerproto.Command{
-		SessionID: sessionID, MessageSequence: sequence, Model: model, MCPServers: a.currentMCPServers(),
+		SessionID: sessionID, MessageSequence: sequence, ReplyLanguage: language, Model: model, MCPServers: a.currentMCPServers(),
 	})
 	if err != nil {
 		http.Error(w, "could not estimate retained context", 500)

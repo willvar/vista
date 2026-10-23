@@ -11,6 +11,7 @@ import (
 	"unicode/utf8"
 
 	"vista/internal/provider"
+	"vista/internal/replylanguage"
 	"vista/internal/resources"
 	"vista/internal/tools"
 	"vista/internal/workerproto"
@@ -59,6 +60,7 @@ func runWithScope(ctx context.Context, command workerproto.Command, emit func(wo
 }
 
 func run(ctx context.Context, command workerproto.Command, emit func(workerproto.Result) error, scope *runScope, depth int, inputs <-chan workerproto.Command, nextInput func(*workerproto.CompletedReply) (*workerproto.Command, error), jobs *tools.BackgroundManager, taskStarted bool) (answer string, runErr error) {
+	ctx = replylanguage.WithDefault(ctx, command.ReplyLanguage)
 	if command.TaskID == "" {
 		command.TaskID = "main"
 	}
@@ -128,7 +130,7 @@ func run(ctx context.Context, command workerproto.Command, emit func(workerproto
 	// Keep the display aligned with the retained context at decision boundaries,
 	// including the final answer and cancellation after completed tools.
 	defer func() {
-		runErr = errors.Join(runErr, emitContextUsage(command, messages, prepared.applyModel(messages, command.Model), depth, emit))
+		runErr = errors.Join(runErr, emitContextUsage(ctx, command, messages, prepared.applyModel(messages, command.Model), depth, emit))
 	}()
 	runChild := func(ctx context.Context, child workerproto.Command, childEmit func(workerproto.Result) error) (string, error) {
 		return run(ctx, child, childEmit, scope, depth+1, nil, nil, jobs, true)
@@ -171,7 +173,7 @@ func run(ctx context.Context, command workerproto.Command, emit func(workerproto
 			command.MessageSequence = max(command.MessageSequence, input.MessageSequence)
 			if input.ReplyLanguage != "" {
 				command.ReplyLanguage = input.ReplyLanguage
-				prepared.replyLanguage = input.ReplyLanguage
+				ctx = replylanguage.WithDefault(ctx, input.ReplyLanguage)
 			}
 			messages = append(messages, (provider.ChatMessage{Role: "user", Content: input.Prompt, Resources: input.Images}).WithVisualInput(true))
 			if nextInput == nil && input.Model.Provider != "" {
@@ -189,8 +191,8 @@ turnLoop:
 			return "", err
 		}
 		offeredTools := prepared.applyModel(messages, command.Model)
-		requestEstimate := provider.EstimateRequestTokens(messages, offeredTools)
-		if err := emitContextUsage(command, messages, offeredTools, depth, emit); err != nil {
+		requestEstimate := provider.EstimateRequestTokens(ctx, messages, offeredTools)
+		if err := emitContextUsage(ctx, command, messages, offeredTools, depth, emit); err != nil {
 			return "", err
 		}
 		providerID := command.Model.ProviderID
@@ -420,7 +422,7 @@ turnLoop:
 			return "", err
 		}
 		messages = append(messages, assistantMessage)
-		if err := emitContextUsage(command, messages, offeredTools, depth, emit); err != nil {
+		if err := emitContextUsage(ctx, command, messages, offeredTools, depth, emit); err != nil {
 			return "", err
 		}
 		outputs := make([]string, len(turn.Calls))

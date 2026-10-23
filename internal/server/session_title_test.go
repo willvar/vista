@@ -16,7 +16,9 @@ import (
 
 	modelcfg "vista/internal/model"
 	"vista/internal/provider"
+	"vista/internal/replylanguage"
 	"vista/internal/store"
+	"vista/internal/workerproto"
 )
 
 func TestMakeSessionTitleUsesModelWithoutTools(t *testing.T) {
@@ -134,13 +136,17 @@ func TestMakeSessionTitleIncludesImageOnlyFirstMessage(t *testing.T) {
 		if len(body.Messages) != 2 || len(parts) != 2 || parts[1]["type"] != "image_url" || len(body.Tools) != 0 {
 			t.Errorf("image title request: %+v", body)
 		}
+		var system string
+		if len(body.Messages) == 0 || json.Unmarshal(body.Messages[0].Content, &system) != nil || !strings.Contains(system, "Default to replies in Traditional Chinese (Hong Kong)") {
+			t.Errorf("image-only title lost reply language: %s", system)
+		}
 		w.Header().Set("Content-Type", "text/event-stream")
 		fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{\"reasoning_content\":\"Identify the picture\"}}]}\n\n")
 		fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{\"content\":\"照片中的猫\"},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n")
 	}))
 	defer upstream.Close()
 	model := modelcfg.Model{Provider: "openai-chat", ID: "vision", BaseURL: upstream.URL + "/v1", APIKey: "key"}
-	title, err := makeSessionTitle(context.Background(), model, "", []provider.Image{{MediaType: "image/png", Data: testPNG(t)}})
+	title, err := makeSessionTitle(replylanguage.WithDefault(context.Background(), "zh-HK"), model, "", []provider.Image{{MediaType: "image/png", Data: testPNG(t)}})
 	if err != nil || title != "照片中的猫" {
 		t.Fatalf("image title: %q %v", title, err)
 	}
@@ -238,50 +244,84 @@ func TestGenerateSessionTitleBeforeReplyUsesSelectedModel(t *testing.T) {
 }
 
 func TestSubmitFirstMessageStartsTitleRequestBeforeReply(t *testing.T) {
-	requested := make(chan struct{}, 1)
-	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		requested <- struct{}{}
-		w.Header().Set("Content-Type", "text/event-stream")
-		fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{\"content\":\"Build error\"},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n")
-	}))
-	defer upstream.Close()
-	ctx := context.Background()
-	db, err := store.Open(filepath.Join(t.TempDir(), "vista.db"))
-	if err != nil {
-		t.Fatal(err)
+	for _, tc := range []struct {
+		code, language string
+	}{
+		{"", ""},
+		{"zh-CN", "Simplified Chinese"},
+		{"zh-TW", "Traditional Chinese (Taiwan)"},
+		{"zh-HK", "Traditional Chinese (Hong Kong)"},
+		{"en-GB", "British English"},
+		{"pt-PT", "European Portuguese"},
+	} {
+		t.Run("language="+tc.code, func(t *testing.T) {
+			requested := make(chan struct{}, 1)
+			upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				var body struct {
+					Messages []struct{ Role, Content string }
+				}
+				if err := json.NewDecoder(r.Body).Decode(&body); err != nil || len(body.Messages) != 2 {
+					t.Errorf("title request: %+v %v", body, err)
+				} else {
+					system := body.Messages[0].Content
+					if tc.code == "" {
+						if !strings.Contains(system, "Use the same language as the user's message; follow the user's explicit language requests.") || strings.Contains(system, "Default to replies in") {
+							t.Errorf("missing language fallback: %s", system)
+						}
+					} else if !strings.Contains(system, "Default to replies in "+tc.language+"; follow the user's explicit language requests.") || strings.Count(system, "Default to replies in") != 1 || strings.Contains(system, "same language") {
+						t.Errorf("title lost the selected language or kept a conflicting rule: %s", system)
+					}
+				}
+				requested <- struct{}{}
+				w.Header().Set("Content-Type", "text/event-stream")
+				fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{\"content\":\"Build error\"},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n")
+			}))
+			defer upstream.Close()
+			ctx := context.Background()
+			db, err := store.Open(filepath.Join(t.TempDir(), "vista.db"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer db.Close()
+			const sessionID = "00000000-0000-4000-8000-000000000091"
+			if _, err := db.Create(ctx, sessionID, "New session"); err != nil {
+				t.Fatal(err)
+			}
+			sink := &imageCommandSink{}
+			app := &App{ctx: ctx, store: db, models: modelCatalog{Default: "selected", Models: []configuredModel{{Key: "selected", Provider: "openai-chat", ID: "model", BaseURL: upstream.URL + "/v1", APIKey: "key"}}}, workers: map[string]*worker{sessionID: {input: sink}}}
+			w := httptest.NewRecorder()
+			request := httptest.NewRequest(http.MethodPost, "/messages", bytes.NewBufferString(`{"content":"Investigate build error","modelKey":"selected"}`))
+			request.Header.Set("X-Vista-Language", tc.code)
+			app.submitMessage(w, request, sessionID)
+			if w.Code != http.StatusAccepted {
+				t.Fatalf("submit status %d: %s", w.Code, w.Body.String())
+			}
+			var command workerproto.Command
+			if err := json.NewDecoder(sink).Decode(&command); err != nil || command.ReplyLanguage != tc.code {
+				t.Fatalf("main request lost reply language: %+v %v", command, err)
+			}
+			select {
+			case <-requested:
+			case <-time.After(2 * time.Second):
+				t.Fatal("first message did not start title request")
+			}
+			if runID, err := db.RunningRunID(ctx, sessionID); err != nil || runID == "" {
+				t.Fatalf("title request waited for reply: run=%q err=%v", runID, err)
+			}
+			deadline := time.Now().Add(2 * time.Second)
+			for time.Now().Before(deadline) {
+				item, err := db.Get(ctx, sessionID)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if item.Title == "Build error" {
+					return
+				}
+				time.Sleep(10 * time.Millisecond)
+			}
+			t.Fatal("title was not saved while the main run remained active")
+		})
 	}
-	defer db.Close()
-	const sessionID = "00000000-0000-4000-8000-000000000091"
-	if _, err := db.Create(ctx, sessionID, "New session"); err != nil {
-		t.Fatal(err)
-	}
-	sink := &imageCommandSink{}
-	app := &App{ctx: ctx, store: db, models: modelCatalog{Default: "selected", Models: []configuredModel{{Key: "selected", Provider: "openai-chat", ID: "model", BaseURL: upstream.URL + "/v1", APIKey: "key"}}}, workers: map[string]*worker{sessionID: {input: sink}}}
-	w := httptest.NewRecorder()
-	app.submitMessage(w, httptest.NewRequest(http.MethodPost, "/messages", bytes.NewBufferString(`{"content":"Investigate build error","modelKey":"selected"}`)), sessionID)
-	if w.Code != http.StatusAccepted {
-		t.Fatalf("submit status %d: %s", w.Code, w.Body.String())
-	}
-	select {
-	case <-requested:
-	case <-time.After(2 * time.Second):
-		t.Fatal("first message did not start title request")
-	}
-	if runID, err := db.RunningRunID(ctx, sessionID); err != nil || runID == "" {
-		t.Fatalf("title request waited for reply: run=%q err=%v", runID, err)
-	}
-	deadline := time.Now().Add(2 * time.Second)
-	for time.Now().Before(deadline) {
-		item, err := db.Get(ctx, sessionID)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if item.Title == "Build error" {
-			return
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
-	t.Fatal("title was not saved while the main run remained active")
 }
 
 func TestGenerateSessionTitleIgnoresLaterMessages(t *testing.T) {

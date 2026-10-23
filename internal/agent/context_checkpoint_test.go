@@ -58,7 +58,7 @@ func TestCheckpointRetainsOpaquePairsAndAppendsHistoryExactlyOnce(t *testing.T) 
 	command := workerproto.Command{SessionID: "session", RunID: "run", MessageSequence: user.Sequence, Model: modelcfg.Model{Provider: "openai-responses", ProviderID: "relay", ID: "model"}}
 	messages := append([]provider.ChatMessage{{Role: "system", Content: "old system"}, {Role: "assistant", Content: executionSummaryPrefix + "saved facts"}, {Role: "user", Content: "original task", Resources: []resources.Ref{putResourceFixture(t, []byte("image bytes"), "image/png")}}}, opaqueCompactionGroup("last-call")...)
 	messages = append(messages, provider.ChatMessage{Role: "system", Content: "dynamic task report", RuntimeData: true})
-	cp, err := saveContextCheckpoint(command, messages)
+	cp, err := saveContextCheckpoint(ctx, command, messages)
 	if err != nil {
 		t.Fatal(err)
 	}
