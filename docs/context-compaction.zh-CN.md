@@ -13,7 +13,8 @@ Vista 负责识别上下文超限，不通过模型 ID、OMP 目录、用量百�
 - Pi 的 `overflow.ts`，版本 `b9ab2a6238d2c91cf0c6ebf836dfd05883f9db51`，见[许可](../licenses/pi/LICENSE)；
 - OMP 的 `error/flags.ts`，版本 `f1ac114d8d3438bee43010aee559bfe720ba3224`，见[许可](../licenses/oh-my-pi/LICENSE)。
 
-中转 fixture 覆盖保留上游消息／代码、改写 HTTP 状态及 HTTP 200 JSON 错误等形态，参考 New API `7de10f2c602b50122017556e8a09cb7c488c273c`、One API `8df4a2670b98266bd287c698243fff327d9748cf` 的错误封装。这些是源码形态的本地测试，不是真实服务成功率报告。
+本地中转测试样本模拟 [New API](https://github.com/QuantumNous/new-api/blob/7de10f2c602b50122017556e8a09cb7c488c273c/service/error.go) 和 [One API](https://github.com/songquanpeng/one-api/blob/8df4a2670b98266bd287c698243fff327d9748cf/relay/controller/error.go) 的错误封装。
+覆盖保留上游消息／代码、改写 HTTP 状态及 HTTP 200 JSON 错误等形态。
 
 仅有 400／413／503、图片或字节载荷拒绝、泛化的 “too many tokens”、限流／额度／认证错误、输出词元参数错误、普通 `length`／`max_tokens` 结束、断连或用量超过目录值，都不触发压缩。assistant 正文不作为错误分类。未知失败正常停止并显示；中转彻底抹去原因或静默截断输入时无法可靠判断。
 

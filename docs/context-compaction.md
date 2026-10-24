@@ -21,11 +21,10 @@ The rules adapt the explicit-evidence portion of these MIT sources:
 - [OMP error/flags.ts, f1ac114](https://github.com/can1357/oh-my-pi/blob/f1ac114d8d3438bee43010aee559bfe720ba3224/packages/ai/src/error/flags.ts)
   — [license](../licenses/oh-my-pi/LICENSE).
 
-Gateway fixtures cover retained upstream messages/codes and remapped statuses,
-including HTTP 200 JSON error responses. Their shapes were checked against
+Local gateway fixtures simulate the error-envelope formats of
 [New API error handling, 7de10f2](https://github.com/QuantumNous/new-api/blob/7de10f2c602b50122017556e8a09cb7c488c273c/service/error.go)
 and [One API error handling, 8df4a26](https://github.com/songquanpeng/one-api/blob/8df4a2670b98266bd287c698243fff327d9748cf/relay/controller/error.go).
-These are source-shaped local fixtures, not live provider success-rate claims.
+They cover retained upstream messages/codes, remapped statuses, and HTTP 200 JSON error responses.
 
 Intentionally excluded: a bare 400/413/503, byte or image payload rejection,
 generic “too many tokens”, rate/quota/authentication failures, an invalid output

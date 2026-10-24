@@ -17,6 +17,7 @@ Vista supports its own development. Product documentation serves users; developm
 - Maintain this `AGENTS.md` in English. Other permanent Markdown documents use English in the unsuffixed file and Simplified Chinese in `.zh-CN.md`, with reciprocal language links. Keep both editions and relative links consistent. Embedded system skills and their supporting documents are English-only; the UI may localize its controls.
 - Vista's original code and documentation use MIT (`LICENSE`). Preserve third-party license, copyright, and NOTICE texts in their original language; project licensing does not replace them.
 - Generated regression fixtures belong with their tests, not in a public reports directory. Do not publish user configuration, credentials, traces, screenshots, or machine-specific measurements.
+- Keep benchmark instructions in `docs/benchmarks.md` and result histories in `docs/benchmarks/tb.md` and `docs/benchmarks/gaia.md`, with matching Chinese editions. Append result rows and dated analyses; preserve earlier records and identify corrections explicitly. Keep table columns and failure categories stable, use one sentence or condition per source line, and avoid reformatting existing rows when adding results.
 
 ## Build and Verification
 

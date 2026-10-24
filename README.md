@@ -107,6 +107,7 @@ Tests build isolated executables under `.vista/test-state/bin` and use separate 
 - [Provider routing and model metadata](./docs/providers.md)
 - [Worker and background process lifecycle](./docs/process-lifecycle.md)
 - [Test goals and capacity measurement](./docs/testing.md)
+- [Benchmarks: setup and results](./docs/benchmarks.md)
 - [Frontend, internationalization, and browser checks](./web/README.md)
 - [Context compaction](./docs/context-compaction.md), [resources](./docs/resources.md), and [conversation rollback](./docs/message-revert.md)
 

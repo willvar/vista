@@ -107,6 +107,7 @@ make test all
 - [服务商路由与模型资料](./docs/providers.zh-CN.md)
 - [Worker 与后台进程生命周期](./docs/process-lifecycle.zh-CN.md)
 - [测试目标与容量测量](./docs/testing.zh-CN.md)
+- [评测：运行方法与结果](./docs/benchmarks.zh-CN.md)
 - [前端、国际化与浏览器检查](./web/README.zh-CN.md)
 - [上下文压缩](./docs/context-compaction.zh-CN.md)、[资源](./docs/resources.zh-CN.md)及[会话回退](./docs/message-revert.zh-CN.md)
 
