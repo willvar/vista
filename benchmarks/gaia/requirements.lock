@@ -1,0 +1,2 @@
+-r ../harbor/requirements.lock
+pyarrow==26.0.0

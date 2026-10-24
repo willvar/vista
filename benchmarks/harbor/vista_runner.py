@@ -54,7 +54,7 @@ def request(address, path, body=None):
         raise RuntimeError(f"Vista API {path}: HTTP {error.code}") from error
 
 
-def execute(root, logs, effort=None):
+def execute(root, logs, effort=None, image_loader=None):
     config = root / "xdg/vista"
     logs.mkdir(parents=True, exist_ok=True)
     env = environment(root)
@@ -89,6 +89,10 @@ def execute(root, logs, effort=None):
         body = {"content": prompt, "selectionMode": "manual", "modelKey": selected["default"]}
         if effort is not None:
             body["reasoningEffort"] = effort
+        if image_loader is not None:
+            images = image_loader()
+            if images:
+                body["images"] = images
         sent = request(address, f"/sessions/{session['id']}/messages", body)
         summary.update(session_id=session["id"], run_id=sent["runId"])
         cursor, finished = 0, None

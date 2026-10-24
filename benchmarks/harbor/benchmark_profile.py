@@ -3,12 +3,38 @@
 import hashlib
 import json
 from pathlib import Path
+import re
 from uuid import UUID
 
 
 def digest(path):
     with Path(path).open("rb") as stream:
         return hashlib.file_digest(stream, "sha256").hexdigest()
+
+
+def binaries(specs):
+    result = {}
+    for spec in specs:
+        label, separator, name = spec.partition("=")
+        if not separator or not re.fullmatch(r"[a-zA-Z0-9][a-zA-Z0-9_-]*", label) or label in result:
+            raise ValueError("Use a unique label=path for each --binary")
+        path = Path(name).resolve()
+        with path.open("rb") as stream:
+            if stream.read(4) != b"\x7fELF":
+                raise ValueError("Harbor task containers require a compatible Linux ELF binary")
+        result[label] = {"path": str(path), "sha256": digest(path)}
+    return result
+
+
+def schedule(labels, tasks, rounds):
+    entries = []
+    for round_index in range(rounds):
+        for task_index, task in enumerate(tasks):
+            shift = (round_index + task_index) % len(labels)
+            for label in labels[shift:] + labels[:shift]:
+                entries.append({"round": round_index + 1, "task": task, "label": label,
+                                "job": f"r{round_index + 1}-{task}-{label}"})
+    return entries
 
 
 def selected_profile(directory, model, model_key=None):

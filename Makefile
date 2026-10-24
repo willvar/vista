@@ -5,6 +5,7 @@ UPDATE_UA ?= $(if $(filter dev,$(VERSION)),0,1)
 BUILD_LDFLAGS := -X vista/internal/buildinfo.Version=$(VERSION)
 
 TEST_GOALS := go frontend e2e integration mcp memory capacity
+BENCHMARK_GOALS := tb gaia
 TEST_STATE := $(CURDIR)/.vista/test-state
 TEST_BIN := $(TEST_STATE)/bin/vista
 TEST_E2E_BIN := $(TEST_STATE)/bin/vista-e2e
@@ -20,7 +21,7 @@ INTEGRATION_SCRIPTS := artifact background_job catalog checklist copilot_startup
 IMAGE_PROTOCOLS := openai-chat mistral cohere bedrock vercel-gateway \
 	bedrock-mantle-responses sap-ai-core copilot
 
-.PHONY: build update-ua licenses check-licenses package test web benchmark $(TEST_GOALS) all test-bin test-mcp-fixture \
+.PHONY: build update-ua licenses check-licenses package test web benchmark $(BENCHMARK_GOALS) $(TEST_GOALS) all test-bin test-mcp-fixture \
 	test-frontend-unit test-frontend-types check-browser check-sqlite
 # Memory measurements and builds share resources, including with multiple goals.
 .NOTPARALLEL:
@@ -28,6 +29,15 @@ IMAGE_PROTOCOLS := openai-chat mistral cohere bedrock vercel-gateway \
 ifneq ($(filter test,$(MAKECMDGOALS)),)
 ifneq ($(filter-out test $(TEST_GOALS) all,$(MAKECMDGOALS)),)
 $(error Unknown test goal(s): $(filter-out test $(TEST_GOALS) all,$(MAKECMDGOALS)). Use: make test [$(TEST_GOALS) all])
+endif
+endif
+
+ifneq ($(filter benchmark,$(MAKECMDGOALS)),)
+ifneq ($(filter-out benchmark $(BENCHMARK_GOALS),$(MAKECMDGOALS)),)
+$(error Unknown benchmark goal(s). Use: make benchmark [tb|gaia])
+endif
+ifneq ($(word 2,$(filter $(BENCHMARK_GOALS),$(MAKECMDGOALS))),)
+$(error Select one benchmark suite: make benchmark tb OR make benchmark gaia)
 endif
 endif
 
@@ -57,7 +67,17 @@ package: build
 	python3 scripts/package_release.py --binary bin/vista --version "$(VERSION)" --output-dir .vista/dist
 
 benchmark:
+ifeq ($(filter $(BENCHMARK_GOALS),$(MAKECMDGOALS)),)
+	@printf '%s\n' 'make benchmark tb    Terminal-Bench sample tasks' 'make benchmark gaia  GAIA validation tasks' 'Pass runner options with BENCHMARK_ARGS; see docs/benchmarks.md.'
+else
+	@:
+endif
+
+tb:
 	"$(HARBOR_PYTHON)" benchmarks/harbor/run.py $(BENCHMARK_ARGS)
+
+gaia:
+	"$(HARBOR_PYTHON)" benchmarks/gaia/run.py $(BENCHMARK_ARGS)
 
 test: $(if $(filter-out test,$(MAKECMDGOALS)),,go)
 	@:

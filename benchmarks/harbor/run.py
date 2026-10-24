@@ -1,4 +1,4 @@
-"""Run the pinned Harbor sample, optionally interleaving Vista binaries."""
+"""Run the pinned Terminal-Bench sample, optionally interleaving Vista binaries."""
 
 import argparse
 from datetime import datetime, timezone
@@ -7,11 +7,10 @@ import json
 import os
 from pathlib import Path
 import platform
-import re
 import subprocess
 import sys
 
-from benchmark_profile import digest, selected_profile
+from benchmark_profile import binaries, digest, schedule, selected_profile
 from summarize import summarize_run
 
 
@@ -30,31 +29,6 @@ def check_dataset(directory):
         if digest(directory / "sample" / name) != expected:
             raise ValueError("Dataset file changed: " + name)
     return revision
-
-
-def binaries(specs):
-    result = {}
-    for spec in specs:
-        label, separator, name = spec.partition("=")
-        if not separator or not re.fullmatch(r"[a-zA-Z0-9][a-zA-Z0-9_-]*", label) or label in result:
-            raise ValueError("Use a unique label=path for each --binary")
-        path = Path(name).resolve()
-        with path.open("rb") as stream:
-            if stream.read(4) != b"\x7fELF":
-                raise ValueError("Harbor task containers require a compatible Linux ELF binary")
-        result[label] = {"path": str(path), "sha256": digest(path)}
-    return result
-
-
-def schedule(labels, tasks, rounds):
-    entries = []
-    for round_index in range(rounds):
-        for task_index, task in enumerate(tasks):
-            shift = (round_index + task_index) % len(labels)
-            for label in labels[shift:] + labels[:shift]:
-                entries.append({"round": round_index + 1, "task": task, "label": label,
-                                "job": f"r{round_index + 1}-{task}-{label}"})
-    return entries
 
 
 def check_images(tasks):

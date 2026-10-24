@@ -1,0 +1,16 @@
+{
+  "dataset": {
+    "repo": "gaia-benchmark/GAIA",
+    "revision": "682dd723ee1e1697e00360edccf2366dc8418dd9",
+    "metadata": "2023/validation/metadata.parquet",
+    "sha256": "d9141bad0081af438d1ee36d188c5197035dc22a01f64e3f2ee17e45469518e9",
+    "levels": {"1": 53, "2": 86, "3": 26},
+    "attachments": 38
+  },
+  "scorer": {
+    "repo": "gaia-benchmark/leaderboard",
+    "revision": "9f133d71362e77b3539f1514f31b9c101a545fec",
+    "filename": "scorer.py",
+    "sha256": "0d44c07f3046eec521697c22e3eaca8719cc81e422a8eaf32695c5f22bdac6e2"
+  }
+}

@@ -77,6 +77,15 @@ def trial(job, entry):
             "build": runtime.get("build"), "result": str(results[0])}
 
 
+def level_totals(records):
+    levels = {}
+    for level in sorted({row["level"] for row in records if "level" in row}):
+        rows = [row for row in records if row.get("level") == level]
+        levels[str(level)] = {"planned": len(rows), "successes": sum(row["success"] for row in rows),
+                              "states": {state: sum(row["state"] == state for row in rows) for state in sorted({row["state"] for row in rows})}}
+    return levels
+
+
 def summarize_run(directory):
     plan = read_json(directory / "plan.json")
     records = [trial(directory / "jobs" / entry["job"], entry) for entry in plan["sequence"]]
@@ -90,9 +99,12 @@ def summarize_run(directory):
                          "states": {state: sum(row["state"] == state for row in selected) for state in sorted({row["state"] for row in selected})},
                          "successful_agent_seconds": {"n": len(times), "median": statistics.median(times) if times else None,
                                                       "min": min(times, default=None), "max": max(times, default=None)}}
-    return {"dataset": plan["dataset"], "dataset_commit": plan["dataset_commit"], "model": plan["model"],
+        if levels := level_totals(selected):
+            totals[label]["levels"] = levels
+    return {"suite": plan.get("suite", "harbor"), "dataset": plan["dataset"], "dataset_commit": plan["dataset_commit"], "model": plan["model"],
             "reasoning_effort": plan["reasoning_effort"], "binaries": plan["binaries"], "totals": totals,
-            "trials": records, "scope": "Fixed exploratory sample; not an estimate of overall task success rate. Timing aggregates include successful autonomous completions only."}
+            "levels": level_totals(records), "trials": records,
+            "scope": plan.get("scope", "Fixed exploratory sample; not an estimate of overall task success rate. Timing aggregates include successful autonomous completions only.")}
 
 
 if __name__ == "__main__":
