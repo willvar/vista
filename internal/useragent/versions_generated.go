@@ -12,7 +12,7 @@ const OpenCodeVersion = "1.19.4"
 const OhMyPiVersion = "18.12.6"
 
 // ClaudeCodeVersion tracks @anthropic-ai/claude-code@latest.
-const ClaudeCodeVersion = "2.1.309"
+const ClaudeCodeVersion = "2.1.310"
 
 // GeminiCLIVersion tracks @google/gemini-cli@latest.
 const GeminiCLIVersion = "0.65.0"
