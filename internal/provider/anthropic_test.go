@@ -131,6 +131,7 @@ func TestDirectAnthropicThinkingRequest(t *testing.T) {
 }
 
 func TestAnthropicBindingHeaderFollowsThinkingField(t *testing.T) {
+	useExplicitReasoningCatalog(t)
 	for _, check := range []struct {
 		protocol, providerID, id string
 		disabled                 bool

@@ -52,7 +52,7 @@ func modelsDevDownloadClient(t *testing.T, revision, ompSource, modelsDevSource 
 	})}
 }
 
-func TestModelCatalogMergesExactMetadataAndPreservesOMPPolicies(t *testing.T) {
+func TestModelCatalogUsesExplicitModelsDevControlsAndPreservesOMPRoutes(t *testing.T) {
 	original := CurrentOMPCatalog()
 	t.Cleanup(original.Activate)
 	next, err := FetchModelCatalog(context.Background(), modelsDevDownloadClient(t, original.Info().Revision, "unused", modelsDevTestSource))
@@ -85,9 +85,15 @@ func TestModelCatalogMergesExactMetadataAndPreservesOMPPolicies(t *testing.T) {
 	for _, id := range []string{"gpt-6.1-sol", "big-pickle", "minimax-m2.5-free"} {
 		before, _ := original.model("opencode", id)
 		after, _ := next.model("opencode", id)
-		if before.Thinking == nil || after.Thinking == nil || before.API != after.API || before.Thinking.Mode != after.Thinking.Mode || before.Thinking.RequiresEffort != after.Thinking.RequiresEffort || !slices.Equal(before.Thinking.Efforts, after.Thinking.Efforts) {
-			t.Fatalf("lost OMP policy for %s: before=%+v after=%+v", id, before, after)
+		if before.API != after.API {
+			t.Fatalf("lost OMP route for %s: before=%+v after=%+v", id, before, after)
 		}
+	}
+	if got := ModelReasoningOptionsFor("opencode", "gpt-6.1-sol"); !slices.Equal(got, []string{"low", "high"}) {
+		t.Fatalf("OMP replaced explicit models.dev efforts: %v", got)
+	}
+	if got := ModelReasoningOptionsFor("opencode", "big-pickle"); len(got) != 0 {
+		t.Fatalf("OMP filled missing reasoning controls: %v", got)
 	}
 	if got := ModelDisplayNameFor("opencode", "gpt-6.1-sol"); got != "New Sol name" {
 		t.Fatalf("models.dev metadata was not primary: %q", got)
@@ -95,11 +101,14 @@ func TestModelCatalogMergesExactMetadataAndPreservesOMPPolicies(t *testing.T) {
 	if !slices.Equal(next.modelIDs("openai-codex"), original.modelIDs("openai-codex")) || len(next.modelIDs("openai-codex")) == 0 {
 		t.Fatal("models.dev removed the OMP-only Codex catalog")
 	}
+	if got := ModelReasoningOptionsFor("openai-codex", "gpt-6-luna"); !slices.Equal(got, []string{"low", "medium", "high", "xhigh", "max"}) {
+		t.Fatalf("models.dev removed OMP-only Codex controls: %v", got)
+	}
 	if slices.Contains(next.TextModelIDs("opencode"), "picture") {
 		t.Fatal("image-only model entered the text picker")
 	}
-	free.Thinking.Efforts[0] = "mutated"
-	if next, _ := OMPModelMetadata("opencode", "deepseek-v4.1-flash-free"); next.Thinking.Efforts[0] != "low" {
+	free.ReasoningOptions[0].Values[0] = "mutated"
+	if next, _ := OMPModelMetadata("opencode", "deepseek-v4.1-flash-free"); next.ReasoningOptions[0].Values[0] != "low" {
 		t.Fatal("merged metadata shared a mutable thinking slice")
 	}
 }

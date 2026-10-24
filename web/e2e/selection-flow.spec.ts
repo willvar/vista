@@ -1,6 +1,53 @@
 import { closeSettings, openSettingsSection } from './settings-navigation'
 import { test, expect } from './fixtures'
 
+test.describe('explicit reasoning budgets and toggles', () => {
+  test.use({ budgetModel: true, replyWithPrompt: true })
+
+  test('saved controls survive reload and reach provider requests and recorded results', async ({ page, vista }) => {
+    await vista.api('/preferences', { method: 'PATCH', body: JSON.stringify({ feedbackInvitationSeen: true }) })
+    const session = await vista.api('/sessions', { method: 'POST', body: '{}' })
+    const catalog = await vista.api('/models')
+    const model = catalog.models.find((item: { key: string }) => item.key === catalog.default)
+    const choices: string[] = model.reasoningOptions
+    expect(choices).toContain('budget:8192')
+    expect(choices.slice(0, 2)).toEqual(['off', 'on'])
+    expect(choices).not.toContain('high')
+    await page.goto(`${vista.origin}/sessions/${session.id}`)
+    const picker = page.locator('.composer-reasoning')
+    const choose = async (choice: string, label: string) => {
+      if (page.viewportSize()!.width <= 830) {
+        await picker.getByRole('combobox', { name: 'Reasoning effort', exact: true }).click()
+        await page.locator('.ant-select-dropdown:visible').getByText(label, { exact: true }).click()
+      } else {
+        const slider = picker.getByRole('slider', { name: 'Reasoning effort', exact: true })
+        await slider.press('Home')
+        for (let index = 0; index < choices.indexOf(choice); index++) await slider.press('ArrowRight')
+        await expect(slider).toHaveAttribute('aria-valuetext', label)
+      }
+      await expect.poll(async () => (await vista.api('/preferences')).reasoningByModelId[model.id]).toBe(choice)
+    }
+    for (const [choice, label, wire] of [
+      ['budget:8192', '8192 tokens', { max_tokens: 8192 }],
+      ['off', 'Off', { enabled: false }],
+      ['on', 'On', { enabled: true }],
+    ] as const) {
+      await choose(choice, label)
+      await page.reload()
+      await expect(picker).toContainText(label)
+      await page.locator('.sender-card textarea').fill(`Use ${choice}`)
+      await page.locator('.sender-card textarea').press('Enter')
+      await expect(page.locator('article.assistant').last()).toContainText(`Mock reply: Use ${choice}`)
+      await expect(page.getByRole('button', { name: 'Send', exact: true })).toBeVisible()
+      expect(vista.modelRequests.at(-1)?.reasoning).toEqual(wire)
+      await expect.poll(async () => {
+        const messages = await vista.api(`/sessions/${session.id}/messages`)
+        return messages.filter((message: { role: string }) => message.role === 'assistant').at(-1)?.modelResults?.at(-1)?.reasoningEffort
+      }).toBe(choice)
+    }
+  })
+})
+
 test('real server keeps manual choice separate from automatic selection and learns reply feedback', async ({ page, vista }, testInfo) => {
   await page.emulateMedia({ reducedMotion: 'no-preference' })
   const session = await vista.api('/sessions', { method: 'POST', body: '{}' })

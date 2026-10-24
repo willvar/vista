@@ -54,6 +54,11 @@ func modelsDevChangesToConfirm(current, candidate *modelsDevCatalog) []modelsDev
 			previous, updated := modelsDevModelFields(before), modelsDevModelFields(after)
 			rowChanged := false
 			for _, field := range slices.Sorted(maps.Keys(previous)) {
+				// Older parsers did not retain budget/toggle controls. Merely
+				// materializing them is not a widespread upstream metadata edit.
+				if field == "reasoningOptions" && current.Schema < modelsDevSchema {
+					continue
+				}
 				if reflect.DeepEqual(previous[field], updated[field]) {
 					continue
 				}
@@ -68,6 +73,8 @@ func modelsDevChangesToConfirm(current, candidate *modelsDevCatalog) []modelsDev
 					needsConfirmation = before.Reasoning && !after.Reasoning
 				case "supportsTools":
 					needsConfirmation = before.SupportsTools != nil && (after.SupportsTools == nil || *before.SupportsTools && !*after.SupportsTools)
+				case "reasoningOptions":
+					needsConfirmation = len(before.ReasoningOptions) > 0
 				case "input", "thinking.efforts":
 					for _, value := range previous[field].([]string) {
 						if !slices.Contains(updated[field].([]string), value) {
@@ -117,6 +124,7 @@ func modelsDevModelFields(model OMPModel) map[string]any {
 		"thinking.mode":    thinking.Mode, "thinking.defaultLevel": thinking.DefaultLevel,
 		"thinking.effortMap": thinking.EffortMap, "thinking.supportsDisplay": thinking.SupportsDisplay,
 		"thinking.requiresEffort": thinking.RequiresEffort,
+		"reasoningOptions":        model.ReasoningOptions,
 	}
 }
 

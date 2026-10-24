@@ -95,6 +95,9 @@ func restoredManualEffort(model modelcfg.Model, effort string) string {
 	}
 	if !slices.Contains(options, effort) {
 		effort = options[0]
+		if effort == "off" && len(options) > 1 {
+			effort = options[1]
+		}
 	}
 	if modelcatalog.ApplyReasoningEffort(&model, effort) != nil {
 		return ""

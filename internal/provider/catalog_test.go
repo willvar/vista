@@ -5,13 +5,14 @@ import (
 	"testing"
 )
 
-func TestZenReasoningEffortsFollowOMPCatalog(t *testing.T) {
+func TestZenReasoningEffortsFollowCatalogSourcePriority(t *testing.T) {
+	useExplicitReasoningCatalog(t)
 	tests := []struct {
 		provider, model string
 		want            []string
 	}{
-		{"opencode", "gpt-5.4", []string{"low", "medium", "high", "xhigh"}},
-		{"opencode", "claude-sonnet-4-6", []string{"low", "medium", "high"}},
+		{"opencode", "gpt-5.4", []string{"none", "low", "medium", "high", "xhigh"}},
+		{"opencode", "claude-sonnet-4-6", []string{"low", "medium", "high", "max"}},
 		{"opencode", "gemini-3-flash", []string{"minimal", "low", "medium", "high"}},
 		{"opencode", "deepseek-v4-flash", []string{"low", "high", "max"}},
 		{"opencode", "big-pickle", []string{"high", "max"}},

@@ -111,6 +111,7 @@ func TestCustomFailuresNeverSwitchProtocol(t *testing.T) {
 }
 
 func TestCustomResponseToolContinuationRetainsProtocolAndReasoning(t *testing.T) {
+	useExplicitReasoningCatalog(t)
 	calls := 0
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		calls++

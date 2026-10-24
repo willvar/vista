@@ -286,7 +286,8 @@ test.describe('first launch without a provider', () => {
     await expect(page.locator('.usage-popover:visible .usage-details')).toContainText('Reply totals')
     await page.keyboard.press('Escape')
     await expect(page.locator('.usage-popover:visible')).toHaveCount(0)
-    const lowestReasoningLabel = reasoningOptions[0]!.charAt(0).toUpperCase() + reasoningOptions[0]!.slice(1)
+    const lowestReasoningLabel = reasoningOptions[0] === 'none' ? 'Off'
+      : reasoningOptions[0]!.charAt(0).toUpperCase() + reasoningOptions[0]!.slice(1)
     if (page.viewportSize()!.width <= 830) {
       await reasoningPicker.getByRole('combobox', { name: 'Reasoning effort', exact: true }).click()
       await page.locator('.ant-select-dropdown:visible').getByText(lowestReasoningLabel, { exact: true }).click()

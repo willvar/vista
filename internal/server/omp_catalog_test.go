@@ -31,7 +31,8 @@ const updatedCatalogSource = `{"openai":{
 }}`
 
 const updatedModelsDevSource = `{"openai":{"id":"openai","models":{
- "vista-models-dev-model":{"id":"vista-models-dev-model","name":"models.dev model","reasoning":true,"reasoning_options":[{"type":"effort","values":["low","high","max"]}],"tool_call":true,"limit":{"context":200000,"output":32000},"modalities":{"input":["text","image"],"output":["text"]}}
+ "vista-models-dev-model":{"id":"vista-models-dev-model","name":"models.dev model","reasoning":true,"reasoning_options":[{"type":"effort","values":["low","high","max"]}],"tool_call":true,"limit":{"context":200000,"output":32000},"modalities":{"input":["text","image"],"output":["text"]}},
+	"gpt-6-luna":{"id":"gpt-6-luna","name":"Updated Luna","reasoning":true,"reasoning_options":[{"type":"effort","values":["low","max"]}],"tool_call":true,"limit":{"context":2000000,"output":128000},"modalities":{"input":["text","image"],"output":["text"]}}
 }}}`
 
 func catalogTestClient(source string) *http.Client {
@@ -166,7 +167,7 @@ func TestOMPCatalogFailurePreservesActiveDirectoryAndCache(t *testing.T) {
 					return &http.Response{StatusCode: status, Body: io.NopCloser(strings.NewReader("bad response"))}, nil
 				})}
 			case "missing-configured-model":
-				app.ompCatalogClient = catalogTestClient(strings.ReplaceAll(updatedCatalogSource, "gpt-6-luna", "removed-model"))
+				app.ompCatalogClient = catalogTestClientWithModelsDev(strings.ReplaceAll(updatedCatalogSource, "gpt-6-luna", "removed-model"), strings.ReplaceAll(updatedModelsDevSource, "gpt-6-luna", "removed-model"))
 			case "save":
 				if err := os.Remove(provider.OMPCatalogPath(app.configDir)); err != nil {
 					t.Fatal(err)

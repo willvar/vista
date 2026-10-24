@@ -223,6 +223,7 @@ func TestCancelPersistsQueuePauseBeforeSendingWorkerCommand(t *testing.T) {
 }
 
 func TestQueuedRunUsesCurrentSelectionInsteadOfOldSubmissionPreferences(t *testing.T) {
+	useExplicitReasoningCatalog(t)
 	for _, mode := range []string{"auto", "manual"} {
 		t.Run(mode, func(t *testing.T) {
 			app, session := inputQueueFixture(t)

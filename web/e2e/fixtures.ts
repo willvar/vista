@@ -1,5 +1,6 @@
 import { test as base, expect } from '@playwright/test'
 import { execFileSync } from 'node:child_process'
+import { createHash } from 'node:crypto'
 import { createServer } from 'node:http'
 import { createServer as createPortReservation } from 'node:net'
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
@@ -17,7 +18,7 @@ export type VistaFixture = {
   api: (path: string, options?: RequestInit) => Promise<any>
 }
 
-type ModelRequest = { model?: string; reasoning?: { effort?: string; summary?: string }; messages?: {
+type ModelRequest = { model?: string; reasoning?: { effort?: string; summary?: string; max_tokens?: number; enabled?: boolean }; messages?: {
   role: string
   content: unknown
   tool_calls?: { id: string; function: { name: string; arguments: string } }[]
@@ -26,9 +27,10 @@ type ModelRequest = { model?: string; reasoning?: { effort?: string; summary?: s
 type ProviderOutput = 'perplexity' | 'openrouter' | 'responses'
 type ModelFailure = { status: number; body: object; stream?: boolean }
 
-export const test = base.extend<{ vista: VistaFixture; configuredProvider: boolean; imageModel: boolean; replyWithPrompt: boolean; followUpTool: boolean; questionTool: boolean; memoryTool: boolean; progressCalls: number; longProgress: boolean; terminalReasoning: boolean; detachedTask: boolean; backgroundProcess: boolean; fileChanges: boolean; providerOutput: ProviderOutput | undefined; modelFailure: ModelFailure | undefined }>({
+export const test = base.extend<{ vista: VistaFixture; configuredProvider: boolean; imageModel: boolean; budgetModel: boolean; replyWithPrompt: boolean; followUpTool: boolean; questionTool: boolean; memoryTool: boolean; progressCalls: number; longProgress: boolean; terminalReasoning: boolean; detachedTask: boolean; backgroundProcess: boolean; fileChanges: boolean; providerOutput: ProviderOutput | undefined; modelFailure: ModelFailure | undefined }>({
   configuredProvider: [true, { option: true }],
   imageModel: [false, { option: true }],
+  budgetModel: [false, { option: true }],
   replyWithPrompt: [false, { option: true }],
   followUpTool: [false, { option: true }],
   questionTool: [false, { option: true }],
@@ -41,7 +43,7 @@ export const test = base.extend<{ vista: VistaFixture; configuredProvider: boole
   fileChanges: [false, { option: true }],
   providerOutput: [undefined, { option: true }],
   modelFailure: [undefined, { option: true }],
-  vista: async ({ configuredProvider, imageModel, replyWithPrompt, followUpTool, questionTool, memoryTool, progressCalls, longProgress, terminalReasoning, detachedTask, backgroundProcess, fileChanges, providerOutput, modelFailure }, use) => {
+  vista: async ({ configuredProvider, imageModel, budgetModel, replyWithPrompt, followUpTool, questionTool, memoryTool, progressCalls, longProgress, terminalReasoning, detachedTask, backgroundProcess, fileChanges, providerOutput, modelFailure }, use) => {
     if (!process.env.VISTA_CHROME) throw new Error('Set VISTA_CHROME to the isolated test browser executable')
     const binary = resolve(process.env.VISTA_BIN || join(import.meta.dirname, '../../bin/vista'))
     const root = resolve(import.meta.dirname, '../.vista/test-state')
@@ -51,7 +53,8 @@ export const test = base.extend<{ vista: VistaFixture; configuredProvider: boole
     mkdirSync(workspacePath)
     writeFileSync(join(workspacePath, 'source.txt'), 'original')
     writeFileSync(join(workspacePath, 'deleted.txt'), 'restore me')
-    const configuredModel = providerOutput === 'perplexity' ? { provider: 'openai-chat', providerId: 'custom', authentication: 'bearer', id: 'sonar-pro' }
+    const configuredModel = budgetModel ? { provider: 'catalog', providerId: 'openrouter', id: 'qwen/qwen3.8-flash' }
+      : providerOutput === 'perplexity' ? { provider: 'openai-chat', providerId: 'custom', authentication: 'bearer', id: 'sonar-pro' }
       : providerOutput === 'openrouter' ? { provider: 'catalog', providerId: 'openrouter', id: 'aion-labs/aion-2.0' }
       : providerOutput === 'responses' ? { provider: 'openai-responses', id: 'gpt-6.1-sol' }
       : { provider: 'openai-chat', id: 'gpt-6-luna' }
@@ -273,6 +276,14 @@ export const test = base.extend<{ vista: VistaFixture; configuredProvider: boole
     const modelEndpoint = `http://127.0.0.1:${address.port}/v1`
     const configDirectory = join(state, 'vista')
     mkdirSync(configDirectory, { mode: 0o700 })
+    // Reasoning tests consume explicit models.dev controls, never OMP's inferred tiers.
+    const catalog = JSON.parse(readFileSync(resolve(import.meta.dirname, '../../internal/provider/omp_models.json'), 'utf8'))
+    const reasoning = JSON.parse(readFileSync(resolve(import.meta.dirname, '../../internal/testcatalog/testdata/reasoning.json'), 'utf8'))
+    const providers = Object.fromEntries(Object.keys(reasoning).sort().map(provider => [provider,
+      Object.fromEntries(Object.keys(reasoning[provider]).sort().map(id => [id, reasoning[provider][id]]))]))
+    catalog.modelsDev = { schema: 1, revision: createHash('sha256').update(JSON.stringify(providers)).digest('hex'),
+      modelCount: Object.values(providers).reduce((count, models) => count + Object.keys(models).length, 0), providers }
+    writeFileSync(join(configDirectory, 'omp-models.json'), JSON.stringify(catalog), { mode: 0o600 })
     // Catalog scheduling has its own mocked tests; ordinary UI fixtures stay offline.
     writeFileSync(join(configDirectory, 'model-catalog-status.json'), JSON.stringify({ nextCheckAt: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString() }), { mode: 0o600 })
     writeFileSync(join(configDirectory, 'models.json'), JSON.stringify(configuredProvider

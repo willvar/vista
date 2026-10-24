@@ -16,6 +16,7 @@ import (
 
 func selectionApp(t *testing.T) *App {
 	t.Helper()
+	useExplicitReasoningCatalog(t)
 	s, err := store.Open(filepath.Join(t.TempDir(), "selection.db"))
 	if err != nil {
 		t.Fatal(err)

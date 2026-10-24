@@ -23,7 +23,7 @@ func GeminiTurn(ctx context.Context, model modelcfg.Model, messages []ChatMessag
 	return geminiTurn(ctx, model, messages, schemas, nil)
 }
 
-// Validate explicit controls against the catalog's thinking mode, independently
+// Validate explicit controls against published reasoning controls, independently
 // of model naming. Unknown models may use explicit protocol options; automatic
 // controls and summaries still require published capabilities.
 func validateGeminiThinkingOptions(providerID, id, level string, budget *int) error {
@@ -40,11 +40,15 @@ func validateGeminiThinkingOptions(providerID, id, level string, budget *int) er
 	if known && !metadata.Reasoning {
 		return errors.New("Gemini model does not support thinking")
 	}
-	if metadata.Thinking != nil {
-		if budget != nil && metadata.Thinking.Mode != "budget" {
+	if len(metadata.ReasoningOptions) > 0 {
+		controls := controlsFor(modelcfg.Model{ProviderID: providerID, ID: id})
+		if budget != nil && controls.budget == nil {
 			return errors.New("Gemini model does not support thinking budgets")
 		}
-		if level != "" && metadata.Thinking.Mode != "google-level" {
+		if budget != nil && *budget >= 0 && !(controls.toggle && *budget == 0) && (controls.budget.Min != nil && *budget < *controls.budget.Min || controls.budget.Max != nil && *budget > *controls.budget.Max) {
+			return errors.New("Gemini thinking budget is outside the published range")
+		}
+		if level != "" && !slices.Contains(controls.efforts, level) {
 			return errors.New("Gemini model does not support thinking levels")
 		}
 	}

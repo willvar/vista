@@ -15,6 +15,7 @@ import (
 )
 
 func TestQuestionReplyUsesMessageSelectionAndPreservesPendingOnRejection(t *testing.T) {
+	useExplicitReasoningCatalog(t)
 	app, session := inputQueueFixture(t)
 	questions := []question.Question{{Question: "Which path?", Options: []question.Option{{Label: "src"}, {Label: "web"}}}}
 	pending := &store.PendingReply{CallID: "ask", Kind: "question", Content: question.Format(questions), Questions: questions}

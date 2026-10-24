@@ -135,6 +135,7 @@ func decodeOMPSourceCatalog(data []byte, revision string) (*OMPCatalogSnapshot, 
 			if model.ID != id || model.Provider != providerID {
 				return nil, errors.New("OMP model identity does not match its catalog entry")
 			}
+			model.ReasoningOptions = nil // Explicit controls belong to models.dev.
 			rows[id] = model.OMPModel
 		}
 		if len(rows) != 0 {

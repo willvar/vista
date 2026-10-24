@@ -21,6 +21,7 @@ const openCodeModelsCatalogURL = "https://models.opencode.ai/api.json"
 const stencilCatalogURL = "https://catalog.stencil.so/models.json.zstd"
 
 type modelsDevCatalog struct {
+	Schema     int                            `json:"schema,omitempty"`
 	Revision   string                         `json:"revision"`
 	ModelCount int                            `json:"modelCount"`
 	Providers  map[string]map[string]OMPModel `json:"providers"`
@@ -35,6 +36,7 @@ type modelsDevRevision struct {
 }
 
 const modelsDevHistoryWindow = 3 * 24 * time.Hour
+const modelsDevSchema = 1
 
 type modelsDevModel struct {
 	ID        string `json:"id"`
@@ -53,10 +55,7 @@ type modelsDevModel struct {
 		Input  []string `json:"input"`
 		Output []string `json:"output"`
 	} `json:"modalities"`
-	ReasoningOptions []struct {
-		Type   string   `json:"type"`
-		Values []string `json:"values"`
-	} `json:"reasoning_options"`
+	ReasoningOptions []ReasoningOption `json:"reasoning_options"`
 }
 
 func fetchModelsDevCatalog(ctx context.Context, client *http.Client) (*modelsDevCatalog, error) {
@@ -228,7 +227,7 @@ func downloadModelsDevCatalog(ctx context.Context, client *http.Client, url stri
 		limit = 8 << 20
 	}
 	etag := ""
-	if current != nil {
+	if current != nil && current.Schema == modelsDevSchema {
 		etag = current.ETags[url]
 	}
 	data, etag, unchanged, err := fetchCatalogResponse(ctx, client, url, "models.dev", limit, etag)
@@ -272,7 +271,7 @@ func decodeModelsDevCatalog(data []byte) (*modelsDevCatalog, error) {
 	if err := json.Unmarshal(data, &source); err != nil {
 		return nil, fmt.Errorf("decode models.dev model data: %w", err)
 	}
-	catalog := &modelsDevCatalog{Providers: map[string]map[string]OMPModel{}, Types: map[string]map[string]string{}}
+	catalog := &modelsDevCatalog{Schema: modelsDevSchema, Providers: map[string]map[string]OMPModel{}, Types: map[string]map[string]string{}}
 	for providerID, entry := range source {
 		if entry.ID != providerID {
 			return nil, errors.New("models.dev provider identity does not match its catalog entry")
@@ -301,6 +300,14 @@ func decodeModelsDevCatalog(data []byte) (*modelsDevCatalog, error) {
 			model := OMPModel{Name: raw.Name, API: api, Input: raw.Modalities.Input, Reasoning: raw.Reasoning,
 				ContextWindow: raw.Limit.Context, MaxTokens: raw.Limit.Output, SupportsTools: raw.Tools}
 			if model.Reasoning {
+				model.ReasoningOptions = cloneReasoningOptions(raw.ReasoningOptions)
+				for i := range model.ReasoningOptions {
+					for j, value := range model.ReasoningOptions[i].Values {
+						if value == "" || value == "null" {
+							model.ReasoningOptions[i].Values[j] = "default"
+						}
+					}
+				}
 				var efforts []string
 				for _, option := range raw.ReasoningOptions {
 					if option.Type == "effort" {
@@ -416,19 +423,31 @@ func modelsDevModelAPI(providerID, pkg string) string {
 }
 
 func mergeModelsDevCatalog(omp, modelsDev map[string]map[string]OMPModel) map[string]map[string]OMPModel {
-	merged := maps.Clone(omp)
+	merged := make(map[string]map[string]OMPModel, len(omp))
+	for providerID, models := range omp {
+		rows := maps.Clone(models)
+		for id, model := range rows {
+			// OMP-only models retain their complete Thinking policy. Explicit
+			// controls belong to models.dev and replace it by model, not by field.
+			model.ReasoningOptions = nil
+			rows[id] = model
+		}
+		merged[providerID] = rows
+	}
 	base := &OMPCatalogSnapshot{models: omp}
 	for providerID, models := range modelsDev {
-		rows := maps.Clone(omp[providerID])
+		rows := merged[providerID]
 		if rows == nil {
 			rows = map[string]OMPModel{}
 		}
 		for id, model := range models {
+			// Older installed snapshots only retained explicit effort entries in
+			// models.dev's Thinking field. Recover those without consulting OMP.
+			if len(model.ReasoningOptions) == 0 && model.Thinking != nil {
+				model.ReasoningOptions = []ReasoningOption{{Type: "effort", Values: slices.Clone(model.Thinking.Efforts)}}
+			}
 			if original, ok := base.model(providerID, id); ok {
 				model.API = original.API
-				if original.Thinking != nil {
-					model.Thinking, model.Reasoning = original.Thinking, original.Reasoning
-				}
 				if model.ContextWindow == 0 {
 					model.ContextWindow = original.ContextWindow
 				}

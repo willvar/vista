@@ -74,6 +74,7 @@ type Model struct {
 	OutputLimit              int               `json:"outputLimit,omitempty"`
 	ReasoningSummary         string            `json:"reasoningSummary,omitempty"`
 	ReasoningEffort          string            `json:"reasoningEffort,omitempty"`
+	ReasoningChoice          string            `json:"reasoningChoice,omitempty"`
 	// ReasoningDisabled is an internal request-purpose marker. It omits
 	// reasoning controls for lightweight requests such as session titles;
 	// providers may still use their own default behavior.

@@ -19,6 +19,7 @@ import (
 )
 
 func TestNamedCustomResponsesDiscoveryAndReply(t *testing.T) {
+	useExplicitReasoningCatalog(t)
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("Authorization") != "Bearer private-key" {
 			t.Error("custom Responses credential missing")
@@ -300,6 +301,7 @@ func TestZenDiscoveryExcludesAbsentLegacyModelAndSaveRejectsIt(t *testing.T) {
 }
 
 func TestSessionReasoningEffortFollowsSelectedModel(t *testing.T) {
+	useExplicitReasoningCatalog(t)
 	tests := []struct {
 		name   string
 		model  modelcfg.Model
@@ -308,8 +310,8 @@ func TestSessionReasoningEffortFollowsSelectedModel(t *testing.T) {
 		field  string
 	}{
 		{"Zen GPT", modelcfg.Model{Provider: "openai-responses", ProviderID: "opencode", ID: "gpt-5.4"}, "high", true, "responses"},
-		{"Zen GPT none is absent from OMP", modelcfg.Model{Provider: "openai-responses", ProviderID: "opencode", ID: "gpt-5.4"}, "none", false, ""},
-		{"Zen Claude max is absent from OMP", modelcfg.Model{Provider: "anthropic", ProviderID: "opencode", ID: "claude-sonnet-4-6"}, "max", false, ""},
+		{"Zen GPT explicit none", modelcfg.Model{Provider: "openai-responses", ProviderID: "opencode", ID: "gpt-5.4"}, "none", true, "responses"},
+		{"Zen Claude explicit max", modelcfg.Model{Provider: "anthropic", ProviderID: "opencode", ID: "claude-sonnet-4-6"}, "max", true, "messages"},
 		{"Zen Gemini minimal", modelcfg.Model{Provider: "gemini", ProviderID: "opencode", ID: "gemini-3-flash"}, "minimal", true, "gemini"},
 		{"Zen DeepSeek max", modelcfg.Model{Provider: "openai-chat", ProviderID: "opencode", ID: "deepseek-v4-flash"}, "max", true, "chat"},
 		{"Herdex Luna high", modelcfg.Model{Provider: "openai-responses", ID: "gpt-6-luna"}, "high", true, "responses"},
@@ -317,7 +319,8 @@ func TestSessionReasoningEffortFollowsSelectedModel(t *testing.T) {
 		{"custom Chat Sol 6.1 low", modelcfg.Model{Provider: "openai-chat", ID: "gpt-6.1-sol"}, "low", true, "chat"},
 		{"Sol 6.1 does not offer none", modelcfg.Model{Provider: "openai-responses", ID: "gpt-6.1-sol"}, "none", false, ""},
 		{"custom Chat has no OMP identity", modelcfg.Model{Provider: "openai-chat", ID: "custom"}, "medium", false, ""},
-		{"Zen Big Pickle high", modelcfg.Model{Provider: "openai-chat", ProviderID: "opencode", ID: "big-pickle"}, "high", true, "chat"},
+		{"Zen Big Pickle uses OMP fallback", modelcfg.Model{Provider: "openai-chat", ProviderID: "opencode", ID: "big-pickle"}, "high", true, "chat"},
+		{"MiniMax models.dev entry has no controls", modelcfg.Model{Provider: "openai-chat", ProviderID: "minimax", ID: "MiniMax-M2"}, "high", false, ""},
 		{"Claude does not offer xhigh", modelcfg.Model{Provider: "anthropic", ProviderID: "opencode", ID: "claude-sonnet-4-6"}, "xhigh", false, ""},
 		{"unsupported effort", modelcfg.Model{Provider: "openai-responses", ProviderID: "opencode", ID: "gpt-5.4"}, "ultra", false, ""},
 	}
@@ -354,6 +357,7 @@ func TestSessionReasoningEffortFollowsSelectedModel(t *testing.T) {
 }
 
 func TestNewModelReasoningOptionsReachCustomProviderRequests(t *testing.T) {
+	useExplicitReasoningCatalog(t)
 	for _, protocol := range []string{"openai-responses", "openai-chat"} {
 		t.Run(protocol, func(t *testing.T) {
 			upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

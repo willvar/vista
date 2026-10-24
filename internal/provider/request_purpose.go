@@ -26,6 +26,7 @@ func ForPurpose(model modelcfg.Model, purpose RequestPurpose) modelcfg.Model {
 		model.InteractionType = ""
 		model.ReasoningSummary = ""
 		model.ReasoningEffort = ""
+		model.ReasoningChoice = ""
 		model.ChatReasoningOverride = false
 		model.Effort = ""
 		model.Thinking = nil

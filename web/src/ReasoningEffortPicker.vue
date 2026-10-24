@@ -45,6 +45,8 @@ const formatIndex = (index?: number) => orderedOptions.value[index ?? selectedIn
 <style scoped>
 .reasoning-control{--effort-purple:light-dark(#9333ea,#d8b4fe);--effort-color:var(--accent);--effort-glow:transparent;display:inline-flex;align-items:center;gap:8px;flex:none;min-width:0;color:var(--text-secondary);height:32px}
 .reasoning-control[data-effort=none]{--effort-color:var(--muted)}
+.reasoning-control[data-effort=off]{--effort-color:var(--muted)}
+.reasoning-control[data-effort^="budget:"] .reasoning-select{width:9rem}
 .reasoning-control[data-effort=medium]{--effort-color:color-mix(in srgb,var(--accent),var(--effort-purple) 25%)}
 .reasoning-control[data-effort=high]{--effort-color:color-mix(in srgb,var(--accent),var(--effort-purple) 50%)}
 .reasoning-control[data-effort=xhigh]{--effort-color:color-mix(in srgb,var(--accent),var(--effort-purple) 75%)}

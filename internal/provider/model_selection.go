@@ -13,6 +13,9 @@ import (
 // ModelReasoningEffort returns the named setting used for display. It must not
 // expose the statistics configuration key or infer a level from token budgets.
 func ModelReasoningEffort(model modelcfg.Model) string {
+	if model.ReasoningChoice != "" {
+		return model.ReasoningChoice
+	}
 	for _, effort := range []string{model.ReasoningEffort, model.Effort, model.ThinkingLevel} {
 		if effort != "" {
 			return effort

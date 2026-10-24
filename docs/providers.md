@@ -67,13 +67,17 @@ Additional native transports include Mistral and Vercel AI Gateway. These are bu
 
 | Source | Purpose |
 | --- | --- |
-| [Bundled OMP snapshot](../internal/provider/omp_models.json) | Offline model identity, capabilities, limits, API metadata, and thinking policy |
-| models.dev online catalog | Additional/current model metadata, kept separate before merging |
+| [Bundled OMP snapshot](../internal/provider/omp_models.json) | Offline model coverage, basic metadata, limits, and API discriminators |
+| models.dev online catalog | Primary model metadata and explicit reasoning controls, kept separate before merging |
 | [Provider routes](../internal/provider/catalog_providers.csv) | Vista protocol packages, endpoints, and credential environment variables |
 | [Route overrides](../internal/provider/catalog_overrides.csv) | Required per-model protocol or endpoint differences |
 | [Generated regression fixture](../scripts/provider_matrix/testdata/catalog.csv) | Deterministic route/configuration comparison, not live-request results |
 
-The [snapshot generator](../scripts/build_omp_model_catalog.py) accepts an explicit OMP checkout; it is not run as a network step of ordinary builds. Runtime checks update OMP and models.dev together. Merge keys are exact provider/model IDs: free-suffix stripping or approximate model-name matching is not used to copy capabilities. OMP keeps its API/special thinking policy; models.dev can supplement names, inputs, limits, and explicit reasoning options. models.dev endpoints and authentication do not enter Vista routing.
+The [snapshot generator](../scripts/build_omp_model_catalog.py) accepts an explicit OMP checkout; it is not run as a network step of ordinary builds. Runtime checks update OMP and models.dev together. Merge keys are exact provider/model IDs: free-suffix stripping or approximate model-name matching is not used to copy capabilities. For matching entries, models.dev supplies names, input capabilities, reasoning support, and explicit controls; OMP fills unknown limits and tool support and retains models absent from models.dev. Existing OMP API discriminators remain transport hints. Vista owns protocol routes, endpoints, and authentication; models.dev endpoints and authentication do not enter routing.
+
+[Reasoning selection](../internal/provider/reasoning_controls.go) chooses its source for each provider/model pair. If models.dev contains the model, its complete `effort`, `budget_tokens`, and `toggle` definitions apply; missing controls stay missing, without OMP tiers or mappings filling the gaps. Native effort choices come from the published values, including `none`; an explicit provider-default choice omits reasoning overrides. Budgets appear as token-count presets within published bounds and the selected adapter's request limits, rather than invented native effort levels. Toggles appear as On/Off where the adapter implements their request format. Unsupported controls stay hidden.
+
+If models.dev has no matching model, the complete OMP thinking policy supplies fallback effort choices and their request translations, including budget or adaptive-thinking mappings. This preserves manual controls for OMP-only models such as Codex. A bundled-only installation uses those OMP policies until a successful catalog check supplies matching models.dev definitions. Old installed models.dev effort lists remain usable while the complete control schema is refreshed.
 
 Zen, custom, Copilot, and local discovery still decide account/service availability. Metadata alone does not certify tools, images, reasoning, or context size on a particular gateway. Context overflow handling is [independent of catalog limits](./context-compaction.md).
 
@@ -83,7 +87,7 @@ Zen, custom, Copilot, and local discovery still decide account/service availabil
 
 [models.dev downloads](../internal/provider/models_dev_catalog.go) use models.dev, models.opencode.ai, and Stencil. Addresses are shuffled, tried at most once, and each download attempt has a 15-second deadline. A normalized metadata digest ignores formatting and unused mirror fields. Superseded digests are remembered for three days to reject known-old content; this is a mirror-delay heuristic, not proof that an unseen digest is newer.
 
-Ordinary additions and small corrections can be accepted from one publisher. [Risky changes](../internal/provider/models_dev_reliability.go)—removals, API changes, capability/effort losses, large known-limit changes, and widespread edits—need confirmation of affected provider/model fields from another publisher. models.dev and models.opencode.ai count as one publisher; Stencil counts as another. Unrelated additions need not match. Unconfirmed changes retain the active catalog and identify conflicts; a mirror serving current content does not erase a known conflict. ETags and old-digest history persist with the catalog.
+Ordinary additions and small corrections can be accepted from one publisher. [Risky changes](../internal/provider/models_dev_reliability.go)—removals, API changes, capability/control losses, changed existing reasoning controls, large known-limit changes, and widespread edits—need confirmation of affected provider/model fields from another publisher. models.dev and models.opencode.ai count as one publisher; Stencil counts as another. Unrelated additions need not match. Unconfirmed changes retain the active catalog and identify conflicts; a mirror serving current content does not erase a known conflict. ETags and old-digest history persist with the catalog. A parser-schema upgrade bypasses old ETags and does not count newly retained control fields as widespread upstream edits.
 
 Both sources are staged and validated before atomic save to configuration-root `omp-models.json`. A failure in either source, connection validation, or saving keeps the current installation. Changed source content updates the reported update time; unchanged checks do not. Restart reloads the saved sources and rebuilds the merge. New runs use the update without a service restart.
 
@@ -100,4 +104,7 @@ GOWORK=off go run ./scripts/provider_matrix > scripts/provider_matrix/testdata/c
 GOWORK=off go test ./internal/provider ./internal/modelcatalog ./scripts/provider_matrix
 ```
 
-Its `configuration_only`, `unverified_per_model`, and `unverified` fields are evidence boundaries, not a completed acceptance list. Protocol tests use local simulated endpoints; they do not establish every account or model's live compatibility. Local live-service checks have a separate [script](../scripts/live_local_chat_smoke.mjs). Reusable test entry points are in [verification](./testing.md).
+`configuration_only` denotes configuration-level checks; `unverified_per_model` and `unverified` indicate that the fixture contains no per-model live-verification result.
+Protocol tests use local simulated endpoints; they do not establish every account or model's live compatibility.
+Local live-service checks have a separate [script](../scripts/live_local_chat_smoke.mjs).
+Reusable test entry points are in [verification](./testing.md).

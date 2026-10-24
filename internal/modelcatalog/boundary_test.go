@@ -12,6 +12,8 @@ import (
 
 	modelcfg "vista/internal/model"
 	"vista/internal/modelcatalog"
+	"vista/internal/provider"
+	"vista/internal/testcatalog"
 )
 
 func TestSaveKeepsRawConfigurationSeparateFromResolvedCatalog(t *testing.T) {
@@ -64,6 +66,9 @@ func TestSaveKeepsRawConfigurationSeparateFromResolvedCatalog(t *testing.T) {
 }
 
 func TestCustomConfigurationRetainsCapabilitiesAndReasoningAcrossBoundary(t *testing.T) {
+	original := provider.CurrentOMPCatalog()
+	t.Cleanup(original.Activate)
+	testcatalog.Install(t, provider.LoadOMPCatalog)
 	dir := t.TempDir()
 	if err := os.Chmod(dir, 0700); err != nil {
 		t.Fatal(err)

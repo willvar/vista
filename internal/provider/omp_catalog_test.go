@@ -14,7 +14,7 @@ func TestOMPCatalogSnapshotIsEmbeddedAndProviderAware(t *testing.T) {
 		t.Fatalf("OpenCode alias metadata: %+v, ok=%v", model, ok)
 	}
 	if got := ModelReasoningOptionsFor("opencode", "gpt-6.1-sol"); !slices.Equal(got, []string{"low", "medium", "high", "xhigh", "max"}) {
-		t.Fatalf("OMP effort ladder: %v", got)
+		t.Fatalf("OMP-only model lost its fallback efforts: %v", got)
 	}
 	model.Input[0] = "mutated"
 	again, _ := OMPModelMetadata("opencode", "gpt-6.1-sol")
@@ -59,7 +59,7 @@ func TestOMPModelIDsAreSortedAndAliasPaidZen(t *testing.T) {
 
 func TestProviderlessMetadataUsesOneDeterministicOMPRow(t *testing.T) {
 	if got := ModelReasoningOptionsFor("", "gpt-6-luna"); !slices.Equal(got, []string{"low", "medium", "high", "xhigh", "max"}) {
-		t.Fatalf("providerless OMP effort ladder: %v", got)
+		t.Fatalf("providerless OMP row lost its fallback efforts: %v", got)
 	}
 	limits := ModelLimitsFor("", "gpt-6-luna")
 	if limits.Context != 1050000 || limits.Output != 128000 {

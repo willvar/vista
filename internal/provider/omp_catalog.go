@@ -24,12 +24,20 @@ type OMPModel struct {
 	MaxTokens     int          `json:"maxTokens"`
 	SupportsTools *bool        `json:"supportsTools,omitempty"`
 	Thinking      *OMPThinking `json:"thinking,omitempty"`
+	// ReasoningOptions contains explicit models.dev controls. OMP-only rows use
+	// their complete Thinking policy instead; it never fills models.dev gaps.
+	ReasoningOptions []ReasoningOption `json:"reasoningOptions,omitempty"`
 }
 
-// OMPThinking preserves OMP's provider/model policy rather than reducing it
-// to a generic effort list. The extra fields matter for mandatory
-// reasoning and provider-specific remaps; callers that only need the selector
-// should use ModelReasoningOptionsFor.
+type ReasoningOption struct {
+	Type   string   `json:"type"`
+	Values []string `json:"values,omitempty"`
+	Min    *int     `json:"min,omitempty"`
+	Max    *int     `json:"max,omitempty"`
+}
+
+// OMPThinking supplies the fallback policy for OMP-only rows and retains legacy
+// saved models.dev effort lists. Matching models.dev controls replace this policy.
 type OMPThinking struct {
 	Mode            string            `json:"mode"`
 	Efforts         []string          `json:"efforts"`
@@ -93,7 +101,7 @@ func decodeOMPCatalog(data []byte) (*OMPCatalogSnapshot, error) {
 	if err := validateCatalogModels(catalog.Providers, catalog.ModelCount); err != nil {
 		return nil, err
 	}
-	models := catalog.Providers
+	models := mergeModelsDevCatalog(catalog.Providers, nil)
 	if catalog.ModelsDev != nil {
 		if catalog.ModelsDev.Revision == "" {
 			return nil, errors.New("invalid models.dev catalog revision")
@@ -162,6 +170,9 @@ func validateCatalogModels(providers map[string]map[string]OMPModel, modelCount 
 						return errors.New("invalid OMP thinking effort map")
 					}
 				}
+			}
+			if err := validateReasoningOptions(model.ReasoningOptions); err != nil {
+				return err
 			}
 			count++
 		}
@@ -290,6 +301,7 @@ func (catalog *OMPCatalogSnapshot) model(providerID, modelID string) (OMPModel, 
 				thinking.EffortMap = mapsClone(thinking.EffortMap)
 				model.Thinking = &thinking
 			}
+			model.ReasoningOptions = cloneReasoningOptions(model.ReasoningOptions)
 			return model, true
 		}
 	}

@@ -55,7 +55,7 @@ func bedrockTurnWithReasoning(ctx context.Context, model modelcfg.Model, message
 		if requested == nil {
 			requested = model.Thinking.BudgetAlias
 		}
-		if model.Thinking.Type != "adaptive" && (model.Thinking.Type != "enabled" || requested == nil || *requested < 1024 || *requested > 32768) {
+		if model.Thinking.Type != "disabled" && model.Thinking.Type != "adaptive" && (model.Thinking.Type != "enabled" || requested == nil || *requested < 1024 || *requested > 32768) {
 			return Turn{}, errors.New("invalid Bedrock thinking option")
 		}
 		if !strings.Contains(model.ID, "anthropic.claude") {
@@ -70,8 +70,8 @@ func bedrockTurnWithReasoning(ctx context.Context, model modelcfg.Model, message
 			return Turn{}, errors.New("Bedrock output limit cannot fit thinking budget")
 		}
 		input.InferenceConfig = &types.InferenceConfiguration{MaxTokens: aws.Int32(int32(maxTokens))}
-		if model.Thinking.Type == "adaptive" {
-			additional["thinking"] = map[string]any{"type": "adaptive"}
+		if model.Thinking.Type == "adaptive" || model.Thinking.Type == "disabled" {
+			additional["thinking"] = map[string]any{"type": model.Thinking.Type}
 		} else {
 			additional["thinking"] = map[string]any{"type": "enabled", "budget_tokens": min(*requested, maxTokens/2)}
 		}

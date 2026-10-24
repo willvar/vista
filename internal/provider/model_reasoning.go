@@ -1,6 +1,10 @@
 package provider
 
-import "strings"
+import (
+	"strings"
+
+	modelcfg "vista/internal/model"
+)
 
 // Lookups only read the active provider-scoped OMP + models.dev catalog. Network
 // access is confined to explicit catalog updates, never model requests.
@@ -17,10 +21,14 @@ type ModelLimit struct {
 // pair. Unknown models have no adjustable effort values.
 func ModelReasoningOptionsFor(providerID, id string) []string {
 	model, ok := ompModelForMetadata(providerID, id)
-	if !ok || model.Thinking == nil || len(model.Thinking.Efforts) == 0 {
+	if !ok {
 		return nil
 	}
-	return append([]string(nil), model.Thinking.Efforts...)
+	protocol := catalogProtocol(ompPackage(model.API, ""))
+	if entry, err := ResolveCatalogModel(providerID, id); err == nil {
+		protocol = entry.Protocol
+	}
+	return SessionReasoningOptions(modelcfg.Model{Provider: protocol, ProviderID: providerID, ID: id, OutputLimit: model.MaxTokens})
 }
 
 // ModelLimitsFor returns provider-scoped limits from the active model

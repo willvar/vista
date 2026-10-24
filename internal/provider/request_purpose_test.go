@@ -49,7 +49,7 @@ func TestTitlePurposeOmitsReasoningAndKeepsSavedOptions(t *testing.T) {
 	budget := 4096
 	base := modelcfg.Model{
 		Provider: protocol, ProviderID: "openai", ID: "gpt-6-luna", APIKey: "secret", SessionID: "session", InteractionType: "conversation-subagent",
-		ReasoningSummary: "detailed", ReasoningEffort: "high", ChatReasoningOverride: true, Effort: "high",
+		ReasoningSummary: "detailed", ReasoningEffort: "high", ReasoningChoice: "high", ChatReasoningOverride: true, Effort: "high",
 		Thinking: &modelcfg.ThinkingOption{Type: "enabled"}, EnableThinking: &enabled, ThinkingBudget: &budget, ThinkingLevel: "high",
 		OpenRouter: &modelcfg.OpenRouterOptions{
 			AppName: "vista", Provider: &modelcfg.OpenRouterRouting{Order: []string{"chosen"}},
@@ -58,7 +58,7 @@ func TestTitlePurposeOmitsReasoningAndKeepsSavedOptions(t *testing.T) {
 		},
 	}
 	model := ForPurpose(base, PurposeTitle)
-	if !model.ReasoningDisabled || model.ThinkingLevel != "" || model.ReasoningSummary != "" || model.ReasoningEffort != "" || model.ChatReasoningOverride || model.Effort != "" || model.Thinking != nil || model.EnableThinking != nil || model.ThinkingBudget != nil {
+	if !model.ReasoningDisabled || model.ThinkingLevel != "" || model.ReasoningSummary != "" || model.ReasoningEffort != "" || model.ReasoningChoice != "" || model.ChatReasoningOverride || model.Effort != "" || model.Thinking != nil || model.EnableThinking != nil || model.ThinkingBudget != nil {
 		t.Fatal("title did not clear the previous reasoning configuration")
 	}
 	if model.SessionID != "" || model.InteractionType != "" || model.OpenRouter.Plugins != nil || model.OpenRouter.Reasoning != nil {

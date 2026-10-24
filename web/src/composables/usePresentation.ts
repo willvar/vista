@@ -1,5 +1,6 @@
 import { useI18n } from 'vue-i18n'
 import { computed, type Ref } from 'vue'
+import { reasoningChoiceLabel } from '../ui/reasoning.ts'
 import type { Message, ModelCatalog, ModelInfo, ModelResultView, StreamEvent } from '../client/types'
 import { formatDateTime } from '../ui/datetime.ts'
 
@@ -64,6 +65,7 @@ export function modelPickerOptions(models: readonly ModelInfo[], locale: string,
 export function reasoningEffortSuffix(effort: string | undefined, t: (key: string, params?: Record<string, unknown>) => string, te: (key: string) => boolean) {
   const value = effort?.trim()
   if (!value || value.toLowerCase() === 'none') return ''
+  if (value.startsWith('budget:') || value === 'off' || value === 'on' || value === 'default') return ` · ${reasoningChoiceLabel(value, t)}`
   const key = 'reasoning' + value.charAt(0).toUpperCase() + value.slice(1)
   return ` · ${te(key) ? t(key) : value}`
 }

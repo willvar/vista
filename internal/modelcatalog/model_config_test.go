@@ -86,13 +86,12 @@ func TestDirectAnthropicThinkingConfiguration(t *testing.T) {
 }
 
 func TestGeminiThinkingBudgetConfiguration(t *testing.T) {
+	useExplicitReasoningCatalog(t)
 	root := t.TempDir()
 	path := filepath.Join(root, "models.json")
 	for _, entry := range []string{
 		`{"key":"gemini","provider":"gemini","id":"gemini-2.5-flash","apiKey":"key","thinkingBudget":1024}`,
 		`{"key":"gemini","provider":"catalog","providerId":"google","id":"gemini-2.5-flash","apiKey":"key","thinkingBudget":1024}`,
-		`{"key":"gemini","provider":"gemini","id":"gemini-flash-latest","apiKey":"key","thinkingBudget":1024}`,
-		`{"key":"gemini","provider":"catalog","providerId":"google","id":"gemini-flash-lite-latest","apiKey":"key","thinkingBudget":1024}`,
 		`{"key":"gemini","provider":"catalog","providerId":"google-vertex","id":"gemini-flash-latest","accessToken":"token","project":"test-project","location":"us-central1","thinkingBudget":1024}`,
 		`{"key":"gemini","provider":"catalog","providerId":"google-vertex","id":"gemini-2.5-flash","accessToken":"token","project":"test-project","location":"us-central1","thinkingBudget":1024}`,
 		`{"key":"gemini","provider":"gemini","id":"gemini-3-flash-preview","apiKey":"key","thinkingLevel":"low"}`,
@@ -111,6 +110,8 @@ func TestGeminiThinkingBudgetConfiguration(t *testing.T) {
 		}
 	}
 	for _, entry := range []string{
+		`{"key":"gemini","provider":"gemini","id":"gemini-flash-latest","apiKey":"key","thinkingBudget":1024}`,
+		`{"key":"gemini","provider":"catalog","providerId":"google","id":"gemini-flash-lite-latest","apiKey":"key","thinkingBudget":1024}`,
 		`{"key":"gemini","provider":"gemini","id":"gemini-2.5-flash","apiKey":"key","thinkingLevel":"low"}`,
 		`{"key":"gemini","provider":"gemini","id":"gemini-3-flash-preview","apiKey":"key","thinkingBudget":1024}`,
 		`{"key":"gemini","provider":"gemini","id":"gemini-3-flash-preview","apiKey":"key","thinkingLevel":"high","thinkingBudget":1024}`,

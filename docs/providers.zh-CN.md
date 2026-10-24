@@ -67,13 +67,17 @@ WebUI 连接列表来自[服务商配置](../internal/modelcatalog/provider_setu
 
 | 来源 | 用途 |
 | --- | --- |
-| [内置 OMP 快照](../internal/provider/omp_models.json) | 离线模型身份、能力、限制、API 元数据和 thinking 策略 |
-| models.dev 在线目录 | 补充、更新模型资料，合并前独立保存 |
+| [内置 OMP 快照](../internal/provider/omp_models.json) | 离线模型覆盖、基本资料、限制和 API 判别信息 |
+| models.dev 在线目录 | 模型资料及显式推理控制的主要来源，合并前独立保存 |
 | [服务商路由](../internal/provider/catalog_providers.csv) | Vista 协议包、端点及凭据环境变量 |
 | [路由覆盖](../internal/provider/catalog_overrides.csv) | 必需的模型级协议或端点差异 |
 | [生成的回归基准](../scripts/provider_matrix/testdata/catalog.csv) | 确定性的路由／配置对照，不是真实请求结果 |
 
-[快照生成器](../scripts/build_omp_model_catalog.py)接收明确的 OMP checkout，普通构建不通过它联网抓取。运行时检查整体更新 OMP 和 models.dev。合并按精确服务商／模型 ID 匹配，不通过去掉 free 后缀或近似型号复制能力。OMP 保留 API 和特殊 thinking 策略，models.dev 可补充名称、输入能力、限制及显式推理选项；其端点和认证不进入 Vista 路由。
+[快照生成器](../scripts/build_omp_model_catalog.py)接收明确的 OMP checkout，普通构建不通过它联网抓取。运行时检查整体更新 OMP 和 models.dev。合并按精确服务商／模型 ID 匹配，不通过去掉 free 后缀或近似型号复制能力。匹配条目的名称、输入能力、推理支持及显式控制以 models.dev 为准；OMP 补齐未知限制和工具支持，并保留 models.dev 中缺少的模型。已有 OMP API 判别信息仍用于传输提示。协议路由、端点和认证由 Vista 管理，models.dev 的端点和认证不进入路由。
+
+[推理选择](../internal/provider/reasoning_controls.go)按服务商／模型确定资料来源。models.dev 收录该模型时，完整采用它的 `effort`、`budget_tokens` 和 `toggle` 定义；缺失的控制保持缺失，不从 OMP 拼入档位或映射。原生档位来自发布的值，包括 `none`；显式「默认」选项不附加推理覆盖参数。预算显示为 token 数值预设，受发布范围及当前适配器的请求限制约束，不伪装成原生档位。适配器已实现相应请求格式时，开关显示为「开启／关闭」。不支持编码的控制不显示。
+
+models.dev 完全没有对应模型时，采用 OMP 的完整 thinking 策略补充档位及其请求参数转换，包括预算或自适应推理映射。这样可保留 Codex 等仅由 OMP 收录模型的手动控制。只有内置快照的安装先使用这些 OMP 策略，成功检查目录并取得 models.dev 的对应定义后再采用后者。旧版已安装 models.dev 的明确档位在完整控制结构刷新前仍可使用。
 
 Zen、自定义、Copilot 和本地发现仍决定账号／服务可用性。元数据本身不能证明特定中转的工具、图片、推理或上下文容量，超限处理[独立于目录限制](./context-compaction.zh-CN.md)。
 
@@ -83,7 +87,7 @@ Zen、自定义、Copilot 和本地发现仍决定账号／服务可用性。元
 
 [models.dev 下载](../internal/provider/models_dev_catalog.go)使用 models.dev、models.opencode.ai 和 Stencil。地址随机排序，每个最多尝试一次，每次下载期限为 15 秒。对有效元数据规范化计算摘要，忽略格式和无关镜像字段；已替代摘要保留三天以拒绝已知旧内容。这是镜像延迟启发式，不是未知摘要较新的证明。
 
-普通新增和小修正可由单一发布方提供。[风险变化](../internal/provider/models_dev_reliability.go)包括删除、API 变化、能力／档位丢失、已知限制大变及大范围修改，需要另一发布方确认受影响服务商／模型的具体字段。models.dev 和 models.opencode.ai 算同一发布方，Stencil 为另一方；无关新增不必一致。未确认变化保留现用目录并列出冲突，镜像返回现用内容不抵消已知分歧。ETag 和旧摘要历史随目录保存。
+普通新增和小修正可由单一发布方提供。[风险变化](../internal/provider/models_dev_reliability.go)包括删除、API 变化、能力／控制丢失、已有推理控制变化、已知限制大变及大范围修改，需要另一发布方确认受影响服务商／模型的具体字段。models.dev 和 models.opencode.ai 算同一发布方，Stencil 为另一方；无关新增不必一致。未确认变化保留现用目录并列出冲突，镜像返回现用内容不抵消已知分歧。ETag 和旧摘要历史随目录保存。解析结构升级会绕过旧 ETag，也不会把新保留的控制字段计作上游大范围修改。
 
 两份来源先暂存、校验，再原子保存到配置根目录的 `omp-models.json`。任一来源、连接校验或保存失败均保留现用安装。内容变化才推进更新时间，未变化检查不推进。重启重新加载原始来源并重建合并；新执行无需重启服务即可使用更新。
 
@@ -100,4 +104,7 @@ GOWORK=off go run ./scripts/provider_matrix > scripts/provider_matrix/testdata/c
 GOWORK=off go test ./internal/provider ./internal/modelcatalog ./scripts/provider_matrix
 ```
 
-其中 `configuration_only`、`unverified_per_model`、`unverified` 表示证据边界，不是完成的验收清单。协议测试使用本地模拟端点，不代表每个账号／模型均已真实兼容。本地真实服务检查有独立[脚本](../scripts/live_local_chat_smoke.mjs)。可复用测试入口见[验证](./testing.zh-CN.md)。
+`configuration_only` 表示配置层面的检查；`unverified_per_model` 和 `unverified` 表示这份基准未记录逐模型的真实服务验证结果。
+协议测试使用本地模拟端点，不代表每个账号／模型均已真实兼容。
+本地真实服务检查有独立[脚本](../scripts/live_local_chat_smoke.mjs)。
+可复用测试入口见[验证](./testing.zh-CN.md)。

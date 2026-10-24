@@ -132,6 +132,17 @@ test('reasoning label suppresses missing or none efforts and translates known va
   assert.equal(reasoningEffortSuffix('adaptive', t, te), ' · adaptive')
 })
 
+test('budget and toggle history labels describe the saved control without guessing an effort', () => {
+  const t = (key: string, params?: Record<string, unknown>) => ({
+    reasoningBudget: `${params?.tokens} tokens`, reasoningOn: 'On', reasoningOff: 'Off', reasoningDefault: 'Default',
+  }[key] || key)
+  for (const [choice, label] of [['budget:8192', '8192 tokens'], ['on', 'On'], ['off', 'Off'], ['default', 'Default']]) {
+    assert.equal(reasoningEffortSuffix(choice, t, () => true), ` · ${label}`)
+    const persisted = { ...reply, modelResults: [result(4, 2, choice)] }
+    assert.equal(messageReasoningEffort(persisted, fromRun), choice)
+  }
+})
+
 test('reply header uses its final root result instead of older turns, child calls or the run fallback', () => {
   const results = [result(1, 1, 'medium'), result(4, 2, 'high'), result(5, 2, 'max', 1)]
   assert.equal(messageReasoningEffort(reply, fromRun, results), 'high')

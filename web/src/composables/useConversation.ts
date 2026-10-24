@@ -7,6 +7,7 @@ import { toolOperationLabelKey } from '../state/runTrace.ts'
 import { conversationItems, hydrateMainOutput, mainOutputKey, mergeMainOutputs, type ConversationItem, type MainOutputRecord } from '../state/mainOutputs.ts'
 import { useInteractionPreferences, type InteractionPreferences, type SelectionMode, type SelectionTier } from './useInteractionPreferences.ts'
 import { formatQuotedReply, quoteStoragePrefix, readQuotedText, type QuotedText } from '../state/quotedReply.ts'
+import { reasoningChoiceLabel } from '../ui/reasoning.ts'
 
 export type ConversationOptions = {
   client: VistaClient
@@ -72,7 +73,7 @@ export function useConversation({ client, sessions, modelCatalog, error, busy, r
       if (selectionMode.value === 'auto') return choices.at(-1) || ''
       const remembered = reasoningByModel.value[selectedReasoningKey.value]
         || (rememberedModel.value?.id === selectedReasoningKey.value ? rememberedModel.value.reasoningEffort : '')
-      return choices.includes(remembered) ? remembered : choices[0] || ''
+      return choices.includes(remembered) ? remembered : choices.find(value => value !== 'off') || ''
     },
     set: (effort: string) => {
       if (selectionMode.value !== 'manual' || !selectedReasoningKey.value || !selectedModelInfo.value?.reasoningOptions?.includes(effort)) return
@@ -81,7 +82,7 @@ export function useConversation({ client, sessions, modelCatalog, error, busy, r
       void saveSelection({ manualReasoningEffort: effort })
     },
   })
-  const reasoningChoices = computed(() => (selectedModelInfo.value?.reasoningOptions || []).map(value => ({ label: t('reasoning' + value.charAt(0).toUpperCase() + value.slice(1)), value })))
+  const reasoningChoices = computed(() => (selectedModelInfo.value?.reasoningOptions || []).map(value => ({ label: reasoningChoiceLabel(value, t), value })))
   const canAttachImage = computed(() => selectionMode.value === 'auto'
     ? modelCatalog.value.models.some(model => model.inputModalities?.includes('image'))
     : !!selectedModelInfo.value?.inputModalities?.includes('image'))

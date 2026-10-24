@@ -717,6 +717,35 @@ test('welcome view restores the last model, reasoning, mode and tier after prefe
   assert.equal(conversation.selectedReasoning.value, 'high')
 })
 
+test('explicit budget and toggle choices survive remembering, session selection and sending', async t => {
+  let requestBody: Record<string, unknown> = {}
+  const { conversation, modelCatalog, preferences, saved } = fixture(t, (path, options) => {
+    if (path.endsWith('/messages') && options?.method === 'POST') {
+      requestBody = JSON.parse(String(options.body))
+      return Promise.resolve({ message: message('reply', 2, 'run') })
+    }
+  })
+  modelCatalog.value.models[0]!.reasoningOptions = ['off', 'on', 'budget:1024', 'budget:8192']
+  preferences.reasoningByModelId.value = { model: 'high' }
+  assert.equal(conversation.selectedReasoning.value, 'on')
+  assert.deepEqual(conversation.reasoningChoices.value.map(option => option.label), [
+    'reasoningOff', 'reasoningOn', 'reasoningBudget', 'reasoningBudget',
+  ])
+  conversation.selectedReasoning.value = 'budget:8192'
+  assert.equal(preferences.reasoningByModelId.value.model, 'budget:8192')
+  assert.equal(JSON.parse(saved.get('vista-reasoning-by-model')!).model, 'budget:8192')
+  await conversation.selectSession(session('a'))
+  assert.equal(conversation.selectedReasoning.value, 'budget:8192')
+  conversation.draft.value = 'Use this budget'
+  await conversation.send()
+  assert.equal(requestBody.reasoningEffort, 'budget:8192')
+  conversation.selectedReasoning.value = 'off'
+  assert.equal(preferences.reasoningByModelId.value.model, 'off')
+  conversation.draft.value = 'Disable thinking'
+  await conversation.send()
+  assert.equal(requestBody.reasoningEffort, 'off')
+})
+
 test('new conversation preparation creates no record and preserves the welcome text and attachments across sessions', async t => {
   let posts = 0
   const { conversation, saved } = fixture(t, (_, options) => {

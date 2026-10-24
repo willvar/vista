@@ -120,7 +120,12 @@ func (catalog *OMPCatalogSnapshot) resolveModel(providerID, modelID string) (Cat
 	item.OutputLimit = omp.MaxTokens
 	item.Status = "active"
 	item.ResponsesRoute = ompResponsesRoute(omp.API)
-	if omp.Thinking != nil {
+	for _, option := range omp.ReasoningOptions {
+		if option.Type == "effort" {
+			item.ReasoningEfforts = append([]string(nil), option.Values...)
+		}
+	}
+	if len(omp.ReasoningOptions) == 0 && omp.Thinking != nil {
 		item.ReasoningEfforts = append([]string(nil), omp.Thinking.Efforts...)
 	}
 	// Gateways with several wire APIs use OMP's discriminator. Native service

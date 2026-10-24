@@ -11,23 +11,23 @@ import (
 )
 
 func TestSessionReasoningReachesProviderPayload(t *testing.T) {
+	useExplicitReasoningCatalog(t)
 	cases := []struct {
 		service, protocol, id, effort string
 		expected                      string
 	}{
-		{"anthropic", "anthropic", "claude-haiku-4-5", "high", `{"thinking":{"type":"enabled","budget_tokens":16000}}`},
+		{"anthropic", "anthropic", "claude-haiku-4-5", "budget:16000", `{"thinking":{"type":"enabled","budget_tokens":16000}}`},
 		{"anthropic", "anthropic", "claude-fable-5", "max", `{"thinking":{"type":"adaptive"},"output_config":{"effort":"max"}}`},
-		{"anthropic", "anthropic", "claude-opus-4-5", "xhigh", `{"thinking":{"type":"enabled","budget_tokens":16000},"output_config":{"effort":"high"}}`},
-		{"google", "gemini", "gemini-2.5-flash", "high", `{"generationConfig":{"thinkingConfig":{"thinkingBudget":16384}}}`},
-		{"google", "gemini", "gemini-flash-latest", "high", `{"generationConfig":{"thinkingConfig":{"thinkingBudget":16384}}}`},
-		{"google-vertex", "vertex-gemini", "gemini-flash-lite-latest", "high", `{"generationConfig":{"thinkingConfig":{"thinkingBudget":16384}}}`},
-		{"custom", "gemini", "gemini-flash-latest", "high", `{"generationConfig":{"thinkingConfig":{"thinkingBudget":16384}}}`},
-		{"google", "gemini", "models/gemini-2.5-flash", "high", `{"generationConfig":{"thinkingConfig":{"thinkingBudget":16384}}}`},
+		{"anthropic", "anthropic", "claude-opus-4-5", "high", `{"thinking":{"type":"enabled","budget_tokens":16000},"output_config":{"effort":"high"}}`},
+		{"google", "gemini", "gemini-2.5-flash", "budget:16384", `{"generationConfig":{"thinkingConfig":{"thinkingBudget":16384}}}`},
+		{"google", "gemini", "gemini-flash-latest", "high", `{"generationConfig":{"thinkingConfig":{"thinkingLevel":"HIGH"}}}`},
+		{"google-vertex", "vertex-gemini", "gemini-3-flash-preview", "high", `{"generationConfig":{"thinkingConfig":{"thinkingLevel":"HIGH"}}}`},
+		{"custom", "gemini", "gemini-flash-latest", "high", `{"generationConfig":{"thinkingConfig":{"thinkingLevel":"HIGH"}}}`},
+		{"google", "gemini", "models/gemini-2.5-flash", "budget:16384", `{"generationConfig":{"thinkingConfig":{"thinkingBudget":16384}}}`},
 		{"google", "gemini", "gemini-3-flash-preview", "high", `{"generationConfig":{"thinkingConfig":{"thinkingLevel":"HIGH"}}}`},
-		{"openrouter", "openai-chat", "aion-labs/aion-2.0", "high", `{"reasoning":{"effort":"high"}}`},
+		{"openrouter", "openai-chat", "openai/gpt-6-luna", "high", `{"reasoning":{"effort":"high"}}`},
 		{"deepseek", "openai-chat", "deepseek-flash", "max", `{"thinking":{"type":"enabled"},"reasoning_effort":"max"}`},
-		{"minimax", "openai-chat", "MiniMax-M2", "high", `{"thinking":{"type":"adaptive"}}`},
-		{"zai-coding-plan", "anthropic", "glm-4.5", "high", `{"thinking":{"type":"enabled","budget_tokens":16000}}`},
+		{"minimax", "openai-chat", "MiniMax-M3", "on", `{"thinking":{"type":"adaptive"}}`},
 		{"amazon-bedrock", "bedrock", "anthropic.claude-opus-4-6-v1", "max", `{"additionalModelRequestFields":{"thinking":{"type":"adaptive"},"output_config":{"effort":"max"}}}`},
 		{"amazon-bedrock", "bedrock", "global.openai.gpt-5.6-luna", "xhigh", `{"additionalModelRequestFields":{"reasoning":{"effort":"xhigh"}}}`},
 	}
