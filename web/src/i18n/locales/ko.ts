@@ -2,6 +2,9 @@ import type en from './en.ts'
 
 
 export default {
+  "automaticTitles": "대화 제목 자동 생성",
+  "automaticTitlesHint": "제목을 생성하면 모델에 추가로 요청합니다. 끄면 새 대화의 기본 이름에 생성 날짜와 시간을 붙입니다.",
+  "untitledSession": "새 대화",
   "loadingSessions": "대화 불러오는 중…",
   "deletePendingConfirm": "이 대기 중인 메시지를 삭제할까요? {content}",
   "removeSearchKeyConfirm": "{name}에 저장된 API 키를 삭제할까요?",

@@ -11,6 +11,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"vista/internal/agentconfig"
 	modelcfg "vista/internal/model"
 	"vista/internal/modeltrace"
 	"vista/internal/provider"
@@ -51,6 +52,14 @@ func (a *App) generateSessionTitle(sessionID, messageID string, model modelcfg.M
 		return
 	}
 	if !eligible {
+		return
+	}
+	settings, err := agentconfig.ReadSettings(a.configDir)
+	if err != nil {
+		logSessionTitleFailure(sessionID, model, "settings", err)
+		return
+	}
+	if !settings.AutomaticTitles {
 		return
 	}
 	select {

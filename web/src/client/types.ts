@@ -10,7 +10,7 @@ export type ModelSetting = {
   headerNames?: string[]; copilotAuth?: CopilotAuthOptions; key: string; connectionId?: string; kind?: string; name?: string; provider: string; providerId?: string; id: string; baseUrl?: string; hasApiKey: boolean; hasAccessToken?: boolean; credentialMode?: string; region?: string; project?: string; location?: string; resourceName?: string; deploymentId?: string; apiVersion?: string; editable: boolean }
 export type ModelSettings = { default: string; models: ModelSetting[] }
 export type ProviderSetup = { id: string; name: string; aliases?: string; baseUrl?: string; fields?: string[]; credentialModes?: string[]; apiFormats?: string[]; models?: { id: string; name: string }[] }
-export type AgentSettings = { instructions: string; instructionsPath: string; delegationDepth: number; maxDelegationDepth: number }
+export type AgentSettings = { instructions: string; instructionsPath: string; delegationDepth: number; maxDelegationDepth: number; automaticTitles: boolean }
 export type Memory = { id: string; text: string; createdAt: string; updatedAt: string }
 export type Memories = { memories: Memory[]; maxCount: number; maxBytes: number; maxTotalBytes: number }
 export type LoginUpdate = { id: string; status: string; error?: string }

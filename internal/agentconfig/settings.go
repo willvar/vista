@@ -17,7 +17,8 @@ const settingsFilename = "agent-settings.json"
 // DelegationDepth counts the levels below the main Agent: 0 disables
 // delegation, 1 allows direct subagents, and 2 also allows their children.
 type Settings struct {
-	DelegationDepth int `json:"delegationDepth"`
+	DelegationDepth int  `json:"delegationDepth"`
+	AutomaticTitles bool `json:"automaticTitles"`
 }
 
 func ValidateDelegationDepth(depth int) error {
@@ -28,7 +29,7 @@ func ValidateDelegationDepth(depth int) error {
 }
 
 func ReadSettings(dir string) (Settings, error) {
-	settings := Settings{DelegationDepth: DefaultDelegationDepth}
+	settings := Settings{DelegationDepth: DefaultDelegationDepth, AutomaticTitles: true}
 	file, err := os.Open(filepath.Join(dir, settingsFilename))
 	if errors.Is(err, os.ErrNotExist) {
 		return settings, nil
@@ -38,7 +39,8 @@ func ReadSettings(dir string) (Settings, error) {
 	}
 	defer file.Close()
 	var input struct {
-		DelegationDepth *int `json:"delegationDepth"`
+		DelegationDepth *int            `json:"delegationDepth"`
+		AutomaticTitles json.RawMessage `json:"automaticTitles"`
 	}
 	decoder := json.NewDecoder(io.LimitReader(file, 4097))
 	decoder.DisallowUnknownFields()
@@ -51,7 +53,14 @@ func ReadSettings(dir string) (Settings, error) {
 	if input.DelegationDepth == nil {
 		return Settings{}, errors.New("delegationDepth is required")
 	}
-	settings = Settings{DelegationDepth: *input.DelegationDepth}
+	settings.DelegationDepth = *input.DelegationDepth
+	if len(input.AutomaticTitles) > 0 {
+		var enabled *bool
+		if err := json.Unmarshal(input.AutomaticTitles, &enabled); err != nil || enabled == nil {
+			return Settings{}, errors.New("automaticTitles must be a boolean")
+		}
+		settings.AutomaticTitles = *enabled
+	}
 	if err := ValidateDelegationDepth(settings.DelegationDepth); err != nil {
 		return Settings{}, err
 	}

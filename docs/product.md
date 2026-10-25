@@ -31,7 +31,7 @@ Use these principles when changing the product:
 - Restart restores Workers for open conversations and records unfinished work as interrupted. It does not resume interrupted model requests or replay tool side effects.
 - Text, execution details, questions, checklists, and usage remain with their originating messages. The sidebar distinguishes foreground execution, background-only activity, unread replies, pending answers, paused input, Worker unavailability, and failure.
 - Automatic model selection offers Fast and Quality modes; manual selection chooses a connection/model and available reasoning setting. Settings changes during execution apply to subsequent runs.
-- A separate model request generates the first title without tools or an explicit reasoning effort. It may fail independently; manually assigned titles are preserved.
+- Automatic conversation titles are enabled by default and can be disabled in Personalization. When enabled, a separate model request generates the first title without tools or an explicit reasoning effort; it may fail independently. When disabled, new conversations display a localized default name followed by their creation time in `YYYYMMDDHHmmss` form, such as “New Session-20261025174143”. The timestamp uses the client’s local time. Existing and manually assigned titles are preserved.
 
 See [architecture](./architecture.md) and [process lifecycle](./process-lifecycle.md) for runtime ownership.
 

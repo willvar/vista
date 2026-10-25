@@ -130,3 +130,51 @@ test('external closing preserves the current draft and confirmed deletion return
   expect(reads.some(path => path === '/api/sessions' || path.includes('open=false'))).toBe(false)
   await expect(page.locator('.state-sync-error')).toHaveCount(0)
 })
+
+test('disabling titles keeps the localized default name and preserves manual titles', async ({ page, vista }) => {
+  await vista.api('/preferences', { method: 'PATCH', body: JSON.stringify({ feedbackInvitationSeen: true }) })
+  await vista.api('/agent-settings', { method: 'PUT', body: JSON.stringify({ automaticTitles: false }) })
+  await page.goto(vista.origin + '/')
+  let firstSnapshot = true
+  // Keep first-send initialization open across the created-session SSE push.
+  // A data update on home must not cancel its in-flight conversation scope.
+  await page.route('**/api/sessions/*/snapshot', async route => {
+    if (firstSnapshot) {
+      firstSnapshot = false
+      await new Promise(resolve => setTimeout(resolve, 300))
+    }
+    await route.continue()
+  })
+  const prompt = 'Compare two phones for gaming'
+  await page.locator('.sender-card textarea').fill(prompt)
+  await page.locator('.sender-card textarea').press('Enter')
+  const row = page.locator('.session-card').first()
+  await expect(row.locator('.session-name')).toHaveText(/^New Session-\d{14}$/)
+  await expect(page.locator('.messages article.assistant:not(.main-output) .markdown')).toBeVisible()
+  const session = (await vista.api('/sessions?open=true'))[0]
+  expect(session.title).toBe('New session')
+  const timestamp = await page.evaluate(createdAt => new Intl.DateTimeFormat('sv-SE', {
+    year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23',
+  }).format(new Date(createdAt)).replace(/\D/g, ''), session.createdAt)
+  await expect(row.locator('.session-name')).toHaveText(`New Session-${timestamp}`)
+  await expect(page.locator('.conversation-header h2')).toHaveText(`New Session-${timestamp}`)
+  const id = session.id
+  await page.context().addCookies([{ name: 'vista-language', value: 'zh-CN', url: vista.origin }])
+  await page.reload()
+  await expect(row.locator('.session-name')).toHaveText(`新会话-${timestamp}`)
+  await expect(page.locator('.conversation-header h2')).toHaveText(`新会话-${timestamp}`)
+  await page.goto(`${vista.origin}/sessions?session=${id}`)
+  const manager = page.locator('.session-manager-page')
+  await expect(manager.locator('.managed-session .session-name')).toHaveText(`新会话-${timestamp}`)
+  await manager.getByRole('textbox').fill('新会话')
+  await expect(manager.locator('.managed-session')).toHaveCount(1)
+  await page.goto(`${vista.origin}/sessions/${id}`)
+  await expect(page.locator('.conversation-header h2')).toHaveText(`新会话-${timestamp}`)
+  await vista.api(`/sessions/${id}`, { method: 'PATCH', body: JSON.stringify({ title: 'Keep my title' }) })
+  await vista.api('/agent-settings', { method: 'PUT', body: JSON.stringify({ automaticTitles: true }) })
+  await page.locator('.sender-card textarea').fill('Another question')
+  await page.locator('.sender-card textarea').press('Enter')
+  await expect(page.locator('.messages article.assistant:not(.main-output) .markdown')).toHaveCount(2)
+  await expect(row).toContainText('Keep my title')
+  await expect(page.locator('.state-sync-error')).toHaveCount(0)
+})

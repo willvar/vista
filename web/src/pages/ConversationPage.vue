@@ -29,7 +29,7 @@ const { t } = useI18n({ useScope: 'global' })
 const workspace = useWorkspace()
 const { selected, needsProvider, busy, workerAvailable, modelLabel, modelCatalog, localTime, statusLabel,
   historicalModelLabel, modelNameById, formatModelWithReasoning, renamingSessionID, sessionTitleDraft, beginRename, cancelRename, saveRename,
-  workerMemory, mobileSessionsOpen, attentionCount, debugMode, route } = workspace
+  workerMemory, mobileSessionsOpen, attentionCount, debugMode, route, displaySessionTitle } = workspace
 const selectedWorkerMemory = computed(() => selected.value ? workerMemory(selected.value.id) : undefined)
 const { synchronization, viewRevision, resynchronize, renderFailure, feedbackInvitationOpen,
   beginEditMessage, withdrawMessage, rollbackFailure, draft, attachedImages,
@@ -276,7 +276,7 @@ onUnmounted(() => {
 
 <template>
       <section v-if="selected" class="workspace">
-        <div class="conversation-header"><a-button type="text" class="mobile-sessions-trigger" :aria-label="t('sessions')" :aria-expanded="mobileSessionsOpen" @click="mobileSessionsOpen = true"><MenuOutlined /><span v-if="attentionCount" class="session-attention-dot" role="img" :aria-label="t('sessionsNeedAttention', { count: attentionCount })"></span></a-button><div class="conversation-heading"><form v-if="renamingSessionID === selected.id" class="session-rename" @submit.prevent="saveRename(selected)"><a-input v-model:value="sessionTitleDraft" :maxlength="200" :aria-label="t('sessionTitle')" /><a-button html-type="submit" size="small" type="primary" :disabled="busy || !sessionTitleDraft.trim()">{{ t('saveChanges') }}</a-button><a-button size="small" @click="cancelRename">{{ t('cancel') }}</a-button></form><div v-else class="session-heading-title"><h2 :title="selected.title">{{ selected.title }}</h2><a-button type="text" :aria-label="t('editTitle')" @click="beginRename(selected)"><EditOutlined /></a-button></div></div><div class="conversation-header-tools">
+        <div class="conversation-header"><a-button type="text" class="mobile-sessions-trigger" :aria-label="t('sessions')" :aria-expanded="mobileSessionsOpen" @click="mobileSessionsOpen = true"><MenuOutlined /><span v-if="attentionCount" class="session-attention-dot" role="img" :aria-label="t('sessionsNeedAttention', { count: attentionCount })"></span></a-button><div class="conversation-heading"><form v-if="renamingSessionID === selected.id" class="session-rename" @submit.prevent="saveRename(selected)"><a-input v-model:value="sessionTitleDraft" :maxlength="200" :aria-label="t('sessionTitle')" /><a-button html-type="submit" size="small" type="primary" :disabled="busy || !sessionTitleDraft.trim()">{{ t('saveChanges') }}</a-button><a-button size="small" @click="cancelRename">{{ t('cancel') }}</a-button></form><div v-else class="session-heading-title"><h2 :title="displaySessionTitle(selected)">{{ displaySessionTitle(selected) }}</h2><a-button type="text" :aria-label="t('editTitle')" @click="beginRename(selected)"><EditOutlined /></a-button></div></div><div class="conversation-header-tools">
           <WorkerStatus v-if="debugMode && selected.open" :key="selected.id" :memory="selectedWorkerMemory" :available="workerAvailable(selected.id)" />
         </div></div>
         <a-alert v-if="needsProvider" class="session-setup-notice" type="warning" :message="t('noModelConfigured')" />

@@ -20,6 +20,6 @@ Read existing settings before changing them. Send JSON bodies with `Content-Type
 
 ## Personalization
 
-- `GET /api/agent-settings` reads global instructions and delegation limits; `PUT` updates the supplied fields. Global instructions are the configuration-root `AGENTS.md`. Directory-scoped `AGENTS.md` rules are read on demand and nearer rules take precedence in their scope.
+- `GET /api/agent-settings` reads global instructions, delegation limits and `automaticTitles` (enabled by default); `PUT` updates only the supplied fields. Disabling automatic titles skips the extra title model request and keeps the default name, displayed by the UI as a localized “New Session” prefix plus its creation timestamp (`YYYYMMDDHHmmss`, client local time); existing and manual titles stay unchanged. Global instructions are the configuration-root `AGENTS.md`. Directory-scoped `AGENTS.md` rules are read on demand and nearer rules take precedence in their scope.
 - `GET /api/memories` lists saved preferences. The main agent's `memory` tool updates explicit lasting preferences. Child agents inherit preferences but cannot call `memory`. Do not turn a one-off request into permanent memory.
 - Settings persist for future runs. Explain whether a connection was merely saved, its model list was fetched, or a real model/MCP request was verified.

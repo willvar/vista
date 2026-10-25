@@ -92,7 +92,7 @@ const {
   languagePreference, languageChoice, languageOptions, regionOptions, settingsBusy, settingsError,
   providerDisconnectTarget, providerDisconnectError, settings,
   agentInstructions, agentInstructionsPath,
-  delegationDepth, maxDelegationDepth, canSaveAgentInstructions, canSaveDelegationDepth,
+  delegationDepth, maxDelegationDepth, canSaveAgentInstructions, canSaveDelegationDepth, automaticTitles, setAutomaticTitles,
   agentSettingsBusy, agentSettingsLoading, agentSettingsError, agentSettingsSaved,
   loadAgentSettings, saveAgentSettings, modelDraft, modelFormOpen, chosenModels,
   manualModelIDs, canReuseHeader, editingProvider, providerOptions, canSaveProvider,
@@ -235,6 +235,7 @@ watch(() => route.fullPath, () => {
             </div>
             <div class="agent-instructions-footer"><a-button html-type="submit" type="primary" :loading="agentSettingsBusy" :disabled="!canSaveDelegationDepth">{{ t('saveChanges') }}</a-button></div>
           </form>
+          <div class="automatic-title-setting general-setting"><div><label for="automatic-titles">{{ t('automaticTitles') }}</label><p id="automatic-titles-hint">{{ t('automaticTitlesHint') }}</p></div><a-switch id="automatic-titles" :checked="automaticTitles" :disabled="agentSettingsLoading || agentSettingsBusy" :aria-label="t('automaticTitles')" aria-describedby="automatic-titles-hint" @update:checked="setAutomaticTitles(Boolean($event))" /></div>
         </div>
         <div v-if="route.name === 'settings'" class="settings-content">
           <div v-if="settings.models.length" class="settings-toolbar"><p>{{ t('manageProvidersHint') }}</p></div>

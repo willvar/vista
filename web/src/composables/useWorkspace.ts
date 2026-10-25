@@ -153,7 +153,7 @@ function createWorkspace() {
   const renamingSessionID = ref('')
   const sessionTitleDraft = ref('')
   const deleteTarget = ref<Session | null>(null)
-  function beginRename(item: Session) { renamingSessionID.value = item.id; sessionTitleDraft.value = item.title }
+  function beginRename(item: Session) { renamingSessionID.value = item.id; sessionTitleDraft.value = presentation.displaySessionTitle(item) }
   function cancelRename() { renamingSessionID.value = ''; sessionTitleDraft.value = '' }
   async function rename(item: Session, title: string, done: () => void) {
     if (!title || title.length > 200) return

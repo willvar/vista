@@ -12,14 +12,14 @@ import SessionIndicators from './SessionIndicators.vue'
 import { sessionHasUnread } from './state/workspace'
 const { t } = useI18n({ useScope: 'global' })
 const { router, error, busy, totalSessions, openSessions, selected, serverStatus, mobileSessionsOpen, settingsOpen,
-  stateConnection, stateSync, backToWorkspace, openSettings, openSessionManager, create, action, workerAvailable } = provideWorkspace()
+  stateConnection, stateSync, backToWorkspace, openSettings, openSessionManager, create, action, workerAvailable, displaySessionTitle } = provideWorkspace()
 const layout = ref<HTMLElement | null>(null)
 const { desktop, width: sidebarWidth, minimum, maximum, resize, finishResize, reset } = useSidebarWidth()
 const sessionsPanel = ref<HTMLElement | null>(null)
 const sessionsBackdrop = ref<HTMLElement | null>(null)
 const drawerSwipe = useDrawerSwipe(sessionsPanel, sessionsBackdrop, mobileSessionsOpen, desktop)
 const sessionSearch = ref('')
-const filteredSessions = computed(() => openSessions.value.filter(item => item.title.toLocaleLowerCase().includes(sessionSearch.value.trim().toLocaleLowerCase())))
+const filteredSessions = computed(() => openSessions.value.filter(item => displaySessionTitle(item).toLocaleLowerCase().includes(sessionSearch.value.trim().toLocaleLowerCase())))
 watchEffect(() => {
   const separator = layout.value?.querySelector<HTMLElement>('.ant-splitter-bar')
   if (!separator) return
@@ -58,8 +58,8 @@ function activateSession(id: string) {
         <div class="sidebar-section-label"><span>{{ t('recentConversations') }}</span><small>{{ openSessions.length || '' }}</small></div>
         <p v-if="!openSessions.length" class="sidebar-empty">{{ t(totalSessions ? 'noOpenSessions' : 'createSessionHint') }}</p>
         <p v-else-if="!filteredSessions.length" class="sidebar-empty">{{ t('noMatchingSessions') }}</p>
-        <ul><li v-for="item in filteredSessions" :key="item.id" :data-session-id="item.id" class="session-card" :class="{ selected: selected?.id === item.id }" role="button" tabindex="0" :aria-label="t('activateSession', { title: item.title })" :aria-current="selected?.id === item.id ? 'page' : undefined" @click="activateSession(item.id)" @keydown.enter.prevent="activateSession(item.id)" @keydown.space.prevent="activateSession(item.id)">
-          <strong class="session-name" :class="{ unread: sessionHasUnread(item) }">{{ item.title }}</strong><a-button type="text" class="session-close icon-close" :aria-label="t('closeSession', { title: item.title })" :disabled="busy" @click.stop="action(item,'close')" @keydown.enter.stop @keydown.space.stop><CloseOutlined /></a-button>
+        <ul><li v-for="item in filteredSessions" :key="item.id" :data-session-id="item.id" class="session-card" :class="{ selected: selected?.id === item.id }" role="button" tabindex="0" :aria-label="t('activateSession', { title: displaySessionTitle(item) })" :aria-current="selected?.id === item.id ? 'page' : undefined" @click="activateSession(item.id)" @keydown.enter.prevent="activateSession(item.id)" @keydown.space.prevent="activateSession(item.id)">
+          <strong class="session-name" :class="{ unread: sessionHasUnread(item) }">{{ displaySessionTitle(item) }}</strong><a-button type="text" class="session-close icon-close" :aria-label="t('closeSession', { title: displaySessionTitle(item) })" :disabled="busy" @click.stop="action(item,'close')" @keydown.enter.stop @keydown.space.stop><CloseOutlined /></a-button>
           <SessionIndicators :session="item" :worker-available="serverStatus ? workerAvailable(item.id) : undefined" />
           <a-button v-if="serverStatus && !workerAvailable(item.id)" type="text" size="small" class="session-retry" :disabled="busy" @click.stop="action(item,'retry')" @keydown.enter.stop @keydown.space.stop>{{ t('retryWorker') }}</a-button>
         </li></ul>

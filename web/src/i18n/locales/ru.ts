@@ -2,6 +2,9 @@ import type en from './en.ts'
 
 
 export default {
+  "automaticTitles": "Создавать названия бесед",
+  "automaticTitlesHint": "Создание названия требует дополнительного запроса к модели. Если отключено, новые беседы используют название по умолчанию с датой и временем создания.",
+  "untitledSession": "Новая беседа",
   "loadingSessions": "Загрузка бесед…",
   "deletePendingConfirm": "Удалить это ожидающее сообщение? {content}",
   "removeSearchKeyConfirm": "Удалить сохранённый API-ключ для {name}?",

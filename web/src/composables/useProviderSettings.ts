@@ -54,6 +54,7 @@ export function useProviderSettings({ client, error, stateSync }: SettingsDepend
   const delegationDepth = ref<number | null>(1)
   const savedDelegationDepth = ref(1)
   const maxDelegationDepth = ref(8)
+  const automaticTitles = ref(true)
   const agentSettingsBusy = ref(false)
   const agentSettingsLoading = ref(false)
   const agentSettingsError = ref('')
@@ -77,6 +78,7 @@ export function useProviderSettings({ client, error, stateSync }: SettingsDepend
       delegationDepth.value = result.delegationDepth
       savedDelegationDepth.value = result.delegationDepth
       maxDelegationDepth.value = result.maxDelegationDepth
+      automaticTitles.value = result.automaticTitles
     } catch (e) { agentSettingsError.value = String(e) }
     finally { agentSettingsLoading.value = false }
   }
@@ -91,6 +93,17 @@ export function useProviderSettings({ client, error, stateSync }: SettingsDepend
       if (input.instructions !== undefined) savedAgentInstructions.value = input.instructions
       if (input.delegationDepth !== undefined) savedDelegationDepth.value = input.delegationDepth
       agentSettingsSaved.value = true
+    } catch (e) { agentSettingsError.value = String(e) }
+    finally { agentSettingsBusy.value = false }
+  }
+  async function setAutomaticTitles(enabled: boolean) {
+    if (agentSettingsLoading.value || agentSettingsBusy.value) return
+    agentSettingsBusy.value = true
+    agentSettingsError.value = ''
+    agentSettingsSaved.value = false
+    try {
+      await api('/agent-settings', { method: 'PUT', body: JSON.stringify({ automaticTitles: enabled }) })
+      automaticTitles.value = enabled
     } catch (e) { agentSettingsError.value = String(e) }
     finally { agentSettingsBusy.value = false }
   }
@@ -300,7 +313,7 @@ export function useProviderSettings({ client, error, stateSync }: SettingsDepend
     languagePreference, languageChoice, languageOptions, regionOptions, settingsBusy, settingsError,
     providerDisconnectTarget, providerDisconnectError, settings,
     agentInstructions, agentInstructionsPath, savedAgentInstructions,
-    delegationDepth, maxDelegationDepth, canSaveAgentInstructions, canSaveDelegationDepth,
+    delegationDepth, maxDelegationDepth, canSaveAgentInstructions, canSaveDelegationDepth, automaticTitles, setAutomaticTitles,
     agentSettingsBusy, agentSettingsLoading, agentSettingsError, agentSettingsSaved,
     loadAgentSettings, saveAgentSettings, modelDraft, modelFormOpen, chosenModels,
     manualModelIDs, canReuseHeader, editingProvider, providerOptions, canSaveProvider,

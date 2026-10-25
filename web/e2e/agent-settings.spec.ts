@@ -19,8 +19,8 @@ const test = base.extend<{}, { mockOrigin: string }>({
 })
 
 async function mockAgentSettings(page: Page, origin: string, section = 'general') {
-  const saved = { instructions: 'Keep responses concise.', instructionsPath: '/home/test/.config/vista/AGENTS.md', delegationDepth: 1, maxDelegationDepth: 8 }
-  const puts: { instructions?: string; delegationDepth?: number }[] = []
+  const saved = { instructions: 'Keep responses concise.', instructionsPath: '/home/test/.config/vista/AGENTS.md', delegationDepth: 1, maxDelegationDepth: 8, automaticTitles: true }
+  const puts: { instructions?: string; delegationDepth?: number; automaticTitles?: boolean }[] = []
   const forbidden: string[] = []
   const unexpected: string[] = []
   await page.addInitScript(() => {
@@ -38,7 +38,8 @@ async function mockAgentSettings(page: Page, origin: string, section = 'general'
       const body = request.postDataJSON()
       puts.push(body)
       if (body.instructions !== undefined && typeof body.instructions !== 'string'
-        || body.delegationDepth !== undefined && (!Number.isInteger(body.delegationDepth) || body.delegationDepth < 0 || body.delegationDepth > saved.maxDelegationDepth)) {
+        || body.delegationDepth !== undefined && (!Number.isInteger(body.delegationDepth) || body.delegationDepth < 0 || body.delegationDepth > saved.maxDelegationDepth)
+        || body.automaticTitles !== undefined && typeof body.automaticTitles !== 'boolean') {
         return route.fulfill({ status: 400, body: 'Invalid settings' })
       }
       Object.assign(saved, body)
@@ -90,6 +91,40 @@ async function noHorizontalOverflow(page: Page) {
   expect(result.content).toBeLessThanOrEqual(2)
   expect(result.form).toBeLessThanOrEqual(2)
 }
+
+test('automatic titles toggle persists without saving instruction or delegation drafts', async ({ page, mockOrigin }) => {
+  const fixture = await mockAgentSettings(page, mockOrigin, 'personalization')
+  const setting = page.locator('.automatic-title-setting')
+  const toggle = setting.getByRole('switch', { name: 'Generate conversation titles', exact: true })
+  const instructions = page.locator('#agent-instructions')
+  const depth = page.locator('#delegation-depth')
+  await expect(toggle).toBeChecked()
+  await expect(setting).toContainText('extra model request')
+  await instructions.fill('Keep this draft unsaved.')
+  await depth.fill('4')
+  await reachable(toggle)
+  await toggle.click()
+  await expect(toggle).not.toBeChecked()
+  expect(fixture.puts).toEqual([{ automaticTitles: false }])
+  expect(fixture.saved.instructions).toBe('Keep responses concise.')
+  expect(fixture.saved.delegationDepth).toBe(1)
+  await expect(instructions).toHaveValue('Keep this draft unsaved.')
+  await expect(depth).toHaveValue('4')
+  await noHorizontalOverflow(page)
+  const layout = await setting.evaluate(element => {
+    const label = element.querySelector('label')!.getBoundingClientRect()
+    const toggle = element.querySelector('[role="switch"]')!.getBoundingClientRect()
+    return { switchLeft: toggle.left, labelRight: label.right, isLast: element === element.parentElement!.lastElementChild }
+  })
+  expect(layout.isLast).toBe(true)
+  expect(layout.switchLeft).toBeGreaterThan(layout.labelRight)
+  await page.reload()
+  await expect(toggle).not.toBeChecked()
+  await toggle.click()
+  await expect(toggle).toBeChecked()
+  expect(fixture.puts).toEqual([{ automaticTitles: false }, { automaticTitles: true }])
+  expect(fixture.unexpected).toEqual([])
+})
 
 test('Personalization saves delegation depth and instructions independently', async ({ page, mockOrigin }, testInfo) => {
   const fixture = await mockAgentSettings(page, mockOrigin)

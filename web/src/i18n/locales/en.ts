@@ -1,4 +1,7 @@
 export default {
+  "automaticTitles": "Generate conversation titles",
+  "automaticTitlesHint": "Generating a title makes an extra model request. When disabled, new conversations use the default name with their creation time.",
+  "untitledSession": "New Session",
   "loadingSessions": "Loading conversations…",
   "deletePendingConfirm": "Delete this pending message? {content}",
   "removeSearchKeyConfirm": "Remove the saved API key for {name}?",

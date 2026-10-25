@@ -2,6 +2,9 @@
 import type en from './en.ts'
 
 export default {
+  "automaticTitles": "自动生成会话标题",
+  "automaticTitlesHint": "生成标题会额外请求一次模型。关闭后，新会话使用默认名称，并附上创建时间。",
+  "untitledSession": "新会话",
   "loadingSessions": "正在加载会话…",
   "deletePendingConfirm": "删除这条待发送消息？{content}",
   "removeSearchKeyConfirm": "移除 {name} 已保存的 API Key？",

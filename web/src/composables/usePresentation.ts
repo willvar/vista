@@ -1,7 +1,7 @@
 import { useI18n } from 'vue-i18n'
 import { computed, type Ref } from 'vue'
 import { reasoningChoiceLabel } from '../ui/reasoning.ts'
-import type { Message, ModelCatalog, ModelInfo, ModelResultView, StreamEvent } from '../client/types'
+import type { Message, ModelCatalog, ModelInfo, ModelResultView, Session, StreamEvent } from '../client/types'
 import { formatDateTime } from '../ui/datetime.ts'
 
 export function displayModelName(model: Pick<ModelInfo, 'id' | 'modelName'>) {
@@ -85,6 +85,16 @@ export function messageReasoningEffort(message: Message, modelByRun: Record<stri
 export function usePresentation(catalog: Ref<ModelCatalog>) {
   const { t, te, locale } = useI18n({ useScope: 'global' })
   const localTime = (utc: string) => formatDateTime(utc, locale.value)
+  function displaySessionTitle(session: Pick<Session, 'title' | 'createdAt'>) {
+    if (session.title !== 'New session') return session.title
+    const name = t('untitledSession')
+    const date = new Date(session.createdAt)
+    if (Number.isNaN(date.getTime())) return name
+    const timestamp = String(date.getFullYear()).padStart(4, '0')
+      + [date.getMonth() + 1, date.getDate(), date.getHours(), date.getMinutes(), date.getSeconds()]
+        .map(value => String(value).padStart(2, '0')).join('')
+    return `${name}-${timestamp}`
+  }
   function statusLabel(status: string) {
     const key = 'status' + status.replace(/(^|_)([a-z])/g, (_, __: string, letter: string) => letter.toUpperCase())
     return te(key) ? t(key) : status
@@ -120,5 +130,5 @@ export function usePresentation(catalog: Ref<ModelCatalog>) {
     if (event.kind === 'context_notice') return t('contextCompacted')
     return ''
   }
-  return { localTime, statusLabel, modelLabel, historicalModelLabel, settingProviderName, messageModel, activityLabel, modelNameById, modelSearchText, modelChoices, formatModelWithReasoning }
+  return { localTime, displaySessionTitle, statusLabel, modelLabel, historicalModelLabel, settingProviderName, messageModel, activityLabel, modelNameById, modelSearchText, modelChoices, formatModelWithReasoning }
 }

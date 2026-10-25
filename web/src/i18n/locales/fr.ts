@@ -2,6 +2,9 @@ import type en from './en.ts'
 
 
 export default {
+  "automaticTitles": "Générer les titres des conversations",
+  "automaticTitlesHint": "Générer un titre nécessite une requête supplémentaire au modèle. Si cette option est désactivée, les nouvelles conversations utilisent le nom par défaut suivi de leur date et heure de création.",
+  "untitledSession": "Nouvelle conversation",
   "loadingSessions": "Chargement des conversations…",
   "deletePendingConfirm": "Supprimer ce message en attente ? {content}",
   "removeSearchKeyConfirm": "Supprimer la clé API enregistrée pour {name} ?",

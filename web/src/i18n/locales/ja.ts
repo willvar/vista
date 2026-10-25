@@ -2,6 +2,9 @@ import type en from './en.ts'
 
 
 export default {
+  "automaticTitles": "会話タイトルを自動生成",
+  "automaticTitlesHint": "タイトルの生成にはモデルへの追加リクエストが必要です。無効にすると、新しい会話は既定の名前に作成日時を付けて表示されます。",
+  "untitledSession": "新しい会話",
   "loadingSessions": "会話を読み込み中…",
   "deletePendingConfirm": "この送信待ちメッセージを削除しますか？{content}",
   "removeSearchKeyConfirm": "{name} の保存済み API キーを削除しますか？",

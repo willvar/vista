@@ -2,6 +2,9 @@ import type en from './en.ts'
 
 
 export default {
+  "automaticTitles": "Unterhaltungstitel generieren",
+  "automaticTitlesHint": "Ein Titel erfordert eine zusätzliche Modellanfrage. Wenn deaktiviert, erhalten neue Unterhaltungen den Standardnamen mit ihrer Erstellungszeit.",
+  "untitledSession": "Neue Unterhaltung",
   "loadingSessions": "Unterhaltungen werden geladen…",
   "deletePendingConfirm": "Diese ausstehende Nachricht löschen? {content}",
   "removeSearchKeyConfirm": "Den gespeicherten API-Schlüssel für {name} entfernen?",

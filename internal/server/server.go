@@ -58,6 +58,7 @@ type App struct {
 	sessionMutations       sync.Map // Per-session HTTP/queued-dispatch serialization.
 	storageMu              sync.Mutex
 	skillsMu               sync.Mutex
+	agentSettingsMu        sync.Mutex
 	storageStatus          resourceStorageStatus
 	credentialCache        provider.CredentialCache
 	mu                     sync.Mutex

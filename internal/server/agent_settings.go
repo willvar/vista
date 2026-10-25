@@ -31,15 +31,16 @@ func (a *App) agentSettings(w http.ResponseWriter, r *http.Request) {
 		}
 		settings, err := agentconfig.ReadSettings(a.configDir)
 		if err != nil {
-			http.Error(w, fmt.Sprintf("could not read delegation settings: %v", err), http.StatusInternalServerError)
+			http.Error(w, fmt.Sprintf("could not read agent settings: %v", err), http.StatusInternalServerError)
 			return
 		}
 		w.Header().Set("Cache-Control", "no-store")
-		jsonOut(w, map[string]any{"instructions": instructions, "instructionsPath": agentconfig.InstructionsPath(a.configDir), "delegationDepth": settings.DelegationDepth, "maxDelegationDepth": agentconfig.MaxDelegationDepth})
+		jsonOut(w, map[string]any{"instructions": instructions, "instructionsPath": agentconfig.InstructionsPath(a.configDir), "delegationDepth": settings.DelegationDepth, "maxDelegationDepth": agentconfig.MaxDelegationDepth, "automaticTitles": settings.AutomaticTitles})
 	case http.MethodPut:
 		var input struct {
 			Instructions    *string           `json:"instructions"`
 			DelegationDepth presentRawMessage `json:"delegationDepth"`
+			AutomaticTitles presentRawMessage `json:"automaticTitles"`
 		}
 		decoder := json.NewDecoder(r.Body)
 		decoder.DisallowUnknownFields()
@@ -51,18 +52,41 @@ func (a *App) agentSettings(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "invalid agent settings request", http.StatusBadRequest)
 			return
 		}
-		if input.Instructions == nil && !input.DelegationDepth.set {
-			http.Error(w, "instructions or delegationDepth are required", http.StatusBadRequest)
+		if input.Instructions == nil && !input.DelegationDepth.set && !input.AutomaticTitles.set {
+			http.Error(w, "instructions, delegationDepth or automaticTitles are required", http.StatusBadRequest)
 			return
 		}
-		var settings agentconfig.Settings
+		var depth *int
 		if input.DelegationDepth.set {
-			var depth *int
 			if err := json.Unmarshal(input.DelegationDepth.value, &depth); err != nil || depth == nil || agentconfig.ValidateDelegationDepth(*depth) != nil {
 				http.Error(w, fmt.Sprintf("delegationDepth must be an integer between 0 and %d", agentconfig.MaxDelegationDepth), http.StatusBadRequest)
 				return
 			}
-			settings.DelegationDepth = *depth
+		}
+		var automaticTitles *bool
+		if input.AutomaticTitles.set {
+			if err := json.Unmarshal(input.AutomaticTitles.value, &automaticTitles); err != nil || automaticTitles == nil {
+				http.Error(w, "automaticTitles must be a boolean", http.StatusBadRequest)
+				return
+			}
+		}
+		// Partial edits from different clients must retain each other's fields.
+		a.agentSettingsMu.Lock()
+		defer a.agentSettingsMu.Unlock()
+		var settings agentconfig.Settings
+		if depth != nil || automaticTitles != nil {
+			var err error
+			settings, err = agentconfig.ReadSettings(a.configDir)
+			if err != nil {
+				http.Error(w, fmt.Sprintf("could not read agent settings: %v", err), http.StatusInternalServerError)
+				return
+			}
+			if depth != nil {
+				settings.DelegationDepth = *depth
+			}
+			if automaticTitles != nil {
+				settings.AutomaticTitles = *automaticTitles
+			}
 		}
 		if input.Instructions != nil {
 			if err := agentconfig.Write(a.configDir, *input.Instructions); err != nil {
@@ -70,9 +94,9 @@ func (a *App) agentSettings(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 		}
-		if input.DelegationDepth.set {
+		if depth != nil || automaticTitles != nil {
 			if err := agentconfig.WriteSettings(a.configDir, settings); err != nil {
-				http.Error(w, fmt.Sprintf("could not save delegation settings: %v", err), http.StatusInternalServerError)
+				http.Error(w, fmt.Sprintf("could not save agent settings: %v", err), http.StatusInternalServerError)
 				return
 			}
 		}

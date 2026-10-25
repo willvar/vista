@@ -2,6 +2,9 @@ import type en from './en.ts'
 
 
 export default {
+  "automaticTitles": "Gerar títulos de conversas",
+  "automaticTitlesHint": "Gerar um título faz uma solicitação extra ao modelo. Quando desativado, novas conversas usam o nome padrão com a data e hora de criação.",
+  "untitledSession": "Nova conversa",
   "loadingSessions": "Carregando conversas…",
   "deletePendingConfirm": "Excluir esta mensagem pendente? {content}",
   "removeSearchKeyConfirm": "Remover a chave de API salva de {name}?",

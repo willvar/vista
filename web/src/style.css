@@ -1593,16 +1593,16 @@ body {
 .locale-settings .ant-select {
   width: 100%;
 }
-.debug-mode-setting {
+.debug-mode-setting, .automatic-title-setting {
   flex-direction: row;
   align-items: center;
   gap: 24px;
 }
-.debug-mode-setting>div {
+.debug-mode-setting>div, .automatic-title-setting>div {
   flex: 1;
   min-width: 0;
 }
-.debug-mode-setting>.ant-switch {
+.debug-mode-setting>.ant-switch, .automatic-title-setting>.ant-switch {
   flex: none;
   align-self: center;
 }
@@ -2056,6 +2056,7 @@ body {
 }
 .settings-content .general-setting+.general-setting,
 .personalization-settings-content>.delegation-depth-form,
+.personalization-settings-content>.automatic-title-setting,
 .personalization-settings-content>.memory-settings {
   padding-top: 24px;
   border-top: 1px solid var(--border-subtle);
