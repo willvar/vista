@@ -18,7 +18,7 @@ const ClaudeCodeVersion = "2.1.310"
 const GeminiCLIVersion = "0.65.0"
 
 // KimiCodeVersion tracks @moonshot-ai/kimi-code@latest.
-const KimiCodeVersion = "2.3.1"
+const KimiCodeVersion = "2.3.2"
 
 // ClineVersion tracks cline@latest.
 const ClineVersion = "3.0.73"
