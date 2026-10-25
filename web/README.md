@@ -29,9 +29,11 @@ From the repository root, `make test frontend` runs unit/types/build and `make t
 | Layer | Entry points |
 | --- | --- |
 | HTTP/SSE client | `src/client/types.ts`, `vista.ts`, `sse.ts` |
+| Global state synchronization | `src/client/workspaceSync.ts` |
+| Conversation initialization/recovery | `src/client/conversationSync.ts` |
 | Event state | `src/state/conversation.ts`, `workspace.ts`, `runTrace.ts` |
 | Conversation loading/sending | `src/composables/useConversation.ts` |
-| Shared workspace, models, polling | `src/composables/useWorkspace.ts` |
+| Shared workspace, models, state subscriptions | `src/composables/useWorkspace.ts` |
 | Provider settings / historical runs | `src/composables/useProviderSettings.ts`, `useRunHistory.ts` |
 | Shared welcome/conversation input | `src/ConversationSender.vue` |
 | Context estimate / compaction | `src/ContextUsage.vue`, `ContextStatus.vue` |
@@ -39,7 +41,33 @@ From the repository root, `make test frontend` runs unit/types/build and `make t
 
 Settings and the manager overlay the conversation through named route views; opening them keeps SSE active. Mobile settings uses a category page, then the selected settings page; Back returns through that hierarchy. Desktop retains the settings sidebar.
 
-Conversation switches abort old requests and reject late callbacks by generation. Event sequences deduplicate SSE replay and reconcile polling snapshots. A stale poll must not replace newer titles, execution, or pending-answer state.
+Conversation switches abort old requests and reject late callbacks by generation. Event sequences deduplicate SSE replay and reconcile snapshots. A stale snapshot must not replace newer titles, execution, or pending-answer state.
+
+Core initialization uses a consistent `/snapshot`; auxiliary failures do not block streaming.
+SSE record coverage and separate checkpoints verify applied progress without advancing the cursor.
+Stream faults, inactivity, foreground/online events, and manual retry share bounded replay and snapshot recovery, preserving composer state and older-history windows.
+Recovery only reads persisted data; it does not resend messages or invoke models/tools, and adds no periodic conversation-content polling.
+
+The workspace owns one additional fetch-based SSE connection for shared state changes.
+Subscribe through `workspace.stateSync`; components do not open independent state streams or periodically request status.
+Changed sessions/status, models, catalog progress/history, storage status, MCP settings, login outcomes and memories arrive as bounded state-frame payloads.
+The workspace session list contains open summaries only; archived counts come from status.
+The manager owns its full summary read and session-revision subscription, cancelling both on unmount; it does not reopen the global stream or refresh unrelated endpoints.
+Replace its list as one snapshot, keeping close/reopen transitions from temporarily dropping selected rows between independently read scopes.
+HTTP initialization and SSE updates must have the same view scope; check response contents and bytes alongside request counts.
+Subscriptions initialize from the latest matching payload and serialize their own reconciliation; components must not add a separate mount-time read for the same subscription.
+Initial/reconnect calibration, missing or oversized payloads and bounded content pages use ordinary HTTP.
+Shared login updates contain outcomes only; authorization links/codes remain attempt-specific reads.
+Memory pushes preserve active drafts and compare-and-swap edit/delete targets.
+The visible Model HTTP tab consumes saved-record summaries and revision coverage from the same stream; bodies remain on demand and new records preserve the current selection.
+Apply session-list payloads against their saved per-conversation event boundaries so delayed global frames cannot undo newer conversation state or send acknowledgements.
+Unchanged checkpoints initiate no reads or repeated state payloads.
+Apply successful command acknowledgements locally; let topic notifications reconcile shared views instead of adding a second workspace refresh.
+Session metadata changes push only the list; runtime lifecycle changes also push status, while model/tool progress stays on the conversation stream.
+Global reconnect reconciles current subscribed state, while conversation reconnect retains durable cursor replay.
+Metrics are pushed only for debug subscriptions; local elapsed-time clocks are independent of network synchronization.
+`RenderGuard.vue` isolates execution-detail failures; `MessageMarkdown.vue` falls back to plain text.
+See [synchronization contracts](../docs/architecture.md#conversation-synchronization) for timeouts and ownership.
 
 Main model text is a message-area row, distinct from execution details. `main-outputs` indexes history; visible rows load full model text. Formal replies replace the corresponding row by `outputTurn` rather than duplicating it. Reasoning appears chronologically inside execution details with no second fold. Tools and children stay in their steps. A call count or whole-run failure alone does not create an empty execution panel; whole-run diagnostics appear in the message area.
 

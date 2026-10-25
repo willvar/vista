@@ -34,6 +34,62 @@ The Server owns SQLite writes and per-conversation event sequences. Workers send
 
 `GET /api/status` exposes version, cached executable SHA-256, Go source revision/dirty state, and the server OS/version. `internal/buildinfo.Version` defaults to `dev`; the Makefile supplies release versions. No build timestamp is injected. The hash is calculated at startup and is not embedded back into the executable.
 
+## Conversation synchronization
+
+`GET /api/sessions/<id>/snapshot` reads the core conversation view and its `throughSequence` boundary in one SQLite transaction.
+It includes current execution/pending state, the latest formal reply sequence, bounded recent messages/events, message result metadata, and the latest rollback sequence.
+Older root progress outside the recent event page is included separately from its pagination boundary.
+Full outputs, execution indexes, feedback, and context estimates load independently and cannot gate the SSE subscription.
+
+SSE `record` frames carry `afterSequence`, the preceding delivered boundary, so a missing frame can be detected without assuming contiguous stored sequences after rollback.
+Separate `sync` frames report committed state after initial catch-up, every 15 seconds, and after execution completion or rollback.
+Records through each checkpoint are sent first; the checkpoint never advances the browser's applied cursor.
+
+The selected conversation's `web/src/client/conversationSync.ts` owns initialization and serialized recovery.
+Stream failure, 45 seconds without received bytes, a coverage/checkpoint mismatch, foreground/connectivity restoration, or manual retry initiates on-demand reconciliation.
+Recovery replays at most ten event pages, with an optional inclusive `through` boundary, and rebuilds the core snapshot if replay cannot restore it.
+Connection attempts and recovery reads have 10-second timeouts; reconnection backs off from one to 30 seconds, stopping on terminal client errors or closed conversations.
+Reopening the selected conversation restores its subscription without clearing the composer state.
+Conversation recovery does not submit model/tool requests or periodically poll conversation content.
+
+Replacement preserves drafts, quotes, attachments, model choices, intentional history windows, and accepted messages newer than the snapshot.
+Only visibility-based read receipts acknowledge replies.
+Synchronization errors have their own retry control and bounded diagnostics in the execution debug dialog; a successful send does not clear them.
+Execution-detail rendering is isolated, and Markdown failure falls back to escaped plain text so the formal reply remains available.
+
+## Workspace synchronization
+
+Each page owns one fetch-based `GET /api/events` state stream in addition to the selected conversation's durable event stream.
+`internal/server/state_events.go` publishes coalesced topic revisions after committed mutations and asynchronous state transitions.
+Changed session lists, runtime status, model inventories, catalog-update status/history, resource-scan status, MCP settings/login outcomes, provider-login outcomes and memories travel as bounded payloads in the same frame.
+The workspace reads `GET /api/sessions?open=true`; global session payloads also contain only open summaries and their event boundaries.
+Closed conversations contribute aggregate counts in status, without their summaries or history.
+The session manager subscribes to session revisions only while mounted and reads `GET /api/sessions` on entry and changes; leaving cancels pending reads and releases that subscription without reconnecting the shared stream.
+It replaces its management list as one snapshot, so concurrent close/reopen commits cannot create temporary omissions by mixing open and closed lists from different times.
+If the selected conversation disappears from the open list, `GET /api/sessions/<id>/checkpoint` distinguishes closing from deletion without loading archives or conversation history; a closed selected conversation remains readable with its draft preserved.
+The unfiltered sessions endpoint remains available for administrative clients.
+Login outcomes are matched by attempt ID; device codes and authorization URLs remain attempt-specific HTTP reads.
+Newly opened views receive the latest payload for its revision; per-subscriber cursors serialize initial reads with arriving updates and avoid duplicate initialization.
+Memory updates preserve unsaved editors and the original text used to detect edit/delete conflicts, including when another client removes the edited entry.
+Read receipts, titles, model choices and queue edits push the session list without resending runtime status.
+Run/compaction, task/process and Worker lifecycle transitions also push runtime status; model and tool progress stays on the conversation stream.
+Successful message and execution-control acknowledgements do not initiate a separate workspace refresh; the state stream reconciles shared views.
+Session-list entries and their per-conversation event boundaries come from one SQLite read transaction; newer conversation events and accepted sends take precedence when applying delayed lists.
+Global revisions are captured before snapshot reads so concurrent commits retain a later notification.
+Each connection and 15-second heartbeat carries the server generation and all current revisions; `web/src/client/workspaceSync.ts` applies changed payloads directly and reads subscribed snapshots when a changed topic has no payload.
+Initial and reconnect checkpoints use HTTP snapshot calibration; unchanged heartbeats carry no repeated payload or HTTP reads.
+Frames exceeding 120,000 JSON bytes omit their largest payloads until they fit, preserving topic revisions for targeted HTTP recovery within the shared SSE transport's frame limit.
+Reconnection or a different server generation reconciles all subscribed views, and returning to the foreground or regaining connectivity reconnects the stream.
+Failed reads leave the checkpoint unapplied and retry through stream recovery; unchanged heartbeats do not initiate HTTP reads.
+The shared `sse.ts` transport owns connection/idle timeouts, cancellation and reconnect backoff for both stream types.
+
+Initial/recovery snapshots, oversized lists, provider setup catalogs, diagnostic bodies, history, files, and bounded output pages remain ordinary HTTP reads; commands remain ordinary HTTP writes.
+Provider-connection mutations rely on state notifications rather than refreshing unrelated workspace snapshots; connection settings and provider setup catalogs have separate reads.
+The frontend no longer periodically queries workspace metadata, catalog progress, login status, resource scans, process details or log growth.
+Debug subscriptions receive backend metrics every five seconds on the same stream and stop requesting samples while hidden or when debug mode is disabled.
+Background writes publish throttled byte-count progress through durable job events; the output viewer refreshes bounded visible/tail blocks while retaining its virtualized cache.
+Backend catalog scheduling, model discovery and upstream device-authorization polling retain their own lifecycles.
+
 ## Execution and child tasks
 
 Normal sends during execution steer at the next decision boundary; explicitly queued messages wait until the run ends. Cancellation/failure pauses undelivered inputs. A fresh message after execution stops starts independently; it does not resume the old paused queue. Changes to the selected model apply to later runs.
@@ -63,6 +119,31 @@ Automatic compaction requires explicit upstream context-overflow evidence. Manua
 Global instructions, preferences, current checklist, and available tool information are rebuilt for execution. Project and skill bodies are read on demand. Model/protocol switches strip incompatible provider-owned replay data while keeping portable text, tool pairs, and resource references.
 
 Reply language is request metadata, inherited by child tasks and refreshed when an interjection supplies a new preference. The shared model-request entry point applies the policy from `internal/replylanguage` to a request-local copy before protocol conversion; conversation, title, and compaction prompts do not define separate language policies. Explicit user language requests override the default; absent a valid preference, the default follows the user's message. Token estimates use the same preparation path, and generated language instructions are not saved in model history or checkpoints.
+
+## Model HTTP diagnostics
+
+Debug mode opts new executions into model HTTP capture through the submitting browser's `vista-debug-mode` cookie.
+Queued inputs retain that choice; child tasks inherit it, and title and compaction requests carry their own purpose.
+`internal/modeltrace` observes inference after credential refresh and authentication/signing, excluding login and token exchanges.
+It records request URLs, headers and consumed body bytes, HTTP status, response headers and consumed response bytes, receive timings, completion/errors, and available parser counters.
+Chat diagnostics include the current SSE line/event, observed reasoning fields, fragment count, merged block count, and retained byte count.
+The Chat adapter merges compatible reasoning fragments before enforcing its 64 KiB and 256-independent-block retention limits; opaque blocks and incompatible signatures remain separate.
+
+Records are written after a request completes or fails under `state/model-diagnostics/<session>/<run>/`, with credentials redacted before writing.
+They include prompt and response content; they are separate from model history and are not sent back to the model.
+Capture is bounded to 1 MiB of request body and 2 MiB of response body per model call, 8 HTTP exchanges, and 2,048 receive timings per exchange; truncation is explicit and does not truncate the live request or response.
+Binary response bodies use base64, and timing offsets refer to original bytes before redaction.
+The store retains at most 256 records within 128 MiB; startup, hourly, and write-time cleanup remove expired records after 7 days.
+Deleting a conversation or resetting Vista removes its diagnostic records.
+
+`GET /api/sessions/<session>/runs/<run>/diagnostics` lists saved call summaries; appending `/<record>` reads one record.
+Both endpoints check run ownership and disable caching.
+The execution's debug dialog reads them independently of conversation SSE, with refresh, request selection, original response display, and copy controls.
+After an atomic file save, Workers report the record ID; the Server verifies its small summary before publishing an index update on the shared state stream.
+Title requests publish through the same path, and compaction/child requests retain their execution scope.
+The transport retains at most 256 recent summaries; revision coverage detects gaps and falls back to the execution's HTTP index.
+Only an open Model HTTP tab subscribes to those updates; unrelated executions cause no index/body reads, and new records preserve the selected immutable body.
+Earlier uncaptured requests and requests interrupted by process termination cannot be reconstructed.
 
 ## Providers and tools
 

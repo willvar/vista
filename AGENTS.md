@@ -6,6 +6,20 @@ Consult the [audience and design baseline](./docs/product.md#audience-and-design
 
 Keep product wording neutral about deployment location; do not position Vista as tied to a user's personal computer.
 
+## Client–Server Data Flow
+
+Optimize the complete data path: round trips, payload size, server work, and recovery correctness.
+Use the shared SSE connection for changing application state; keep conversation history on its durable event stream.
+Publish after the underlying write commits, coalesce related updates, and include bounded state payloads instead of making clients fetch the same state after every notification.
+Reuse synchronized snapshots when opening a view, deduplicate concurrent reads, and do not refresh unrelated endpoints after mutations.
+Scope data to the active view: the workspace synchronizes open session summaries and aggregate counts; load closed summaries only while the session manager is open, and release its subscription when it closes.
+Apply the same scope to HTTP responses and SSE payloads; fewer requests must not hide unnecessary preloading or broadcasts.
+Keep large logs, diagnostic bodies, images, and older history as bounded, on-demand HTTP reads; push their availability or lightweight indexes rather than their contents.
+Retain revision checks and authoritative snapshot recovery for initial loading, reconnects, missed events, and oversized payloads.
+Do not replace these safeguards with periodic HTTP polling or broadcast credentials and login authorization URLs through shared state.
+Background synchronization must preserve active editors and reject stale responses.
+Verify request counts, payload contents and size as well as visible updates, including cross-client changes and recovery.
+
 ## Documentation
 
 Vista supports its own development. Product documentation serves users; development documentation primarily serves agents. Prefer executable commands, code entry points, and interface/state/data constraints over tutorials and duplicated inventories.
