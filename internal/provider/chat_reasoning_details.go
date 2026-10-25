@@ -10,10 +10,13 @@ import (
 // Keep the supported wire objects for tool continuation, while limiting the
 // amount that one turn can retain and replay.
 const maxChatReasoningDetailsBytes = 64 << 10
+const maxChatReasoningDetailBlocks = 256
 
 type chatReasoningDetails struct {
-	items []map[string]json.RawMessage
-	bytes int
+	items     []map[string]json.RawMessage
+	sizes     []int
+	bytes     int
+	fragments int
 }
 
 func chatMessagesWithReasoningDetails(messages []ChatMessage, providerID string) ([]map[string]any, error) {
@@ -146,6 +149,7 @@ func (d *chatReasoningDetails) add(raw json.RawMessage) (string, error) {
 	}
 	var visible string
 	for _, item := range incoming {
+		d.fragments++
 		if item == nil {
 			return "", errors.New("invalid model reasoning detail")
 		}
@@ -180,26 +184,42 @@ func (d *chatReasoningDetails) add(raw json.RawMessage) (string, error) {
 			}
 			visible += content
 		}
-		encoded, err := json.Marshal(item)
-		if err != nil || d.bytes+len(encoded) > maxChatReasoningDetailsBytes || len(d.items) >= 256 {
+		// A streamed delta is not an independent reasoning block. Merge before
+		// applying retained-history limits, without mutating accepted state on error.
+		target := d.mergeTarget(item)
+		candidate := item
+		oldBytes := 0
+		if target >= 0 {
+			candidate = make(map[string]json.RawMessage, len(d.items[target]))
+			for key, value := range d.items[target] {
+				candidate[key] = value
+			}
+			mergeChatReasoningDetail(candidate, item)
+			oldBytes = d.sizes[target]
+		} else if len(d.items) >= maxChatReasoningDetailBlocks {
+			return "", errors.New("model reasoning_details exceed 256 independent blocks")
+		}
+		encoded, err := json.Marshal(candidate)
+		if err != nil {
+			return "", errors.New("invalid model reasoning detail")
+		}
+		if d.bytes-oldBytes+len(encoded) > maxChatReasoningDetailsBytes {
 			return "", errors.New("model reasoning_details exceed 64 KiB")
 		}
-		d.bytes += len(encoded)
-		d.items = append(d.items, item)
+		d.bytes += len(encoded) - oldBytes
+		if target >= 0 {
+			d.items[target], d.sizes[target] = candidate, len(encoded)
+		} else {
+			d.items = append(d.items, candidate)
+			d.sizes = append(d.sizes, len(encoded))
+		}
 	}
 	return visible, nil
 }
 
 func (d *chatReasoningDetails) replay() ([]json.RawMessage, error) {
-	merged := make([]map[string]json.RawMessage, 0, len(d.items))
+	out := make([]json.RawMessage, 0, len(d.items))
 	for _, item := range d.items {
-		if len(merged) > 0 && mergeChatReasoningDetail(merged[len(merged)-1], item) {
-			continue
-		}
-		merged = append(merged, item)
-	}
-	out := make([]json.RawMessage, 0, len(merged))
-	for _, item := range merged {
 		copy := make(map[string]json.RawMessage, len(item))
 		for key, value := range item {
 			if key == "index" {
@@ -220,7 +240,54 @@ func (d *chatReasoningDetails) replay() ([]json.RawMessage, error) {
 	return out, nil
 }
 
+func (d *chatReasoningDetails) mergeTarget(current map[string]json.RawMessage) int {
+	for i := len(d.items) - 1; i >= 0; i-- {
+		previous := d.items[i]
+		// Nonadjacent fragments require an explicit shared identity. Anonymous
+		// blocks can only continue their immediate predecessor.
+		if i != len(d.items)-1 {
+			identified := false
+			for _, key := range []string{"id", "index"} {
+				value := string(current[key])
+				if value != "" && value != "null" && value != `""` && value == string(previous[key]) {
+					identified = true
+				}
+			}
+			if !identified {
+				continue
+			}
+		}
+		if compatibleChatReasoningDetail(previous, current) {
+			return i
+		}
+	}
+	return -1
+}
+
 func mergeChatReasoningDetail(previous, current map[string]json.RawMessage) bool {
+	if !compatibleChatReasoningDetail(previous, current) {
+		return false
+	}
+	var kind string
+	_ = json.Unmarshal(current["type"], &kind)
+	field := "text"
+	if kind != "reasoning.text" {
+		field = "summary"
+	}
+	var old, next string
+	_ = json.Unmarshal(previous[field], &old)
+	_ = json.Unmarshal(current[field], &next)
+	combined, _ := json.Marshal(old + next)
+	for key, value := range current {
+		if key != field && len(value) > 0 && string(value) != "null" && string(value) != `""` {
+			previous[key] = value
+		}
+	}
+	previous[field] = combined
+	return true
+}
+
+func compatibleChatReasoningDetail(previous, current map[string]json.RawMessage) bool {
 	var kind string
 	_ = json.Unmarshal(current["type"], &kind)
 	if kind != "reasoning.text" && kind != "reasoning.summary" && kind != "summary" || string(previous["type"]) != string(current["type"]) {
@@ -232,22 +299,5 @@ func mergeChatReasoningDetail(previous, current map[string]json.RawMessage) bool
 			return false
 		}
 	}
-	field := "text"
-	if kind != "reasoning.text" {
-		field = "summary"
-	}
-	var old, next string
-	_ = json.Unmarshal(previous[field], &old)
-	_ = json.Unmarshal(current[field], &next)
-	combined, _ := json.Marshal(old + next)
-	for key, value := range current {
-		if key == field {
-			continue
-		}
-		if len(value) > 0 && string(value) != "null" && string(value) != `""` {
-			previous[key] = value
-		}
-	}
-	previous[field] = combined
 	return true
 }
