@@ -53,6 +53,7 @@ func (a *App) checkModelCatalog(ctx context.Context, automatic bool) (changed bo
 	a.ompCatalogStatusMu.Lock()
 	a.ompCatalogStatus.Updating = true
 	a.ompCatalogStatusMu.Unlock()
+	a.updates.notify("catalog")
 	defer func() { a.finishCatalogCheck(automatic, changed, err) }()
 	ctx, cancel := context.WithTimeout(ctx, time.Minute)
 	defer cancel()

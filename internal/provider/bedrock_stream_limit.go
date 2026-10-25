@@ -14,7 +14,7 @@ const maxBedrockFrameBytes = maxEventBytes + 4096
 const maxBedrockStreamBytes = 1 << 20
 
 var bedrockHTTPClient = &http.Client{
-	Transport: bedrockTransport{base: modelHTTPTransport},
+	Transport: bedrockTransport{base: tracedModelHTTPTransport},
 	CheckRedirect: func(*http.Request, []*http.Request) error {
 		return errors.New("Bedrock endpoint redirected")
 	},

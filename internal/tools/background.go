@@ -131,7 +131,8 @@ func (m *BackgroundManager) Start(ctx context.Context, stateDir, runID, director
 	cmd := platform.ShellCommand(jobCtx, script)
 	cmd.Dir = directory
 	cmd.WaitDelay = 2 * time.Second
-	writer := &shellWriter{file: file, preview: make([]byte, 0, maxShellPreview), cancel: cancel}
+	changed := make(chan struct{}, 1)
+	writer := &shellWriter{file: file, preview: make([]byte, 0, maxShellPreview), cancel: cancel, notify: changed}
 	cmd.Stdout, cmd.Stderr = writer, writer
 	if err := ctx.Err(); err != nil {
 		cancel()
@@ -174,6 +175,42 @@ func (m *BackgroundManager) Start(ctx context.Context, stateDir, runID, director
 		defer cancel()
 		defer file.Close()
 		finished := make(chan struct{})
+		progressDone := make(chan struct{})
+		var progressErr error
+		go func() {
+			defer close(progressDone)
+			for {
+				select {
+				case <-finished:
+					return
+				case <-changed:
+				}
+				// Writes trigger bounded metadata updates; an idle process does
+				// not generate progress traffic or require browser polling.
+				timer := time.NewTimer(time.Second)
+				select {
+				case <-finished:
+					timer.Stop()
+					return
+				case <-timer.C:
+				}
+				select {
+				case <-changed:
+				default:
+				}
+				writer.mu.Lock()
+				progress := job
+				progress.Bytes = writer.bytes
+				writer.mu.Unlock()
+				if err := m.emit(jobCtx, progress); err != nil {
+					if jobCtx.Err() == nil {
+						progressErr = fmt.Errorf("record background output progress: %w", err)
+						cancel()
+					}
+					return
+				}
+			}
+		}()
 		go func() {
 			select {
 			case <-jobCtx.Done():
@@ -183,6 +220,7 @@ func (m *BackgroundManager) Start(ctx context.Context, stateDir, runID, director
 		}()
 		waitErr := cmd.Wait()
 		close(finished)
+		<-progressDone
 		_ = platform.KillProcessGroup(cmd.Process)
 		if syncErr := file.Sync(); syncErr != nil && writer.failure == nil {
 			writer.failure = syncErr
@@ -195,6 +233,9 @@ func (m *BackgroundManager) Start(ctx context.Context, stateDir, runID, director
 		switch {
 		case writer.failure != nil:
 			job.Status, job.Error = "failed", writer.failure.Error()
+			job.TerminationReason = "output_error"
+		case progressErr != nil:
+			job.Status, job.Error = "failed", progressErr.Error()
 			job.TerminationReason = "output_error"
 		case jobCtx.Err() != nil:
 			job.Status, job.Error = "interrupted", jobCtx.Err().Error()

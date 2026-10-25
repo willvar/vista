@@ -6,12 +6,11 @@ import { DeleteOutlined } from '@antdv-next/icons'
 import { useWorkspace } from './composables/useWorkspace'
 import { formatDateTime } from './ui/datetime.ts'
 import ConfirmPopover from './ConfirmPopover.vue'
+import type { ResourceStorageStatus as Status } from './client/types'
 
-type Stats = { totalBytes: number; totalCount: number; referencedBytes: number; referencedCount: number; cleanableBytes: number; cleanableCount: number; scannedAt: string }
-type Status = { phase: string; action?: string; stats?: Stats; deletedCount: number; deletedBytes: number; error?: string }
 const emit = defineEmits<{ 'modal-open': [open: boolean] }>()
 const { t, locale } = useI18n({ useScope: 'global' })
-const { client } = useWorkspace()
+const { client, stateSync } = useWorkspace()
 const status = ref<Status>({ phase: 'idle', deletedCount: 0, deletedBytes: 0 })
 const error = ref('')
 const cleanOpen = ref(false)
@@ -22,7 +21,7 @@ const cleanMessage = computed(() => t('resourceStorageCleanConfirm', {
 const submitting = ref(false)
 const busy = computed(() => submitting.value || status.value.phase === 'running')
 const controller = new AbortController()
-let timer: ReturnType<typeof setTimeout> | undefined
+let revision = 0
 let disposed = false
 function size(bytes: number) {
   if (bytes < 1024) return `${bytes} B`
@@ -35,33 +34,41 @@ function accept(result: Status) {
   if (disposed) return
   status.value = result
   error.value = result.error || ''
-  if (timer) clearTimeout(timer)
-  if (result.phase === 'running') timer = setTimeout(() => { void poll() }, 500)
 }
-async function poll() {
-  try { accept(await client.request<Status>('/resource-storage', { signal: controller.signal })) }
-  catch (failure) {
-    if (!disposed) {
-      error.value = String(failure)
-      timer = setTimeout(() => { void poll() }, 2000)
-    }
+async function readStorage(signal = controller.signal, propagate = false) {
+  const request = ++revision
+  try {
+    const result = await client.request<Status>('/resource-storage', { signal })
+    if (!signal.aborted && request === revision) accept(result)
+  } catch (failure) {
+    if (!disposed && !signal.aborted && request === revision) error.value = String(failure)
+    if (propagate) throw failure
   }
 }
+let initialScan: Promise<void> | undefined
+const unsubscribe = stateSync.subscribe(['storage'], async (_, signal, snapshots) => {
+  if (snapshots.storage) { revision++; accept(snapshots.storage) }
+  else if (initialScan) await initialScan
+  else await readStorage(signal, true)
+})
+
 async function start(action: 'scan' | 'clean') {
   if (busy.value) return
   if (action === 'scan') cleanOpen.value = false
+  const request = ++revision
   submitting.value = true
   error.value = ''
   try {
-    accept(await client.request<Status>('/resource-storage', { method: 'POST', body: JSON.stringify({ action }), signal: controller.signal }))
+    const result = await client.request<Status>('/resource-storage', { method: 'POST', body: JSON.stringify({ action }), signal: controller.signal })
+    if (request === revision) accept(result)
     if (action === 'clean') cleanOpen.value = false
   }
   catch (failure) { if (!disposed) error.value = String(failure) }
   finally { submitting.value = false }
 }
-onMounted(() => { void start('scan') })
+onMounted(() => { initialScan = start('scan').finally(() => { initialScan = undefined }) })
 watch(cleanOpen, value => emit('modal-open', value), { flush: 'sync' })
-onBeforeUnmount(() => { disposed = true; controller.abort(); if (timer) clearTimeout(timer); emit('modal-open', false) })
+onBeforeUnmount(() => { disposed = true; controller.abort(); unsubscribe(); emit('modal-open', false) })
 const cards = computed(() => [
   { label: 'resourceStorageTotal', bytes: status.value.stats?.totalBytes, count: status.value.stats?.totalCount },
   { label: 'resourceStorageReferenced', bytes: status.value.stats?.referencedBytes, count: status.value.stats?.referencedCount },

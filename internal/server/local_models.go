@@ -5,6 +5,7 @@ import (
 	"errors"
 	"log"
 	"os"
+	"reflect"
 	"strings"
 	"time"
 	"vista/internal/modelcatalog"
@@ -155,5 +156,8 @@ func (a *App) rebuildModelsLocked() {
 	} else if !seenKeys[catalog.Default] {
 		catalog.Default = catalog.Models[0].Key
 	}
-	a.models = catalog
+	if !reflect.DeepEqual(a.models, catalog) {
+		a.models = catalog
+		a.updates.notify("models", "status")
+	}
 }

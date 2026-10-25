@@ -1,3 +1,4 @@
+import { coreSnapshot } from './conversation-fixture'
 import { closeSettings } from './settings-navigation'
 import type { Page } from '@playwright/test'
 import type { Message } from '../src/client/types'
@@ -60,6 +61,7 @@ async function mockConversation(page: Page, vista: FixtureAPI, options: { cancel
       return route.fulfill({ response: original, json: (await original.json()).map((row: { id: string }) =>
         row.id === session.id ? { ...row, executing } : row) })
     }
+    if (path === `/api/sessions/${session.id}/snapshot`) return route.fulfill({ json: coreSnapshot({ ...session, executing }, messages, [modelRequest]) })
     if (path === `/api/sessions/${session.id}/messages`) return route.fulfill({ json: messages })
     if (path.includes('/runs/') && path.endsWith('/main-outputs')) return route.fulfill({ json: [] })
     if (options.compactionStatus && path === `/api/sessions/${session.id}/context`) return route.fulfill({ json: { runId, manual: false, phase: 'compacted', sequence: 2 } })
@@ -321,6 +323,7 @@ test('ArrowUp recalls only the latest user message into the current empty draft 
   const second = await vista.api('/sessions', { method: 'POST', body: '{}' })
   const secondText = 'Only the second session request'
   await page.route(`**/api/sessions/${second.id}/messages`, route => route.fulfill({ json: [{ id: 'second-user', runId: 'second-run', sequence: 1, role: 'user', content: secondText, createdAt: new Date().toISOString() }] }))
+  await page.route(`**/api/sessions/${second.id}/snapshot`, route => route.fulfill({ json: coreSnapshot(second, [{ id: 'second-user', runId: 'second-run', sequence: 1, role: 'user', content: secondText, createdAt: new Date().toISOString() }]) }))
   await page.goto(`${vista.origin}/sessions/${second.id}`)
   await expect(page.locator('.messages article.user .markdown')).toHaveText(secondText)
   await expect(textarea).toBeFocused()

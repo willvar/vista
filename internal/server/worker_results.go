@@ -13,6 +13,7 @@ import (
 	"github.com/google/uuid"
 	"vista/internal/agentconfig"
 	modelcfg "vista/internal/model"
+	"vista/internal/modeltrace"
 	"vista/internal/store"
 	"vista/internal/workerproto"
 )
@@ -29,6 +30,8 @@ type workerResultConsumer struct {
 	sessionID          string
 	stateDir           string
 	send               func(workerproto.Command) error
+	changed            func(string)
+	diagnostic         func(modeltrace.Summary)
 	notify             func()
 	pollInput          func(string, *workerproto.CompletedReply) (*workerproto.Command, error)
 	metrics            func(workerproto.Metrics)
@@ -39,8 +42,10 @@ func (a *App) workerResultConsumer(id string, w *worker) *workerResultConsumer {
 	return &workerResultConsumer{
 		ctx: a.ctx, store: a.store, sessionID: id, stateDir: a.dir,
 		done: w.done, refreshCredentials: a.refreshModelCredentials, async: a.background.Go,
-		send:   w.send,
-		notify: func() { a.hub.notify(id) },
+		send:       w.send,
+		notify:     func() { a.hub.notify(id) },
+		changed:    a.notifyWorkerState,
+		diagnostic: a.updates.diagnosticSaved,
 		pollInput: func(runID string, reply *workerproto.CompletedReply) (*workerproto.Command, error) {
 			return a.pullInterjection(a.ctx, id, runID, reply)
 		},
@@ -81,6 +86,18 @@ func (c *workerResultConsumer) consumeFrame(frame []byte) error {
 
 func (c *workerResultConsumer) consume(result workerproto.Result) error {
 	switch result.Kind {
+	case "model_diagnostic":
+		if _, err := uuid.Parse(result.DiagnosticID); err != nil || result.RunID == "" {
+			return errors.New("invalid diagnostic reference")
+		}
+		// The Worker reports only an ID after the atomic file save. Read the
+		// bounded summary, never the captured request/response bodies.
+		if c.diagnostic != nil {
+			if summary, err := modeltrace.ReadSummary(c.stateDir, c.sessionID, result.RunID, result.DiagnosticID); err == nil {
+				c.diagnostic(summary)
+			}
+		}
+		return nil
 	case "memory_change":
 		return c.memoryChange(result)
 	case "model_credentials":
@@ -151,6 +168,9 @@ func (c *workerResultConsumer) consume(result workerproto.Result) error {
 		message, err := c.store.DeliverInput(c.ctx, c.sessionID, result.RunID, result.InputID, uuid.NewString(), storeCompletedReply(result.Reply)...)
 		if err == nil && message != nil {
 			c.notify()
+			if c.changed != nil {
+				c.changed("input_delivered")
+			}
 		}
 		return err
 	case "context_notice":
@@ -231,6 +251,9 @@ func (c *workerResultConsumer) persisted(result workerproto.Result, event *store
 		return nil
 	}
 	c.notify()
+	if c.changed != nil && !(result.Kind == "job" && result.Status == "running") {
+		c.changed(event.Kind)
+	}
 	if ackID != "" {
 		if err := c.send(workerproto.Command{Action: "ack", RunID: result.RunID, AckID: ackID}); err != nil {
 			return fmt.Errorf("%s acknowledgment failed: %w", result.Kind, err)

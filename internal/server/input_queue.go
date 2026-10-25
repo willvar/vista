@@ -41,8 +41,8 @@ func (a *App) pullInterjection(ctx context.Context, sessionID, runID string, com
 		if err != nil {
 			return nil, err
 		}
-		a.hub.notify(sessionID)
-		return &workerproto.Command{RunID: runID, InputID: input.ID, MessageSequence: message.Sequence, Prompt: message.Content, ReplyLanguage: language, Images: images}, nil
+		a.notifySession(sessionID, "sessions")
+		return &workerproto.Command{Debug: input.Debug, RunID: runID, InputID: input.ID, MessageSequence: message.Sequence, Prompt: message.Content, ReplyLanguage: language, Images: images}, nil
 	}
 }
 
@@ -64,7 +64,7 @@ func (a *App) inputQueue(w http.ResponseWriter, r *http.Request, sessionID strin
 			inputHTTPError(w, err)
 			return
 		}
-		a.hub.notify(sessionID)
+		a.notifySession(sessionID, "sessions")
 		a.background.Go(func() { a.launchQueuedInput(sessionID) })
 		jsonOut(w, map[string]any{"event": event})
 		return
@@ -107,7 +107,7 @@ func (a *App) inputQueue(w http.ResponseWriter, r *http.Request, sessionID strin
 			inputHTTPError(w, err)
 			return
 		}
-		a.hub.notify(sessionID)
+		a.notifySession(sessionID, "sessions")
 		jsonOut(w, map[string]any{"input": input, "event": event})
 		return
 	}
@@ -121,6 +121,6 @@ func (a *App) inputQueue(w http.ResponseWriter, r *http.Request, sessionID strin
 		inputHTTPError(w, err)
 		return
 	}
-	a.hub.notify(sessionID)
+	a.notifySession(sessionID, "sessions")
 	jsonOut(w, map[string]any{"input": input, "images": workerImages(images), "event": event})
 }

@@ -111,6 +111,7 @@ func (a *App) catalogUpdateStatus() catalogUpdateStatus {
 }
 
 func (a *App) finishCatalogCheck(automatic, changed bool, checkErr error) {
+	defer a.updates.notify("catalog")
 	a.ompCatalogStatusMu.Lock()
 	defer a.ompCatalogStatusMu.Unlock()
 	// Interrupted shutdowns leave the previous deadline on disk so startup can

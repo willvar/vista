@@ -17,6 +17,7 @@ import (
 	"unicode/utf8"
 
 	modelcfg "vista/internal/model"
+	"vista/internal/modeltrace"
 	"vista/internal/useragent"
 )
 
@@ -177,20 +178,7 @@ func modelErrorForDisplay(err error, model modelcfg.Model) error {
 		return nil
 	}
 	message := err.Error()
-	secrets := []string{model.APIKey, model.AppCode, model.AWSAccessID, model.AWSSecret, model.AWSSession}
-	for _, headers := range []map[string]string{model.Headers, model.GitLabHeaders} {
-		for _, value := range headers {
-			secrets = append(secrets, value)
-			if parts := strings.Fields(value); len(parts) == 2 && (strings.EqualFold(parts[0], "Bearer") || strings.EqualFold(parts[0], "Basic")) {
-				secrets = append(secrets, parts[1])
-			}
-		}
-	}
-	if model.OpenRouter != nil {
-		for _, value := range model.OpenRouter.APIKeys {
-			secrets = append(secrets, value)
-		}
-	}
+	secrets := modelSecrets(model)
 	sort.SliceStable(secrets, func(i, j int) bool { return len(secrets[i]) > len(secrets[j]) })
 	var replacements []string
 	for _, secret := range secrets {
@@ -220,13 +208,33 @@ func modelErrorForDisplay(err error, model modelcfg.Model) error {
 	return &modelDisplayError{error: err, message: message}
 }
 
+func modelSecrets(model modelcfg.Model) []string {
+	secrets := []string{model.APIKey, model.AppCode, model.AWSAccessID, model.AWSSecret, model.AWSSession}
+	for _, headers := range []map[string]string{model.Headers, model.GitLabHeaders} {
+		for _, value := range headers {
+			secrets = append(secrets, value)
+			if parts := strings.Fields(value); len(parts) == 2 && (strings.EqualFold(parts[0], "Bearer") || strings.EqualFold(parts[0], "Basic")) {
+				secrets = append(secrets, parts[1])
+			}
+		}
+	}
+	if model.OpenRouter != nil {
+		for _, value := range model.OpenRouter.APIKeys {
+			secrets = append(secrets, value)
+		}
+	}
+	return secrets
+}
+
 var modelHTTPTransport = func() *http.Transport {
 	transport := http.DefaultTransport.(*http.Transport).Clone()
 	transport.ResponseHeaderTimeout = modelHeaderTimeout
 	return transport
 }()
 
-var client = &http.Client{Transport: modelHTTPTransport, CheckRedirect: func(*http.Request, []*http.Request) error {
+var tracedModelHTTPTransport = modeltrace.Transport{Base: modelHTTPTransport}
+
+var client = &http.Client{Transport: tracedModelHTTPTransport, CheckRedirect: func(*http.Request, []*http.Request) error {
 	return errors.New("model endpoint redirected")
 }}
 

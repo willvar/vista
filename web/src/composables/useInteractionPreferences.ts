@@ -37,8 +37,11 @@ export function useInteractionPreferences(client?: VistaClient, report: (error: 
     if (!client || hydrating || !ready.value) return
     saving = saving.then(async () => { await client.request('/preferences', { method: 'PATCH', body: JSON.stringify(patch) }) }).catch(report)
   }
-  watch(rememberedModel, value => {
-    if (value) { savePreference('vista-last-model', JSON.stringify(value)); persist({ manualModelKey: value.key }) }
+  watch(rememberedModel, (value, previous) => {
+    if (value) {
+      savePreference('vista-last-model', JSON.stringify(value))
+      if (value.key !== previous?.key) persist({ manualModelKey: value.key })
+    }
   }, { flush: 'sync' })
   watch(lastMode, value => persist({ lastMode: value }), { flush: 'sync' })
   watch(lastTier, value => persist({ lastTier: value }), { flush: 'sync' })

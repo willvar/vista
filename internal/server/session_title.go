@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"log"
 	"strings"
@@ -11,6 +12,7 @@ import (
 	"github.com/google/uuid"
 
 	modelcfg "vista/internal/model"
+	"vista/internal/modeltrace"
 	"vista/internal/provider"
 	"vista/internal/replylanguage"
 )
@@ -25,13 +27,24 @@ const sessionTitleTimeout = 2 * time.Minute
 var errSessionTitleTools = errors.New("title response requested tools")
 var errSessionTitleEmpty = errors.New("title response contained no usable title")
 
-func (a *App) generateSessionTitle(sessionID, messageID string, model modelcfg.Model) {
+func (a *App) generateSessionTitle(sessionID, messageID string, model modelcfg.Model, diagnostics ...modeltrace.Scope) {
 	parent := a.ctx
 	if parent == nil {
 		parent = context.Background()
 	}
 	ctx, cancel := context.WithTimeout(parent, sessionTitleTimeout)
 	defer cancel()
+	if len(diagnostics) > 0 {
+		ctx = modeltrace.WithScope(ctx, diagnostics[0], a.updates.diagnosticSaved)
+		if diagnostics[0].Enabled {
+			defer func() {
+				// A title request may finish after the conversation was deleted.
+				if _, err := a.store.Get(context.Background(), sessionID); errors.Is(err, sql.ErrNoRows) {
+					_ = modeltrace.DeleteSession(a.dir, sessionID)
+				}
+			}()
+		}
+	}
 	prompt, eligible, err := a.store.FirstMessageTitleCandidate(ctx, sessionID, messageID)
 	if err != nil {
 		logSessionTitleFailure(sessionID, model, "candidate", err)
@@ -67,13 +80,17 @@ func (a *App) generateSessionTitle(sessionID, messageID string, model modelcfg.M
 		logSessionTitleFailure(sessionID, model, "model", err)
 		return
 	}
+	a.saveSessionTitle(ctx, sessionID, messageID, title, model)
+}
+
+func (a *App) saveSessionTitle(ctx context.Context, sessionID, messageID, title string, model modelcfg.Model) {
 	event, err := a.store.SetGeneratedTitle(ctx, sessionID, messageID, title)
 	if err != nil {
 		logSessionTitleFailure(sessionID, model, "save", err)
 		return
 	}
 	if event != nil {
-		a.hub.notify(sessionID)
+		a.notifySession(sessionID, "sessions")
 	}
 }
 

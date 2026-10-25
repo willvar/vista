@@ -6,7 +6,7 @@ import { useInteractionPreferences } from './useInteractionPreferences.ts'
 import { quoteStoragePrefix } from '../state/quotedReply.ts'
 import type { VistaClient } from '../client/vista'
 import type { EventStreamOptions } from '../client/sse'
-import type { CompactionStatus, Message, ModelCatalog, OutputView, PendingReply, Session, StreamEvent } from '../client/types'
+import type { Artifact, Job, CompactionStatus, Message, ModelCatalog, OutputView, PendingReply, Session, StreamEvent } from '../client/types'
 
 function deferred<T>() {
   let resolve!: (value: T) => void
@@ -67,25 +67,92 @@ function fixture(t: TestContext, response?: (path: string, options?: RequestInit
   const modelCatalog = ref<ModelCatalog>({ default: 'example', models: [{ key: 'example', provider: 'openai-chat', id: 'model', reasoningOptions: ['low', 'high'] }] })
   const error = ref('')
   const busy = ref(false)
+  let refreshes = 0
   const streams = new Map<string, EventStreamOptions>()
   const client: VistaClient = {
     async request<T>(path: string, options?: RequestInit): Promise<T> {
       const custom = response?.(path, options)
       if (custom) return await custom as T
       if (path === '/sessions') return sessions.value as T
+      if (path.endsWith('/snapshot')) {
+        const base = path.slice(0, -'/snapshot'.length)
+        const [messages, events] = await Promise.all([client.request<Message[]>(`${base}/messages`), client.request<StreamEvent[]>(`${base}/event-page`)])
+        return { session: { ...conversation.selected.value, latestReplySequence: Math.max(0, ...messages.filter(message => message.role === 'assistant').map(message => message.sequence)) },
+          throughSequence: Math.max(0, ...messages.map(message => message.sequence), ...events.map(event => event.sequence)),
+          messages, events, hasOlder: messages.length === 100, hasOlderEvents: events.length === 100 } as T
+      }
       if (path.endsWith('/context')) return null as T
       if (path.endsWith('/messages')) return [message(path.split('/')[2] + '-history', 1, 'history', 'assistant')] as T
       return [] as T
     },
     async image() { throw new Error('Images are not requested in this fixture') },
-    async streamEvents(id, options) { streams.set(id, options) },
+    async streamEvents(id, options) {
+      streams.set(id, options)
+      await options.beforeConnect?.()
+      if (!options.signal.aborted) await options.onCheckpoint?.({ throughSequence: conversation.lastEvent.value, session: conversation.selected.value! })
+    },
   }
   const scope = effectScope()
   const preferences = scope.run(() => useInteractionPreferences())!
-  const conversation = scope.run(() => useConversation({ client, sessions, modelCatalog, error, busy, refresh: async () => {}, translate: key => key, interactionPreferences: preferences, onSessionStarted }))!
+  const conversation = scope.run(() => useConversation({ client, sessions, modelCatalog, error, busy, refresh: async () => { refreshes++ }, translate: key => key, interactionPreferences: preferences, onSessionStarted }))!
   t.after(() => scope.stop())
-  return { conversation, sessions, modelCatalog, error, busy, saved, streams, preferences, client }
+  return { conversation, sessions, modelCatalog, error, busy, saved, streams, preferences, client, refreshes: () => refreshes }
 }
+
+test('omission from the open-only workspace list preserves the selected conversation and draft', async t => {
+  const f = fixture(t)
+  await f.conversation.selectSession(session('a'))
+  f.conversation.draft.value = 'Keep this draft while another client closes the conversation'
+  const messages = [...f.conversation.messages.value]
+  f.sessions.value = []
+  assert.equal(f.conversation.selected.value?.id, 'a')
+  assert.equal(f.conversation.draft.value, 'Keep this draft while another client closes the conversation')
+  assert.deepEqual(f.conversation.messages.value, messages)
+  // The workspace owner supplies independently verified close/reopen state.
+  f.conversation.selected.value = { ...f.conversation.selected.value!, open: false }
+  f.sessions.value = [session('a')]
+  assert.equal(f.conversation.selected.value?.open, true)
+  assert.equal(f.conversation.draft.value, 'Keep this draft while another client closes the conversation')
+})
+
+test('successful sends apply acknowledgements without workspace reloads or skipping stream records', async t => {
+  const sent = message('new-user', 2, 'new-run')
+  const f = fixture(t, (path, options) => path.endsWith('/messages') && options?.method === 'POST'
+    ? Promise.resolve({ runId: sent.runId, message: sent }) : undefined)
+  await f.conversation.selectSession(session('a'))
+  const cursor = f.conversation.lastEvent.value
+  f.conversation.draft.value = 'New message'
+  await f.conversation.send()
+  assert.equal(f.conversation.messages.value.at(-1)?.id, sent.id)
+  assert.equal(f.conversation.selected.value?.executing, true)
+  assert.equal(f.conversation.lastEvent.value, cursor)
+  assert.equal(f.refreshes(), 0)
+  await f.streams.get('a')!.onEvent({ sequence: 2, kind: 'message', data: sent })
+  await f.streams.get('a')!.onEvent({ sequence: 3, kind: 'run_finished', data: {
+    runId: sent.runId, status: 'succeeded', message: message('answer', 3, sent.runId, 'assistant'),
+  } })
+  assert.deepEqual(f.conversation.messages.value.slice(-2).map(item => item.id), ['new-user', 'answer'])
+  assert.equal(f.conversation.selected.value?.executing, false)
+  assert.equal(f.refreshes(), 0)
+})
+
+test('reopening the selected conversation restores a stopped subscription without clearing its draft', async t => {
+  const { conversation, sessions, streams } = fixture(t)
+  await conversation.selectSession(session('a'))
+  const previous = streams.get('a')!
+  const generation = conversation.syncDiagnostics.value?.scope
+  previous.onCheckpoint!({ throughSequence: conversation.lastEvent.value, session: { ...conversation.selected.value!, open: false } })
+  assert.equal(conversation.synchronization.value.phase, 'stopped')
+  assert.equal(previous.signal.aborted, true)
+  conversation.draft.value = 'Keep this draft after reopening'
+  sessions.value = sessions.value.map(item => item.id === 'a' ? { ...item, open: true } : item)
+  await new Promise(resolve => setImmediate(resolve))
+  assert.notEqual(streams.get('a'), previous)
+  assert.equal(streams.get('a')!.signal.aborted, false)
+  assert.equal(conversation.synchronization.value.phase, 'ready')
+  assert.equal(conversation.syncDiagnostics.value?.scope, generation)
+  assert.equal(conversation.draft.value, 'Keep this draft after reopening')
+})
 
 test('quoted selections preserve the draft and become ordinary persisted user content on send', async t => {
   const sent: { content: string; mode: string }[] = []
@@ -168,13 +235,16 @@ test('attachments use server capabilities for manual and automatic selection wit
 for (const fail of [false, true]) {
   test(`late session load ${fail ? 'failure' : 'success'} cannot change the selected session`, async t => {
     const load = deferred<unknown>()
+    const loading = deferred<void>()
     let signal: AbortSignal | null | undefined
     const { conversation, busy, error } = fixture(t, (path, options) => {
       if (path !== '/sessions/a/inputs') return
       signal = options?.signal
+      loading.resolve()
       return load.promise
     })
     const oldSelection = conversation.selectSession(session('a'))
+    await loading.promise
     await conversation.selectSession(session('b'))
     conversation.draft.value = 'unsent B'
     error.value = 'current B error'
@@ -263,14 +333,17 @@ test('run_finished before the POST response does not revive an already finished 
 
 test('selecting the same session again still rejects the previous generation', async t => {
   const oldInputs = deferred<unknown>()
+  const loading = deferred<void>()
   let requests = 0
   let oldSignal: AbortSignal | null | undefined
   const { conversation, busy, error } = fixture(t, (path, options) => {
     if (path !== '/sessions/a/inputs' || ++requests !== 1) return
     oldSignal = options?.signal
+    loading.resolve()
     return oldInputs.promise
   })
   const firstLoad = conversation.selectSession(session('a'))
+  await loading.promise
   await conversation.selectSession(session('a'))
   conversation.draft.value = 'new generation draft'
   busy.value = true
@@ -295,14 +368,14 @@ test('initial load derives the active run from the latest user rather than a lat
   assert.equal(conversation.activeRunSequence.value, 20)
 })
 
-test('reload restores root execution from overview while preserving recent child tokens and the live cursor', async t => {
+test('snapshot restores root execution while preserving recent child tokens and its live boundary', async t => {
   const rootModel: StreamEvent = { sequence: 2, kind: 'model_request', data: { runId: 'run-a', taskId: 'main', provider: 'openai-chat', key: 'example', id: 'model', reasoningEffort: 'high' } }
   const rootTool: StreamEvent = { sequence: 3, kind: 'tool', data: { runId: 'run-a', taskId: 'main', status: 'started', tool: { callId: 'child', name: 'delegate', summary: 'Inspect source' } } }
   const future: StreamEvent = { sequence: 110, kind: 'model_request', data: { ...rootModel.data, id: 'future-model' } }
   const child: StreamEvent = { sequence: 100, kind: 'model_delta', data: { runId: 'run-a', taskId: 'child', parentTaskId: 'main', depth: 1, turn: 2, content: 'Preserve recent tokens' } }
   const { conversation, sessions, streams } = fixture(t, path => {
-    if (path === '/sessions/a/messages') return Promise.resolve([message('user-a', 1, 'run-a')])
-    if (path === '/sessions/a/event-page') return Promise.resolve([child])
+    if (path === '/sessions/a/snapshot') return Promise.resolve({ session: { ...session('a'), executing: true }, throughSequence: 100,
+      messages: [message('user-a', 1, 'run-a')], events: [rootModel, rootTool, child], hasOlder: false, hasOlderEvents: true })
     if (path.endsWith('/runs/run-a/overview')) return Promise.resolve({ modelCalls: 50, throughSequence: 110, startedAt: '', events: [rootModel, rootTool, future] })
   })
   sessions.value[0]!.executing = true
@@ -1288,7 +1361,8 @@ test('late edit loading cannot replace another session draft', async t => {
 test('a remote rollback reloads history while preserving the current draft', async t => {
   let reverted = false
   const original = { ...message('original', 2, 'run') }
-  const { conversation, streams } = fixture(t, path => path.endsWith('/messages') ? Promise.resolve(reverted ? [] : [original]) : undefined)
+  const { conversation, streams } = fixture(t, path => path.endsWith('/snapshot') ? Promise.resolve({ session: session('a'),
+    throughSequence: reverted ? 30 : 2, revertedSequence: reverted ? 30 : 0, messages: reverted ? [] : [original], events: [], hasOlder: false, hasOlderEvents: false }) : undefined)
   await conversation.selectSession(session('a'))
   conversation.draft.value = 'My draft'
   const oldStream = streams.get('a')!
@@ -1300,4 +1374,135 @@ test('a remote rollback reloads history while preserving the current draft', asy
   assert.equal(conversation.draft.value, 'My draft')
   oldStream.onEvent({ sequence: 31, kind: 'message', data: original })
   assert.equal(conversation.messages.value.length, 0)
+})
+
+test('snapshot recovery preserves composer state and a send acknowledgement newer than its boundary', async t => {
+  const rebuilding = deferred<unknown>(), started = deferred<void>()
+  const original = [message('u', 1, 'old'), message('a', 2, 'old', 'assistant')]
+  let reads = 0, indexes = 0
+  const { conversation, streams } = fixture(t, (path, options) => {
+    if (path.endsWith('/snapshot')) {
+      if (++reads === 2) { started.resolve(); return rebuilding.promise }
+      return Promise.resolve({ session: session('a'), throughSequence: 2, messages: original, events: [], hasOlder: false, hasOlderEvents: false })
+    }
+    if (path.endsWith('/messages') && options?.method === 'POST') return Promise.resolve({ runId: 'new', message: message('new-user', 10, 'new') })
+    if (path.includes('/runs/old/main-outputs')) { indexes++; return Promise.resolve([]) }
+  })
+  await conversation.selectSession(session('a'))
+  await nextTick()
+  const previousStream = streams.get('a')!
+  conversation.resynchronize()
+  await started.promise
+  conversation.draft.value = 'Send during repair'
+  await conversation.send()
+  conversation.draft.value = 'Keep this draft'
+  conversation.quoteSelection({ text: 'Keep this quote', role: 'assistant' })
+  const image = new File(['image'], 'draft.png', { type: 'image/png' })
+  conversation.attachedImages.value = [image]
+  conversation.chooseModel('example')
+  conversation.selectedReasoning.value = 'high'
+  rebuilding.resolve({ session: session('a'), throughSequence: 2, messages: original, events: [], hasOlder: false, hasOlderEvents: false })
+  await streams.get('a')!.beforeConnect!()
+  await nextTick()
+  assert.deepEqual(conversation.messages.value.map(item => item.id), ['u', 'a', 'new-user'])
+  assert.equal(conversation.activeRunID.value, 'new')
+  assert.equal(conversation.selected.value?.executing, true)
+  assert.equal(conversation.draft.value, 'Keep this draft')
+  assert.equal(conversation.quotedText.value?.text, 'Keep this quote')
+  assert.equal(conversation.attachedImages.value[0], image)
+  assert.equal(conversation.selectedReasoning.value, 'high')
+  assert.equal(indexes, 2)
+  assert.equal(previousStream.signal.aborted, true)
+  assert.equal(conversation.lastEvent.value, 2, 'A POST acknowledgement cannot skip missing records')
+})
+
+test('a late recovery snapshot cannot modify another conversation or the same conversation in a new scope', async t => {
+  for (const nextID of ['b', 'a']) {
+    const pending = deferred<unknown>(), started = deferred<void>()
+    let reads = 0
+    const { conversation, streams } = fixture(t, path => {
+      if (path === '/sessions/a/snapshot' && ++reads === 2) { started.resolve(); return pending.promise }
+    })
+    await conversation.selectSession(session('a'))
+    conversation.resynchronize()
+    await started.promise
+    const old = streams.get('a')!
+    const repairing = old.beforeConnect!()
+    await conversation.selectSession(session(nextID))
+    conversation.draft.value = 'Current draft'
+    pending.resolve({ session: session('a'), throughSequence: 99, messages: [message('stale', 99, 'stale')], events: [], hasOlder: false, hasOlderEvents: false })
+    await repairing
+    assert.equal(conversation.selected.value?.id, nextID)
+    assert.equal(conversation.draft.value, 'Current draft')
+    assert.equal(conversation.messages.value.some(item => item.id === 'stale'), false)
+  }
+})
+
+test('recovery keeps an intentional older message window and does not acknowledge unseen replies', async t => {
+  let reads = 0, receipts = 0
+  const { conversation, streams } = fixture(t, (path, options) => {
+    if (path.endsWith('/snapshot')) return Promise.resolve({ session: { ...session('a'), latestReplySequence: reads++ ? 500 : 400 }, throughSequence: reads > 1 ? 500 : 400,
+      messages: Array.from({ length: 100 }, (_, i) => message(`latest-${i}`, (reads > 1 ? 401 : 301) + i, 'r', 'assistant')), events: [], hasOlder: true, hasOlderEvents: false })
+    if (path.includes('/messages?before=')) {
+      const before = Number(path.split('before=')[1])
+      return Promise.resolve(Array.from({ length: 100 }, (_, i) => message(`older-${before}-${i}`, before - 100 + i, 'r', 'assistant')))
+    }
+    if (path.endsWith('/read') && options?.method === 'POST') { receipts++; return Promise.resolve({ readSequence: 500 }) }
+  })
+  await conversation.selectSession(session('a'))
+  await conversation.loadOlder(); await conversation.loadOlder(); await conversation.loadOlder()
+  assert.equal(conversation.hasNewer.value, true)
+  const window = conversation.messages.value.map(item => item.id)
+  conversation.resynchronize()
+  await streams.get('a')!.beforeConnect!()
+  assert.deepEqual(conversation.messages.value.map(item => item.id), window)
+  assert.equal(conversation.hasNewer.value, true)
+  assert.equal(conversation.latestMessageSequence.value, 500)
+  assert.equal(receipts, 0)
+})
+
+test('failed recovery survives a successful send and an application error cannot advance the cursor', async t => {
+  let failSnapshot = false
+  const { conversation, streams } = fixture(t, (path, options) => {
+    if (path.endsWith('/snapshot') && failSnapshot) return Promise.reject(new Error('snapshot unavailable'))
+    if (path.endsWith('/messages') && options?.method === 'POST') return Promise.resolve({ runId: 'r', message: message('accepted', 10, 'r') })
+  })
+  await conversation.selectSession(session('a'))
+  const stream = streams.get('a')!
+  assert.throws(() => stream.onEvent({ sequence: 2, kind: 'message', data: null }), /Invalid conversation event/)
+  assert.equal(conversation.lastEvent.value, 1)
+  failSnapshot = true
+  stream.onError!(new Error('apply failed'))
+  await assert.rejects(stream.beforeConnect!(), /snapshot unavailable/)
+  stream.onError!(new Error('snapshot unavailable'))
+  conversation.draft.value = 'Send accepted'
+  await conversation.send()
+  assert.equal(conversation.synchronization.value.phase, 'error')
+  assert.equal(conversation.lastEvent.value, 1)
+})
+
+test('late auxiliary snapshots cannot replace newer process and artifact events', async t => {
+  let delay = false
+  const jobs = deferred<Job[]>(), artifacts = deferred<Artifact[]>()
+  const { conversation, streams } = fixture(t, path => {
+    if (delay && path.endsWith('/jobs')) return jobs.promise
+    if (delay && path.endsWith('/artifacts')) return artifacts.promise
+  })
+  await conversation.selectSession(session('a'))
+  await nextTick()
+  conversation.jobs.value = [{ id: 'unchanged', status: 'running', bytes: 0 } as Job]
+  delay = true
+  const pending = conversation.refreshConversation()
+  const stream = streams.get('a')!
+  await stream.onEvent({ sequence: 2, kind: 'job', data: { id: 'job', status: 'succeeded', bytes: 100, command: 'done' } })
+  await stream.onEvent({ sequence: 3, kind: 'artifact', data: { id: 'artifact', status: 'succeeded', bytes: 100 } })
+  jobs.resolve([{ id: 'job', status: 'running', bytes: 0 }, { id: 'unchanged', status: 'succeeded', bytes: 10 },
+    { id: 'historical-job', status: 'succeeded', bytes: 20 }] as Job[])
+  artifacts.resolve([{ id: 'artifact', status: 'started', bytes: 0 }, { id: 'historical-artifact', status: 'succeeded', bytes: 20 }] as Artifact[])
+  await pending
+  assert.equal(conversation.jobs.value[0].status, 'succeeded')
+  assert.equal(conversation.artifacts.value[0].status, 'succeeded')
+  assert.equal(conversation.jobs.value.find(job => job.id === 'unchanged')?.status, 'succeeded')
+  assert.ok(conversation.jobs.value.some(job => job.id === 'historical-job'))
+  assert.ok(conversation.artifacts.value.some(artifact => artifact.id === 'historical-artifact'))
 })

@@ -558,11 +558,23 @@ func appendUnknownTools(ctx context.Context, tx *sql.Tx, sessionID, runID string
 	return len(ordered), nil
 }
 func (s *Store) EventsAfter(ctx context.Context, sessionID string, after int64, limit int) ([]Event, error) {
+	return s.EventsThrough(ctx, sessionID, after, 0, limit)
+}
+
+// EventsThrough fixes a replay target while new events continue to arrive.
+func (s *Store) EventsThrough(ctx context.Context, sessionID string, after, through int64, limit int) ([]Event, error) {
 	if limit < 1 || limit > 200 {
 		return nil, errors.New("invalid event page size")
 	}
 	// SQLite JSON functions return TEXT; normalize data before scanning it into json.RawMessage.
-	rows, err := s.db.QueryContext(ctx, "SELECT sequence,kind,CAST(data AS BLOB) AS data,created_at FROM events WHERE session_id=? AND sequence>? ORDER BY sequence LIMIT ?", sessionID, after, limit)
+	query := "SELECT sequence,kind,CAST(data AS BLOB) AS data,created_at FROM events WHERE session_id=? AND sequence>?"
+	args := []any{sessionID, after}
+	if through > 0 {
+		query += " AND sequence<=?"
+		args = append(args, through)
+	}
+	query += " ORDER BY sequence LIMIT ?"
+	rows, err := s.reader().QueryContext(ctx, query, append(args, limit)...)
 	if err != nil {
 		return nil, err
 	}
@@ -589,7 +601,7 @@ func (s *Store) EventsBefore(ctx context.Context, sessionID string, before int64
 	}
 	query += " ORDER BY sequence DESC LIMIT ?"
 	args = append(args, limit)
-	rows, err := s.db.QueryContext(ctx, query, args...)
+	rows, err := s.reader().QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -625,7 +637,7 @@ func (s *Store) ModelResultEvents(ctx context.Context, sessionID string, runIDs 
 	for _, id := range runIDs {
 		args = append(args, id)
 	}
-	rows, err := s.db.QueryContext(ctx, query, args...)
+	rows, err := s.reader().QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -672,7 +684,7 @@ func (s *Store) MessagesBefore(ctx context.Context, sessionID string, before int
 	}
 	query += " ORDER BY sequence DESC LIMIT ?"
 	args = append(args, limit)
-	rows, err := s.db.QueryContext(ctx, query, args...)
+	rows, err := s.reader().QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, err
 	}

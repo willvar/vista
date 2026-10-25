@@ -4,34 +4,47 @@ import { useI18n } from 'vue-i18n'
 import { Alert as AAlert, Button as AButton, Spin as ASpin } from 'antdv-next'
 import { CopyOutlined } from '@antdv-next/icons'
 import { VistaAPIError, type VistaClient } from './client/vista'
-import type { CopilotAuthOptions } from './client/types'
+import { useWorkspace } from './composables/useWorkspace'
+import type { CopilotAuthOptions, LoginUpdate } from './client/types'
 
 type Login = { id: string; verificationUrl: string; userCode: string; status: 'pending' | 'connected' | 'failed' | 'expired' | 'canceled'; error?: string }
 const props = defineProps<{ kind: 'codex' | 'copilot'; client: VistaClient; name: string; connectionKey?: string; copilotAuth?: CopilotAuthOptions }>()
 const emit = defineEmits<{ connected: []; busy: [value: boolean] }>()
+const { stateSync } = useWorkspace()
+const lifetime = new AbortController()
 const { t } = useI18n({ useScope: 'global' })
 const login = ref<Login | null>(null)
 const starting = ref(false)
 const error = ref('')
 const copied = ref(false)
 let generation = 0
-let timer: ReturnType<typeof setTimeout> | undefined
+let readRevision = 0
 let disposed = false
 
-async function poll(id: string, ticket: number) {
+function accept(result: Login) {
+  const previous = login.value?.status
+  login.value = result
+  error.value = ''
+  if (result.status === 'connected') { emit('busy', false); if (previous !== 'connected') emit('connected'); return }
+  if (result.status !== 'pending') {
+    error.value = result.error || (result.status === 'expired' ? t('providerLoginExpired') : '')
+    emit('busy', false)
+  }
+}
+function receive(update: LoginUpdate) {
+  if (!login.value || update.id !== login.value.id) return
+  readRevision++
+  accept({ ...login.value, ...update } as Login)
+}
+
+async function readLogin(id: string, ticket: number, signal = lifetime.signal, propagate = false) {
+  const revision = ++readRevision
   try {
-    const result = await props.client.request<Login>(`/provider-auth/${props.kind}/${id}`)
-    if (disposed || ticket !== generation) return
-    login.value = result
-    error.value = ''
-    if (result.status === 'connected') { emit('busy', false); emit('connected'); return }
-    if (result.status !== 'pending') {
-      error.value = result.error || (result.status === 'expired' ? t('providerLoginExpired') : '')
-      emit('busy', false)
-      return
-    }
+    const result = await props.client.request<Login>(`/provider-auth/${props.kind}/${id}`, { signal })
+    if (disposed || signal.aborted || ticket !== generation || revision !== readRevision) return
+    accept(result)
   } catch (cause) {
-    if (disposed || ticket !== generation) return
+    if (disposed || signal.aborted || ticket !== generation || revision !== readRevision) return
     if (cause instanceof VistaAPIError && cause.status === 404) {
       login.value = null
       error.value = t('providerLoginExpired')
@@ -39,10 +52,8 @@ async function poll(id: string, ticket: number) {
       return
     }
     error.value = String(cause)
-    // Keep checking after a transient connection failure. The server owns
-    // authorization and may still finish while this browser reconnects.
+    if (propagate) throw cause
   }
-  timer = setTimeout(() => { void poll(id, ticket) }, 1500)
 }
 
 async function start() {
@@ -60,8 +71,9 @@ async function start() {
       await props.client.request(`/provider-auth/${props.kind}/${result.id}`, { method: 'DELETE' })
       return
     }
-    login.value = result
-    void poll(result.id, ticket)
+    accept(result)
+    const update = stateSync.snapshot()?.providerLogins?.find(item => item.id === result.id)
+    if (update) receive(update)
   } catch (cause) {
     if (!disposed && ticket === generation) { error.value = String(cause); emit('busy', false) }
   } finally { if (!disposed && ticket === generation) starting.value = false }
@@ -76,7 +88,6 @@ async function cancel() {
       if (result.status === 'connected') { emit('connected'); return }
     }
     generation++
-    clearTimeout(timer)
     login.value = null
     error.value = ''
     emit('busy', false)
@@ -88,11 +99,21 @@ async function copyCode() {
   catch { error.value = t('providerCopyManually') }
 }
 
+const unsubscribe = stateSync.subscribe(['provider-login'], async (_, signal, snapshots) => {
+  if (login.value?.status !== 'pending') return
+  if (snapshots.providerLogins) {
+    const update = snapshots.providerLogins.find(item => item.id === login.value?.id)
+    if (update) receive(update)
+    else await readLogin(login.value.id, generation, signal, true)
+  } else await readLogin(login.value.id, generation, signal, true)
+})
+
 onBeforeUnmount(() => {
   disposed = true
   emit('busy', false)
   generation++
-  clearTimeout(timer)
+  lifetime.abort()
+  unsubscribe()
   if (login.value?.status === 'pending') void props.client.request(`/provider-auth/${props.kind}/${login.value.id}`, { method: 'DELETE' }).catch(() => {})
 })
 </script>

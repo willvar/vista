@@ -52,7 +52,7 @@ func doModelRequest(request *http.Request, model modelcfg.Model) (*http.Response
 		return doStreamingRequest(request, client, modelReadIdleTimeout)
 	}
 	custom := &http.Client{
-		Transport: mantleTransport{base: modelHTTPTransport, model: model},
+		Transport: mantleTransport{base: tracedModelHTTPTransport, model: model},
 		CheckRedirect: func(*http.Request, []*http.Request) error {
 			return errors.New("Bedrock Mantle endpoint redirected")
 		},

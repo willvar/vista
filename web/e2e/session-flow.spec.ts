@@ -1,3 +1,4 @@
+import { coreSnapshot } from './conversation-fixture'
 import { closeSettings } from './settings-navigation'
 import type { Page } from '@playwright/test'
 import { test, expect } from './fixtures'
@@ -36,16 +37,16 @@ test('switching sessions ignores a delayed history response and keeps the new dr
     const path = new URL(request.url()).pathname
     if (request.method() === 'GET' && path.endsWith('/main-outputs')) return route.fulfill({ json: [] })
     if (request.method() !== 'GET') return route.continue()
-    if (path === `/api/sessions/${first.id}/messages`) {
+    if (path === `/api/sessions/${first.id}/snapshot`) {
       requested.release()
       await releaseHistory.wait
       try {
-        await route.fulfill({ json: [message('late-a', 'run-a', 1, 'assistant', 'Late session A history')] })
+        await route.fulfill({ json: coreSnapshot({ ...first, title: 'Delayed session A' }, [message('late-a', 'run-a', 1, 'assistant', 'Late session A history')]) })
       } finally { handled.release() }
       return
     }
-    if (path === `/api/sessions/${second.id}/messages`) {
-      return route.fulfill({ json: [message('current-b', 'run-b', 1, 'assistant', 'Current session B reply')] })
+    if (path === `/api/sessions/${second.id}/snapshot`) {
+      return route.fulfill({ json: coreSnapshot({ ...second, title: 'Current session B' }, [message('current-b', 'run-b', 1, 'assistant', 'Current session B reply')]) })
     }
     if (/\/(event-page|events)$/.test(path)) return route.fulfill({
       ...(path.endsWith('/events') ? { contentType: 'text/event-stream', body: '' } : { json: [] }),
@@ -90,6 +91,7 @@ test('settings overlay keeps the current session stream alive and closes back to
       return route.fulfill({ response: original, json: (await original.json()).map((row: { id: string }) =>
         row.id === session.id ? { ...row, executing } : row) })
     }
+    if (path === `/api/sessions/${session.id}/snapshot`) return route.fulfill({ json: coreSnapshot({ ...session, executing }, executing ? [user] : [user, reply]) })
     if (path === `/api/sessions/${session.id}/messages`) return route.fulfill({ json: executing ? [user] : [user, reply] })
     if (path === `/api/sessions/${session.id}/event-page`) return route.fulfill({ json: [] })
     if (path === `/api/sessions/${session.id}/runs/${runId}/model-output`) {
@@ -168,6 +170,7 @@ test('cancelling execution restores Send and allows the next message', async ({ 
       return route.fulfill({ response: original, json: (await original.json()).map((row: { id: string }) =>
         row.id === session.id ? { ...row, executing } : row) })
     }
+    if (path === `/api/sessions/${session.id}/snapshot`) return route.fulfill({ json: coreSnapshot({ ...session, executing }, [user], initialEvents) })
     if (path === `/api/sessions/${session.id}/messages`) return route.fulfill({ json: [user] })
     if (path === `/api/sessions/${session.id}/event-page`) return route.fulfill({ json: initialEvents })
     if (path === `/api/sessions/${session.id}/events`) return route.fulfill({ contentType: 'text/event-stream', body: executing ? '' : frames([

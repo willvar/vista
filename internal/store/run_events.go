@@ -23,6 +23,10 @@ func requireRunOwnership(tx *gorm.DB, sessionID, runID string) error {
 	return nil
 }
 
+func (s *Store) RequireRun(ctx context.Context, sessionID, runID string) error {
+	return requireRunOwnership(s.orm.WithContext(ctx), sessionID, runID)
+}
+
 // RunEvent reads the original event, rather than its compact overview preview.
 func (s *Store) RunEvent(ctx context.Context, sessionID, runID string, sequence int64) (Event, error) {
 	if sequence <= 0 {

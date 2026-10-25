@@ -1,3 +1,4 @@
+import { installMockStateStream, notifyState } from './state-stream-fixture'
 import { test, expect } from './fixtures'
 
 for (const account of [
@@ -5,9 +6,11 @@ for (const account of [
  { kind: 'copilot', providerId: 'github-copilot', providerName: 'GitHub Copilot', service: 'GitHub', verify: 'https://github.com/login/device' },
 ]) {
 test(`${account.providerName} sign-in uses a device code and connects without a key or model choice`, async ({ page, context, vista }, testInfo) => {
+  await installMockStateStream(page)
   let authorized = false
   let connected = false
   let canceled = 0
+  let statusReads = 0
   const pending = { id: 'login-fixture', userCode: 'ABCD-EFGH', verificationUrl: account.verify, status: 'pending' }
   const model = { baseUrl: account.kind === 'copilot' ? 'https://api.githubcopilot.com' : '', key: 'codex-fixture', connectionId: 'codex-account', kind: account.providerId, name: 'My Codex', provider: 'catalog', providerId: account.providerId, id: 'gpt-6.1-sol', editable: true, hasApiKey: account.kind === 'copilot', credentialMode: 'oauth' }
   await context.route(account.verify, route => route.fulfill({ contentType: 'text/html', body: '<h1>Isolated authorization page</h1>' }))
@@ -19,6 +22,7 @@ test(`${account.providerName} sign-in uses a device code and connects without a 
       canceled++
       await route.fulfill({ json: { ...pending, status: 'canceled' } })
     } else {
+      statusReads++
       if (authorized) connected = true
       await route.fulfill({ json: { ...pending, status: connected ? 'connected' : 'pending' } })
     }
@@ -69,8 +73,11 @@ test(`${account.providerName} sign-in uses a device code and connects without a 
   await form.getByRole('button', { name: `Sign in with ${account.service}`, exact: true }).click()
   await expect(form.locator('.provider-device-code')).toBeVisible()
   authorized = true
+  connected = true
+  await notifyState(page, ['provider-login', 'models'], { providerLogins: [{ id: pending.id, status: 'connected' }] })
   await expect(modal.locator('.configured-provider').filter({ hasText: 'My Codex' })).toBeVisible()
   await expect(form).toHaveCount(0)
+  expect(statusReads).toBe(0)
   await page.reload()
   const connection = modal.locator('.configured-provider').filter({ hasText: 'My Codex' })
   await expect(connection).toBeVisible()
@@ -84,6 +91,7 @@ test(`${account.providerName} sign-in uses a device code and connects without a 
 }
 
 test('Copilot advanced login settings round-trip through connect, reload and reconnect', async ({ page, vista }, testInfo) => {
+  await installMockStateStream(page)
   let authorized = false
   let connected = false
   let expectedOptions = { enterpriseUrl: 'company.ghe.com', clientId: 'enterprise-app' }
@@ -125,6 +133,8 @@ test('Copilot advanced login settings round-trip through connect, reload and rec
   await expect(clientID).toBeDisabled()
   await expect(form.locator('.provider-device-code')).toHaveText('ENTERPRISE')
   authorized = true
+  connected = true
+  await notifyState(page, ['provider-login', 'models'], { providerLogins: [{ id: 'enterprise-login', status: 'connected' }] })
   await expect(form).toHaveCount(0)
   await page.reload()
   await modal.locator('.configured-provider').filter({ hasText: model.name }).getByRole('button', { name: 'Edit', exact: true }).click()
@@ -150,6 +160,7 @@ test('Copilot advanced login settings round-trip through connect, reload and rec
 })
 
 test('Codex expired and abandoned logins allow retry and cancel late results', async ({ page, vista }) => {
+  await installMockStateStream(page)
   let expires = true
   let canceled = 0
   let releaseStart: (() => void) | undefined
@@ -172,6 +183,8 @@ test('Codex expired and abandoned logins allow retry and cancel late results', a
   await picker.fill('codex')
   await page.locator('.ant-select-dropdown:visible .ant-select-item-option').filter({ hasText: 'OpenAI Codex' }).click()
   await form.getByRole('button', { name: 'Sign in with ChatGPT', exact: true }).click()
+  await expect(form.locator('.provider-device-code')).toBeVisible()
+  await notifyState(page, ['provider-login'])
   await expect(form.getByRole('alert')).toContainText('Sign-in expired')
   await expect(form.getByRole('button', { name: 'Sign in with ChatGPT', exact: true })).toBeEnabled()
   expires = false

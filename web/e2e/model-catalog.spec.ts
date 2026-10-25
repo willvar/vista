@@ -1,3 +1,4 @@
+import { installMockStateStream, notifyState } from './state-stream-fixture'
 import { openSettingsSection } from './settings-navigation'
 import { test, expect } from './fixtures'
 import type { OMPCatalogInfo } from '../src/client/types'
@@ -123,25 +124,28 @@ test('catalog failure retains its version and allows another check', async ({ pa
 })
 
 test('automatic catalog checks show progress, persisted errors and recovery', async ({ page, vista }, testInfo) => {
-  await page.clock.install()
+  await installMockStateStream(page)
   let info: OMPCatalogInfo = { revision: 'a'.repeat(40), modelsDevRevision: 'c'.repeat(64), modelCount: 9000, providerCount: 240, updatedAt: '2026-10-17T15:00:00Z' }
   let posts = 0
+  let reads = 0
   await page.route('**/api/model-catalog', async route => {
     if (route.request().method() === 'POST') posts++
+    else reads++
     await route.fulfill({ json: info })
   })
   await page.goto(vista.origin + '/settings/about')
   const catalog = page.getByRole('region', { name: 'Model catalog', exact: true })
   await expect(page.getByRole('button', { name: 'Check for updates', exact: true })).toBeEnabled()
   info = { ...info, updating: true }
-  await page.clock.fastForward(5000)
+  await notifyState(page, ['catalog'], { catalog: info })
   await expect(page.getByRole('button', { name: 'Updating…', exact: true })).toBeDisabled()
   info = recordCheck({ ...info, updating: false, checkedAt: '2026-10-18T02:00:00Z', nextCheckAt: '2026-10-18T08:00:00Z', checkError: 'Independent sources disagree; keeping the current catalog.' }, true)
-  await page.clock.fastForward(5000)
+  await notifyState(page, ['catalog'], { catalog: info })
   await expect(catalog.getByRole('alert')).toHaveText(info.checkError!)
   await expect(catalog).not.toContainText('Last checked')
   await expect(catalog).not.toContainText('Next check')
   await expect(catalog).toContainText('aaaaaaa')
+  expect(reads).toBe(1)
   await page.reload()
   await expect(catalog.getByRole('alert')).toHaveText(info.checkError!)
   await catalog.getByRole('button', { name: 'Update history', exact: true }).click()
@@ -152,7 +156,7 @@ test('automatic catalog checks show progress, persisted errors and recovery', as
   await expect(history.locator('.omp-catalog-history-record')).toContainText(info.checkError!)
   await page.screenshot({ path: testInfo.outputPath('catalog-automatic-retry.png'), animations: 'disabled' })
   info = recordCheck({ ...info, checkedAt: '2026-10-18T08:00:00Z', nextCheckAt: '2026-10-19T08:09:00Z', checkError: '', lastCheckChanged: false }, true)
-  await page.clock.fastForward(5000)
+  await notifyState(page, ['catalog'], { catalog: info })
   await expect(catalog.getByRole('alert')).toHaveCount(0)
   await expect(catalog.getByRole('status')).toHaveCount(0)
   await expect(history.locator('.omp-catalog-history-record')).toHaveCount(2)
@@ -160,6 +164,7 @@ test('automatic catalog checks show progress, persisted errors and recovery', as
   await page.keyboard.press('Escape')
   await expect(catalog).toBeVisible()
   expect(posts).toBe(0)
+  expect(reads).toBe(2)
 })
 
 test('catalog conflicts identify the model and field in the alert and history', async ({ page, vista }, testInfo) => {
@@ -180,9 +185,9 @@ test('catalog conflicts identify the model and field in the alert and history', 
 })
 
 test('a delayed status read cannot overwrite a newer manual check', async ({ page, vista }) => {
-  await page.clock.install()
+  await installMockStateStream(page)
   let info: OMPCatalogInfo = { revision: 'a'.repeat(40), modelCount: 5673, providerCount: 78 }
-  let reads = 0
+  let holdNext = false
   let release: (() => void) | undefined
   await page.route('**/api/model-catalog', async route => {
     if (route.request().method() === 'POST') {
@@ -191,14 +196,18 @@ test('a delayed status read cannot overwrite a newer manual check', async ({ pag
       return
     }
     const response = { ...info }
-    if (++reads === 2) await new Promise<void>(resolve => { release = resolve })
+    if (holdNext) {
+      holdNext = false
+      await new Promise<void>(resolve => { release = resolve })
+    }
     await route.fulfill({ json: response })
   })
   try {
     await page.goto(vista.origin + '/settings/about')
     const catalog = page.getByRole('region', { name: 'Model catalog', exact: true })
     await expect(catalog).toContainText('aaaaaaa')
-    await page.clock.fastForward(5000)
+    holdNext = true
+    await notifyState(page, ['catalog'])
     await expect.poll(() => !!release).toBe(true)
     await page.getByRole('button', { name: 'Check for updates', exact: true }).click()
     await expect(catalog).toContainText('bbbbbbb')

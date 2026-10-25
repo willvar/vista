@@ -2,7 +2,7 @@
 import { computed, nextTick, onScopeDispose, reactive, ref, watch, type Component } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { Alert, Button } from 'antdv-next'
-import { CheckOutlined, ClockCircleOutlined, ExclamationCircleOutlined, LoadingOutlined, MinusOutlined, StopOutlined } from '@antdv-next/icons'
+import { BugOutlined, CheckOutlined, ClockCircleOutlined, ExclamationCircleOutlined, LoadingOutlined, MinusOutlined, StopOutlined } from '@antdv-next/icons'
 import Think from '@antdv-next/x/dist/think/index'
 import type { ThoughtChainItemType } from '@antdv-next/x/dist/thought-chain/interface'
 import type { ContextNotice, ModelResultView, StreamEvent } from './client/types'
@@ -29,6 +29,7 @@ const { t } = useI18n()
 const { client, statusLabel, localTime, historicalModelLabel, debugMode } = useWorkspace()
 const stoppingTasks = ref<Record<string, boolean>>({})
 const stopFailures = ref<Record<string, string>>({})
+const diagnosticsOpen = ref(false)
 async function stopTask(task: RunTraceTask) {
   const sessionId = props.sessionId, runId = props.runId
   stoppingTasks.value[task.id] = true
@@ -231,19 +232,24 @@ watch(() => [props.sessionId, props.runId, props.after], () => {
   expanded.value = false
   expandedTasks.value = {}
   expandedNodes.value = []
+  diagnosticsOpen.value = false
 })
 </script>
 
 <template>
-  <section v-if="hasDetails || overviewFailure" ref="root" class="run-trace" :data-run-id="runId" :data-after-sequence="after ?? 0" :data-through-sequence="through" @click.capture="emit('inspect')">
-    <div v-if="!hasDetails" class="trace-overview-error"><small role="alert">{{ t('traceOverviewUnavailable') }}</small><Button size="small" @click="loadOverview">{{ t('retry') }}</Button></div>
+  <section v-if="hasDetails || overviewFailure || debugMode" ref="root" class="run-trace" :data-run-id="runId" :data-after-sequence="after ?? 0" :data-through-sequence="through" @click.capture="emit('inspect')">
+    <TraceDiagnostics v-if="debugMode" v-model:open="diagnosticsOpen" :session-id="sessionId" :run-id="runId" :agents="agents" :events="events" />
+    <div v-if="!hasDetails" class="trace-overview-error">
+      <template v-if="overviewFailure"><small role="alert">{{ t('traceOverviewUnavailable') }}</small><Button size="small" @click="loadOverview">{{ t('retry') }}</Button></template>
+      <Button v-if="debugMode" type="text" size="small" :title="t('traceDebugDetails')" :aria-label="t('traceDebugDetails')" class="trace-debug-trigger" @click="diagnosticsOpen = true"><BugOutlined /></Button>
+    </div>
     <Think v-else v-model:expanded="expanded" class="trace-overview run-overview" :classes="{ status: 'trace-process-header' }" :loading="segmentActive" :data-run-status="runStatusCode" @expand="emit('inspect')">
       <template #title>
         <div class="trace-summary">
           <div class="trace-overview-heading" role="button" tabindex="0" :aria-expanded="expanded" :aria-label="t('executionProcess')" @keydown.enter.prevent.stop="toggleProcess" @keydown.space.prevent.stop="toggleProcess">
             <strong role="status">{{ runStatus }}</strong><small v-if="elapsed">{{ t('traceElapsed', { elapsed }) }}</small><span v-if="modelName" class="trace-model-name">{{ modelName }}</span><small>{{ t('modelCalls', { count: callCount }) }}</small><small v-if="checklist.length">{{ t('traceChecklistProgress', { done: completedItems, total: checklist.length }) }}</small>
           </div>
-          <span v-if="debugMode" class="trace-summary-debug" @click.stop @keydown.stop><TraceDiagnostics :run-id="runId" :agents="agents" :events="events" /></span>
+          <span v-if="debugMode" class="trace-summary-debug" @click.stop @keydown.stop><Button type="text" size="small" :title="t('traceDebugDetails')" :aria-label="t('traceDebugDetails')" class="trace-debug-trigger" @click="diagnosticsOpen = true"><BugOutlined /></Button></span>
         </div>
         <div v-if="overviewFailure" class="trace-overview-error" @click.stop @keydown.stop><small role="alert">{{ t('traceOverviewUnavailable') }}</small><Button size="small" @click="loadOverview">{{ t('retry') }}</Button></div>
         <small v-else-if="overviewLoading && !events.length">{{ t('traceLoadingOverview') }}</small>
@@ -292,7 +298,7 @@ watch(() => [props.sessionId, props.runId, props.after], () => {
 .trace-overview-heading{display:flex;align-items:baseline;flex-wrap:wrap;gap:.35rem .65rem;flex:1;min-width:0;font-size:15px;line-height:var(--trace-summary-line-height);color:var(--text-secondary)}
 .trace-overview-heading:focus-visible{outline:2px solid var(--accent);outline-offset:3px;border-radius:3px}
 .trace-overview-heading strong{font-size:14px;font-weight:500;color:var(--text)}.trace-overview-heading small{font-size:14px}.trace-model-name{overflow-wrap:anywhere}
-.trace-summary-debug{display:inline-flex;align-items:center;flex:none;height:var(--trace-summary-line-height)}.trace-summary-debug :deep(.trace-debug-trigger){margin:0}
+.trace-debug-trigger{margin-left:auto;color:var(--muted)}.trace-summary-debug{display:inline-flex;align-items:center;flex:none;height:var(--trace-summary-line-height)}.trace-summary-debug .trace-debug-trigger{margin:0}
 .trace-last-activity{display:flex;flex-wrap:wrap;gap:.4rem;margin:.25rem 0 0;font-size:15px;color:var(--muted);overflow-wrap:anywhere}
 .trace-last-activity time{font-size:14px}.trace-checklist{font-size:16px;line-height:1.65;margin:.55rem 0 0;overflow-wrap:anywhere}.trace-checklist small{flex:none;font-size:14px}
 .trace-checklist-icon{display:inline-flex;align-items:center;justify-content:center;align-self:flex-start;flex:none;width:1em;height:1.65em}

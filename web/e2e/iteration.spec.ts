@@ -1,3 +1,5 @@
+import { installMockStateStream } from './state-stream-fixture'
+import { coreSnapshot } from './conversation-fixture'
 import { closeSettings } from './settings-navigation'
 import { test as base, expect, type Page } from '@playwright/test'
 import { createServer } from 'vite'
@@ -25,6 +27,7 @@ async function mockWorkspace(page: Page, origin: string) {
   const budget: CompactionStatus = { runId: 'run-1', phase: 'compacted', manual: false, sequence: 4 }
   const messages: Message[] = [{ id: 'user-1', runId: 'run-1', role: 'user', sequence: 1, content: 'Help me plan a small garden.', createdAt: '2026-01-01T12:00:00Z' }, { id: 'assistant-1', runId: 'run-1', role: 'assistant', sequence: 3, content: 'Start with herbs and native flowering plants.\n\n- Put sun-loving plants in the bright corner.\n- Leave a narrow path for access.', modelId: 'model-alpha', modelKey: 'first', createdAt: '2026-01-01T12:00:01Z' }]
   const events: StreamEvent[] = [{ sequence: 2, kind: 'model_request', data: { runId: 'run-1', turn: 1, id: 'model-alpha', key: 'first', provider: 'openai-chat' } }]
+  await installMockStateStream(page)
   await page.route('**/api/**', async route => {
     const request = route.request(); const path = new URL(request.url()).pathname.slice(4); const method = request.method()
     const body = method === 'GET' || method === 'DELETE' ? {} : request.postDataJSON() || {}
@@ -37,6 +40,7 @@ async function mockWorkspace(page: Page, origin: string) {
     if (path === '/model-selection/stats') return reply({ speedScope: 'global', qualityScope: 'user', speedWindowDays: 30, qualityWindowSize: 200, models: [] })
     if (path === '/status') return reply({ state: 'running', sessions: { total: 1, open: 1, closed: 0, running: session.executing ? 1 : 0, workers: 1 }, workerMetrics: [{ sessionId: session.id, memory: { heapBytes: 1000000, rssBytes: 4000000, sampledAt: '2026-01-01T12:00:00Z' } }] })
     if (path === '/sessions') return reply([session])
+    if (path.endsWith('/snapshot')) return reply(coreSnapshot(session, messages, events))
     if (path.endsWith('/selection')) {
       if (body.selectionMode && body.selectionMode !== session.selectionMode || body.selectionTier && body.selectionTier !== session.selectionTier) session.selectionReasoningEffort = ''
       Object.assign(session, body)

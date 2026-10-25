@@ -1,14 +1,15 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { computed, onUnmounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { Alert as AAlert, Button as AButton, Modal as AModal } from 'antdv-next'
 import { HistoryOutlined } from '@antdv-next/icons'
+import { useWorkspace } from './composables/useWorkspace'
 import type { VistaClient } from './client/vista'
 import type { OMPCatalogInfo } from './client/types'
 import { formatDateTime } from './ui/datetime.ts'
 
 const props = defineProps<{ client: VistaClient }>()
-const emit = defineEmits<{ updated: [] }>()
+const { stateSync } = useWorkspace()
 const { t, locale } = useI18n({ useScope: 'global' })
 const catalog = ref<OMPCatalogInfo>()
 const loading = ref(true)
@@ -18,57 +19,51 @@ const requestError = ref('')
 const checking = computed(() => updating.value || !!catalog.value?.updating)
 const error = computed(() => requestError.value || (checking.value ? '' : catalog.value?.checkError))
 const controller = new AbortController()
-let poll: ReturnType<typeof setInterval> | undefined
-let reading = false
 let generation = 0
-onUnmounted(() => { controller.abort(); clearInterval(poll) })
+onUnmounted(() => { controller.abort(); unsubscribe() })
 
 function receive(info: OMPCatalogInfo) {
-  const previous = catalog.value
   catalog.value = info
   requestError.value = ''
-  if (previous && info.checkedAt && info.checkedAt !== previous.checkedAt && !info.updating && !info.checkError) emit('updated')
 }
 
-async function readCatalog() {
-  if (reading || updating.value || controller.signal.aborted) return
-  reading = true
-  const requestGeneration = generation
+async function readCatalog(signal = controller.signal, propagate = false) {
+  if (controller.signal.aborted) return
+  const requestGeneration = ++generation
   try {
-    const info = await props.client.request<OMPCatalogInfo>('/model-catalog', { signal: controller.signal })
-    if (!controller.signal.aborted && requestGeneration === generation) receive(info)
+    const info = await props.client.request<OMPCatalogInfo>('/model-catalog', { signal })
+    if (!controller.signal.aborted && !signal.aborted && requestGeneration === generation) receive(info)
   } catch (cause) {
-    if (!controller.signal.aborted && requestGeneration === generation) requestError.value = cause instanceof Error ? cause.message : String(cause)
-  } finally { reading = false; loading.value = false }
+    if (!controller.signal.aborted && !signal.aborted && requestGeneration === generation) requestError.value = cause instanceof Error ? cause.message : String(cause)
+    if (propagate) throw cause
+  } finally { loading.value = false }
 }
 
-onMounted(() => {
-  void readCatalog()
-  poll = setInterval(() => { void readCatalog() }, 5000)
+const unsubscribe = stateSync.subscribe(['catalog'], async (_, signal, snapshots) => {
+  if (snapshots.catalog) { generation++; receive(snapshots.catalog); loading.value = false }
+  else await readCatalog(signal, true)
 })
 
 async function update() {
   if (loading.value || checking.value) return
-  generation++
+  const request = ++generation
   updating.value = true
   requestError.value = ''
   try {
     const info = await props.client.request<OMPCatalogInfo>('/model-catalog', { method: 'POST', signal: controller.signal })
     if (controller.signal.aborted) return
-    receive(info)
+    if (request === generation) receive(info)
   } catch (cause) {
     if (!controller.signal.aborted) {
       requestError.value = cause instanceof Error ? cause.message : String(cause)
-      // The check's persisted failure includes its next automatic retry time.
-      updating.value = false
-      void readCatalog()
+      // The persisted failure and next retry time arrive on the state stream.
     }
   }
   finally { updating.value = false }
 }
 
 function updatedAt(value: string) { return formatDateTime(value, locale.value) }
-function openHistory() { historyOpen.value = true; void readCatalog() }
+function openHistory() { historyOpen.value = true }
 defineExpose({ headerAction: computed(() => ({ label: checking.value ? 'modelCatalogUpdating' : 'modelCatalogCheck', run: update, disabled: loading.value || checking.value, loading: checking.value })) })
 </script>
 

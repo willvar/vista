@@ -98,7 +98,7 @@ const {
   manualModelIDs, canReuseHeader, editingProvider, providerOptions, canSaveProvider,
   selectedSetup, deploymentModelSelection, providerModelOptions, apiFormatOptions, credentialOptions, usesAPIKey, authenticationHeader, changeCredentialMode,
   updateSelectedModels, changeProvider, changeCustomBaseURL,
-  startProviderConnection, cancelModelForm, loadModelSettings, refreshProviderCatalog, editProvider, providerGroups,
+  startProviderConnection, cancelModelForm, loadModelSettings, editProvider, providerGroups,
   saveProvider, retryModelDiscovery, providerConnected, setDefaultModel, confirmDisconnectProvider, updateProviderDisconnect,
 } = useProviderSettings(workspace)
 type HeaderAction = { label: string; run: () => unknown; disabled: boolean; loading: boolean }
@@ -260,7 +260,7 @@ watch(() => route.fullPath, () => {
           </div>
           <div class="debug-mode-setting general-setting"><div><label for="debug-mode">{{ t('debugMode') }}</label><p id="debug-mode-hint">{{ t('debugModeHint') }}</p></div><a-switch id="debug-mode" v-model:checked="debugMode" :aria-label="t('debugMode')" aria-describedby="debug-mode-hint" /></div>
           <ResetVistaSettings v-if="debugMode" @modal-open="resetModalOpen = $event" />
-          <OMPCatalogSettings ref="sectionActions" :client="workspace.client" @updated="refreshProviderCatalog" />
+          <OMPCatalogSettings ref="sectionActions" :client="workspace.client" />
           <UserAgentSettings :client="workspace.client" />
           <dl v-if="serverStatus" class="about-build-info">
             <template v-if="serverStatus.binaryHash">

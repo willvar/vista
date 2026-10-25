@@ -61,6 +61,9 @@ func TestEventStreamDisconnectReleasesSubscriber(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer st.Close()
+	if _, err := st.Create(context.Background(), "one", "Stream"); err != nil {
+		t.Fatal(err)
+	}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	app := &App{store: st, ctx: ctx}

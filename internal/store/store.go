@@ -84,6 +84,7 @@ type Event struct {
 }
 
 type QueuedInput struct {
+	Debug           bool   `json:"debug,omitempty"`
 	ID              string `json:"id"`
 	SessionID       string `json:"sessionId"`
 	RunID           string `json:"runId"`
@@ -102,6 +103,14 @@ type Store struct {
 	library resources.Library
 	db      *sql.DB
 	orm     *gorm.DB
+	readTx  gorm.ConnPool // Set only on a transaction-local, read-only snapshot view.
+}
+
+func (s *Store) reader() gorm.ConnPool {
+	if s.readTx != nil {
+		return s.readTx
+	}
+	return s.db
 }
 
 type sessionRow struct {
@@ -356,28 +365,43 @@ func (s *Store) Rename(ctx context.Context, id, title string) error {
 	}
 	return tx.Commit()
 }
-func (s *Store) List(ctx context.Context) ([]Session, error) {
+
+// List optionally scopes summaries to open or closed conversations before the
+// limit is applied. An omitted filter preserves the administrative API's list.
+func (s *Store) List(ctx context.Context, open ...bool) ([]Session, error) {
 	var rows []struct {
 		Session             sessionRow `gorm:"embedded"`
 		LatestReplySequence int64
 		LatestRunStatus     string
 		PendingInputCount   int
 	}
-	if err := s.orm.WithContext(ctx).Table("sessions").Select(`sessions.*,
+	query := s.orm.WithContext(ctx).Table("sessions")
+	if len(open) > 0 {
+		query = query.Where("sessions.is_open = ?", open[0])
+	}
+	if err := query.Select(`sessions.*,
   COALESCE((SELECT MAX(sequence) FROM messages WHERE session_id=sessions.id AND role='assistant'),0) AS latest_reply_sequence,
   COALESCE((SELECT status FROM runs WHERE session_id=sessions.id ORDER BY created_at DESC,id DESC LIMIT 1),'') AS latest_run_status,
   (SELECT COUNT(*) FROM queued_inputs WHERE session_id=sessions.id AND status IN ('queued','paused')) AS pending_input_count`).
 		Order("created_at DESC, id DESC").Limit(1000).Find(&rows).Error; err != nil {
 		return nil, err
 	}
+	result := make([]Session, 0, len(rows))
+	if len(rows) == 0 {
+		return result, nil
+	}
+	ids := make([]string, 0, len(rows))
+	for _, row := range rows {
+		ids = append(ids, row.Session.ID)
+	}
 	var runningRuns, runningJobs, runningTasks []string
-	if err := s.orm.WithContext(ctx).Table("runs").Distinct("session_id").Where("status = ?", "running").Pluck("session_id", &runningRuns).Error; err != nil {
+	if err := s.orm.WithContext(ctx).Table("runs").Distinct("session_id").Where("session_id IN ? AND status = ?", ids, "running").Pluck("session_id", &runningRuns).Error; err != nil {
 		return nil, err
 	}
-	if err := s.orm.WithContext(ctx).Table("jobs").Distinct("session_id").Where("status IN ?", []string{"starting", "running"}).Pluck("session_id", &runningJobs).Error; err != nil {
+	if err := s.orm.WithContext(ctx).Table("jobs").Distinct("session_id").Where("session_id IN ? AND status IN ?", ids, []string{"starting", "running"}).Pluck("session_id", &runningJobs).Error; err != nil {
 		return nil, err
 	}
-	if err := s.orm.WithContext(ctx).Table("agent_tasks").Distinct("session_id").Where("status = ?", "started").Pluck("session_id", &runningTasks).Error; err != nil {
+	if err := s.orm.WithContext(ctx).Table("agent_tasks").Distinct("session_id").Where("session_id IN ? AND status = ?", ids, "started").Pluck("session_id", &runningTasks).Error; err != nil {
 		return nil, err
 	}
 	executing := make(map[string]bool, len(runningRuns))
@@ -388,7 +412,6 @@ func (s *Store) List(ctx context.Context) ([]Session, error) {
 	for _, id := range append(runningJobs, runningTasks...) {
 		running[id] = true
 	}
-	result := make([]Session, 0, len(rows))
 	for _, row := range rows {
 		item := sessionFromRow(row.Session)
 		item.Running, item.Executing = running[item.ID], executing[item.ID]

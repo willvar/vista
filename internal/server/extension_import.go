@@ -176,6 +176,7 @@ func (a *App) importExtensions(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		a.mcpServers = next
+		a.updates.notify("mcp")
 	} else if err := a.copyImportedSkills(r.Context(), entries); err != nil {
 		settingsHTTPError(w, err, http.StatusBadRequest)
 		return

@@ -1,22 +1,36 @@
+import { installMockStateStream } from './state-stream-fixture'
 import { closeSettings, openSettingsSection } from './settings-navigation'
 import { test as base, expect, type Locator, type Page } from '@playwright/test'
 import { createServer } from 'vite'
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { resolve } from 'node:path'
+import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { Artifact, ChecklistItem, Job, Message, ModelResultView, RunOverview, Session, StreamEvent } from '../src/client/types'
+import { coreSnapshot } from './conversation-fixture'
 
 // Chromium's Unix socket needs a short profile directory, still inside this checkout.
 const browserRuntime = resolve(import.meta.dirname, '../../.vista/b')
 mkdirSync(browserRuntime, { recursive: true })
 process.env.TMPDIR = browserRuntime
+const streamHandlers = new Map<string, (request: IncomingMessage, response: ServerResponse) => void>()
 
 const test = base.extend<{}, { mockOrigin: string }>({
   mockOrigin: [async ({}, use) => {
-    const server = await createServer({ root: resolve(import.meta.dirname, '..'), configFile: resolve(import.meta.dirname, '../vite.config.ts'), server: { host: '127.0.0.1', port: 0, strictPort: false, watch: { ignored: ['**/.vista/**'] } } })
+    let origin = ''
+    const server = await createServer({ root: resolve(import.meta.dirname, '..'), configFile: resolve(import.meta.dirname, '../vite.config.ts'), server: { host: '127.0.0.1', port: 0, strictPort: false, watch: { ignored: ['**/.vista/**'] } },
+      plugins: [{ name: 'replay-events', enforce: 'pre', configureServer(server) {
+        server.middlewares.use((request, response, next) => {
+          const handler = streamHandlers.get(origin)
+          if (handler && /^\/api\/sessions\/[^/]+\/events\?/.test(request.url || '')) handler(request, response)
+          else next()
+        })
+      } }],
+    })
     await server.listen()
     const address = server.httpServer!.address()
     if (!address || typeof address === 'string') throw new Error('Mock UI server did not start')
-    try { await use(`http://127.0.0.1:${address.port}`) } finally { await server.close() }
+    origin = `http://127.0.0.1:${address.port}`
+    try { await use(origin) } finally { streamHandlers.delete(origin); await server.close() }
   }, { scope: 'worker' }],
 })
 
@@ -260,7 +274,7 @@ async function mockExecution(page: Page, origin: string, source = replayEvents()
     outputGates.set(path, new Promise<void>(resolve => { release = resolve }))
     return () => { outputGates.delete(path); release() }
   }
-  const eventPages: string[] = []
+  const historyPages: string[] = []
   const outputReads: string[] = []
   const mainOutputReads: string[] = []
   const nodeReads: number[] = []
@@ -268,8 +282,30 @@ async function mockExecution(page: Page, origin: string, source = replayEvents()
   const overviewReads: string[] = []
   const unexpected: string[] = []
   let sseRequests = 0
+  const deliveries = new Set<(checkpoint?: boolean) => void>()
+  const checkpoint = () => {
+    const { session: current, throughSequence } = coreSnapshot(session, messages, events)
+    return { session: current, throughSequence }
+  }
+  // Keep the mock transport open, just like the runtime. A finite fulfilled
+  // response would continually exercise recovery during unrelated layout tests.
+  streamHandlers.set(origin, (request, response) => {
+    let after = Number(new URL(request.url!, origin).searchParams.get('after'))
+    response.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-store' })
+    const deliver = (sync = false) => {
+      for (const event of events) if (event.sequence > after) {
+        response.write(`id: ${event.sequence}\nevent: record\ndata: ${JSON.stringify({ ...event, afterSequence: after })}\n\n`)
+        after = event.sequence
+      }
+      if (sync) response.write(`event: sync\ndata: ${JSON.stringify(checkpoint())}\n\n`)
+    }
+    deliveries.add(deliver)
+    const timer = setInterval(() => deliver(true), 15_000)
+    response.on('close', () => { clearInterval(timer); deliveries.delete(deliver) })
+    deliver(true)
+  })
   const append = (kind: string, data: object) => {
-    const event = { sequence: events.at(-1)!.sequence + 1, kind, createdAt: new Date().toISOString(), data: { runId, ...data } }
+    const event: StreamEvent = { sequence: events.at(-1)!.sequence + 1, kind, createdAt: new Date().toISOString(), data: { runId, ...data } }
     events.push(event)
     if (kind === 'job' || kind === 'artifact') {
       const target = kind === 'job' ? jobs : artifacts
@@ -278,8 +314,15 @@ async function mockExecution(page: Page, origin: string, source = replayEvents()
       if (index < 0) target.push(item as Job & Artifact)
       else target[index] = item as Job & Artifact
     }
+    if (kind === 'job_output') {
+      const growth = event.data as { id: string; bytes: number }
+      const job = jobs.find(item => item.id === growth.id)
+      if (job) job.bytes = Math.max(job.bytes, growth.bytes)
+    }
+    for (const deliver of deliveries) deliver(kind === 'run_finished')
     return event
   }
+  await installMockStateStream(page)
   await page.route('**/api/**', async route => {
     const request = route.request()
     const url = new URL(request.url())
@@ -302,9 +345,17 @@ async function mockExecution(page: Page, origin: string, source = replayEvents()
     if (path === '/preferences') return reply({ userId: 'replay-user', lastMode: 'manual', lastTier: 'speed', manualModelKey: 'replay-model', reasoningByModelId: { 'gpt-6-astra': 'high' }, feedbackInvitationSeen: true })
     if (path === '/agent-settings') return reply({ instructions: '', instructionsPath: '/home/test/.config/vista/AGENTS.md', delegationDepth: 1, maxDelegationDepth: 8 })
     if (path === '/model-catalog') return reply({ revision: 'a'.repeat(40), modelCount: 1, providerCount: 1 })
+    if (path === '/user-agent') return reply({ preset: 'vista', custom: '', value: 'Vista/test', presets: [{ id: 'vista', name: 'Vista', value: 'Vista/test' }], maxLength: 512 })
     if (path === '/models') return reply({ default: 'replay-model', models: [{ key: 'replay-model', name: 'Replay', provider: 'openai-chat', id: 'gpt-6-astra', tools: true, reasoningOptions: ['high'] }] })
     if (path === '/status') return reply({ state: 'running', sessions: { total: 1, open: 1, closed: 0, running: session.executing ? 1 : 0, workers: 1 }, workerMetrics: [{ sessionId: session.id, pid: 1, memory: { heapBytes: 1000000, rssBytes: 4000000, sampledAt: session.createdAt } }] })
     if (path === '/sessions') return reply([session])
+    if (path.endsWith('/snapshot')) {
+      historyPages.push('') // The initial recent page is now loaded with the core snapshot.
+      const recent = events.slice(-100)
+      const root = [...events].reverse().find(event => !event.data.depth && ['model_request', 'model_delta', 'model_reasoning_delta', 'model_result', 'tool', 'run_finished'].includes(event.kind))
+      if (root && root.sequence < (recent[0]?.sequence || Infinity)) recent.unshift(root)
+      return reply({ ...checkpoint(), messages, events: recent, hasOlder: false, hasOlderEvents: events.length >= 100 })
+    }
     if (path === '/model-selection/stats') return reply({ speedScope: 'global', qualityScope: 'user', speedWindowDays: 30, qualityWindowSize: 200, models: [] })
     if (path.endsWith('/messages')) return reply(messages)
     if (path.endsWith('/artifacts')) return reply(artifacts.slice(-200))
@@ -339,10 +390,11 @@ async function mockExecution(page: Page, origin: string, source = replayEvents()
       return reply([...outputs.values()].filter(output => !before || output.sequence < before).slice(-100))
     }
     if (path.endsWith('/event-page')) {
-      eventPages.push(url.search)
+      if (!url.searchParams.has('after')) historyPages.push(url.search)
       const before = Number(url.searchParams.get('before'))
       const after = Number(url.searchParams.get('after'))
-      const page = before ? events.filter(event => event.sequence < before).slice(-100) : after ? events.filter(event => event.sequence > after).slice(0, 100) : events.slice(-100)
+      const through = Number(url.searchParams.get('through'))
+      const page = before ? events.filter(event => event.sequence < before).slice(-100) : url.searchParams.has('after') ? events.filter(event => event.sequence > after && (!through || event.sequence <= through)).slice(0, 100) : events.slice(-100)
       return reply(url.searchParams.get('compact') === '1' ? page.map(compactToolEvent) : page)
     }
     const exactEvent = path.match(/\/runs\/[^/]+\/events\/(\d+)$/)
@@ -362,9 +414,7 @@ async function mockExecution(page: Page, origin: string, source = replayEvents()
     }
     if (path.endsWith('/events')) {
       sseRequests++
-      const after = Number(url.searchParams.get('after'))
-      const body = events.filter(event => event.sequence > after).map(event => `id: ${event.sequence}\nevent: record\ndata: ${JSON.stringify(event)}\n\n`).join('')
-      return route.fulfill({ contentType: 'text/event-stream', body })
+      return route.continue()
     }
     if (path.endsWith('/output') || path.endsWith('/model-output')) {
       const mainDeltas = events.filter(event => event.kind === 'model_delta' && !event.data.depth && (!event.data.taskId || event.data.taskId === 'main') && event.data.turn === Number(url.searchParams.get('turn')))
@@ -404,7 +454,8 @@ async function mockExecution(page: Page, origin: string, source = replayEvents()
   })
   await page.goto(`${origin}/sessions/${session.id}`)
   await expect(page.locator('.sender-card textarea')).toBeVisible()
-  return { events, runId, session, messages, artifacts, jobs, outputContents, outputFailures, holdOutput, eventPages, outputReads, mainOutputReads, nodeReads, turnReads, overviewReads, unexpected, append, get sseRequests() { return sseRequests } }
+  await expect(page.locator('.conversation-sync-notice')).toHaveCount(0)
+  return { events, runId, session, messages, artifacts, jobs, outputContents, outputFailures, holdOutput, historyPages, outputReads, mainOutputReads, nodeReads, turnReads, overviewReads, unexpected, append, get sseRequests() { return sseRequests } }
 }
 
 function taskHeader(task: Locator) { return task.locator(':scope > .antd-think > .antd-think-status-wrapper') }
@@ -471,11 +522,12 @@ async function assertNoHorizontalOverflow(page: Page) {
 
 for (const longSteps of [false, true]) test(`expanding ${longSteps ? 'virtualized' : 'short'} execution details preserves a scrolled conversation`, async ({ page, mockOrigin }, testInfo) => {
   test.setTimeout(60_000)
-  const events = longSteps ? deterministicEvents(true) : independentWindowEvents()
+  const events = (longSteps ? deterministicEvents(true) : independentWindowEvents()).map(event => ({ ...event, sequence: event.sequence + 100,
+    data: event.kind === 'message' ? { ...event.data, sequence: event.sequence + 100 } : event.data }))
   const runId = events[0].data.runId as string
   const messages: Message[] = [
     ...Array.from({ length: 12 }, (_, index): Message => ({
-      id: `earlier-${index}`, runId: `earlier-run-${index}`, role: 'assistant', sequence: index - 20,
+      id: `earlier-${index}`, runId: `earlier-run-${index}`, role: 'assistant', sequence: index + 1,
       content: `Earlier conversation reply ${index + 1}.\n\nThis reply puts the execution details below the start of the conversation.`,
       modelId: 'gpt-6-astra', modelKey: 'replay-model', createdAt: '2026-01-01T11:00:00Z',
     })),
@@ -679,7 +731,7 @@ test('complete session steps and manual expansion remain independent during live
   await title('child-b', 2).click()
   await expect(body('child-b', 2)).toHaveCount(0)
   const original = new Map(await Promise.all(taskIds.map(async taskId => [taskId, await titleIds(taskId)] as const)))
-  const pagesBeforeUpdates = fixture.eventPages.length
+  const pagesBeforeUpdates = fixture.historyPages.length
   const appendSteps = (taskId: string, turn: number) => {
     const parentTaskId = taskId === 'main' ? undefined : 'main'
     const depth = taskId === 'main' ? 0 : 1
@@ -712,7 +764,7 @@ test('complete session steps and manual expansion remain independent during live
   }
   await expect(body('main', 1)).toHaveText('Body from main step 1.')
   await expect(body('child-b', 2)).toHaveCount(0)
-  expect(fixture.eventPages.length, 'Live work must not trigger automatic older-page loading').toBe(pagesBeforeUpdates)
+  expect(fixture.historyPages.length, 'Live work must not trigger automatic older-page loading').toBe(pagesBeforeUpdates)
 
   await expect(trace.getByRole('button', { name: 'Load earlier steps', exact: true })).toHaveCount(0)
   for (const taskId of ['main', 'child-a']) {
@@ -724,7 +776,7 @@ test('complete session steps and manual expansion remain independent during live
   await expect(body('main', 2)).toHaveCount(0)
   await expect(body('child-b', 2)).toHaveCount(0)
   for (const taskId of ['child-b', 'grandchild-a']) await expect.poll(() => titleIds(taskId)).toEqual(original.get(taskId))
-  expect(fixture.eventPages.length, 'Revealing already-known earlier steps must not fetch history').toBe(pagesBeforeUpdates)
+  expect(fixture.historyPages.length, 'Revealing already-known earlier steps must not fetch history').toBe(pagesBeforeUpdates)
   expect(fixture.outputReads).toEqual([])
   expect(fixture.unexpected).toEqual([])
   await title('child-b', 1).scrollIntoViewIfNeeded()
@@ -745,9 +797,9 @@ test('long complete execution steps scroll naturally with bounded DOM and preser
   const fixture = await mockExecution(page, mockOrigin, deterministicEvents(true))
   const trace = page.locator(`.run-trace[data-run-id="${fixture.runId}"]`)
   await processHeader(trace).getByRole('status').click()
-  await expect.poll(() => fixture.eventPages.length).toBeGreaterThan(1)
+  await expect.poll(() => fixture.historyPages.length).toBeGreaterThan(1)
   await expect(trace.locator('.trace-loading')).toHaveCount(0, { timeout: 15_000 })
-  expect(fixture.eventPages.length).toBe(1 + Math.ceil(fixture.events.length / 100))
+  expect(fixture.historyPages.length).toBe(1 + Math.ceil(fixture.events.length / 100))
   await expect(trace.getByRole('button', { name: 'Load earlier steps', exact: true })).toHaveCount(0)
   expect(fixture.outputReads, 'A full step summary history must not eagerly load detailed outputs').toEqual([])
   const mainTask = trace.locator('.trace-task[data-task-id="main"]')
@@ -872,7 +924,7 @@ test('expanded execution history and output restore after the outer message list
   const trace = page.locator(`.run-trace[data-run-id="${runId}"]`)
   await expect(trace).toBeVisible()
   await processHeader(trace).getByRole('status').click()
-  await expect.poll(() => fixture.eventPages.length).toBeGreaterThan(1)
+  await expect.poll(() => fixture.historyPages.length).toBeGreaterThan(1)
   await expect(trace.locator('.trace-loading')).toHaveCount(0, { timeout: 15_000 })
   const mainTask = trace.locator('.trace-task[data-task-id="main"]')
   const title = await scrollToTraceStep(page, mainTask, runId, 'tool/main/call-310')
@@ -882,7 +934,7 @@ test('expanded execution history and output restore after the outer message list
   await expect(node.locator('.tool-output-entry pre')).toHaveText(expected)
   // Scrolling across other replies legitimately loads their first overviews.
   // Only rereading the inspected execution would violate its cache contract.
-  const readCounts = () => ({ pages: fixture.eventPages.length,
+  const readCounts = () => ({ pages: fixture.historyPages.length,
     overviews: fixture.overviewReads.filter(path => path.includes(`/runs/${runId}/`)).length, outputs: fixture.outputReads.length })
   const reads = readCounts()
   await scroller.evaluate(element => { element.scrollTop = element.scrollHeight; element.dispatchEvent(new Event('scroll')) })
@@ -954,7 +1006,7 @@ test('execution overview and complete task details survive live updates, finish,
   await expect(header).toContainText('1/3 checklist items complete')
   await expect(trace.locator('.trace-task')).toHaveCount(0)
   await expect(trace.getByRole('button', { name: 'Read output', exact: true })).toHaveCount(0)
-  expect(fixture.eventPages).toEqual([''])
+  expect(fixture.historyPages).toEqual([''])
   expect(fixture.outputReads).toEqual([])
   await checklist.scrollIntoViewIfNeeded()
   const checklistLayout = await checklist.evaluate(element => ({ left: element.getBoundingClientRect().left, right: element.getBoundingClientRect().right, width: innerWidth, overflow: element.scrollWidth - element.clientWidth }))
@@ -988,11 +1040,11 @@ test('execution overview and complete task details survive live updates, finish,
   await expect(trace.locator('.trace-task-group[data-task-id="task-5"]')).toHaveAttribute('data-task-status', 'succeeded')
   await expect(taskHeader(trace.locator('.trace-task-group[data-task-id="task-4"]'))).toContainText('Child session 4')
   await expect(trace.locator('.trace-task-group[data-task-id="task-2"]')).toHaveAttribute('data-task-status', 'failed')
-  await expect.poll(() => fixture.eventPages.length).toBeGreaterThan(1)
+  await expect.poll(() => fixture.historyPages.length).toBeGreaterThan(1)
   await expect(trace.locator('.trace-loading')).toHaveCount(0, { timeout: 15_000 })
-  const initialHistoryPages = fixture.eventPages.length
+  const initialHistoryPages = fixture.historyPages.length
   expect(initialHistoryPages).toBe(1 + Math.ceil(fixture.events.length / 100))
-  expect(fixture.eventPages.slice(1).every(query => new URLSearchParams(query).get('compact') === '1')).toBe(true)
+  expect(fixture.historyPages.slice(1).every(query => new URLSearchParams(query).get('compact') === '1')).toBe(true)
   await expect(trace.getByRole('button', { name: 'Load earlier steps', exact: true })).toHaveCount(0)
   await expect(trace.locator('.trace-task-group[data-agent-role="subagent"] .antd-thought-chain-node')).toHaveCount(0)
   const reportTask = trace.locator('.trace-task[data-task-id="task-4"]')
@@ -1044,7 +1096,7 @@ test('execution overview and complete task details survive live updates, finish,
     return { scrollTop: scroller.scrollTop, titleTop: element.getBoundingClientRect().top, headerHeight: header?.getBoundingClientRect().height, activityHeight: trace.querySelector('.trace-last-activity')?.getBoundingClientRect().height }
   })
   const beforeLivePosition = await captureLivePosition()
-  const pagesBeforeUpdate = fixture.eventPages.length
+  const pagesBeforeUpdate = fixture.historyPages.length
   fixture.append('model_request', { taskId: 'main', depth: 0, turn: 198, provider: 'openai-chat', key: 'replay-model', id: 'gpt-6-astra', reasoningEffort: 'high' })
   fixture.append('model_delta', { taskId: 'main', depth: 0, turn: 198, content: 'New activity while inspecting an older tool. ' })
   await expect(overview.locator('.trace-overview-heading')).toContainText('198 model calls')
@@ -1054,8 +1106,8 @@ test('execution overview and complete task details survive live updates, finish,
   // Wrapping activity text can change the height above this step; native
   // anchoring may adjust scrollTop while keeping the actual reading position.
   expect(Math.abs(afterLivePosition.titleTop - beforeLivePosition.titleTop)).toBeLessThanOrEqual(3)
-  expect(fixture.eventPages.length).toBe(pagesBeforeUpdate)
-  expect(fixture.sseRequests).toBeGreaterThan(1)
+  expect(fixture.historyPages.length).toBe(pagesBeforeUpdate)
+  expect(fixture.sseRequests).toBe(1)
 
   const assistant: Message = { id: 'replay-assistant', runId: fixture.runId, role: 'assistant', sequence: fixture.events.at(-1)!.sequence + 2, outputTurn: 198, content: 'The source review is complete. The checklist remains as explicitly reported.', modelId: 'gpt-6-astra', modelKey: 'replay-model', createdAt: new Date().toISOString() }
   fixture.session.executing = false
@@ -1084,7 +1136,7 @@ test('execution overview and complete task details survive live updates, finish,
   expect(fixture.events.find(event => event.kind === 'checklist')!.data.items).toEqual(initialChecklist)
   await page.screenshot({ path: testInfo.outputPath('inspection-finished.png'), animations: 'disabled' })
 
-  const pagesBeforeReload = fixture.eventPages.length
+  const pagesBeforeReload = fixture.historyPages.length
   await page.reload()
   await expect(overview).toHaveAttribute('data-run-status', 'succeeded')
   await expect(overview.locator('.trace-overview-heading')).toContainText('198 model calls')
@@ -1094,7 +1146,7 @@ test('execution overview and complete task details survive live updates, finish,
   await assertChecklist('incomplete')
   await expect(checklist.locator('[data-checklist-status="in_progress"]')).toHaveCount(0)
   await expect(header).toContainText('1/3 checklist items complete')
-  expect(fixture.eventPages.length - pagesBeforeReload).toBe(1)
+  expect(fixture.historyPages.length - pagesBeforeReload).toBe(1)
   expect(fixture.unexpected).toEqual([])
   await overview.scrollIntoViewIfNeeded()
   await assertNoHorizontalOverflow(page)
@@ -1621,8 +1673,8 @@ test('a completed model-only run keeps the final reply once without an empty pro
     await expect(trace).toHaveCount(0)
     await expect(page.getByText(content, { exact: true })).toHaveCount(1)
   }
-  expect(fixture.eventPages).toHaveLength(2)
-  expect(fixture.eventPages.every(query => !new URLSearchParams(query).has('compact'))).toBe(true)
+  expect(fixture.historyPages).toHaveLength(2)
+  expect(fixture.historyPages.every(query => !new URLSearchParams(query).has('compact'))).toBe(true)
   expect(fixture.outputReads).toEqual([])
   expect(fixture.unexpected).toEqual([])
   await page.locator('article.assistant').scrollIntoViewIfNeeded()
@@ -1649,6 +1701,7 @@ test('background process monitor reads bounded live ranges and leaves trace as a
   await expect(dialog).toContainText('Expires')
   const updated = initial + '\nLive update ending — 新输出 🙂.\n'
   fixture.outputContents.set(outputPath, updated)
+  fixture.append('job_output', { id: job.id, bytes: Buffer.byteLength(updated) })
   await expect(output).toContainText('Live update ending')
   expect(fixture.outputReads.every(path => path.includes('limit=16384') && !path.includes('full=1'))).toBe(true)
   await page.keyboard.press('Escape')
@@ -1700,7 +1753,9 @@ test('multi-megabyte process logs use virtual blocks, pause follow and abort rea
   })
   await expect(output).toContainText('Log 00000')
   await expect(dialog.getByRole('button', { name: 'Follow latest', exact: true })).toBeVisible()
-  fixture.outputContents.set(outputPath, content + 'NEW TAIL\n')
+  const updated = content + 'NEW TAIL\n'
+  fixture.outputContents.set(outputPath, updated)
+  fixture.append('job_output', { id: job.id, bytes: Buffer.byteLength(updated) })
   await page.waitForTimeout(1400)
   expect(await output.evaluate(element => element.scrollTop)).toBeLessThan(5)
   await dialog.getByRole('button', { name: 'Follow latest', exact: true }).click()
@@ -1940,4 +1995,27 @@ test('debug mode defaults off and settings persist both diagnostic entrances acr
   await toggle.scrollIntoViewIfNeeded()
   await checkLayout(toggle)
   expect(fixture.unexpected).toEqual([])
+})
+
+test('a failed execution-details render leaves the formal answer visible', async ({ page, mockOrigin }) => {
+  await page.route('**/src/RunTrace.vue', route => route.fulfill({ contentType: 'text/javascript', body: 'export default { setup() { throw new Error("Injected execution rendering failure") } }' }))
+  const source = hydrationEvents()
+  const runId = source[0].data.runId
+  const answer: Message = { id: 'formal-answer', sequence: source.at(-1)!.sequence + 1, runId, role: 'assistant', content: 'The saved formal answer remains readable.', createdAt: '' }
+  source.push({ sequence: answer.sequence, kind: 'run_finished', data: { runId, status: 'succeeded', message: answer } })
+  await mockExecution(page, mockOrigin, source, { messages: [source[0].data, answer] })
+  await expect(page.locator('.conversation-render-notice').first()).toContainText('Execution details could not be displayed')
+  await expect(page.locator('.messages article.assistant:not(.main-output) .markdown')).toHaveText(answer.content)
+})
+
+test('a failed Markdown renderer displays escaped plain text and retains copying', async ({ page, mockOrigin }) => {
+  await page.route('**/src/ui/markdown.ts', route => route.fulfill({ contentType: 'text/javascript', body: 'export function renderMarkdown() { throw new Error("Injected Markdown rendering failure") }' }))
+  const source = hydrationEvents()
+  const answer: Message = { id: 'plain-answer', sequence: source.at(-1)!.sequence + 1, runId: source[0].data.runId, role: 'assistant', content: 'Saved <script>unsafe()</script> **answer**.', createdAt: '' }
+  source.push({ sequence: answer.sequence, kind: 'run_finished', data: { runId: answer.runId, status: 'succeeded', message: answer } })
+  await mockExecution(page, mockOrigin, source, { messages: [source[0].data, answer] })
+  const reply = page.locator('.messages article.assistant:not(.main-output)')
+  await expect(reply.locator('.message-plain-text')).toHaveText(answer.content)
+  await expect(reply.locator('.markdown script')).toHaveCount(0)
+  await expect(reply.getByRole('button', { name: 'Copy', exact: true })).toBeEnabled()
 })

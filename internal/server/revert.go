@@ -89,7 +89,7 @@ func (a *App) revertConversation(requestCtx context.Context, sessionID, messageI
 			}
 		}
 	}
-	a.hub.notify(sessionID)
+	a.notifySession(sessionID)
 	item, getErr := a.store.Get(ctx, sessionID)
 	if getErr == nil && item.Open {
 		startErr := a.startWorker(sessionID)

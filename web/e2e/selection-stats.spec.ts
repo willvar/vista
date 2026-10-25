@@ -1,7 +1,9 @@
+import { installMockStateStream } from './state-stream-fixture'
+import { coreSnapshot } from './conversation-fixture'
 import { test as base, expect, type Page } from '@playwright/test'
 import { createServer } from 'vite'
 import { resolve } from 'node:path'
-import type { ModelSelectionStats } from '../src/client/types'
+import type { ModelSelectionStats, Session } from '../src/client/types'
 
 const test = base.extend<{}, { mockOrigin: string }>({
   mockOrigin: [async ({}, use) => {
@@ -47,11 +49,12 @@ function statistics(): ModelSelectionStats {
 }
 
 async function mockSettings(page: Page, origin: string) {
-  const session = { id: 'stats-session', title: 'Statistics fixture', modelKey: 'luna', manualModelKey: 'luna', manualReasoningEffort: 'high', selectionMode: 'manual', selectionTier: 'speed', open: true, running: false, executing: false, createdAt: '2026-01-01T12:00:00Z' }
+  const session: Session = { id: 'stats-session', title: 'Statistics fixture', modelKey: 'luna', manualModelKey: 'luna', manualReasoningEffort: 'high', selectionMode: 'manual', selectionTier: 'speed', open: true, running: false, executing: false, createdAt: '2026-01-01T12:00:00Z' }
   const preferences = { userId: 'test-user', lastMode: 'manual', lastTier: 'speed', manualModelKey: 'luna', reasoningByModelId: { 'gpt-6-luna': 'high' }, feedbackInvitationSeen: true }
   const stats = statistics()
   const resetScopes: string[] = []
   let statsReads = 0
+  await installMockStateStream(page)
   await page.route('**/api/**', async route => {
     const request = route.request()
     const path = new URL(request.url()).pathname.slice(4)
@@ -79,6 +82,7 @@ async function mockSettings(page: Page, origin: string) {
     if (path === '/agent-settings') return reply({ instructions: '', instructionsPath: '/home/test/.config/vista/AGENTS.md', delegationDepth: 1, maxDelegationDepth: 8 })
     if (path === '/status') return reply({ state: 'running', sessions: { total: 1, open: 1, closed: 0, running: 0, workers: 0 }, workerMetrics: [] })
     if (path === '/sessions') return reply([session])
+    if (path.endsWith('/snapshot')) return reply(coreSnapshot(session))
     if (path.endsWith('/selection')) { Object.assign(session, body); return reply(session) }
     if (path.endsWith('/feedback')) return reply({ feedback: {} })
     if (path.endsWith('/context')) return reply(null)

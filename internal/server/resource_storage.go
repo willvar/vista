@@ -21,15 +21,19 @@ type resourceStorageStatus struct {
 	Error        string                 `json:"error,omitempty"`
 }
 
+func (a *App) resourceStorageSnapshot() resourceStorageStatus {
+	a.storageMu.Lock()
+	defer a.storageMu.Unlock()
+	result := a.storageStatus
+	if result.Phase == "" {
+		result.Phase = "idle"
+	}
+	return result
+}
+
 func (a *App) resourceStorage(w http.ResponseWriter, r *http.Request) {
 	if r.Method == http.MethodGet {
-		a.storageMu.Lock()
-		result := a.storageStatus
-		a.storageMu.Unlock()
-		if result.Phase == "" {
-			result.Phase = "idle"
-		}
-		jsonOut(w, result)
+		jsonOut(w, a.resourceStorageSnapshot())
 		return
 	}
 	if r.Method != http.MethodPost {
@@ -59,6 +63,7 @@ func (a *App) resourceStorage(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) runResourceStorage(action string) {
+	defer a.updates.notify("storage")
 	ctx := a.ctx
 	if ctx == nil {
 		ctx = context.Background()
@@ -72,6 +77,7 @@ func (a *App) runResourceStorage(action string) {
 			a.storageStatus.DeletedCount = count
 			a.storageStatus.DeletedBytes = bytes
 			a.storageMu.Unlock()
+			a.updates.notify("storage")
 		})
 		a.storageMu.Lock()
 		a.storageStatus.DeletedCount, a.storageStatus.DeletedBytes = count, freed

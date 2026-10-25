@@ -196,6 +196,7 @@ export function reduceConversationEvent(state: ConversationState, event: StreamE
     pendingInputCount: next.queuedInputs.filter(input => ['queued', 'paused'].includes(input.status)).length }
   if (event.kind === 'context_notice' && !depth) next.contextNotices = [...next.contextNotices, { sequence: event.sequence, runId, message: data.message, summary: data.summary }].slice(-10)
   if (event.kind === 'job' && data?.id) next.jobs = [data as Job, ...next.jobs.filter(item => item.id !== data.id)].sort((a, b) => Number(jobActive(b)) - Number(jobActive(a))).slice(0, 200)
+  if (event.kind === 'job_output' && data?.id && Number.isSafeInteger(data.bytes) && data.bytes >= 0) next.jobs = next.jobs.map(job => job.id === data.id ? { ...job, bytes: Math.max(job.bytes, data.bytes) } : job)
   if (event.kind === 'artifact' && data?.id) next.artifacts = [data as Artifact, ...next.artifacts.filter(item => item.id !== data.id)].slice(0, 200)
   if (event.kind === 'model_request' && runId && !depth && !data?.purpose) next.modelByRun = { ...next.modelByRun, [runId]: { key: data.key || '', provider: data.provider, id: data.id, reasoningEffort: data.reasoningEffort } }
   return next.messages.length ? pruneConversationWindow(next) : next

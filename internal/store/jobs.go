@@ -32,6 +32,7 @@ type Job struct {
 }
 
 func (s *Store) RecordJob(ctx context.Context, job Job) (*Event, error) {
+	var previousStatus string
 	if job.ID == "" || job.SessionID == "" || job.RunID == "" {
 		return nil, errors.New("invalid job identity")
 	}
@@ -59,7 +60,7 @@ func (s *Store) RecordJob(ctx context.Context, job Job) (*Event, error) {
 		if job.Status != "running" {
 			job.FinishedAt = time.Now().UTC().Format(time.RFC3339Nano)
 		}
-		if err := tx.QueryRowContext(ctx, "SELECT created_at FROM jobs WHERE id=? AND session_id=? AND run_id=?", job.ID, job.SessionID, job.RunID).Scan(&job.CreatedAt); err != nil {
+		if err := tx.QueryRowContext(ctx, "SELECT created_at,status FROM jobs WHERE id=? AND session_id=? AND run_id=?", job.ID, job.SessionID, job.RunID).Scan(&job.CreatedAt, &previousStatus); err != nil {
 			if errors.Is(err, sql.ErrNoRows) {
 				return nil, nil
 			}
@@ -81,7 +82,16 @@ func (s *Store) RecordJob(ctx context.Context, job Job) (*Event, error) {
 	if err := restoreOutputLink(ctx, tx, job.SessionID, "job", job.ID, &job.CallID, &job.TaskID, &job.ParentTaskID); err != nil {
 		return nil, err
 	}
-	event, err := appendEvent(ctx, tx, job.SessionID, "job", job)
+	kind, data := "job", any(job)
+	if previousStatus == "running" && job.Status == "running" {
+		// Output growth is replayable metadata, not another process action.
+		kind, data = "job_output", struct {
+			ID    string `json:"id"`
+			RunID string `json:"runId"`
+			Bytes int64  `json:"bytes"`
+		}{job.ID, job.RunID, job.Bytes}
+	}
+	event, err := appendEvent(ctx, tx, job.SessionID, kind, data)
 	if err != nil {
 		return nil, err
 	}

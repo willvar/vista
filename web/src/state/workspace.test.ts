@@ -51,6 +51,19 @@ test('server worker and open state remain authoritative when live metadata is pr
   assert.equal(merged[0].running, false)
 })
 
+test('a pushed list predating an accepted send cannot undo execution before its conversation event arrives', () => {
+  const accepted = { ...session, executing: true, latestRunStatus: 'running' }
+  const oldList = [{ ...session, executing: false, latestRunStatus: 'succeeded' }]
+  const savedBoundary = { sessionId: 'a', eventSequence: 9 }
+  const appliedConversationEvent = 9, acceptedMessageSequence = 10
+  const merged = mergeSessionSnapshot(oldList, accepted, savedBoundary, Math.max(appliedConversationEvent, acceptedMessageSequence))
+  assert.equal(merged[0].executing, true)
+  assert.equal(merged[0].latestRunStatus, 'running')
+  const completed = mergeSessionSnapshot(oldList, accepted, { sessionId: 'a', eventSequence: 11 }, acceptedMessageSequence)
+  assert.equal(completed[0].executing, false)
+  assert.equal(completed[0].latestRunStatus, 'succeeded')
+})
+
 test('a poll without intervening events or with a changed selection uses the server snapshot', () => {
   const snapshot = [{ ...session, title: 'Server title' }]
   assert.equal(mergeSessionSnapshot(snapshot, session, { sessionId: 'a', eventSequence: 2 }, 2), snapshot)

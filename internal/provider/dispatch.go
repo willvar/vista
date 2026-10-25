@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	modelcfg "vista/internal/model"
+	"vista/internal/modeltrace"
 )
 
 type protocolAdapter struct {
@@ -102,6 +103,12 @@ func ModelTurnStreamWithReasoning(ctx context.Context, model modelcfg.Model, mes
 	if err != nil {
 		return Turn{}, err
 	}
+	providerID := model.ProviderID
+	if providerID == "" {
+		providerID = model.Provider
+	}
+	ctx, capture := modeltrace.Start(ctx, providerID, model.Provider, model.ID, modelSecrets(model))
 	turn, err := adapter.turn(ctx, model, messages, schemas, onText, onReasoning)
+	capture.Finish(turn.FinishReason, err)
 	return turn, modelErrorForDisplay(err, model)
 }

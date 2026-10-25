@@ -1,3 +1,4 @@
+import { coreSnapshot } from './conversation-fixture'
 import type { Locator, Page } from '@playwright/test'
 import { test, expect } from './fixtures'
 import { closeSettings } from './settings-navigation'
@@ -295,6 +296,7 @@ test('long running tool and completed process keep Stop and Queue reachable', as
       const rows = await original.json()
       return route.fulfill({ response: original, json: rows.map((row: { id: string }) => row.id === session.id ? { ...row, executing: true } : row) })
     }
+    if (path === `/api/sessions/${session.id}/snapshot`) return route.fulfill({ json: coreSnapshot({ ...session, executing: true }, [user, assistant, currentUser], events) })
     if (path === `/api/sessions/${session.id}/messages`) return route.fulfill({ json: [user, assistant, currentUser] })
     if (path === `/api/sessions/${session.id}/event-page`) return route.fulfill({ json: events })
     if (path === `/api/sessions/${session.id}/events`) return route.fulfill({ status: 200, contentType: 'text/event-stream', body: '' })

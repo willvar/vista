@@ -27,7 +27,23 @@ type mcpLogin struct {
 
 func (l *mcpLogin) active() bool { return l.Status == "starting" || l.Status == "pending" }
 
+type mcpStateSnapshot struct {
+	mcpConfigSnapshot
+	Logins []loginUpdate `json:"logins"`
+}
+
+func (a *App) mcpStateSnapshot() mcpStateSnapshot {
+	a.mcpMu.Lock()
+	defer a.mcpMu.Unlock()
+	items := make([]loginUpdate, 0, len(a.mcpLogins))
+	for _, login := range a.mcpLogins {
+		items = append(items, loginUpdate{login.ID, login.Status, login.Error})
+	}
+	return mcpStateSnapshot{a.mcpConfigSnapshotLocked(), items}
+}
+
 func (a *App) cancelMCPLoginLocked(id string) {
+	defer a.updates.notify("mcp")
 	for _, login := range a.mcpLogins {
 		if login.ServerID == id && login.active() {
 			login.Status, login.AuthorizationURL = "canceled", ""
@@ -81,6 +97,7 @@ func (a *App) startMCPLoginLocked(w http.ResponseWriter, config workerproto.MCPS
 }
 
 func (a *App) runMCPLogin(ctx context.Context, login *mcpLogin, config workerproto.MCPServer, staging string) {
+	defer a.updates.notify("mcp")
 	defer os.RemoveAll(staging)
 	defer login.cancel()
 	err := mcpclient.Login(ctx, config, staging, func(raw string) {
@@ -92,6 +109,7 @@ func (a *App) runMCPLogin(ctx context.Context, login *mcpLogin, config workerpro
 		defer a.mcpMu.Unlock()
 		if login.active() && ctx.Err() == nil {
 			login.Status, login.AuthorizationURL = "pending", raw
+			a.updates.notify("mcp")
 		}
 	})
 	a.mcpMu.Lock()

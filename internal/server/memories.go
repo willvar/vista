@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"io"
@@ -10,6 +11,21 @@ import (
 	"vista/internal/store"
 	"vista/internal/workerproto"
 )
+
+type memorySnapshot struct {
+	Memories      []store.Memory `json:"memories"`
+	MaxCount      int            `json:"maxCount"`
+	MaxBytes      int            `json:"maxBytes"`
+	MaxTotalBytes int            `json:"maxTotalBytes"`
+}
+
+func (a *App) memoriesSnapshot(ctx context.Context) (*memorySnapshot, error) {
+	items, err := a.store.Memories(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return &memorySnapshot{items, store.MaxMemories, store.MaxMemoryBytes, store.MaxMemoriesBytes}, nil
+}
 
 func (a *App) memories(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
@@ -39,16 +55,17 @@ func (a *App) memories(w http.ResponseWriter, r *http.Request) {
 			memoryHTTPError(w, err)
 			return
 		}
+		a.updates.notify("memories")
 	default:
 		w.WriteHeader(http.StatusMethodNotAllowed)
 		return
 	}
-	items, err := a.store.Memories(r.Context())
+	snapshot, err := a.memoriesSnapshot(r.Context())
 	if err != nil {
 		memoryHTTPError(w, err)
 		return
 	}
-	jsonOut(w, map[string]any{"memories": items, "maxCount": store.MaxMemories, "maxBytes": store.MaxMemoryBytes, "maxTotalBytes": store.MaxMemoriesBytes})
+	jsonOut(w, snapshot)
 }
 
 func memoryHTTPError(w http.ResponseWriter, err error) {

@@ -127,6 +127,7 @@ func (a *App) startWorkerUsing(id string, launch func(context.Context, string) (
 		}
 		return err
 	}
+	a.updates.notify("status", "sessions")
 	a.background.Go(func() { a.readWorkerOutput(id, w, scanner) })
 	return nil
 }
@@ -281,21 +282,21 @@ func (a *App) stopWorker(id string) {
 			log.Printf("session %s interrupt record failed: %v", id, err)
 		}
 		for range events {
-			a.hub.notify(id)
+			a.notifySession(id)
 		}
 		jobEvents, jobErr := a.store.InterruptJobs(context.Background(), id, "Worker stopped before the background job result was confirmed")
 		if jobErr != nil {
 			log.Printf("session %s job interrupt record failed: %v", id, jobErr)
 		}
 		for range jobEvents {
-			a.hub.notify(id)
+			a.notifySession(id)
 		}
 		artifactEvents, artifactErr := a.store.InterruptArtifacts(context.Background(), id, "Worker stopped before output completeness was confirmed")
 		if artifactErr != nil {
 			log.Printf("session %s artifact interrupt record failed: %v", id, artifactErr)
 		}
 		for range artifactEvents {
-			a.hub.notify(id)
+			a.notifySession(id)
 		}
 	}
 }

@@ -70,6 +70,7 @@ func (observationReceipt) TableName() string { return "model_observation_receipt
 
 type selectionQueuedRow struct {
 	ID            string `gorm:"primaryKey"`
+	Debug         bool   `gorm:"column:debug;not null;default:false"`
 	SelectionMode string `gorm:"column:selection_mode;not null;default:''"`
 	SelectionTier string `gorm:"column:selection_tier;not null;default:''"`
 }
@@ -232,7 +233,7 @@ func (s *Store) initModelSelectionSchema() error {
 			}
 		}
 	}
-	for _, field := range []string{"SelectionMode", "SelectionTier"} {
+	for _, field := range []string{"SelectionMode", "SelectionTier", "Debug"} {
 		if !s.orm.Migrator().HasColumn(&selectionQueuedRow{}, field) {
 			if err := s.orm.Migrator().AddColumn(&selectionQueuedRow{}, field); err != nil {
 				return err

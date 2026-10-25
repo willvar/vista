@@ -1,25 +1,19 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
+import { computed, onUnmounted, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { Alert as AAlert, Button as AButton, Input as AInput, InputPassword as AInputPassword, Modal as AModal, Select as ASelect, Switch as ASwitch, TextArea as ATextarea } from 'antdv-next'
 import { EditOutlined, LinkOutlined, ReloadOutlined, DeleteOutlined } from '@antdv-next/icons'
 import ConfirmPopover from './ConfirmPopover.vue'
+import { VistaAPIError } from './client/vista'
 import { useWorkspace } from './composables/useWorkspace'
 import { formatDateTime } from './ui/datetime.ts'
+import type { MCPCheck as Check, MCPServer, MCPConfig, LoginUpdate } from './client/types'
 
-type Check = { status: string; checkedAt?: string; toolCount: number; error?: string }
-type MCPServer = {
-  id: string; name: string; transport: 'stdio' | 'http'; disabled?: boolean
-  command?: string; args?: string[]; directory?: string; endpoint?: string
-  oauth?: boolean; clientId?: string; hasToken: boolean; hasClientSecret: boolean
-  headerNames?: string[]
-  authorized: boolean; check: Check
-}
 type Tool = { name: string; description: string; inputSchema: unknown }
 type Login = { id: string; name: string; status: string; authorizationUrl?: string; error?: string; expiresAt: string }
 const emit = defineEmits<{ 'modal-open': [open: boolean] }>()
 const { t, locale } = useI18n({ useScope: 'global' })
-const { client } = useWorkspace()
+const { client, stateSync } = useWorkspace()
 const lifetime = new AbortController()
 const servers = ref<MCPServer[]>([])
 const maxServers = ref(4)
@@ -45,12 +39,17 @@ const canSave = computed(() => {
   return !!draft.endpoint.trim() && (draft.auth !== 'token' || !!draft.token.trim() || !!editing.value?.hasToken)
 })
 
-async function refresh() {
-  const result = await client.request<{ servers: MCPServer[]; maxServers: number; defaultDirectory: string }>('/mcp-config', { signal: lifetime.signal })
-  if (lifetime.signal.aborted) return
+let configRevision = 0
+function acceptConfig(result: MCPConfig) {
   servers.value = result.servers
   maxServers.value = result.maxServers
   defaultDirectory.value = result.defaultDirectory
+}
+async function refresh(signal = lifetime.signal) {
+  const revision = ++configRevision
+  const result = await client.request<MCPConfig>('/mcp-config', { signal })
+  if (lifetime.signal.aborted || signal.aborted || revision !== configRevision) return
+  acceptConfig(result)
 }
 async function load() {
   loading.value = true
@@ -59,7 +58,6 @@ async function load() {
   catch (cause) { if (!lifetime.signal.aborted) error.value = String(cause) }
   finally { loading.value = false }
 }
-onMounted(load)
 
 function edit(server?: MCPServer) {
   if (busy.value) return
@@ -109,7 +107,6 @@ async function save() {
     draft.token = draft.clientSecret = ''
     draft.headers = []
     saved.value = true
-    await refresh().catch(cause => { if (!lifetime.signal.aborted) error.value = String(cause) })
   } catch (cause) { if (!lifetime.signal.aborted) formError.value = String(cause) }
   finally { busy.value = false }
 }
@@ -182,8 +179,7 @@ const login = ref<Login | null>(null)
 const loginError = ref('')
 const loginStartFailed = ref(false)
 let loginGeneration = 0
-let pollTimer: ReturnType<typeof setTimeout> | undefined
-let pollController: AbortController | undefined
+let loginController: AbortController | undefined
 const loginActive = computed(() => login.value ? ['starting', 'pending'].includes(login.value.status) : !loginStartFailed.value)
 const authorizationURL = computed(() => {
   try {
@@ -194,8 +190,7 @@ const authorizationURL = computed(() => {
 function cancelLogin(id: string) { void client.request(`/mcp-auth/${encodeURIComponent(id)}`, { method: 'DELETE' }).catch(() => {}) }
 function closeLogin() {
   loginGeneration++
-  clearTimeout(pollTimer)
-  pollController?.abort()
+  loginController?.abort()
   if (login.value && loginActive.value) cancelLogin(login.value.id)
   loginServer.value = null
   login.value = null
@@ -207,14 +202,17 @@ async function authorize(server: MCPServer) {
   loginServer.value = server
   loginError.value = ''
   loginStartFailed.value = false
-  pollController = new AbortController()
+  loginController = new AbortController()
   try {
     // The start request must return its ID even if the dialog has been closed,
     // so that a late response can still cancel the server-side login.
     const result = await client.request<Login>(`/mcp-servers/${encodeURIComponent(server.id)}/login`, { method: 'POST' })
     if (lifetime.signal.aborted || generation !== loginGeneration) { cancelLogin(result.id); return }
     login.value = result
-    schedulePoll(generation)
+    // Only the attempt-specific read exposes its authorization URL. Terminal
+    // outcomes and configuration arrive through the shared state stream.
+    const update = stateSync.snapshot()?.mcp?.logins.find(item => item.id === result.id)
+    if (update) await receiveLogin(update)
   } catch (cause) {
     if (!lifetime.signal.aborted && generation === loginGeneration) {
       loginError.value = String(cause)
@@ -222,37 +220,60 @@ async function authorize(server: MCPServer) {
     }
   }
 }
-function schedulePoll(generation: number) {
-  clearTimeout(pollTimer)
-  pollTimer = setTimeout(() => { void pollLogin(generation) }, 1200)
+let loginReadRevision = 0
+async function receiveLogin(update: LoginUpdate, signal = loginController?.signal) {
+  if (!login.value || update.id !== login.value.id) return
+  loginReadRevision++
+  login.value = { ...login.value, ...update }
+  loginError.value = update.error || ''
+  if (update.status === 'connected') saved.value = true
+  if (!['starting', 'pending'].includes(update.status)) login.value.authorizationUrl = ''
+  else if (update.status === 'pending' && !login.value.authorizationUrl) await readLogin(loginGeneration, signal, true)
 }
-async function pollLogin(generation: number) {
+async function readLogin(generation: number, signal = loginController?.signal, propagate = false) {
+  const revision = ++loginReadRevision
   const id = login.value?.id
   if (!id || generation !== loginGeneration) return
   try {
-    const result = await client.request<Login>(`/mcp-auth/${encodeURIComponent(id)}`, { signal: pollController?.signal })
-    if (lifetime.signal.aborted || generation !== loginGeneration) return
+    const result = await client.request<Login>(`/mcp-auth/${encodeURIComponent(id)}`, { signal })
+    if (lifetime.signal.aborted || signal?.aborted || generation !== loginGeneration || revision !== loginReadRevision) return
     login.value = result
     loginError.value = result.error || ''
-    if (result.status === 'connected') {
-      await refresh()
-      saved.value = true
-    }
-    if (['starting', 'pending'].includes(result.status)) schedulePoll(generation)
+    if (result.status === 'connected') saved.value = true
   } catch (cause) {
-    if (lifetime.signal.aborted || generation !== loginGeneration) return
+    if (lifetime.signal.aborted || signal?.aborted || generation !== loginGeneration || revision !== loginReadRevision) return
     loginError.value = String(cause)
-    schedulePoll(generation)
+    if (cause instanceof VistaAPIError && cause.status === 404) { login.value = null; loginStartFailed.value = true; return }
+    if (propagate) throw cause
   }
 }
+const unsubscribe = stateSync.subscribe(['mcp'], async (_, signal, snapshots) => {
+  try {
+    if (snapshots.mcp) {
+      configRevision++
+      acceptConfig(snapshots.mcp)
+      const update = snapshots.mcp.logins.find(item => item.id === login.value?.id)
+      if (update) await receiveLogin(update, signal)
+      else if (login.value && loginActive.value) await readLogin(loginGeneration, signal, true)
+    } else {
+      await Promise.all([
+        login.value && loginActive.value ? readLogin(loginGeneration, signal, true) : Promise.resolve(),
+        refresh(signal),
+      ])
+    }
+    error.value = ''
+  } catch (cause) { if (!lifetime.signal.aborted && !signal.aborted) error.value = String(cause); throw cause }
+  finally { loading.value = false }
+})
 watch(() => editorOpen.value || !!toolsServer.value || !!loginServer.value || !!deleting.value, open => emit('modal-open', open), { flush: 'sync' })
 onUnmounted(() => {
   lifetime.abort()
+  unsubscribe()
   checkController?.abort()
   closeLogin()
   emit('modal-open', false)
 })
-defineExpose({ imported: async () => { await load(); saved.value = true }, headerAction: computed(() => ({ label: 'mcpAdd', run: () => edit(), disabled: loading.value || busy.value || servers.value.length >= maxServers.value, loading: false })) })
+defineExpose({ imported: () => { saved.value = true }, headerAction: computed(() => ({ label: 'mcpAdd', run: () => edit(), disabled: loading.value || busy.value || servers.value.length >= maxServers.value, loading: false })) })
 </script>
 
 <template>

@@ -36,6 +36,29 @@ type mcpSetting struct {
 	Check           mcpCheck `json:"check"`
 }
 
+type mcpConfigSnapshot struct {
+	Servers          []mcpSetting `json:"servers"`
+	MaxServers       int          `json:"maxServers"`
+	DefaultDirectory string       `json:"defaultDirectory"`
+}
+
+func (a *App) mcpConfigSnapshotLocked() mcpConfigSnapshot {
+	servers := make([]mcpSetting, 0, len(a.mcpServers))
+	for _, config := range a.mcpServers {
+		item := mcpSetting{MCPServer: config, HasToken: config.Token != "", HasClientSecret: config.ClientSecret != "", Check: a.mcpChecks[config.ID]}
+		item.Token, item.ClientSecret = "", ""
+		item.HeaderNames = slices.Sorted(maps.Keys(config.Headers))
+		item.Headers = nil
+		item.Authorized = config.OAuth && mcpclient.OAuthConfigured(a.configDir, config)
+		if item.Check.Status == "" {
+			item.Check.Status = "unchecked"
+		}
+		servers = append(servers, item)
+	}
+	directory, _ := os.Getwd()
+	return mcpConfigSnapshot{servers, 4, directory}
+}
+
 // Each execution takes an independent snapshot. Saving settings does not change
 // connections already owned by a running Agent.
 func (a *App) currentMCPServers() []workerproto.MCPServer {
@@ -75,20 +98,7 @@ func (a *App) mcpSettings(w http.ResponseWriter, r *http.Request) {
 	if r.Method == http.MethodGet {
 		a.mcpMu.Lock()
 		defer a.mcpMu.Unlock()
-		servers := make([]mcpSetting, 0, len(a.mcpServers))
-		for _, config := range a.mcpServers {
-			item := mcpSetting{MCPServer: config, HasToken: config.Token != "", HasClientSecret: config.ClientSecret != "", Check: a.mcpChecks[config.ID]}
-			item.Token, item.ClientSecret = "", ""
-			item.HeaderNames = slices.Sorted(maps.Keys(config.Headers))
-			item.Headers = nil
-			item.Authorized = config.OAuth && mcpclient.OAuthConfigured(a.configDir, config)
-			if item.Check.Status == "" {
-				item.Check.Status = "unchecked"
-			}
-			servers = append(servers, item)
-		}
-		directory, _ := os.Getwd()
-		jsonOut(w, map[string]any{"servers": servers, "maxServers": 4, "defaultDirectory": directory})
+		jsonOut(w, a.mcpConfigSnapshotLocked())
 		return
 	}
 	if r.Method != http.MethodPost && r.Method != http.MethodPut && r.Method != http.MethodPatch && r.Method != http.MethodDelete {

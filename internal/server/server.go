@@ -28,6 +28,7 @@ import (
 	"vista/internal/copilotauth"
 	"vista/internal/instance"
 	"vista/internal/modelcatalog"
+	"vista/internal/modeltrace"
 	"vista/internal/platform"
 	"vista/internal/provider"
 	"vista/internal/store"
@@ -74,6 +75,7 @@ type App struct {
 	hostOS                 string
 	ctx                    context.Context
 	cancel                 context.CancelFunc
+	updates                stateHub
 	hub                    eventHub
 	modelMu                sync.RWMutex
 	ompCatalogUpdateMu     sync.Mutex
@@ -278,6 +280,7 @@ func (a *App) start() error {
 	if err != nil {
 		return err
 	}
+	a.background.Go(a.cleanModelDiagnostics)
 	a.background.Go(func() { a.pollModelCatalog(a.ctx) })
 	a.refreshLocalModels(a.ctx)
 	a.background.Go(func() { a.pollLocalModels(a.ctx) })
@@ -303,6 +306,7 @@ func (a *App) handler() http.Handler {
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 		http.ServeContent(w, r, "THIRD_PARTY_NOTICES", time.Time{}, strings.NewReader(licenses.Text))
 	})
+	mux.HandleFunc("/api/events", a.stateEvents)
 	mux.HandleFunc("/api/status", a.status)
 	mux.HandleFunc("/api/resource-storage", a.resourceStorage)
 	mux.HandleFunc("/api/models", a.modelList)
@@ -334,7 +338,7 @@ func (a *App) handler() http.Handler {
 	mux.HandleFunc("/app.js", a.asset)
 	mux.HandleFunc("/vista-web.css", a.asset)
 	mux.HandleFunc("/", a.root)
-	return a.host(mux)
+	return a.host(a.stateMutations(mux))
 }
 func (a *App) host(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -361,10 +365,18 @@ func (a *App) status(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "method", 405)
 		return
 	}
-	counts, err := a.store.SessionCounts(r.Context())
+	status, err := a.statusSnapshot(r.Context(), r.Host)
 	if err != nil {
 		http.Error(w, err.Error(), 500)
 		return
+	}
+	jsonOut(w, status)
+}
+
+func (a *App) statusSnapshot(ctx context.Context, host string) (map[string]any, error) {
+	counts, err := a.store.SessionCounts(ctx)
+	if err != nil {
+		return nil, err
 	}
 	a.mu.Lock()
 	count := len(a.workers)
@@ -396,7 +408,7 @@ func (a *App) status(w http.ResponseWriter, r *http.Request) {
 		}
 		break
 	}
-	jsonOut(w, map[string]any{"state": "running", "version": buildinfo.Version, "binaryHash": a.buildInfo.BinaryHash, "sourceCommit": a.buildInfo.SourceCommit, "sourceModified": a.buildInfo.SourceModified, "hostOS": a.hostOS, "address": "http://" + r.Host, "provider": providerName, "model": defaultModel.ID, "defaultModel": defaultModelLabel, "defaultModelKey": models.Default, "uptimeSeconds": int(time.Since(a.started).Seconds()), "sessions": map[string]int{"total": counts.Total, "open": counts.Open, "closed": counts.Total - counts.Open, "running": counts.Running, "idle": counts.Open - counts.Running, "unavailable": unavailable, "workers": count}, "managedBackgroundProcesses": counts.Jobs, "eventStreams": a.hub.subscriberCount(), "eventStreamLimit": maxEventStreams, "memory": map[string]uint64{"heapBytes": mem.HeapAlloc, "rssBytes": platform.RSS(), "peakRssBytes": platform.PeakRSS()}, "workerMetrics": workerMetrics, "sampledAt": time.Now().UTC().Format(time.RFC3339)})
+	return map[string]any{"state": "running", "version": buildinfo.Version, "binaryHash": a.buildInfo.BinaryHash, "sourceCommit": a.buildInfo.SourceCommit, "sourceModified": a.buildInfo.SourceModified, "hostOS": a.hostOS, "address": "http://" + host, "provider": providerName, "model": defaultModel.ID, "defaultModel": defaultModelLabel, "defaultModelKey": models.Default, "uptimeSeconds": int(time.Since(a.started).Seconds()), "sessions": map[string]int{"total": counts.Total, "open": counts.Open, "closed": counts.Total - counts.Open, "running": counts.Running, "idle": counts.Open - counts.Running, "unavailable": unavailable, "workers": count}, "managedBackgroundProcesses": counts.Jobs, "eventStreams": a.hub.subscriberCount() + a.updates.count(), "eventStreamLimit": maxEventStreams + maxStateEventStreams, "memory": map[string]uint64{"heapBytes": mem.HeapAlloc, "rssBytes": platform.RSS(), "peakRssBytes": platform.PeakRSS()}, "workerMetrics": workerMetrics, "sampledAt": time.Now().UTC().Format(time.RFC3339Nano)}, nil
 }
 
 func (a *App) modelList(w http.ResponseWriter, r *http.Request) {
@@ -404,8 +416,7 @@ func (a *App) modelList(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "method", 405)
 		return
 	}
-	models := a.modelsSnapshot()
-	jsonOut(w, map[string]any{"default": models.Default, "models": models.Public()})
+	jsonOut(w, a.publicModelsSnapshot())
 }
 func (a *App) stop(w http.ResponseWriter, r *http.Request) {
 	if r.Method != "POST" {
@@ -418,7 +429,15 @@ func (a *App) stop(w http.ResponseWriter, r *http.Request) {
 func (a *App) sessions(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case "GET":
-		items, err := a.store.List(r.Context())
+		var filter []bool
+		if value, present := r.URL.Query()["open"]; present {
+			if len(value) != 1 || (value[0] != "true" && value[0] != "false") {
+				http.Error(w, "open must be true or false", http.StatusBadRequest)
+				return
+			}
+			filter = []bool{value[0] == "true"}
+		}
+		items, err := a.store.List(r.Context(), filter...)
 		if err != nil {
 			http.Error(w, err.Error(), 500)
 			return
@@ -515,6 +534,14 @@ func (a *App) session(w http.ResponseWriter, r *http.Request) {
 		a.sessionResource(w, r, item.ID, bits[2])
 		return
 	}
+	if (len(bits) == 4 || len(bits) == 5) && bits[1] == "runs" && bits[3] == "diagnostics" && r.Method == http.MethodGet {
+		id := ""
+		if len(bits) == 5 {
+			id = bits[4]
+		}
+		a.modelDiagnostics(w, r, item.ID, bits[2], id)
+		return
+	}
 	if len(bits) == 4 && bits[1] == "runs" && bits[3] == "stop-agent" && r.Method == http.MethodPost {
 		if !item.Open {
 			http.Error(w, "session is closed", http.StatusConflict)
@@ -589,6 +616,7 @@ func (a *App) session(w http.ResponseWriter, r *http.Request) {
 		for _, path := range paths {
 			_ = a.removeOutput(path)
 		}
+		_ = modeltrace.DeleteSession(a.dir, item.ID)
 		w.WriteHeader(204)
 		return
 	}
@@ -761,6 +789,22 @@ func (a *App) session(w http.ResponseWriter, r *http.Request) {
 	if r.Method != "POST" || len(bits) != 2 {
 		if r.Method == "GET" && len(bits) == 2 {
 			switch bits[1] {
+			case "checkpoint":
+				point, err := a.store.Checkpoint(r.Context(), item.ID)
+				if errors.Is(err, sql.ErrNoRows) {
+					http.NotFound(w, r)
+					return
+				}
+				if err != nil {
+					http.Error(w, err.Error(), http.StatusInternalServerError)
+					return
+				}
+				w.Header().Set("Cache-Control", "no-store")
+				jsonOut(w, point)
+				return
+			case "snapshot":
+				a.conversationSnapshot(w, r, item.ID)
+				return
 			case "messages":
 				a.messages(w, r, item.ID)
 				return
@@ -808,7 +852,7 @@ func (a *App) session(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "could not pause pending inputs", 500)
 			return
 		}
-		a.hub.notify(item.ID)
+		a.notifySession(item.ID, "sessions")
 		if sendErr := a.cancelRun(r.Context(), item.ID, runID); sendErr != nil {
 			http.Error(w, "Worker is unavailable", 503)
 			return

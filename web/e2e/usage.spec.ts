@@ -1,3 +1,4 @@
+import { coreSnapshot } from './conversation-fixture'
 import { test, expect } from './fixtures'
 
 test.beforeEach(async ({ vista }) => {
@@ -48,6 +49,7 @@ test('missing or partial timing remains visible without invented TPS', async ({ 
     const request = route.request()
     const path = new URL(request.url()).pathname
     if (request.method() !== 'GET') return route.continue()
+    if (path === `/api/sessions/${session.id}/snapshot`) return route.fulfill({ json: coreSnapshot(session, messages) })
     if (path === `/api/sessions/${session.id}/messages`) return route.fulfill({ json: messages })
     if (path === `/api/sessions/${session.id}/event-page`) return route.fulfill({ json: [] })
     if (path === `/api/sessions/${session.id}/events`) return route.fulfill({ status: 200, contentType: 'text/event-stream', body: '' })

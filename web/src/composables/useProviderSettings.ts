@@ -1,17 +1,18 @@
 import { computed, onScopeDispose, ref, watch, type Ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { VistaAPIError, type VistaClient } from '../client/vista'
+import type { createWorkspaceSync } from '../client/workspaceSync'
 import type { AgentSettings, ModelInfo, ModelSetting, ModelSettings, ProviderSetup } from '../client/types'
 import { languages } from '../i18n/languages.ts'
 import { readLanguagePreference, setLanguagePreference, type LanguagePreference } from '../i18n'
 
 type SettingsDependencies = {
   client: VistaClient
-  refresh: () => Promise<void>
   error: Ref<string>
+  stateSync: ReturnType<typeof createWorkspaceSync>
 }
 
-export function useProviderSettings({ client, refresh, error }: SettingsDependencies) {
+export function useProviderSettings({ client, error, stateSync }: SettingsDependencies) {
   const { t, locale } = useI18n({ useScope: 'global' })
   function api<T = unknown>(path: string, options?: RequestInit) { return client.request<T>(path, options) }
   const languagePreference = ref<LanguagePreference>(readLanguagePreference())
@@ -171,19 +172,40 @@ export function useProviderSettings({ client, refresh, error }: SettingsDependen
   }
   function startProviderConnection() { resetModelDraft(); showModelForm() }
   function cancelModelForm() { resetModelDraft(); modelFormOpen.value = false }
+  let settingsRevision = 0
+  let setupsRevision = 0
+  let catalogRevision = ''
+  let unsubscribeModels: (() => void) | undefined
+  async function readModelSettings(signal?: AbortSignal) {
+    const revision = ++settingsRevision
+    const models = await api<ModelSettings>('/model-config', { signal })
+    if (signal?.aborted || revision !== settingsRevision) return
+    settings.value = models
+  }
+  async function readProviderSetups(signal?: AbortSignal) {
+    const revision = ++setupsRevision
+    const setups = await api<ProviderSetup[]>('/provider-config', { signal })
+    if (!signal?.aborted && revision === setupsRevision) providerSetups.value = setups
+  }
+  onScopeDispose(() => { settingsRevision++; setupsRevision++; unsubscribeModels?.() })
   async function loadModelSettings() {
     cancelModelForm()
-    try {
-      const [models, setups] = await Promise.all([api<ModelSettings>('/model-config'), api<ProviderSetup[]>('/provider-config')])
-      settings.value = models
-      providerSetups.value = setups
-    } catch (e) { settingsError.value = String(e); error.value = String(e) }
-  }
-  async function refreshProviderCatalog() {
-    try {
-      providerSetups.value = await api<ProviderSetup[]>('/provider-config')
-      await refresh()
-    } catch (e) { settingsError.value = String(e) }
+    if (unsubscribeModels) return
+    unsubscribeModels = stateSync.subscribe(['models', 'catalog'], async (topics, signal, snapshots) => {
+      const catalog = snapshots.catalog
+      const nextRevision = catalog ? `${catalog.revision}:${catalog.modelsDevRevision || ''}` : ''
+      try {
+        await Promise.all([
+          topics.includes('models') ? readModelSettings(signal) : Promise.resolve(),
+          (!providerSetups.value.length || topics.includes('catalog') && !catalog?.updating && (!nextRevision || nextRevision !== catalogRevision))
+            ? readProviderSetups(signal) : Promise.resolve(),
+        ])
+        if (catalog && !catalog.updating) catalogRevision = nextRevision
+      } catch (cause) {
+        if (!signal.aborted) { settingsError.value = String(cause); error.value = String(cause) }
+        throw cause
+      }
+    })
   }
   function editProvider(model: ModelSetting) {
     clearCustomModels()
@@ -222,8 +244,6 @@ export function useProviderSettings({ client, refresh, error }: SettingsDependen
         resourceName: form.resourceName.trim(), deploymentId: form.deploymentId.trim(), apiVersion: form.apiVersion.trim(),
         ids: manualModelIDs.value || deploymentModelSelection.value ? chosenModels.value : [],
       }) })
-      await refresh()
-      settings.value = await api('/model-config') as ModelSettings
       if (revision === draftRevision) {
         resetModelDraft()
         modelFormOpen.value = false
@@ -242,8 +262,7 @@ export function useProviderSettings({ client, refresh, error }: SettingsDependen
     await saveProvider()
   }
   async function providerConnected() {
-    await refresh()
-    await loadModelSettings()
+    cancelModelForm()
     modelFormOpen.value = false
   }
   async function disconnectProvider(key: string) {
@@ -252,8 +271,6 @@ export function useProviderSettings({ client, refresh, error }: SettingsDependen
     try {
       await api('/provider-config', { method: 'DELETE', body: JSON.stringify({ key }) })
       if (modelDraft.value.key === key) resetModelDraft()
-      await refresh()
-      settings.value = await api('/model-config') as ModelSettings
       providerDisconnectTarget.value = null
     } catch (e) { providerDisconnectError.value = String(e) }
     finally { settingsBusy.value = false }
@@ -263,8 +280,6 @@ export function useProviderSettings({ client, refresh, error }: SettingsDependen
     settingsError.value = ''
     try {
       await api('/model-config', { method: 'PATCH', body: JSON.stringify({ key }) })
-      await refresh()
-      settings.value = await api('/model-config') as ModelSettings
     } catch (e) { settingsError.value = String(e) }
     finally { settingsBusy.value = false }
   }
@@ -291,7 +306,7 @@ export function useProviderSettings({ client, refresh, error }: SettingsDependen
     manualModelIDs, canReuseHeader, editingProvider, providerOptions, canSaveProvider,
     selectedSetup, deploymentModelSelection, providerModelOptions, apiFormatOptions, credentialOptions, usesAPIKey, authenticationHeader, changeCredentialMode,
     updateSelectedModels, changeProvider, changeCustomBaseURL,
-    startProviderConnection, cancelModelForm, loadModelSettings, refreshProviderCatalog, editProvider, providerGroups,
+    startProviderConnection, cancelModelForm, loadModelSettings, editProvider, providerGroups,
     saveProvider, retryModelDiscovery, providerConnected, setDefaultModel, confirmDisconnectProvider, updateProviderDisconnect,
   }
 }

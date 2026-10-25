@@ -2693,3 +2693,5 @@ body {
 .sender-editing span { min-width: 0; overflow-wrap: anywhere; }
 .sender-editing .ant-btn { flex: none; }
 .rollback-scope { color: var(--muted); line-height: 1.6; }
+
+.state-sync-error{display:flex;align-items:center;justify-content:center;gap:.75rem;flex-wrap:wrap}

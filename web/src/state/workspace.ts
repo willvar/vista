@@ -16,8 +16,8 @@ export function sessionSnapshotIsCurrent(selected: Session | null, started: Sess
   return (selected?.id || '') === (started?.sessionId || '')
 }
 
-// A poll is a snapshot taken before the HTTP response arrives. SSE changes
-// received during that request have priority for the selected conversation.
+// A snapshot can arrive by HTTP or global SSE after newer conversation events.
+// Its saved boundary keeps those events authoritative in the selected view.
 export function mergeSessionSnapshot(
   snapshot: Session[], selected: Session | null, started: SessionSnapshotBoundary | null, lastEvent: number,
 ): Session[] {

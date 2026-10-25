@@ -9,6 +9,8 @@ import VistaMark from '../VistaMark.vue'
 import { elementScroll, useVirtualizer } from '@tanstack/vue-virtual'
 import { provideScrollbarDrag, useDragStableMeasurement } from '../composables/useScrollbarDrag'
 import RunTrace from '../RunTrace.vue'
+import RenderGuard from '../RenderGuard.vue'
+import MessageMarkdown from '../MessageMarkdown.vue'
 import RunToolOutput from '../RunToolOutput.vue'
 import BackgroundProcesses from '../BackgroundProcesses.vue'
 import { createRunTraceView, type RunTraceViewState } from '../state/runTraceView'
@@ -22,7 +24,6 @@ import QuestionForm from '../QuestionForm.vue'
 import WorkerStatus from '../WorkerStatus.vue'
 import { useWorkspace } from '../composables/useWorkspace'
 import { messageModelIdentity } from '../composables/usePresentation'
-import { renderMarkdown as messageHTML } from '../ui/markdown'
 
 const { t } = useI18n({ useScope: 'global' })
 const workspace = useWorkspace()
@@ -30,7 +31,7 @@ const { selected, needsProvider, busy, workerAvailable, modelLabel, modelCatalog
   historicalModelLabel, modelNameById, formatModelWithReasoning, renamingSessionID, sessionTitleDraft, beginRename, cancelRename, saveRename,
   workerMemory, mobileSessionsOpen, attentionCount, debugMode, route } = workspace
 const selectedWorkerMemory = computed(() => selected.value ? workerMemory(selected.value.id) : undefined)
-const { feedbackInvitationOpen,
+const { synchronization, viewRevision, resynchronize, renderFailure, feedbackInvitationOpen,
   beginEditMessage, withdrawMessage, rollbackFailure, draft, attachedImages,
   feedback, feedbackBusy, rateMessage, pendingInputs, inputQueuePaused, pendingBusy, mutateInput, resumeInputs,
   displayMessages: messages, processEvents, mainOutputs, modelOutput,
@@ -168,6 +169,20 @@ function prepareForSend() {
     requestAnimationFrame(() => scrollToLatest())
   })
 }
+watch(viewRevision, () => {
+  const element = messageList.value
+  if (!element || followingMessages.value) return
+  const viewport = element.getBoundingClientRect()
+  const anchor = [...element.querySelectorAll<HTMLElement>('.message-row')].find(row => row.getBoundingClientRect().bottom > viewport.top)
+  const key = anchor?.dataset.displayKey
+  const top = anchor?.getBoundingClientRect().top
+  const sessionId = selected.value?.id
+  void nextTick(() => requestAnimationFrame(() => {
+    if (messageList.value !== element || selected.value?.id !== sessionId || followingMessages.value || !key || top === undefined) return
+    const retained = [...element.querySelectorAll<HTMLElement>('.message-row')].find(row => row.dataset.displayKey === key)
+    if (retained) element.scrollTop += retained.getBoundingClientRect().top - top
+  }))
+}, { flush: 'sync' })
 watch(messageList, async element => {
   observer?.disconnect()
   outputObserver?.disconnect()
@@ -265,12 +280,15 @@ onUnmounted(() => {
           <WorkerStatus v-if="debugMode && selected.open" :key="selected.id" :memory="selectedWorkerMemory" :available="workerAvailable(selected.id)" />
         </div></div>
         <a-alert v-if="needsProvider" class="session-setup-notice" type="warning" :message="t('noModelConfigured')" />
+        <div v-if="synchronization.phase !== 'ready' && synchronization.phase !== 'stopped'" class="conversation-sync-notice" :role="synchronization.phase === 'error' ? 'alert' : 'status'">
+          <span>{{ t(synchronization.phase === 'error' ? 'conversationSyncFailed' : 'conversationSynchronizing') }}</span>
+          <a-button v-if="synchronization.phase === 'error'" size="small" @click="resynchronize">{{ t('conversationResynchronize') }}</a-button>
+        </div>
         <div class="workspace-body">
         <div class="conversation-column">
         <div class="conversation-history">
         <a-button v-if="hasOlder" :disabled="paging" @click="showOlderMessages">{{ t('loadOlderMessages') }}</a-button>
-        <div ref="messageList" class="messages" :class="{ empty: !messages.length }" @scroll="updateMessageScroll" @wheel.passive="manualScrollIntent" @touchmove.passive="manualScrollIntent" @pointerdown.capture="preserveTraceScroll" @keydown.enter.capture="preserveTraceScroll" @keydown.space.capture="preserveTraceScroll"><p v-if="!messages.length" class="conversation-empty">{{ t('conversationEmpty') }}</p><div class="message-space" :data-count="messages.length" :class="{ virtualized: virtualizedMessages }" :style="virtualizedMessages ? { height: `${messageVirtualizer.getTotalSize()}px` } : undefined"><div v-for="row in visibleMessages" :key="String(row.key)" :ref="measureMessage" :data-index="row.index" :data-display-key="row.message.displayKey" :data-progress="row.message.progress || undefined" class="message-row" :class="row.message.role" :style="virtualizedMessages ? { transform: `translateY(${row.start}px)` } : undefined"><RunTrace
-            v-if="runActivityAnchor(row.message)"
+        <div ref="messageList" class="messages" :class="{ empty: !messages.length }" @scroll="updateMessageScroll" @wheel.passive="manualScrollIntent" @touchmove.passive="manualScrollIntent" @pointerdown.capture="preserveTraceScroll" @keydown.enter.capture="preserveTraceScroll" @keydown.space.capture="preserveTraceScroll"><p v-if="!messages.length" class="conversation-empty">{{ t('conversationEmpty') }}</p><div class="message-space" :data-count="messages.length" :class="{ virtualized: virtualizedMessages }" :style="virtualizedMessages ? { height: `${messageVirtualizer.getTotalSize()}px` } : undefined"><div v-for="row in visibleMessages" :key="String(row.key)" :ref="measureMessage" :data-index="row.index" :data-display-key="row.message.displayKey" :data-progress="row.message.progress || undefined" class="message-row" :class="row.message.role" :style="virtualizedMessages ? { transform: `translateY(${row.start}px)` } : undefined"><RenderGuard v-if="runActivityAnchor(row.message)" :reset-key="traceSegment(row.message).key" @failure="renderFailure"><RunTrace
             :session-id="selected.id"
             :run-id="row.message.runId"
             :view-state="traceView(row.message)"
@@ -301,8 +319,8 @@ onUnmounted(() => {
               />
             </template>
 
-          </RunTrace>
-          <article :data-session-id="selected.id" :data-reply-sequence="row.message.role === 'assistant' && !row.message.progress ? row.message.sequence : undefined" :class="[row.message.role, { 'main-output': row.message.progress, 'live-response': row.message.progress && !row.message.mainOutput?.complete && agentWorking }]"><Bubble :streaming="!!row.message.progress && !row.message.mainOutput?.complete && agentWorking" :content="row.message.content" :placement="row.message.role === 'user' ? 'end' : 'start'" :variant="row.message.role === 'user' ? 'filled' : 'borderless'" :styles="{ body: { maxWidth: '100%', width: row.message.role === 'assistant' ? '100%' : undefined } }"><template #header><div class="message-meta"><small v-if="row.message.role === 'user'">{{ t('you') }}</small><time :datetime="row.message.createdAt" :title="localTime(row.message.createdAt)">{{ localTime(row.message.createdAt) }}</time></div></template><template #content><QuestionForm v-if="pendingQuestion && questionMessageID === row.message.id" :key="`${selected.id}/${pendingQuestion.runId}`" :session-id="selected.id" :run-id="pendingQuestion.runId" :questions="pendingQuestion.questions!" :busy="busy || !selected.open" :submit="submitQuestion" /><div v-else-if="row.message.failure" class="markdown run-failure-message" :data-quote-role="row.message.role" role="alert">{{ row.message.content }}</div><div v-else class="markdown" :data-quote-role="row.message.role" v-html="messageHTML(modelOutput[row.message.id]?.content ?? row.message.content)"></div><p v-if="row.message.failure" class="run-failure-help">{{ t('runFailureHelp') }}</p><MessageImages v-if="row.message.imageCount && selected" :session-id="selected.id" :message-id="row.message.id" :count="row.message.imageCount!" /><small v-if="modelOutputLoading[row.message.id]" class="message-output-loading" role="status">{{ t('outputLoading') }}</small><div v-if="modelOutputFailure[row.message.id]" class="message-output-error"><small role="alert" :title="modelOutputFailure[row.message.id]">{{ t('outputLoadFailed') }}</small><a-button size="small" @click="readDisplayOutput(row.message, true)">{{ t('retry') }}</a-button></div></template><template v-if="!row.message.progress" #footer><div class="reply-footer"><MessageActions :allow-mutation="row.message.role === 'user'" :mutation-disabled="busy || !selected.open" @edit="beginEditMessage(row.message)" @withdraw="requestWithdrawal(row.message)" :text="modelOutput[row.message.id]?.content ?? row.message.content" :allow-feedback="row.message.role === 'assistant'" :feedback="feedback[row.message.id]" :busy="feedbackBusy[row.message.id]" @feedback="rateMessage(row.message, $event)" :full-text="row.message.outputBytes && row.message.outputBytes! > 8192 ? () => fullMessageText(row.message) : undefined" /><MessageUsage v-if="row.message.role === 'assistant'" :results="resultsForMessage(row.message)" :model-name="runModelName(row.message)" /></div></template></Bubble></article>
+          </RunTrace><template #fallback="{ retry }"><div class="conversation-render-notice"><span>{{ t('executionDetailsUnavailable') }}</span><a-button size="small" @click="retry">{{ t('retry') }}</a-button></div></template></RenderGuard>
+          <article :data-session-id="selected.id" :data-reply-sequence="row.message.role === 'assistant' && !row.message.progress ? row.message.sequence : undefined" :class="[row.message.role, { 'main-output': row.message.progress, 'live-response': row.message.progress && !row.message.mainOutput?.complete && agentWorking }]"><Bubble :streaming="!!row.message.progress && !row.message.mainOutput?.complete && agentWorking" :content="row.message.content" :placement="row.message.role === 'user' ? 'end' : 'start'" :variant="row.message.role === 'user' ? 'filled' : 'borderless'" :styles="{ body: { maxWidth: '100%', width: row.message.role === 'assistant' ? '100%' : undefined } }"><template #header><div class="message-meta"><small v-if="row.message.role === 'user'">{{ t('you') }}</small><time :datetime="row.message.createdAt" :title="localTime(row.message.createdAt)">{{ localTime(row.message.createdAt) }}</time></div></template><template #content><QuestionForm v-if="pendingQuestion && questionMessageID === row.message.id" :key="`${selected.id}/${pendingQuestion.runId}`" :session-id="selected.id" :run-id="pendingQuestion.runId" :questions="pendingQuestion.questions!" :busy="busy || !selected.open" :submit="submitQuestion" /><div v-else-if="row.message.failure" class="markdown run-failure-message" :data-quote-role="row.message.role" role="alert">{{ row.message.content }}</div><MessageMarkdown v-else :content="modelOutput[row.message.id]?.content ?? row.message.content" :role="row.message.role" @failure="renderFailure" /><p v-if="row.message.failure" class="run-failure-help">{{ t('runFailureHelp') }}</p><MessageImages v-if="row.message.imageCount && selected" :session-id="selected.id" :message-id="row.message.id" :count="row.message.imageCount!" /><small v-if="modelOutputLoading[row.message.id]" class="message-output-loading" role="status">{{ t('outputLoading') }}</small><div v-if="modelOutputFailure[row.message.id]" class="message-output-error"><small role="alert" :title="modelOutputFailure[row.message.id]">{{ t('outputLoadFailed') }}</small><a-button size="small" @click="readDisplayOutput(row.message, true)">{{ t('retry') }}</a-button></div></template><template v-if="!row.message.progress" #footer><div class="reply-footer"><MessageActions :allow-mutation="row.message.role === 'user'" :mutation-disabled="busy || !selected.open" @edit="beginEditMessage(row.message)" @withdraw="requestWithdrawal(row.message)" :text="modelOutput[row.message.id]?.content ?? row.message.content" :allow-feedback="row.message.role === 'assistant'" :feedback="feedback[row.message.id]" :busy="feedbackBusy[row.message.id]" @feedback="rateMessage(row.message, $event)" :full-text="row.message.outputBytes && row.message.outputBytes! > 8192 ? () => fullMessageText(row.message) : undefined" /><MessageUsage v-if="row.message.role === 'assistant'" :results="resultsForMessage(row.message)" :model-name="runModelName(row.message)" /></div></template></Bubble></article>
         </div></div>
         <Bubble v-if="pendingQuestion && !questionMessageID" class="pending-question-fallback" :content="pendingQuestion.content" variant="borderless" :styles="{ body: { maxWidth: '100%', width: '100%' } }"><template #content><QuestionForm :key="`${selected.id}/${pendingQuestion.runId}`" :session-id="selected.id" :run-id="pendingQuestion.runId" :questions="pendingQuestion.questions!" :busy="busy || !selected.open" :submit="submitQuestion" /></template></Bubble>
 
@@ -338,3 +356,10 @@ onUnmounted(() => {
         <template #footer><a-button @click="feedbackInvitationOpen = false">{{ t('feedbackInvitationSkip') }}</a-button><a-button type="primary" @click="feedbackInvitationOpen = false">{{ t('feedbackInvitationAccept') }}</a-button></template>
       </a-modal>
 </template>
+
+<style scoped>
+.conversation-sync-notice,.conversation-render-notice{display:flex;align-items:center;gap:12px;color:var(--muted);font-size:var(--font-size-body);line-height:1.6}
+.conversation-sync-notice{padding:8px 16px;border-bottom:1px solid var(--border)}
+.conversation-sync-notice[role="alert"]{color:var(--danger)}
+.conversation-render-notice{padding:12px 0}
+</style>

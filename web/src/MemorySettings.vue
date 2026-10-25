@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { Alert as AAlert, Button as AButton, TextArea as ATextarea, type TextAreaRef } from 'antdv-next'
 import { DeleteOutlined, EditOutlined, PlusOutlined, ReloadOutlined, CommentOutlined, BookOutlined, RobotOutlined } from '@antdv-next/icons'
@@ -10,7 +10,7 @@ import type { Memories, Memory } from './client/types'
 
 const emit = defineEmits<{ 'modal-open': [open: boolean] }>()
 const { t } = useI18n({ useScope: 'global' })
-const { client } = useWorkspace()
+const { client, stateSync } = useWorkspace()
 const snapshot = ref<Memories>({ memories: [], maxCount: 128, maxBytes: 4096, maxTotalBytes: 32768 })
 const ready = ref(false)
 const loading = ref(false)
@@ -18,6 +18,7 @@ const busy = ref(false)
 const error = ref('')
 const editing = ref<Memory | 'new' | null>(null)
 const deleting = ref('')
+const deleteTarget = ref<Memory | null>(null)
 const deleteError = ref('')
 const draft = ref('')
 const editor = ref<TextAreaRef>()
@@ -27,8 +28,17 @@ let readController: AbortController | undefined
 const bytes = computed(() => new TextEncoder().encode(draft.value.trim()).length)
 const canSave = computed(() => !!draft.value.trim() && bytes.value <= snapshot.value.maxBytes
   && (editing.value === 'new' || !!editing.value && draft.value.trim() !== editing.value.text))
+// Keep an externally deleted row's editor alive until the user saves/cancels.
+// Its original text remains the compare-and-swap guard for a conflict response.
+const visibleMemories = computed(() => editing.value && editing.value !== 'new' && !snapshot.value.memories.some(item => item.id === (editing.value as Memory).id)
+  ? [...snapshot.value.memories, editing.value] : snapshot.value.memories)
 
 function setEditor(value: unknown) { editor.value = value as TextAreaRef | undefined }
+function updateDelete(memory: Memory, open: boolean) {
+  deleting.value = open ? memory.id : ''
+  deleteTarget.value = open ? { ...memory } : null
+  deleteError.value = ''
+}
 
 function message(failure: unknown) {
   if (failure instanceof VistaAPIError) {
@@ -41,20 +51,19 @@ function message(failure: unknown) {
   return failure instanceof Error ? failure.message : String(failure)
 }
 
-async function load() {
-  if (busy.value) return
-  deleting.value = ''
-  deleteError.value = ''
+async function load(signal?: AbortSignal, propagate = false) {
   readController?.abort()
   const controller = readController = new AbortController()
+  const requestSignal = signal ? AbortSignal.any([signal, controller.signal]) : controller.signal
   const version = ++generation
   loading.value = true
   error.value = ''
   try {
-    const result = await client.request<Memories>('/memories', { signal: controller.signal })
-    if (!disposed && generation === version) { snapshot.value = result; ready.value = true }
+    const result = await client.request<Memories>('/memories', { signal: requestSignal })
+    if (!disposed && !requestSignal.aborted && generation === version) { snapshot.value = result; ready.value = true }
   } catch (failure) {
-    if (!disposed && generation === version && !controller.signal.aborted) error.value = message(failure)
+    if (!disposed && generation === version && !requestSignal.aborted) error.value = message(failure)
+    if (propagate) throw failure
   } finally {
     if (!disposed && generation === version) loading.value = false
   }
@@ -82,19 +91,19 @@ async function change(action: 'add' | 'update' | 'remove', memory?: Memory) {
     : { action, id: memory!.id, previousText: memory!.text, ...action === 'update' ? { text: draft.value.trim() } : {} }
   try {
     const result = await client.request<Memories>('/memories', { method: 'POST', body: JSON.stringify(input) })
-    if (!disposed && generation === version) {
-      snapshot.value = result
+    if (!disposed) {
+      if (generation === version) snapshot.value = result
       editing.value = null
       draft.value = ''
       if (action === 'remove') deleting.value = ''
     }
   } catch (failure) {
-    if (!disposed && generation === version) {
+    if (!disposed) {
       if (action === 'remove') deleteError.value = message(failure)
       else error.value = message(failure)
     }
   } finally {
-    if (!disposed && generation === version) busy.value = false
+    if (!disposed) busy.value = false
   }
 }
 
@@ -102,9 +111,18 @@ function save() {
   if (!canSave.value || !editing.value) return
   void change(editing.value === 'new' ? 'add' : 'update', editing.value === 'new' ? undefined : editing.value)
 }
-onMounted(load)
-watch(deleting, value => emit('modal-open', !!value), { flush: 'sync' })
-onBeforeUnmount(() => { disposed = true; generation++; readController?.abort(); emit('modal-open', false) })
+const unsubscribe = stateSync.subscribe(['memories'], async (_, signal, snapshots) => {
+  if (!snapshots.memories) { await load(signal, true); return }
+  generation++
+  readController?.abort()
+  snapshot.value = snapshots.memories
+  ready.value = true
+  loading.value = false
+  if (!editing.value && !busy.value) error.value = ''
+  if (deleting.value && !snapshot.value.memories.some(item => item.id === deleting.value)) deleting.value = ''
+})
+watch(deleting, value => { if (!value) deleteTarget.value = null; emit('modal-open', !!value) }, { flush: 'sync' })
+onBeforeUnmount(() => { disposed = true; generation++; readController?.abort(); unsubscribe(); emit('modal-open', false) })
 </script>
 
 <template>
@@ -112,7 +130,7 @@ onBeforeUnmount(() => { disposed = true; generation++; readController?.abort(); 
     <div class="memory-heading">
       <h3 id="memory-heading">{{ t('memories') }}<small v-if="ready" aria-hidden="true">{{ snapshot.memories.length }}</small></h3>
       <div class="memory-actions">
-        <a-button type="text" :aria-label="t('refreshMemories')" :title="t('refreshMemories')" :loading="loading" :disabled="busy || !!editing" @click="load"><template #icon><ReloadOutlined aria-hidden="true" /></template></a-button>
+        <a-button type="text" :aria-label="t('refreshMemories')" :title="t('refreshMemories')" :loading="loading" :disabled="busy || !!editing" @click="load()"><template #icon><ReloadOutlined aria-hidden="true" /></template></a-button>
         <a-button :disabled="!ready || busy || !!editing || snapshot.memories.length >= snapshot.maxCount" @click="startEdit('new')"><template #icon><PlusOutlined aria-hidden="true" /></template>{{ t('addMemory') }}</a-button>
       </div>
     </div>
@@ -132,8 +150,8 @@ onBeforeUnmount(() => { disposed = true; generation++; readController?.abort(); 
     <p v-if="loading && !ready" role="status">{{ t('memoriesLoading') }}</p>
     <template v-if="ready">
       <p v-if="!snapshot.memories.length && !editing" class="memory-empty">{{ t('memoriesEmpty') }}</p>
-      <ul v-if="snapshot.memories.length" class="memory-list">
-        <li v-for="memory in snapshot.memories" :key="memory.id">
+      <ul v-if="visibleMemories.length" class="memory-list">
+        <li v-for="memory in visibleMemories" :key="memory.id">
           <template v-if="editing && editing !== 'new' && editing.id === memory.id">
             <form class="memory-editor" @submit.prevent="save">
               <a-textarea :ref="setEditor" v-model:value="draft" :aria-label="t('memoryText')" :auto-size="{ minRows: 2, maxRows: 8 }" :disabled="busy" :status="bytes > snapshot.maxBytes ? 'error' : undefined" />
@@ -144,7 +162,7 @@ onBeforeUnmount(() => { disposed = true; generation++; readController?.abort(); 
             <p class="memory-text">{{ memory.text }}</p>
             <div class="memory-row-actions">
               <a-button type="text" :aria-label="t('editMemory', { text: memory.text })" :title="t('edit')" :disabled="busy || !!editing" @click="startEdit(memory)"><template #icon><EditOutlined /></template></a-button>
-              <ConfirmPopover :show="deleting === memory.id" :message="t('removeMemory', { text: memory.text })" :cancel-text="t('cancel')" :confirm-text="t('delete')" :busy="busy" :error="deleteError" popover-class="memory-delete-popover" @update:show="deleting = $event ? memory.id : ''; deleteError = ''" @confirm="change('remove', memory)">
+              <ConfirmPopover :show="deleting === memory.id" :message="t('removeMemory', { text: deleteTarget?.id === memory.id ? deleteTarget.text : memory.text })" :cancel-text="t('cancel')" :confirm-text="t('delete')" :busy="busy" :error="deleteError" popover-class="memory-delete-popover" @update:show="updateDelete(memory, $event)" @confirm="change('remove', deleteTarget || memory)">
                 <template #trigger><a-button type="text" danger :aria-label="t('removeMemory', { text: memory.text })" :title="t('delete')" :disabled="busy || !!editing"><template #icon><DeleteOutlined /></template></a-button></template>
               </ConfirmPopover>
             </div>

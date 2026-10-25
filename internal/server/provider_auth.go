@@ -28,6 +28,24 @@ type providerLogin struct {
 	prepare func(context.Context) (func() error, error)
 }
 
+// Shared state contains outcomes only. Device codes and authorization URLs
+// remain in the attempt-specific response requested by its initiating view.
+type loginUpdate struct {
+	ID     string `json:"id"`
+	Status string `json:"status"`
+	Error  string `json:"error,omitempty"`
+}
+
+func (a *App) providerLoginUpdates() []loginUpdate {
+	a.providerLoginMu.Lock()
+	defer a.providerLoginMu.Unlock()
+	items := make([]loginUpdate, 0, len(a.providerLogins))
+	for _, login := range a.providerLogins {
+		items = append(items, loginUpdate{login.ID, login.Status, login.Error})
+	}
+	return items
+}
+
 func providerLoginPath(path string) (kind, id, providerID string) {
 	parts := strings.Split(strings.TrimPrefix(path, "/api/provider-auth/"), "/")
 	if len(parts) == 0 || len(parts) > 2 {
@@ -215,6 +233,7 @@ func (a *App) providerLoginStatus(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) completeProviderLogin(ctx context.Context, login *providerLogin) {
+	defer a.updates.notify("provider-login")
 	defer login.cancel()
 	commit, err := login.prepare(ctx)
 	a.providerLoginMu.Lock()

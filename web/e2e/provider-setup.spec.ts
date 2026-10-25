@@ -37,10 +37,16 @@ test.describe('custom provider dialogs', () => {
     await name.fill('Modal provider')
     await form.locator('label').filter({ hasText: /^Base URL/ }).locator('input').fill(vista.modelEndpoint)
     await form.locator('input[type=password]').fill('test-key')
+    const redundantReads: string[] = []
+    page.on('request', request => {
+      const path = new URL(request.url()).pathname
+      if (request.method() === 'GET' && ['/api/models', '/api/sessions', '/api/status', '/api/provider-config'].includes(path)) redundantReads.push(path)
+    })
     await form.getByRole('button', { name: 'Connect provider', exact: true }).click()
     const connection = settings.locator('.configured-provider').filter({ hasText: 'Modal provider' })
     await expect(connection).toBeVisible()
     await expect(form).toHaveCount(0)
+    expect(redundantReads).toEqual([])
     await connection.getByRole('button', { name: 'Edit', exact: true }).click()
     await expect(page.getByRole('dialog', { name: 'Edit provider connection', exact: true })).toBeVisible()
     await expect(form.locator('.provider-kind-value')).toHaveText('Custom provider')

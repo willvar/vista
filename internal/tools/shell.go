@@ -51,6 +51,7 @@ type shellWriter struct {
 	preview []byte
 	failure error
 	cancel  context.CancelFunc
+	notify  chan<- struct{}
 }
 
 func (w *shellWriter) Write(p []byte) (int, error) {
@@ -80,6 +81,12 @@ func (w *shellWriter) Write(p []byte) (int, error) {
 		w.failure = err
 	}
 	w.mu.Unlock()
+	if n > 0 && w.notify != nil {
+		select {
+		case w.notify <- struct{}{}:
+		default:
+		}
+	}
 	if err != nil {
 		w.cancel()
 	}

@@ -14,6 +14,12 @@ test('bulk session actions respect visible selection, keep the manager open and 
   const selectedCount = manager.locator('.session-bulk-actions [role="status"]')
   const rows = manager.locator('.managed-session')
   await expect(rows).toHaveCount(3)
+  const redundantReads: string[] = []
+  page.on('request', request => {
+    const path = new URL(request.url()).pathname
+    if (request.method() === 'GET' && ['/api/models', '/api/sessions', '/api/status'].includes(path)
+      && !(path === '/api/sessions' && new URL(request.url()).search === '')) redundantReads.push(path)
+  })
   await manager.getByRole('textbox', { name: 'Search sessions', exact: true }).fill('Bulk visible')
   await expect(rows).toHaveCount(2)
   await all.check()
@@ -35,6 +41,12 @@ test('bulk session actions respect visible selection, keep the manager open and 
 	await page.screenshot({ path: testInfo.outputPath('session-bulk-management.png'), animations: 'disabled' })
 
   let failSecondClose = true
+  // Delayed management reads can include later close/reopen commits. They
+  // must preserve row identity and the current selection throughout.
+  await page.route('**/api/sessions', async route => {
+    await new Promise(resolve => setTimeout(resolve, 250))
+    await route.continue()
+  })
   await page.route(`**/api/sessions/${second.id}/close`, async route => {
     if (failSecondClose) return route.fulfill({ status: 503, body: 'Controlled close failure' })
     return route.continue()
@@ -62,6 +74,9 @@ test('bulk session actions respect visible selection, keep the manager open and 
     [first.id, second.id].includes(session.id) && session.open).length).toBe(2)
   await expect(page).toHaveURL(url => url.pathname === '/sessions')
   await expect(manager).toBeVisible()
+  // Wait for the delayed management snapshot to render the reopened rows
+  // before comparing layout with and without the confirmation overlay.
+  await expect(manager.getByRole('button', { name: 'Close', exact: true })).toHaveCount(2)
 
   await firstCheckbox.check()
   const deleteSelected = manager.getByRole('button', { name: 'Delete selected', exact: true })
@@ -105,4 +120,5 @@ test('bulk session actions respect visible selection, keep the manager open and 
   await expect(rows).toHaveCount(1)
   await expect(page).toHaveURL(url => url.pathname === '/sessions')
   await expect(manager).toBeVisible()
+  expect(redundantReads).toEqual([])
 })

@@ -3,6 +3,7 @@ export type QuestionPrompt = { header?: string; question: string; options: Quest
 export type QuestionAnswer = { options: string[]; text?: string }
 export type PendingReply = { runId: string; kind: 'question'; content: string; questions: QuestionPrompt[] }
 export type Session = { id: string; title: string; modelKey: string; open: boolean; running: boolean; executing: boolean; createdAt: string; pendingReply?: PendingReply; inputQueuePaused?: boolean; readSequence?: number; latestReplySequence?: number; latestRunStatus?: string; pendingInputCount?: number; selectionMode?: 'manual' | 'auto'; selectionTier?: 'speed' | 'quality'; manualModelKey?: string; manualReasoningEffort?: string; selectionReasoningEffort?: string }
+export type SessionListSnapshot = { items: Session[]; throughSequences: Record<string, number> }
 export type ModelInfo = { key: string; connectionId?: string; name?: string; modelName?: string; provider: string; providerId?: string; id: string; baseUrl?: string; tools?: boolean; context?: number; inputLimit?: number; outputLimit?: number; catalogReasoning?: boolean; status?: string; inputModalities?: string[]; outputModalities?: string[]; discoverySource?: string; reasoningOptions?: string[]; reasoningEffort?: string }
 export type CopilotAuthOptions = { enterpriseUrl?: string; clientId?: string }
 export type ModelSetting = {
@@ -12,6 +13,18 @@ export type ProviderSetup = { id: string; name: string; aliases?: string; baseUr
 export type AgentSettings = { instructions: string; instructionsPath: string; delegationDepth: number; maxDelegationDepth: number }
 export type Memory = { id: string; text: string; createdAt: string; updatedAt: string }
 export type Memories = { memories: Memory[]; maxCount: number; maxBytes: number; maxTotalBytes: number }
+export type LoginUpdate = { id: string; status: string; error?: string }
+export type MCPCheck = { status: string; checkedAt?: string; toolCount: number; error?: string }
+export type MCPServer = {
+  id: string; name: string; transport: 'stdio' | 'http'; disabled?: boolean
+  command?: string; args?: string[]; directory?: string; endpoint?: string
+  oauth?: boolean; clientId?: string; hasToken: boolean; hasClientSecret: boolean
+  headerNames?: string[]; authorized: boolean; check: MCPCheck
+}
+export type MCPConfig = { servers: MCPServer[]; maxServers: number; defaultDirectory: string }
+export type MCPState = MCPConfig & { logins: LoginUpdate[] }
+export type ResourceStorageStats = { totalBytes: number; totalCount: number; referencedBytes: number; referencedCount: number; cleanableBytes: number; cleanableCount: number; scannedAt: string }
+export type ResourceStorageStatus = { phase: string; action?: string; stats?: ResourceStorageStats; deletedCount: number; deletedBytes: number; error?: string }
 export type ModelCatalog = { default: string; models: ModelInfo[] }
 export type OMPCatalogInfo = {
   revision: string
@@ -41,6 +54,8 @@ export type CatalogCheckRecord = Pick<OMPCatalogInfo, 'revision' | 'modelsDevRev
 }
 export type Message = { failure?: boolean; id: string; runId: string; provider?: string; modelId?: string; modelKey?: string; outputTurn?: number; outputBytes?: number; imageCount?: number; sequence: number; resultsAfter?: number; role: string; content: string; createdAt: string; modelResults?: ModelResultView[] }
 export type StreamEvent = { sequence: number; kind: string; createdAt?: string; data: any }
+export type SyncCheckpoint = { throughSequence: number; revertedSequence?: number; session: Session }
+export type ConversationSnapshot = SyncCheckpoint & { messages: Message[]; events: StreamEvent[]; hasOlder: boolean; hasOlderEvents: boolean; eventsBefore?: number }
 export type ToolOutputRef = { artifactId?: string; outputPath?: string; runId?: string; turn?: number; bytes: number }
 export type AgentTaskView = { id: string; parentId?: string; join?: 'required' | 'best_effort' | 'detached'; title: string; status: string; report?: { runId: string; turn: number; bytes: number } }
 export type RunOverview = { modelCalls: number; firstSequence?: number; throughSequence: number; startedAt: string; finishedAt?: string; lastActivityAt?: string; events: StreamEvent[] }

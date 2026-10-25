@@ -35,12 +35,11 @@ test('originals survive compaction and closing, and become cleanable only after 
   expect(await retained.body()).toEqual(original)
   await send(second.id, 'Same original, another session', 'second.png')
   await vista.api(`/sessions/${second.id}/close`, { method: 'POST', body: '{}' })
-  let interruptedPolls = 0
+  let statusReads = 0
   let cleanRequests = 0
   await page.route('**/api/resource-storage', route => {
-    if (route.request().method() === 'GET' && interruptedPolls === 0) {
-      interruptedPolls++
-      return route.fulfill({ status: 503, body: 'Temporary status connection failure' })
+    if (route.request().method() === 'GET') {
+      statusReads++
     }
     if (route.request().method() === 'POST' && route.request().postDataJSON().action === 'clean') {
       cleanRequests++
@@ -55,7 +54,7 @@ test('originals survive compaction and closing, and become cleanable only after 
   await expect(cards.nth(0)).toContainText('1 file')
   await expect(cards.nth(1)).toContainText('1 file')
   await expect(cards.nth(2)).toContainText('0 files')
-  expect(interruptedPolls).toBe(1)
+  expect(statusReads).toBe(0)
   const clean = page.getByRole('button', { name: 'Clean unreferenced resources', exact: true })
   await expect(clean).toBeDisabled()
   await vista.api(`/sessions/${first.id}`, { method: 'DELETE' })

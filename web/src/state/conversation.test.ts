@@ -228,3 +228,13 @@ test('actual reasoning survives request, live result and persisted reply without
   const reloaded = { ...state.messages[0], modelResults: [{ ...state.modelResults[0], reasoningEffort: 'max' }] }
   assert.equal(messageResults(reloaded, [])[0].reasoningEffort, 'max')
 })
+
+test('background output growth preserves job details and does not displace execution steps', () => {
+  let state = createConversationState(session)
+  state = reduceConversationEvent(state, event(1, 'job', { id: 'job', runId: 'run-a', status: 'running', command: 'long task', bytes: 0 }))
+  for (let sequence = 2; sequence < 1600; sequence++) state = reduceConversationEvent(state, event(sequence, 'job_output', { id: 'job', runId: 'run-a', bytes: sequence }))
+  assert.equal(state.jobs[0].bytes, 1599)
+  assert.equal(state.jobs[0].command, 'long task')
+  assert.equal(state.processEvents.length, 1)
+  assert.equal(state.lastEvent, 1599)
+})

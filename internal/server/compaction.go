@@ -81,11 +81,12 @@ func (a *App) compactSession(w http.ResponseWriter, r *http.Request, sessionID s
 		http.Error(w, err.Error(), code)
 		return
 	}
-	a.hub.notify(sessionID)
+	a.notifySession(sessionID)
 	command := workerproto.Command{Action: "compact", SessionID: sessionID, RunID: runID, MessageSequence: through, ReplyLanguage: language, Model: model, MCPServers: a.currentMCPServers()}
+	command.Debug = requestDebugMode(r)
 	if err := a.dispatchWorker(r.Context(), sessionID, command); err != nil {
 		_, _ = a.store.FinishCompaction(context.Background(), sessionID, runID, "failed", "Compaction could not start: "+err.Error())
-		a.hub.notify(sessionID)
+		a.notifySession(sessionID)
 		http.Error(w, "compaction could not start", 503)
 		return
 	}

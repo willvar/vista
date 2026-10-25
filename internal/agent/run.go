@@ -10,6 +10,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"vista/internal/modeltrace"
 	"vista/internal/provider"
 	"vista/internal/replylanguage"
 	"vista/internal/resources"
@@ -171,6 +172,7 @@ func run(ctx context.Context, command workerproto.Command, emit func(workerproto
 			}
 			reply = nil
 			command.MessageSequence = max(command.MessageSequence, input.MessageSequence)
+			command.Debug = input.Debug
 			if input.ReplyLanguage != "" {
 				command.ReplyLanguage = input.ReplyLanguage
 				ctx = replylanguage.WithDefault(ctx, input.ReplyLanguage)
@@ -251,7 +253,8 @@ turnLoop:
 		if requestErr != nil {
 			return "", requestErr
 		}
-		turn, err := provider.ModelTurnStreamWithReasoning(ctx, command.Model, requestMessages, offeredTools,
+		requestCtx := withModelDiagnostics(ctx, modeltrace.Scope{Enabled: command.Debug, SessionID: command.SessionID, RunID: command.RunID, TaskID: command.TaskID, Turn: turnID, Purpose: "conversation"}, emit)
+		turn, err := provider.ModelTurnStreamWithReasoning(requestCtx, command.Model, requestMessages, offeredTools,
 			func(fragment string) error {
 				if firstTextMS == nil && strings.TrimSpace(fragment) != "" {
 					firstTextMS = firstTextLatency(modelStarted)

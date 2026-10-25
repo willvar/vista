@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -28,6 +29,10 @@ func TestBackgroundJobKeepsSessionRunningAfterReply(t *testing.T) {
 	job.Status = "running"
 	if _, err := s.RecordJob(ctx, job); err != nil {
 		t.Fatal(err)
+	}
+	job.Bytes = 1234
+	if event, err := s.RecordJob(ctx, job); err != nil || event == nil || event.Kind != "job_output" || strings.Contains(string(event.Data), "sleep 10") {
+		t.Fatalf("output growth must be a compact metadata event: %+v %v", event, err)
 	}
 	if _, err := s.FinishRun(ctx, session, "run", "answer", "succeeded", "job started"); err != nil {
 		t.Fatal(err)

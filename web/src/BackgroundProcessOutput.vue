@@ -5,7 +5,6 @@ import { Button } from 'antdv-next'
 import { VerticalAlignBottomOutlined } from '@antdv-next/icons'
 import { useI18n } from 'vue-i18n'
 import { useWorkspace } from './composables/useWorkspace'
-import { jobActive } from './state/jobs'
 import type { Job, OutputView } from './client/types'
 import PlainTextOutput from './PlainTextOutput.vue'
 
@@ -24,7 +23,6 @@ const size = ref(props.job.bytes)
 const error = ref('')
 const following = ref(true)
 let closed = false
-let timer: ReturnType<typeof setTimeout> | undefined
 let frame = 0
 let programmatic = false
 let observer: ResizeObserver | undefined
@@ -111,28 +109,30 @@ function measure(element: Element | ComponentPublicInstance | null) {
   if (element instanceof Element) virtualizer.value.measureElement(element)
   else if (element === null) void nextTick(() => { if (!closed) virtualizer.value.measureElement(null) })
 }
-async function poll() {
+async function refreshTail() {
   if (closed) return
   // Re-read the boundary block too when a UTF-8 rune straddles the tail.
   const index = Math.floor(Math.max(0, size.value - 4) / blockSize)
   await read(index, true)
-  if (!closed && jobActive(props.job)) { clearTimeout(timer); timer = setTimeout(poll, 1000) }
 }
-function retry() { failures.clear(); error.value = ''; loadVisible(); void poll() }
+function retry() { failures.clear(); error.value = ''; loadVisible(); void refreshTail() }
 watch(() => rows.value.map(row => row.index).join(','), loadVisible)
-watch(() => props.job.bytes, bytes => { size.value = Math.max(size.value, bytes) })
+watch(() => [props.job.bytes, props.job.status], () => {
+  void refreshTail()
+  size.value = Math.max(size.value, props.job.bytes)
+  loadVisible()
+  void nextTick(follow)
+})
 watch(() => virtualizer.value.getTotalSize(), follow, { flush: 'post' })
-watch(() => jobActive(props.job), active => { if (!active) { clearTimeout(timer); void poll() } })
 onMounted(async () => {
   await nextTick()
   observer = new ResizeObserver(follow)
   if (viewport.value) observer.observe(viewport.value)
   follow()
-  void poll()
+  void refreshTail()
 })
 onUnmounted(() => {
   closed = true
-  clearTimeout(timer)
   cancelAnimationFrame(frame)
   observer?.disconnect()
   for (const controller of requests.values()) controller.abort()

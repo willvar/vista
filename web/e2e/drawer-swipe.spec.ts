@@ -16,7 +16,7 @@ async function prepareSessions(page: Page, vista: Vista, extraRows = 0) {
     ...other, id: `scroll-fixture-${index}`, title: `Scrollable conversation ${index + 1}`,
   }))]
   // Keep both real conversations in a stable order; the extra rows only supply scrollable content.
-  await page.route('**/api/sessions', route => route.request().method() === 'GET'
+  await page.route('**/api/sessions?open=true', route => route.request().method() === 'GET'
     ? route.fulfill({ json: rows }) : route.continue())
   await page.goto(`${vista.origin}/sessions/${active.id}`)
   await expect(page.locator('.conversation-header h2')).toHaveText(active.title)

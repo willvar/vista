@@ -8,6 +8,7 @@ import (
 	"unicode/utf8"
 
 	modelcfg "vista/internal/model"
+	"vista/internal/modeltrace"
 	"vista/internal/provider"
 	"vista/internal/replylanguage"
 	"vista/internal/workerproto"
@@ -155,7 +156,8 @@ func (c *executionCompactor) compact(ctx context.Context, command workerproto.Co
 		if err := emit(workerproto.Result{RunID: command.RunID, Kind: "model_request", Depth: depth, ModelUse: &workerproto.ModelUse{Provider: providerID, ID: model.ID, Key: model.Key, Purpose: "summary", ReasoningEffort: provider.ModelReasoningEffort(model)}}); err != nil {
 			return messages, false, err
 		}
-		turn, err := provider.ModelTurnStreamWithReasoning(ctx, model, []provider.ChatMessage{{Role: "system", Content: executionSummaryPrompt}, {Role: "user", Content: prompt}}, nil, nil, func(string) error { return nil })
+		requestCtx := withModelDiagnostics(ctx, modeltrace.Scope{Enabled: command.Debug, SessionID: command.SessionID, RunID: command.RunID, TaskID: command.TaskID, Purpose: "summary"}, emit)
+		turn, err := provider.ModelTurnStreamWithReasoning(requestCtx, model, []provider.ChatMessage{{Role: "system", Content: executionSummaryPrompt}, {Role: "user", Content: prompt}}, nil, nil, func(string) error { return nil })
 		if err != nil {
 			if provider.IsContextOverflow(err) && end > 256 && batchTokens > 1 {
 				batchTokens = max(int64(1), batchTokens/2)

@@ -14,6 +14,72 @@ import (
 	"time"
 )
 
+func TestBackgroundOutputPublishesGrowthBeforeExit(t *testing.T) {
+	root := t.TempDir()
+	events := make(chan BackgroundJob, 32)
+	manager := NewBackgroundManager(func(_ context.Context, job BackgroundJob) error { events <- job; return nil })
+	defer manager.Close()
+	job, err := manager.Start(context.Background(), root, "run", root, "printf 'first🙂'; sleep 30", time.Minute, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.After(3 * time.Second)
+	for {
+		select {
+		case progress := <-events:
+			if progress.Status != "running" || progress.Bytes == 0 {
+				continue
+			}
+			if progress.ID != job.ID || progress.Bytes != int64(len("first🙂")) || progress.Complete {
+				t.Fatalf("invalid progress: %+v", progress)
+			}
+			if data, err := os.ReadFile(job.OutputPath); err != nil || string(data) != "first🙂" {
+				t.Fatalf("growth announced before output was readable: %q %v", data, err)
+			}
+			return
+		case <-deadline:
+			t.Fatal("no output notification while process was still running")
+		}
+	}
+}
+
+func TestBackgroundProgressFailureIsNotReportedAsTimeout(t *testing.T) {
+	root := t.TempDir()
+	events := make(chan BackgroundJob, 32)
+	manager := NewBackgroundManager(func(_ context.Context, job BackgroundJob) error {
+		events <- job
+		if job.Status == "running" && job.Bytes > 0 {
+			return errors.New("progress storage unavailable")
+		}
+		return nil
+	})
+	defer manager.Close()
+	if _, err := manager.Start(context.Background(), root, "run", root, "printf output; sleep 30", time.Minute, nil); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.After(4 * time.Second)
+	for {
+		select {
+		case event := <-events:
+			if event.Status == "starting" || event.Status == "running" {
+				continue
+			}
+			if event.Status != "failed" || event.TerminationReason != "output_error" || !strings.Contains(event.Error, "progress storage unavailable") {
+				t.Fatalf("incorrect progress failure: %+v", event)
+			}
+			manager.Close()
+			select {
+			case late := <-events:
+				t.Fatalf("event after terminal state: %+v", late)
+			default:
+			}
+			return
+		case <-deadline:
+			t.Fatal("progress failure did not stop the background job")
+		}
+	}
+}
+
 func TestBackgroundJobOutlivesRunAndStopsDescendants(t *testing.T) {
 	root := t.TempDir()
 	events := make(chan BackgroundJob, 8)

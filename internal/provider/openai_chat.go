@@ -14,6 +14,7 @@ import (
 	"strings"
 
 	modelcfg "vista/internal/model"
+	"vista/internal/modeltrace"
 )
 
 const maxEventBytes = 128 << 10
@@ -388,7 +389,12 @@ func openAIChatTurnWithReasoning(ctx context.Context, model modelcfg.Model, mess
 	reasoningBytes := 0
 	var reasoningText strings.Builder
 	var observedReasoningField string
+	var reasoningFields []string
 	var reasoningDetails chatReasoningDetails
+	lineNumber, eventNumber := 0, 0
+	defer func() {
+		modeltrace.SetParsing(ctx, modeltrace.Parsing{Line: lineNumber, Event: eventNumber, ReasoningFields: reasoningFields, ReasoningFragments: reasoningDetails.fragments, ReasoningBlocks: len(reasoningDetails.items), ReasoningBytes: reasoningDetails.bytes, VisibleReasoningBytes: reasoningBytes})
+	}()
 	var data strings.Builder
 	sawData := false
 	parts := map[int]*ToolCall{}
@@ -400,6 +406,7 @@ func openAIChatTurnWithReasoning(ctx context.Context, model modelcfg.Model, mess
 	var usage *ModelUsage
 	done := false
 	for scanner.Scan() {
+		lineNumber++
 		line := scanner.Text()
 		if line == "" {
 			sawData = false
@@ -415,6 +422,7 @@ func openAIChatTurnWithReasoning(ctx context.Context, model modelcfg.Model, mess
 				done = true
 				break
 			}
+			eventNumber++
 			type annotation struct {
 				Type        string `json:"type"`
 				URLCitation struct {
@@ -481,6 +489,19 @@ func openAIChatTurnWithReasoning(ctx context.Context, model modelcfg.Model, mess
 				return Turn{}, errors.New("model returned multiple choices")
 			}
 			for _, choice := range choices {
+				for _, field := range []struct {
+					name    string
+					present bool
+				}{
+					{"reasoning_content", choice.Delta.ReasoningContent != ""},
+					{"reasoning", choice.Delta.Reasoning != ""},
+					{"reasoning_text", choice.Delta.ReasoningText != ""},
+					{"reasoning_details", len(choice.Delta.ReasoningDetails) > 0 && string(choice.Delta.ReasoningDetails) != "null"},
+				} {
+					if field.present && !slices.Contains(reasoningFields, field.name) {
+						reasoningFields = append(reasoningFields, field.name)
+					}
+				}
 				if model.ProviderID == "openrouter" || model.ProviderID == "standardcompute" {
 					for _, annotations := range [][]annotation{choice.Delta.Annotations, choice.Message.Annotations} {
 						for _, annotation := range annotations {

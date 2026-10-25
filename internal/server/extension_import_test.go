@@ -88,7 +88,13 @@ func TestMCPImportPreviewsWithoutConnectingAndPreservesCredentialsAndDisabledSta
 	if _, err := os.Stat(filepath.Join(app.configDir, "mcp.json")); !os.IsNotExist(err) {
 		t.Fatal("preview saved MCP settings")
 	}
+	if app.updates.snapshot().Revisions["mcp"] != 0 {
+		t.Fatal("preview announced an MCP configuration change")
+	}
 	extensionRequest(t, app, input, "import", 200)
+	if app.updates.snapshot().Revisions["mcp"] != 1 {
+		t.Fatal("import did not announce the committed MCP configuration")
+	}
 	if len(app.mcpServers) != 4 {
 		t.Fatal("selected MCP services not saved")
 	}

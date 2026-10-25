@@ -1,3 +1,4 @@
+import { installMockStateStream } from './state-stream-fixture'
 import { openSettingsSection } from './settings-navigation'
 import { test as base, expect, type Page, type Locator } from '@playwright/test'
 import { createServer } from 'vite'
@@ -32,6 +33,7 @@ async function mockSearchSettings(page: Page, origin: string) {
   await page.addInitScript(() => {
     if (!localStorage.getItem('vista-language')) localStorage.setItem('vista-language', 'en')
   })
+  await installMockStateStream(page)
   await page.route('**/api/**', async route => {
     const request = route.request()
     const path = new URL(request.url()).pathname.slice(4)

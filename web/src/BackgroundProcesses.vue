@@ -22,7 +22,6 @@ const stopping = ref(new Set<string>())
 const actions = new Set<AbortController>()
 const now = ref(Date.now())
 let controller: AbortController | undefined
-let timer: ReturnType<typeof setTimeout> | undefined
 let clock: ReturnType<typeof setInterval> | undefined
 let generation = 0
 useEscapeDismiss(visible)
@@ -50,10 +49,9 @@ const reason = computed(() => {
   if (value === 'output_error') return t('processOutputError')
   return job.value ? t(jobStatusKey(job.value)) : ''
 })
-function cancelRequests() { generation++; controller?.abort(); clearTimeout(timer) }
+function cancelRequests() { generation++; controller?.abort() }
 async function refresh() {
   if (!visible.value || !selectedId.value) return
-  clearTimeout(timer)
   controller?.abort()
   controller = new AbortController()
   const signal = controller.signal
@@ -70,7 +68,6 @@ async function refresh() {
   } finally {
     if (revision === generation) {
       loading.value = false
-      if (visible.value && job.value && jobActive(job.value)) timer = setTimeout(refresh, 2000)
     }
   }
 }
@@ -94,6 +91,10 @@ watch([visible, selectedId], () => {
     clock = setInterval(() => { now.value = Date.now() }, 1000)
     void refresh()
   }
+})
+watch(() => props.jobs, jobs => {
+  const latest = jobs.find(item => item.id === selectedId.value)
+  if (visible.value && latest) detail.value = latest
 })
 watch(() => [props.jobs, job.value], () => { for (const item of [...props.jobs, ...(job.value ? [job.value] : [])]) if (!jobActive(item)) stopping.value.delete(item.id) })
 async function stop() {

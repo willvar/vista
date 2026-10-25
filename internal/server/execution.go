@@ -16,6 +16,7 @@ import (
 	"github.com/google/uuid"
 	modelcfg "vista/internal/model"
 	"vista/internal/modelcatalog"
+	"vista/internal/modeltrace"
 	"vista/internal/platform"
 	"vista/internal/provider"
 	"vista/internal/question"
@@ -36,6 +37,7 @@ func workerImages(images []store.Image) []workerproto.Image {
 }
 
 func (a *App) submitMessage(w http.ResponseWriter, r *http.Request, sessionID string) {
+	debug := requestDebugMode(r)
 	var input struct {
 		ReplacesMessageID string          `json:"replacesMessageId"`
 		Content           string          `json:"content"`
@@ -227,9 +229,9 @@ func (a *App) submitMessage(w http.ResponseWriter, r *http.Request, sessionID st
 				return
 			}
 		}
-		queued, event, queueErr := a.store.QueueInputWithImages(r.Context(), sessionID, messageID, input.Mode, input.Content, images, key, effort, mode, tier)
+		queued, event, queueErr := a.store.QueueInputWithDiagnostics(r.Context(), sessionID, messageID, input.Mode, input.Content, images, debug, key, effort, mode, tier)
 		if queueErr == nil {
-			a.hub.notify(sessionID)
+			a.notifySession(sessionID, "sessions")
 			w.WriteHeader(202)
 			jsonOut(w, map[string]any{"input": queued, "event": event})
 			return
@@ -323,9 +325,11 @@ func (a *App) submitMessage(w http.ResponseWriter, r *http.Request, sessionID st
 		http.Error(w, err.Error(), 500)
 		return
 	}
-	a.hub.notify(sessionID)
-	a.background.Go(func() { a.generateSessionTitle(sessionID, message.ID, model) })
-	if err := a.dispatchRun(r.Context(), sessionID, runID, message, model); err != nil {
+	a.notifySession(sessionID)
+	a.background.Go(func() {
+		a.generateSessionTitle(sessionID, message.ID, model, modeltrace.Scope{Enabled: debug, SessionID: sessionID, RunID: runID, Purpose: "title"})
+	})
+	if err := a.dispatchRun(r.Context(), sessionID, runID, message, model, debug); err != nil {
 		http.Error(w, err.Error(), 503)
 		return
 	}
@@ -334,30 +338,31 @@ func (a *App) submitMessage(w http.ResponseWriter, r *http.Request, sessionID st
 	jsonOut(w, map[string]any{"runId": runID, "message": message, "event": event})
 }
 
-func (a *App) dispatchRun(ctx context.Context, sessionID, runID string, message store.Message, model modelcfg.Model) error {
+func (a *App) dispatchRun(ctx context.Context, sessionID, runID string, message store.Message, model modelcfg.Model, debug ...bool) error {
 	model.SessionID = sessionID
 	if err := a.store.RecordRunSelection(ctx, runID, model.ID, provider.ModelSelectionEffort(model), provider.ModelEndpointID(model)); err != nil {
 		_, _ = a.store.FinishRun(context.Background(), sessionID, runID, "", "interrupted", "Could not record selected model")
-		a.hub.notify(sessionID)
+		a.notifySession(sessionID)
 		return err
 	}
 	language, err := a.store.ReplyLanguage(ctx, sessionID)
 	if err != nil {
 		_, _ = a.store.FinishRun(context.Background(), sessionID, runID, "", "interrupted", "Could not load reply language")
-		a.hub.notify(sessionID)
+		a.notifySession(sessionID)
 		return err
 	}
 	currentImages, err := a.store.MessageResources(ctx, sessionID, message.ID)
 	if err != nil {
 		_, _ = a.store.FinishRun(context.Background(), sessionID, runID, "", "interrupted", "Could not load image input")
-		a.hub.notify(sessionID)
+		a.notifySession(sessionID)
 		return errors.New("could not load image input")
 	}
 	command := workerproto.Command{SessionID: sessionID, MessageSequence: message.Sequence, RunID: runID, Prompt: message.Content, ReplyLanguage: language, QuestionCallID: message.QuestionCallID, Images: currentImages, Model: model, MCPServers: a.currentMCPServers(), SearchProviders: a.currentSearchProviders(), SearchSummaryLength: a.currentSearchSummaryLength(), Webfetch: a.currentWebfetchSettings()}
+	command.Debug = len(debug) > 0 && debug[0]
 	if err := a.dispatchWorker(ctx, sessionID, command); err != nil {
 		completed, _ := a.store.FinishRun(context.Background(), sessionID, runID, "", "interrupted", "")
 		if completed != nil {
-			a.hub.notify(sessionID)
+			a.notifySession(sessionID)
 		}
 		return errors.New("Worker is unavailable; message was saved and execution interrupted")
 	}
@@ -418,7 +423,7 @@ func (a *App) cancelRun(ctx context.Context, id, runID string) error {
 	}
 	event, err := a.store.FinishRun(ctx, id, runID, "", "interrupted", "Cancelled by user before execution started")
 	if event != nil {
-		a.hub.notify(id)
+		a.notifySession(id)
 	}
 	return err
 }
@@ -474,21 +479,21 @@ func (a *App) readWorkerOutput(id string, w *worker, scanner *bufio.Scanner) {
 			log.Printf("worker %s interrupt record failed: %v", id, e)
 		}
 		for range events {
-			a.hub.notify(id)
+			a.notifySession(id)
 		}
 		jobEvents, jobErr := a.store.InterruptJobs(a.ctx, id, reason)
 		if jobErr != nil {
 			log.Printf("worker %s job interrupt record failed: %v", id, jobErr)
 		}
 		for range jobEvents {
-			a.hub.notify(id)
+			a.notifySession(id)
 		}
 		artifactEvents, artifactErr := a.store.InterruptArtifacts(a.ctx, id, reason)
 		if artifactErr != nil {
 			log.Printf("worker %s artifact interrupt record failed: %v", id, artifactErr)
 		}
 		for range artifactEvents {
-			a.hub.notify(id)
+			a.notifySession(id)
 		}
 		log.Printf("worker %s exited: %v", id, err)
 	}
@@ -501,6 +506,7 @@ func (a *App) readWorkerOutput(id string, w *worker, scanner *bufio.Scanner) {
 	close(w.done)
 	a.mu.Unlock()
 	if !stopping {
+		a.updates.notify("sessions", "status")
 		if restartAllowed {
 			a.background.Go(func() { a.recoverWorker(id) })
 		} else {
@@ -548,7 +554,7 @@ func (a *App) launchQueuedInput(sessionID string) {
 			log.Printf("session %s queued input rejection failed: %v", sessionID, markErr)
 		}
 		a.admissionMu.Unlock()
-		a.hub.notify(sessionID)
+		a.notifySession(sessionID)
 		return
 	}
 	selection, err := a.store.Get(a.ctx, sessionID)
@@ -567,7 +573,7 @@ func (a *App) launchQueuedInput(sessionID string) {
 	if err != nil {
 		_ = a.store.MarkQueuedInputs(a.ctx, sessionID, "", "interrupted")
 		a.admissionMu.Unlock()
-		a.hub.notify(sessionID)
+		a.notifySession(sessionID)
 		log.Printf("session %s queued model unavailable: %v", sessionID, err)
 		return
 	}
@@ -587,9 +593,11 @@ func (a *App) launchQueuedInput(sessionID string) {
 		log.Printf("session %s queued input start: %v", sessionID, err)
 		return
 	}
-	a.hub.notify(sessionID)
-	a.background.Go(func() { a.generateSessionTitle(sessionID, message.ID, model) })
-	if err := a.dispatchRun(a.ctx, sessionID, runID, *message, model); err != nil {
+	a.notifySession(sessionID)
+	a.background.Go(func() {
+		a.generateSessionTitle(sessionID, message.ID, model, modeltrace.Scope{Enabled: input.Debug, SessionID: sessionID, RunID: runID, Purpose: "title"})
+	})
+	if err := a.dispatchRun(a.ctx, sessionID, runID, *message, model, input.Debug); err != nil {
 		log.Printf("session %s queued input dispatch: %v", sessionID, err)
 		return
 	}

@@ -123,7 +123,7 @@ func (a *App) sessionSelection(w http.ResponseWriter, r *http.Request, id string
 		http.Error(w, "could not save session selection", 500)
 		return
 	}
-	a.hub.notify(id)
+	a.notifySession(id, "sessions")
 	jsonOut(w, value)
 }
 
@@ -183,7 +183,6 @@ func (a *App) messageFeedback(w http.ResponseWriter, r *http.Request, sessionID,
 		http.Error(w, "could not save feedback", 500)
 		return
 	}
-	a.hub.notify(sessionID)
 	jsonOut(w, value)
 }
 

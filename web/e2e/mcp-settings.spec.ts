@@ -1,7 +1,9 @@
+import { installMockStateStream, notifyState } from './state-stream-fixture'
 import { openSettingsSection } from './settings-navigation'
 import { test as base, expect, type Page } from '@playwright/test'
 import { createServer } from 'vite'
 import { resolve } from 'node:path'
+import type { MCPState } from '../src/client/types'
 
 const test = base.extend<{}, { mockOrigin: string }>({
   mockOrigin: [async ({}, use) => {
@@ -27,6 +29,7 @@ async function mockMCP(page: Page, origin: string) {
     ],
   }
   await page.addInitScript(() => localStorage.setItem('vista-language', 'en'))
+  await installMockStateStream(page)
   await page.route('**/api/**', async route => {
     const request = route.request()
     const path = new URL(request.url()).pathname.slice(4)
@@ -35,6 +38,7 @@ async function mockMCP(page: Page, origin: string) {
     if (path === '/mcp-config') {
       if (method === 'GET') {
         if (fixture.failRead) return route.fulfill({ status: 500, body: 'Could not load MCP settings' })
+        if (fixture.loginStatus === 'connected') fixture.servers.forEach(server => { if (server.oauth) server.authorized = true })
         return reply({ servers: fixture.servers.map(({ token, clientSecret, ...server }) => ({ ...server, hasToken: !!token, hasClientSecret: !!clientSecret })), maxServers: 4, defaultDirectory: '/home/user/project' })
       }
       const body = request.postDataJSON()
@@ -241,7 +245,18 @@ test('OAuth authorizes in browser, cancels active and late starts, and reports c
   await row.getByRole('button', { name: 'Authorize', exact: true }).click()
   await expect(link).toBeVisible()
   fixture.loginStatus = 'connected'
+  fixture.servers.forEach(server => { if (server.oauth) server.authorized = true })
+  const completionReads: string[] = []
+  page.on('request', request => {
+    const path = new URL(request.url()).pathname
+    if (request.method() === 'GET' && (path === '/api/mcp-config' || path.startsWith('/api/mcp-auth/'))) completionReads.push(path)
+  })
+  await notifyState(page, ['mcp'], { mcp: {
+    servers: fixture.servers.map(({ token, clientSecret, ...server }) => ({ ...server, hasToken: !!token, hasClientSecret: !!clientSecret })),
+    maxServers: 4, defaultDirectory: '/home/user/project', logins: [{ id: 'login-3', status: 'connected' }],
+  } as MCPState })
   await expect(dialog.getByRole('status')).toHaveText('Authorized. Ready for the next run.')
+  expect(completionReads).toEqual([])
   await dialog.locator('.mcp-form-actions').getByRole('button', { name: 'Close', exact: true }).click()
   await expect(row.getByRole('button', { name: 'Reauthorize', exact: true })).toBeVisible()
   expect(fixture.canceled).toEqual(['login-1', 'login-2'])
@@ -276,9 +291,9 @@ test('read and save failures are visible and preserve edits for retry', async ({
   await expect(dialog).toBeHidden()
   fixture.failRead = true
   await page.reload()
-  await expect(page.getByRole('alert')).toContainText('Could not load MCP settings')
+  await expect(page.locator('.mcp-settings').getByRole('alert')).toContainText('Could not load MCP settings')
   fixture.failRead = false
-  await page.getByRole('button', { name: 'Retry', exact: true }).click()
+  await page.locator('.mcp-settings').getByRole('button', { name: 'Retry', exact: true }).click()
   await expect(page.locator('[data-mcp="retry"]')).toBeVisible()
   expect(fixture.unexpected).toEqual([])
 })

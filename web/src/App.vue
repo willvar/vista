@@ -11,8 +11,8 @@ import VistaMark from './VistaMark.vue'
 import SessionIndicators from './SessionIndicators.vue'
 import { sessionHasUnread } from './state/workspace'
 const { t } = useI18n({ useScope: 'global' })
-const { router, error, busy, sessions, openSessions, selected, serverStatus, mobileSessionsOpen, settingsOpen,
-  backToWorkspace, openSettings, openSessionManager, create, action, workerAvailable } = provideWorkspace()
+const { router, error, busy, totalSessions, openSessions, selected, serverStatus, mobileSessionsOpen, settingsOpen,
+  stateConnection, stateSync, backToWorkspace, openSettings, openSessionManager, create, action, workerAvailable } = provideWorkspace()
 const layout = ref<HTMLElement | null>(null)
 const { desktop, width: sidebarWidth, minimum, maximum, resize, finishResize, reset } = useSidebarWidth()
 const sessionsPanel = ref<HTMLElement | null>(null)
@@ -44,6 +44,7 @@ function activateSession(id: string) {
   <main class="app-shell">
     <Transition name="mobile-sessions-mask"><div v-if="mobileSessionsOpen" ref="sessionsBackdrop" class="mobile-sessions-backdrop" @click="mobileSessionsOpen = false"></div></Transition>
     <p v-if="error" class="error">{{ error }}</p>
+    <p v-if="stateConnection.phase === 'error'" class="error state-sync-error" role="alert" :title="stateConnection.error"><span>{{ t('stateSyncFailed') }}</span><a-button size="small" @click="stateSync.reconnect()">{{ t('retry') }}</a-button></p>
     <div ref="layout" class="layout" :class="{ 'has-session': !!selected }">
       <router-view name="overlay" />
       <a-splitter class="workspace-splitter" :on-resize="resize" :on-resize-end="finishResize" :on-dragger-double-click="reset">
@@ -55,7 +56,7 @@ function activateSession(id: string) {
         <a-button type="text" class="sidebar-new-conversation" :disabled="busy" @click="create"><PlusOutlined aria-hidden="true" /><span>{{ t('newConversation') }}</span></a-button>
         <a-input v-if="openSessions.length" v-model:value="sessionSearch" class="sidebar-search" :placeholder="t('searchSessions')" :aria-label="t('searchSessions')" allow-clear><template #prefix><SearchOutlined aria-hidden="true" /></template></a-input>
         <div class="sidebar-section-label"><span>{{ t('recentConversations') }}</span><small>{{ openSessions.length || '' }}</small></div>
-        <p v-if="!openSessions.length" class="sidebar-empty">{{ t(sessions.length ? 'noOpenSessions' : 'createSessionHint') }}</p>
+        <p v-if="!openSessions.length" class="sidebar-empty">{{ t(totalSessions ? 'noOpenSessions' : 'createSessionHint') }}</p>
         <p v-else-if="!filteredSessions.length" class="sidebar-empty">{{ t('noMatchingSessions') }}</p>
         <ul><li v-for="item in filteredSessions" :key="item.id" :data-session-id="item.id" class="session-card" :class="{ selected: selected?.id === item.id }" role="button" tabindex="0" :aria-label="t('activateSession', { title: item.title })" :aria-current="selected?.id === item.id ? 'page' : undefined" @click="activateSession(item.id)" @keydown.enter.prevent="activateSession(item.id)" @keydown.space.prevent="activateSession(item.id)">
           <strong class="session-name" :class="{ unread: sessionHasUnread(item) }">{{ item.title }}</strong><a-button type="text" class="session-close icon-close" :aria-label="t('closeSession', { title: item.title })" :disabled="busy" @click.stop="action(item,'close')" @keydown.enter.stop @keydown.space.stop><CloseOutlined /></a-button>

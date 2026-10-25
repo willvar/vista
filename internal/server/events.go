@@ -36,26 +36,21 @@ type modelResultEvent struct {
 }
 
 func (a *App) messagesWithResults(r *http.Request, id string, items []store.Message) ([]messageWithResults, error) {
-	out := make([]messageWithResults, len(items))
-	runIDs := make([]string, 0, len(items))
-	messageIDs := make([]string, 0, len(items))
-	runs := make(map[string][]int, len(items))
-	for index, item := range items {
-		out[index].Message = item
-		if item.Role == "assistant" && item.RunID != "" {
-			messageIDs = append(messageIDs, item.ID)
-			if _, exists := runs[item.RunID]; !exists {
-				runIDs = append(runIDs, item.RunID)
-			}
-			runs[item.RunID] = append(runs[item.RunID], index)
+	var runIDs, messageIDs []string
+	seen := map[string]bool{}
+	for _, item := range items {
+		if item.Role != "assistant" || item.RunID == "" {
+			continue
+		}
+		messageIDs = append(messageIDs, item.ID)
+		if !seen[item.RunID] {
+			runIDs = append(runIDs, item.RunID)
+			seen[item.RunID] = true
 		}
 	}
 	boundaries, err := a.store.MessageResultBoundaries(r.Context(), id, messageIDs)
 	if err != nil {
 		return nil, err
-	}
-	for index := range out {
-		out[index].ResultsAfter = boundaries[out[index].ID]
 	}
 	events, err := a.store.ModelResultEvents(r.Context(), id, runIDs)
 	if err != nil {
@@ -65,9 +60,22 @@ func (a *App) messagesWithResults(r *http.Request, id string, items []store.Mess
 	if err != nil {
 		return nil, err
 	}
+	return messagesWithResultData(items, events, boundaries, efforts), nil
+}
+
+func messagesWithResultData(items []store.Message, events []store.Event, boundaries map[string]int64, efforts map[string]string) []messageWithResults {
+	out := make([]messageWithResults, len(items))
+	runs := map[string][]int{}
+	for index, item := range items {
+		out[index] = messageWithResults{Message: item}
+		out[index].ResultsAfter = boundaries[item.ID]
+		if item.Role == "assistant" && item.RunID != "" {
+			runs[item.RunID] = append(runs[item.RunID], index)
+		}
+	}
 	for _, event := range events {
 		var data workerproto.Result
-		if err := json.Unmarshal(event.Data, &data); err != nil || data.ModelResult == nil {
+		if json.Unmarshal(event.Data, &data) != nil || data.ModelResult == nil {
 			continue
 		}
 		result := modelResultEvent{TaskID: data.TaskID, ParentTaskID: data.ParentTaskID, Purpose: data.ModelResult.Purpose, Sequence: event.Sequence, CreatedAt: event.CreatedAt, RunID: data.RunID, Turn: data.Turn, Depth: data.Depth, Provider: data.ModelResult.Provider, ID: data.ModelResult.ID, FinishReason: data.ModelResult.FinishReason, Usage: data.ModelResult.Usage, DurationMS: data.ModelResult.DurationMS, ReasoningEffort: data.ModelResult.ReasoningEffort}
@@ -83,7 +91,21 @@ func (a *App) messagesWithResults(r *http.Request, id string, items []store.Mess
 			}
 		}
 	}
-	return out, nil
+	return out
+}
+
+func (a *App) conversationSnapshot(w http.ResponseWriter, r *http.Request, id string) {
+	w.Header().Set("Cache-Control", "no-store")
+	snapshot, err := a.store.ConversationSnapshot(r.Context(), id)
+	if err != nil {
+		http.Error(w, "could not load conversation snapshot", 500)
+		return
+	}
+	messages := messagesWithResultData(snapshot.Messages, snapshot.Results, snapshot.Boundaries, snapshot.Efforts)
+	jsonOut(w, struct {
+		store.ConversationSnapshot
+		Messages []messageWithResults `json:"messages"`
+	}{snapshot, messages})
 }
 
 type eventHub struct {
@@ -228,7 +250,15 @@ func (a *App) eventPage(w http.ResponseWriter, r *http.Request, id string) {
 		http.Error(w, err.Error(), 400)
 		return
 	}
-	items, err := a.store.EventsAfter(r.Context(), id, after, 100)
+	var through int64
+	if raw := r.URL.Query().Get("through"); raw != "" {
+		through, err = strconv.ParseInt(raw, 10, 64)
+		if err != nil || through < after || through <= 0 {
+			http.Error(w, "invalid through sequence", 400)
+			return
+		}
+	}
+	items, err := a.store.EventsThrough(r.Context(), id, after, through, 100)
 	if err != nil {
 		http.Error(w, err.Error(), 500)
 		return
@@ -262,26 +292,78 @@ func (a *App) eventStream(w http.ResponseWriter, r *http.Request, id string) {
 		return
 	}
 	flusher.Flush()
+	heartbeat := time.NewTicker(15 * time.Second)
+	defer heartbeat.Stop()
+	syncDue := true
+	writeEvent := func(event store.Event) bool {
+		// Explicit coverage detects a lost frame without assuming contiguous
+		// database sequences (conversation rollback can legitimately leave gaps).
+		b, err := json.Marshal(struct {
+			store.Event
+			AfterSequence int64 `json:"afterSequence"`
+		}{event, after})
+		if err != nil {
+			return false
+		}
+		_ = controller.SetWriteDeadline(time.Now().Add(5 * time.Second))
+		if _, err = fmt.Fprintf(w, "id: %d\nevent: record\ndata: %s\n\n", event.Sequence, b); err != nil {
+			return false
+		}
+		after = event.Sequence
+		return true
+	}
 	for {
+		if syncDue {
+			point, err := a.store.Checkpoint(r.Context(), id)
+			if err != nil {
+				return
+			}
+			// Drain a fixed committed range before its control frame. New writes
+			// are delivered on the next pass and cannot make catch-up endless.
+			for after < point.ThroughSequence {
+				events, err := a.store.EventsThrough(r.Context(), id, after, point.ThroughSequence, streamEventPageSize)
+				if err != nil || len(events) == 0 {
+					return
+				}
+				for _, event := range events {
+					if !writeEvent(event) {
+						return
+					}
+				}
+				flusher.Flush()
+			}
+			b, err := json.Marshal(point)
+			if err != nil {
+				return
+			}
+			_ = controller.SetWriteDeadline(time.Now().Add(5 * time.Second))
+			if _, err = fmt.Fprintf(w, "event: sync\ndata: %s\n\n", b); err != nil {
+				return
+			}
+			flusher.Flush()
+			syncDue = false
+		}
 		events, err := a.store.EventsAfter(r.Context(), id, after, streamEventPageSize)
 		if err != nil {
 			return
 		}
 		for _, event := range events {
-			b, err := json.Marshal(event)
-			if err != nil {
+			if !writeEvent(event) {
 				return
 			}
-			_ = controller.SetWriteDeadline(time.Now().Add(5 * time.Second))
-			if _, err = fmt.Fprintf(w, "id: %d\nevent: record\ndata: %s\n\n", event.Sequence, b); err != nil {
-				return
+			if event.Kind == "run_finished" || event.Kind == "conversation_reverted" {
+				syncDue = true
 			}
-			after = event.Sequence
 		}
 		if len(events) > 0 {
 			flusher.Flush()
 		}
-		if len(events) == streamEventPageSize {
+		select {
+		case <-heartbeat.C:
+			syncDue = true
+		default:
+		}
+		if len(events) == streamEventPageSize || syncDue {
 			continue
 		}
 		select {
@@ -290,13 +372,8 @@ func (a *App) eventStream(w http.ResponseWriter, r *http.Request, id string) {
 		case <-a.ctx.Done():
 			return
 		case <-wake:
-			continue
-		case <-time.After(15 * time.Second):
-			_ = controller.SetWriteDeadline(time.Now().Add(5 * time.Second))
-			if _, err = fmt.Fprint(w, ": keepalive\n\n"); err != nil {
-				return
-			}
-			flusher.Flush()
+		case <-heartbeat.C:
+			syncDue = true
 		}
 	}
 }
