@@ -2,9 +2,13 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
-	"fmt"
+	"io"
+	"os"
+	"path/filepath"
 	"strings"
+	"unicode/utf8"
 
 	"vista/internal/instance"
 	"vista/internal/provider"
@@ -59,38 +63,74 @@ func (r *toolRuntime) readFile(ctx context.Context, call provider.ToolCall) (str
 	if start < 1 || count < 1 {
 		return "", errors.New("startLine and lineCount must be positive integers; line numbers start at 1")
 	}
-	file, err := tools.ReadFile(input.Path)
+	stateDir, err := instance.Dir()
 	if err != nil {
 		return "", err
 	}
-	// Use the same newline/line-number convention as search, including a blank
-	// final line after a trailing newline. Hashes still cover the original bytes.
-	lines := strings.Split(file.Content, "\n")
-	if start > len(lines) {
-		return "", fmt.Errorf("startLine %d is beyond the end of the file (%d lines); use a startLine between 1 and %d", start, len(lines), len(lines))
+	dir := filepath.Join(stateDir, "outputs")
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		return "", err
 	}
-	count = min(count, len(lines)-start+1, maxToolResultLines)
-	for {
-		numbered := make([]string, count)
-		for i := range numbered {
-			numbered[i] = fmt.Sprintf("%d: %s", start+i, lines[start+i-1])
-		}
-		page := fileReadPage{
-			Path: file.Path, SHA256: file.SHA256, Content: strings.Join(numbered, "\n"),
-			StartLine: start, EndLine: start + count - 1, LineCount: count,
-			TotalLines: len(lines), Bytes: len(file.Content), Truncated: start+count-1 < len(lines),
-		}
-		if page.Truncated {
-			page.NextLine = page.EndLine + 1
-		}
-		output, err := marshalResult(page)
-		if err != nil || !exceedsToolBudget(output) || count == 1 {
-			// A single oversized line uses the normal recoverable artifact path;
-			// never split it and then advance nextLine past unread content.
-			return output, err
-		}
-		count /= 2
+	selected, err := os.CreateTemp(dir, "lines-*")
+	if err != nil {
+		return "", err
 	}
+	defer selected.Close()
+	defer os.Remove(selected.Name())
+	// Leave room for JSON escaping and metadata without splitting source lines.
+	file, err := tools.ReadLines(ctx, input.Path, start, min(count, maxToolResultLines-2), maxToolResult-2048, selected)
+	if err != nil {
+		return "", err
+	}
+	page := fileReadPage{Path: file.Path, SHA256: file.SHA256, StartLine: start, EndLine: file.EndLine,
+		LineCount: file.EndLine - start + 1, TotalLines: file.TotalLines, Bytes: int(file.Bytes), Truncated: file.EndLine < file.TotalLines}
+	if page.Truncated {
+		page.NextLine = page.EndLine + 1
+	}
+	if _, err = selected.Seek(0, io.SeekStart); err != nil {
+		return "", err
+	}
+	if !file.Oversized {
+		text, err := io.ReadAll(selected)
+		if err != nil {
+			return "", err
+		}
+		page.Content = string(text)
+		return marshalResult(page)
+	}
+	// A first line larger than a page is retained in an artifact. JSON is
+	// escaped in bounded chunks instead of materializing the line in RAM.
+	reference, err := recordToolOutputStream(ctx, r.parent.RunID, call.ID, func(output io.Writer) error {
+		envelope, err := json.Marshal(page)
+		if err != nil {
+			return err
+		}
+		prefix, suffix, _ := strings.Cut(string(envelope), `"content":""`)
+		if _, err = io.WriteString(output, prefix+`"content":`); err != nil {
+			return err
+		}
+		if err = streamJSONString(ctx, output, selected); err != nil {
+			return err
+		}
+		_, err = io.WriteString(output, suffix)
+		return err
+	}, r.emit)
+	if err != nil {
+		return "", err
+	}
+	if _, err = selected.Seek(0, io.SeekStart); err != nil {
+		return "", err
+	}
+	preview, err := io.ReadAll(io.LimitReader(selected, maxToolResult/8))
+	if err != nil {
+		return "", err
+	}
+	page.Content = textPrefix(string(preview), len(preview))
+	output, err := marshalResult(page)
+	if err != nil {
+		return "", err
+	}
+	return modelToolPreview(output, reference), nil
 }
 
 var searchSchema = map[string]any{"type": "function", "function": map[string]any{"name": "search", "description": "Search UTF-8 files under an explicit absolute directory with a Go regular expression. Matches include 1-based line numbers; use read_file with startLine to read surrounding lines. Respects ancestor and nested .gitignore rules; skips .git and node_modules directories.", "parameters": map[string]any{"type": "object", "properties": map[string]any{"root": map[string]any{"type": "string"}, "pattern": map[string]any{"type": "string"}}, "required": []string{"root", "pattern"}}}}
@@ -130,4 +170,45 @@ func (r *toolRuntime) writeFile(ctx context.Context, call provider.ToolCall) (st
 		return "", err
 	}
 	return marshalResult(map[string]any{"path": input.Path, "sha256": hash})
+}
+
+// streamJSONString preserves the source exactly while bounding each escaped chunk.
+func streamJSONString(ctx context.Context, w io.Writer, r io.Reader) error {
+	if _, err := io.WriteString(w, `"`); err != nil {
+		return err
+	}
+	buffer := make([]byte, (32<<10)+utf8.UTFMax)
+	pending := 0
+	for {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		n, err := r.Read(buffer[pending : 32<<10])
+		n += pending
+		cut := n
+		if err != io.EOF {
+			for cut > 0 && !utf8.Valid(buffer[:cut]) && n-cut < utf8.UTFMax {
+				cut--
+			}
+		}
+		if !utf8.Valid(buffer[:cut]) {
+			return errors.New("file changed to invalid UTF-8")
+		}
+		escaped, encodeErr := json.Marshal(string(buffer[:cut]))
+		if encodeErr != nil {
+			return encodeErr
+		}
+		if _, writeErr := w.Write(escaped[1 : len(escaped)-1]); writeErr != nil {
+			return writeErr
+		}
+		pending = copy(buffer, buffer[cut:n])
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return err
+		}
+	}
+	_, err := io.WriteString(w, `"`)
+	return err
 }

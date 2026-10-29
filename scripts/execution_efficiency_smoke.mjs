@@ -1,5 +1,5 @@
 import { availableVistaPort } from './test_port.mjs'
-import { prepareVistaTestConfig } from './test_config.mjs'
+import { prepareVistaTestConfig, projectRulesFixture } from './test_config.mjs'
 import assert from 'node:assert/strict'
 import { execFile } from 'node:child_process'
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
@@ -12,6 +12,7 @@ const binary = resolve(process.env.VISTA_BIN || 'bin/vista')
 const parent = resolve('.vista/test-state')
 mkdirSync(parent, { recursive: true })
 const state = mkdtempSync(join(parent, 'eff-'))
+const readRules = projectRulesFixture(state)
 const config = join(state, 'vista')
 mkdirSync(config, { mode: 0o700 })
 const input = join(state, 'input.txt')
@@ -51,6 +52,7 @@ const provider = createServer(async (request, response) => {
       if (prompt === 'slow evidence') await slowReady
       return send({ content: `Conclusion: ${prompt}.\nEvidence: input.txt:1.\nVerified scope: fixture response only.\nUncertainty: none.\nReview needed: none.` })
     }
+    if (readRules(body, response)) return
     mainRequests++
     const outputs = body.messages.filter(message => message.role === 'tool')
     for (const output of outputs) assert.ok(body.messages.some(message => message.tool_calls?.some(call => call.id === output.tool_call_id)), 'orphan tool result')
@@ -160,7 +162,7 @@ try {
   assert.ok(ownWork.sequence < slowCompleted.sequence, 'parent waited for slow task before doing independent work')
   const artifacts = await api(`/sessions/${session.id}/artifacts`)
   assert.ok(artifacts.some(artifact => artifact.bytes === Buffer.byteLength(contents) && artifact.complete), 'shell artifact not persisted')
-  console.log(JSON.stringify({ mainRequests, childRequests, reportOrder: resultsSeen, artifactBytes: Buffer.byteLength(contents), status: finished.data.status }))
+  console.log(JSON.stringify({ mainRequests, ruleRequests: readRules.requests, childRequests, reportOrder: resultsSeen, artifactBytes: Buffer.byteLength(contents), status: finished.data.status }))
 } catch (error) {
   try { console.error(readFileSync(join(config, 'state', 'server.log'), 'utf8').replaceAll(state, '<fixture>')) } catch {}
   throw error

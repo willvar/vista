@@ -287,6 +287,7 @@ turnLoop:
 			return "", err
 		}
 		overflowRecoveries = 0
+		prepared.instructions.acknowledge(messages)
 		// A successful request has seen its selected images. Keep only references
 		// for later turns; failed requests retain activation for overflow retry.
 		for i := range messages {
@@ -326,7 +327,8 @@ turnLoop:
 			}
 		}
 		if len(turn.Calls) == 0 {
-			if strings.TrimSpace(turn.Text) == "" {
+			hasText := strings.TrimSpace(turn.Text) != ""
+			if !hasText {
 				if continuation, ok := turn.HostedContinuation(); ok {
 					if err := retainModelMessage(command, turnID, "assistant", 0, continuation, depth, emit); err != nil {
 						return "", err
@@ -334,20 +336,28 @@ turnLoop:
 					messages = append(messages, continuation)
 					continue
 				}
-				return "", errors.New("model returned an empty answer")
+				if !turn.StoppedNormally() {
+					return "", errors.New("model returned an empty answer without a normal stop")
+				}
 			}
-			preview := answerPreview(turn.Text, command.RunID, turnID)
-			message := provider.ChatMessage{Role: "assistant", Content: preview}
-			if len(turn.Text) <= 8<<10 {
-				message = turn.AssistantMessage(preview)
+			preview := ""
+			var reply *workerproto.CompletedReply
+			// Empty final replies are lifecycle state, not replayable assistant messages.
+			if hasText {
+				preview = answerPreview(turn.Text, command.RunID, turnID)
+				reply = &workerproto.CompletedReply{Turn: turnID, FullBytes: len(turn.Text), Content: preview}
+				message := provider.ChatMessage{Role: "assistant", Content: preview}
+				if len(turn.Text) <= 8<<10 {
+					message = turn.AssistantMessage(preview)
+				}
+				retained := message
+				retained.Content = turn.Text // The next run also retains long formal answers in full.
+				if err := retainModelMessage(command, turnID, "assistant", 0, retained, depth, emit); err != nil {
+					return "", err
+				}
+				messages = append(messages, retained)
 			}
-			retained := message
-			retained.Content = turn.Text // The next run also retains long formal answers in full.
-			if err := retainModelMessage(command, turnID, "assistant", 0, retained, depth, emit); err != nil {
-				return "", err
-			}
-			messages = append(messages, retained)
-			if count, err := consumeInputs(&workerproto.CompletedReply{Turn: turnID, FullBytes: len(turn.Text), Content: preview}); err != nil {
+			if count, err := consumeInputs(reply); err != nil {
 				return "", err
 			} else if count > 0 {
 				continue
@@ -367,13 +377,19 @@ turnLoop:
 				}
 			}
 			if depth == 0 {
-				if err := emit(workerproto.Result{RunID: command.RunID, Kind: "model_complete", Turn: turnID, FullBytes: len(turn.Text)}); err != nil {
+				completed := workerproto.Result{RunID: command.RunID, Kind: "model_complete"}
+				if hasText {
+					completed.Turn, completed.FullBytes = turnID, len(turn.Text)
+				}
+				if err := emit(completed); err != nil {
 					return "", err
 				}
 			}
-			report = &workerproto.OutputRef{RunID: command.RunID, Turn: turnID, Bytes: int64(len(turn.Text))}
-			if depth > 0 {
-				return turn.Text, nil
+			if hasText {
+				report = &workerproto.OutputRef{RunID: command.RunID, Turn: turnID, Bytes: int64(len(turn.Text))}
+				if depth > 0 {
+					return turn.Text, nil
+				}
 			}
 			return preview, nil
 		}
@@ -457,7 +473,7 @@ turnLoop:
 					}
 					return emit(result)
 				}
-				runtime := &toolRuntime{definitions: prepared.tools, mcp: mcp, scope: scope, depth: depth, parent: command, emit: toolEmit, jobs: jobs, runChild: runChild}
+				runtime := &toolRuntime{definitions: prepared.tools, mcp: mcp, scope: scope, depth: depth, parent: command, emit: toolEmit, jobs: jobs, runChild: runChild, instructions: &prepared.instructions}
 				output, toolErr := "", callErrors[index]
 				if toolErr == nil {
 					output, toolErr = runtime.execute(ctx, call)

@@ -130,7 +130,8 @@ const itemsByTask = computed(() => new Map(trace.value.tasks.map(task => [task.i
   })) as Node[]])))
 function taskItems(task: RunTraceTask): Node[] { return itemsByTask.value.get(task.id) || [] }
 const runStatusCode = computed(() => trace.value.finished?.data.status || (segmentComplete.value ? 'succeeded' : segmentActive.value ? 'active' : rootTask.value?.status || 'finished'))
-const runStatus = computed(() => trace.value.finished ? executionStatus(trace.value.finished.data.status) : segmentComplete.value ? t('traceCompleted') : segmentActive.value ? props.status : rootTask.value?.status ? executionStatus(rootTask.value.status) : t('traceFinished'))
+const emptyReply = computed(() => trace.value.finished?.data.status === 'succeeded' && trace.value.finished.data.emptyReply === true)
+const runStatus = computed(() => emptyReply.value ? t('traceEmptyReply') : trace.value.finished ? executionStatus(trace.value.finished.data.status) : segmentComplete.value ? t('traceCompleted') : segmentActive.value ? props.status : rootTask.value?.status ? executionStatus(rootTask.value.status) : t('traceFinished'))
 const checklistIcons: Record<string, Component> = {
   done: CheckOutlined, in_progress: LoadingOutlined, blocked: ExclamationCircleOutlined,
   interrupted: StopOutlined, incomplete: MinusOutlined, pending: ClockCircleOutlined,
@@ -151,7 +152,7 @@ const contextNotices = computed(() => {
   })
   return [...notices.values()].sort((a, b) => a.sequence - b.sequence)
 })
-const hasDetails = computed(() => trace.value.nodes.length > 0 || agents.value.some(agent => agent.task.id !== 'main') || contextNotices.value.length > 0)
+const hasDetails = computed(() => emptyReply.value || trace.value.nodes.length > 0 || agents.value.some(agent => agent.task.id !== 'main') || contextNotices.value.length > 0)
 const callCount = computed(() => {
   if (modelCalls.value !== null) return modelCalls.value
   const calls = new Set(segmentResults.value.map(result => result.sequence))

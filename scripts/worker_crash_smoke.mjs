@@ -1,5 +1,5 @@
 import { availableVistaPort } from './test_port.mjs'
-import { prepareVistaTestConfig } from './test_config.mjs'
+import { prepareVistaTestConfig, projectRulesFixture } from './test_config.mjs'
 import { createServer } from 'node:http'
 import { execFile, execFileSync } from 'node:child_process'
 import { promisify } from 'node:util'
@@ -11,16 +11,21 @@ const binary = process.env.VISTA_BIN || join(process.cwd(), 'bin', 'vista')
 const stateParent = join(process.cwd(), '.vista', 'test-state')
 mkdirSync(stateParent, { recursive: true })
 const state = mkdtempSync(join(stateParent, 'vista-worker-crash-'))
+const readRules = projectRulesFixture(state)
 const childPidFile = join(state, 'child.pid')
 let calls = 0
-const provider = createServer((request, response) => {
+const provider = createServer(async (request, response) => {
   if (request.url === '/v1/models') {
     response.writeHead(200, { 'Content-Type': 'application/json' })
     response.end(JSON.stringify({ data: [{ id: 'crash-fixture' }] }))
     return
   }
+  if (request.url !== '/v1/chat/completions') throw new Error(request.url)
+  let raw = ''
+  for await (const chunk of request) raw += chunk
+  if (readRules(JSON.parse(raw), response)) return
   calls++
-  if (calls !== 1 || request.url !== '/v1/chat/completions') throw new Error('side-effecting tool was replayed')
+  if (calls !== 1) throw new Error('side-effecting tool was replayed')
   const args = JSON.stringify({ directory: state, command: `sleep 30 & echo $! > ${childPidFile}; wait`, timeoutSeconds: 60 })
   const chunk = JSON.stringify({ choices: [{ delta: { tool_calls: [{ index: 0, id: 'call_shell', type: 'function', function: { name: 'shell', arguments: args } }] }, finish_reason: 'tool_calls' }] })
   response.writeHead(200, { 'Content-Type': 'text/event-stream' })

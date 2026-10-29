@@ -113,6 +113,9 @@ export function projectToolOutput(raw: string, toolName?: string): Pick<RunTrace
     const operation = toolOperationLabelKey(toolName)
     if (['traceOpAwaitAgent', 'traceOpCancelAgent'].includes(operation) && fields.status === 'canceled' && typeof fields.taskId === 'string') return { body: '', rawBody: raw, resultSummaryKey: 'traceAgentCanceled' }
     if (error) return { body: preview, error, rawBody: raw }
+    if (fields.status === 'instructions_required' && fields.executed === false && Array.isArray(fields.instructions)) {
+      return { body: '', rawBody: raw, resultSummaryKey: 'traceInstructionsRequired', instructions: fields.instructions.filter(item => item && typeof item.path === 'string').map(item => ({ path: item.path, bytes: typeof item.bytes === 'number' ? item.bytes : undefined })) }
+    }
     if (operation === 'traceOpMemory' && Array.isArray(fields.memories)) {
       const memories = fields.memories.filter(item => item && typeof item.text === 'string')
       return { body: memories.map(item => item.text).join('\n\n'), rawBody: raw, resultSummaryKey: memories.length ? undefined : 'memoriesEmpty' }

@@ -173,6 +173,20 @@ test('successful async delegation and waiting keep each child running until its 
   assert.equal(canceled.tasks.find(task => task.id === 'main/b')?.nodes[0]?.status, 'abort')
 })
 
+test('unread directory rules show an unexecuted operation with readable rule paths', () => {
+  for (const tool of ['shell', 'write_file', 'read_file', 'start_background', 'read_resource']) {
+    const output = projectToolOutput(JSON.stringify({
+      status: 'instructions_required', executed: false, target: '/project',
+      instructions: [{ path: '/project/AGENTS.md', bytes: 128, sha256: 'digest' }],
+      message: 'Operation not executed.',
+    }), tool)
+    assert.equal(output.resultSummaryKey, 'traceInstructionsRequired')
+    assert.equal(output.body, '')
+    assert.equal(output.error, undefined)
+    assert.deepEqual(output.instructions, [{ path: '/project/AGENTS.md', bytes: 128 }])
+  }
+})
+
 test('an explicit retry preserves the failed attempt and associates output with the owning call and task', () => {
   const trace = buildRunTrace([
     event(1, 'tool', { status: 'started', taskId: 'a', tool: { name: 'shell', callId: 'call' } }),

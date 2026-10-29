@@ -99,6 +99,19 @@ type HostedCall struct {
 	Failure bool
 }
 
+// StoppedNormally distinguishes an intentional empty final reply from missing
+// or abnormal termination. Transport and protocol validation remain in adapters.
+func (turn Turn) StoppedNormally() bool {
+	if len(turn.Calls) != 0 {
+		return false
+	}
+	switch strings.ToLower(turn.FinishReason) {
+	case "stop", "end", "end_turn", "stop_sequence", "complete", "completed":
+		return true
+	}
+	return false
+}
+
 type ModelUsage struct {
 	InputTokens     int64
 	OutputTokens    int64

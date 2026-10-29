@@ -1,5 +1,5 @@
 import { availableVistaPort } from './test_port.mjs'
-import { prepareVistaTestConfig } from './test_config.mjs'
+import { prepareVistaTestConfig, projectRulesFixture } from './test_config.mjs'
 import { createServer } from 'node:http'
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
@@ -11,6 +11,7 @@ const binary = process.env.VISTA_BIN || join(process.cwd(), 'bin', 'vista')
 const stateParent = join(process.cwd(), '.vista', 'test-state')
 mkdirSync(stateParent, { recursive: true })
 const state = mkdtempSync(join(stateParent, 'vista-gemini-'))
+const readRules = projectRulesFixture(state)
 const inputPath = join(state, 'note.txt')
 writeFileSync(inputPath, 'hello from Gemini tool')
 let calls = 0
@@ -19,6 +20,7 @@ const provider = createServer(async (request, response) => {
   let raw = ''
   for await (const chunk of request) raw += chunk
   const body = JSON.parse(raw)
+  if (readRules(body, response, 'gemini')) return
   calls++
   response.writeHead(200, { 'Content-Type': 'text/event-stream' })
   if (calls === 1) {

@@ -1,19 +1,22 @@
 package tools
 
 import (
+	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 )
 
 type InstructionFile struct {
-	Path  string `json:"path"`
-	Bytes int64  `json:"bytes"`
+	Path   string `json:"path"`
+	Bytes  int64  `json:"bytes"`
+	SHA256 string `json:"sha256"`
 }
 
 // DiscoverProjectInstructions returns outer rules before nearer rules. A caller
 // should apply later instructions only within the path where they were found.
-func DiscoverProjectInstructions(target string) ([]InstructionFile, error) {
+func DiscoverProjectInstructions(ctx context.Context, target string) ([]InstructionFile, error) {
 	target, err := absolute(target)
 	if err != nil {
 		return nil, err
@@ -33,16 +36,23 @@ func DiscoverProjectInstructions(target string) ([]InstructionFile, error) {
 	}
 	files := []InstructionFile{}
 	for i := len(ancestors) - 1; i >= 0; i-- {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		for _, relative := range []string{"AGENTS.md", "CLAUDE.md", filepath.Join(".github", "copilot-instructions.md")} {
 			path := filepath.Join(ancestors[i], relative)
 			info, err := os.Lstat(path)
 			if err == nil && info.Mode().IsRegular() {
-				files = append(files, InstructionFile{Path: path, Bytes: info.Size()})
+				if len(files) == 40 {
+					return nil, errors.New("more than 40 applicable instruction files")
+				}
+				hash, err := fileDigest(ctx, path)
+				if err != nil {
+					return nil, fmt.Errorf("read project instructions %s: %w", path, err)
+				}
+				files = append(files, InstructionFile{Path: path, Bytes: info.Size(), SHA256: hash})
 			}
 		}
-	}
-	if len(files) > 40 {
-		return nil, errors.New("more than 40 applicable instruction files")
 	}
 	return files, nil
 }

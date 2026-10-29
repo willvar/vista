@@ -1,5 +1,5 @@
 import { availableVistaPort } from './test_port.mjs'
-import { prepareVistaTestConfig } from './test_config.mjs'
+import { prepareVistaTestConfig, projectRulesFixture } from './test_config.mjs'
 import { createServer } from 'node:http'
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
@@ -12,6 +12,7 @@ if (!binary) { console.error('VISTA_BIN is required'); process.exit(1) }
 const parent = join(process.cwd(), '.vista', 'test-state')
 mkdirSync(parent, { recursive: true })
 const state = mkdtempSync(join(parent, 'tool-continuation-'))
+const readRules = projectRulesFixture(state)
 const config = join(state, 'vista')
 mkdirSync(config, { mode: 0o700 })
 const input = join(state, 'input.txt')
@@ -39,6 +40,7 @@ const provider = createServer(async (request, response) => {
     const system = String(body.messages?.[0]?.content || '')
     const title = system.startsWith('Write a short, specific title')
     const summarizing = /^(Summarize|Compact|Compress)\b/i.test(system)
+    if (!title && !summarizing && readRules(body, response)) return
     let delta, finish = 'stop'
     if (title) delta = { content: 'Tool continuation' }
     else if (summarizing) { summaryCalls++; delta = { content: 'Completed earlier fixture reads successfully. Continue the remaining reads, then report completion.' } }
@@ -127,7 +129,7 @@ try {
   check(finished?.data.status === 'succeeded', 'continuation run did not succeed')
   check(finished.data.message?.content === answer, 'final reply missing from run event')
   check(calls === 22, `expected 22 model requests, got ${calls}`)
-  const tools = events.filter(event => event.kind === 'tool')
+  const tools = events.filter(event => event.kind === 'tool' && event.data.tool?.name === 'read_file')
   const began = tools.filter(event => event.data.status === 'started')
   const succeeded = tools.filter(event => event.data.status === 'succeeded')
   check(tools.length === 64 && began.length === 32 && succeeded.length === 32, 'expected 32 started and 32 succeeded tool events')
@@ -139,9 +141,9 @@ try {
   }
   check(succeeded.every(event => JSON.parse(event.data.content).content === `1: ${content}`), 'persisted tool result content missing')
   const modelResults = events.filter(event => event.kind === 'model_result')
-  check(modelResults.length === 22 && modelResults.at(-1).data.turn === 22, 'model result sequence incomplete')
+  check(modelResults.length === 22 + readRules.requests && modelResults.at(-1).data.turn === 22 + readRules.requests, 'model result sequence incomplete')
   const requests = events.filter(event => event.kind === 'model_request')
-  check(requests.filter(event => event.data.purpose !== 'summary').length === 22, 'persisted execution model request count incorrect')
+  check(requests.filter(event => event.data.purpose !== 'summary').length === 22 + readRules.requests, 'persisted execution model request count incorrect')
   if (compactContext) {
     const notices = events.filter(event => event.kind === 'context_notice')
     check(summaryCalls > 0 && notices.length > 0 && notices.length <= summaryCalls, 'compaction summary or persisted notice missing')
@@ -153,7 +155,7 @@ try {
   const after = await api('/status')
   check(after.sessions.running === 0 && after.sessions.workers === 1 && after.sessions.unavailable === 0, 'Worker unavailable after continuation')
   check(after.workerMetrics.some(worker => worker.sessionId === session.id && worker.pid === workerPID), 'Worker was replaced during continuation')
-  console.log(JSON.stringify({ modelRequests: calls, compactionRequests: summaryCalls, toolsStarted: began.length, toolsSucceeded: succeeded.length, persistedModelResults: modelResults.length, availableWorkers: after.sessions.workers }))
+  console.log(JSON.stringify({ modelRequests: calls, ruleRequests: readRules.requests, compactionRequests: summaryCalls, toolsStarted: began.length, toolsSucceeded: succeeded.length, persistedModelResults: modelResults.length, availableWorkers: after.sessions.workers }))
 } catch (error) {
   console.error((mockError || error.message).replaceAll(state, '<fixture>').replaceAll(binary, '<binary>').replaceAll(process.cwd(), '<repo>'))
   process.exitCode = 1

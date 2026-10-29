@@ -27,6 +27,7 @@ type toolRuntime struct {
 	emit            func(workerproto.Result) error
 	jobs            *tools.BackgroundManager
 	runChild        func(context.Context, workerproto.Command, func(workerproto.Result) error) (string, error)
+	instructions    *projectInstructionState
 }
 
 type toolGroup uint8
@@ -99,6 +100,12 @@ func (r *toolRuntime) execute(ctx context.Context, call provider.ToolCall) (stri
 	}
 	for _, tool := range definitions {
 		if tool.schema["function"].(map[string]any)["name"] == call.Function.Name && tool.execute != nil {
+			if r.instructions == nil {
+				r.instructions = &projectInstructionState{}
+			}
+			if notice, err := r.instructions.prepare(ctx, call); notice != "" || err != nil {
+				return notice, err
+			}
 			return tool.execute(r, ctx, call)
 		}
 	}

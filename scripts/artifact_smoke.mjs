@@ -1,5 +1,5 @@
 import { availableVistaPort } from './test_port.mjs'
-import { prepareVistaTestConfig } from './test_config.mjs'
+import { prepareVistaTestConfig, projectRulesFixture } from './test_config.mjs'
 import { createServer } from 'node:http'
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
@@ -11,14 +11,18 @@ const binary = process.env.VISTA_BIN || join(process.cwd(), 'bin', 'vista')
 const stateParent = join(process.cwd(), '.vista', 'test-state')
 mkdirSync(stateParent, { recursive: true })
 const state = mkdtempSync(join(stateParent, 'vista-artifact-'))
+const readRules = projectRulesFixture(state)
 let calls = 0
-const provider = createServer((request, response) => {
+const provider = createServer(async (request, response) => {
   if (request.url === '/v1/models') {
     response.writeHead(200, { 'Content-Type': 'application/json' })
     response.end(JSON.stringify({ data: [{ id: 'artifact-fixture' }] }))
     return
   }
   if (request.url !== '/v1/chat/completions') throw new Error(request.url)
+  let raw = ''
+  for await (const chunk of request) raw += chunk
+  if (readRules(JSON.parse(raw), response)) return
   calls++
   response.writeHead(200, { 'Content-Type': 'text/event-stream' })
   if (calls === 1) {

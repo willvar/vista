@@ -52,7 +52,7 @@ func (r *toolRuntime) readSkill(ctx context.Context, call provider.ToolCall) (st
 	return marshalResult(page)
 }
 
-var projectInstructionsSchema = map[string]any{"type": "function", "function": map[string]any{"name": "project_instructions", "description": "Find applicable AGENTS.md, CLAUDE.md, and Copilot instruction files for a target absolute path, ordered from outer to nearest.", "parameters": map[string]any{"type": "object", "properties": map[string]any{"path": map[string]any{"type": "string"}}, "required": []string{"path"}}}}
+var projectInstructionsSchema = map[string]any{"type": "function", "function": map[string]any{"name": "project_instructions", "description": "Find scoped AGENTS.md, CLAUDE.md, and Copilot rules for an absolute path, outer to nearest. Filesystem tools already check their target paths; use this for other paths, including paths outside a shell command's directory.", "parameters": map[string]any{"type": "object", "properties": map[string]any{"path": map[string]any{"type": "string"}}, "required": []string{"path"}}}}
 
 func (r *toolRuntime) projectInstructions(ctx context.Context, call provider.ToolCall) (string, error) {
 	var input struct {
@@ -61,14 +61,14 @@ func (r *toolRuntime) projectInstructions(ctx context.Context, call provider.Too
 	if err := decodeArguments(call.Function.Arguments, &input); err != nil {
 		return "", err
 	}
-	files, err := tools.DiscoverProjectInstructions(input.Path)
+	files, err := tools.DiscoverProjectInstructions(ctx, input.Path)
 	if err != nil {
 		return "", err
 	}
 	return marshalResult(files)
 }
 
-var readProjectInstructionSchema = map[string]any{"type": "function", "function": map[string]any{"name": "read_project_instruction", "description": "Read a page of a discovered project instruction file. Use nextOffset if more content is needed.", "parameters": map[string]any{"type": "object", "properties": map[string]any{"path": map[string]any{"type": "string"}, "offset": map[string]any{"type": "integer", "minimum": 0}}, "required": []string{"path"}}}}
+var readProjectInstructionSchema = map[string]any{"type": "function", "function": map[string]any{"name": "read_project_instruction", "description": "Read a page of a discovered project instruction file. Follow nextOffset until every page is read before retrying an operation that returned instructions_required.", "parameters": map[string]any{"type": "object", "properties": map[string]any{"path": map[string]any{"type": "string"}, "offset": map[string]any{"type": "integer", "minimum": 0}}, "required": []string{"path"}}}}
 
 func (r *toolRuntime) readProjectInstruction(ctx context.Context, call provider.ToolCall) (string, error) {
 	var input struct {

@@ -21,7 +21,7 @@ const { t } = useI18n()
     <small v-if="node.search.truncated">{{ t('traceSearchPartial') }}</small>
   </template>
   <template v-else-if="node.instructions">
-    <p class="trace-result-summary">{{ t(node.instructions.length ? 'traceInstructionFiles' : 'traceNoInstructionFiles', { count: node.instructions.length }) }}</p>
+    <p class="trace-result-summary">{{ t(node.resultSummaryKey || (node.instructions.length ? 'traceInstructionFiles' : 'traceNoInstructionFiles'), { count: node.instructions.length }) }}</p>
     <ul class="trace-instruction-files"><li v-for="file in node.instructions" :key="file.path"><code>{{ file.path }}</code><small v-if="file.bytes != null">{{ t('traceFileBytes', { bytes: file.bytes }) }}</small></li></ul>
   </template>
   <div v-else-if="node.body && node.markdown" class="markdown" v-html="renderMarkdown(node.body)"></div>

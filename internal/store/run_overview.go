@@ -95,7 +95,8 @@ func (s *Store) RunOverviewRange(ctx context.Context, sessionID, runID string, a
 			Group("COALESCE(NULLIF(json_extract(data,'$.taskId'),''),'main'),json_extract(data,'$.turn')")
 		if err := base.Session(&gorm.Session{}).Select(`session_id,sequence,kind,created_at,
    CAST(CASE WHEN kind='run_finished'
-    THEN json_object('runId',json_extract(data,'$.runId'),'status',json_extract(data,'$.status'))
+    THEN json_patch(json_object('runId',json_extract(data,'$.runId'),'status',json_extract(data,'$.status')),
+     CASE WHEN json_extract(data,'$.emptyReply')=1 THEN '{"emptyReply":true}' ELSE '{}' END)
     WHEN kind='tool' AND length(CAST(json_extract(data,'$.content') AS BLOB))>512
     THEN json_set(data,'$.content',substr(json_extract(data,'$.content'),1,512),'$.tool.truncated',json('true'))
     ELSE data END AS BLOB) AS data`).

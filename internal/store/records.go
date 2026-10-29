@@ -378,6 +378,9 @@ func (s *Store) FinishRunWithPending(ctx context.Context, sessionID, runID, mess
 		message = &m
 	}
 	resultData := map[string]any{"runId": runID, "status": status, "message": message, "pendingReply": pending}
+	if status == "succeeded" && content == "" && pending == nil {
+		resultData["emptyReply"] = true
+	}
 	if unknown > 0 {
 		resultData["unknownTools"] = unknown
 	}

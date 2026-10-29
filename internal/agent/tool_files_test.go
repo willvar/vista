@@ -218,9 +218,15 @@ func TestReadFileLargeLinePreservesArtifactRecoveryAndCoordinates(t *testing.T) 
 	if err := os.WriteFile(path, []byte(full), 0600); err != nil {
 		t.Fatal(err)
 	}
-	page, output := readFilePageForTest(t, path, map[string]any{"startLine": 2, "lineCount": 2})
-	bounded, err := boundToolOutput(context.Background(), "run", "large-read", "read_file", output, nil, emit)
-	if err != nil || bounded.reference == nil || !bounded.truncated || exceedsToolBudget(bounded.model) {
+	args, _ := json.Marshal(map[string]any{"path": path, "startLine": 2, "lineCount": 2})
+	output, err := (&toolRuntime{parent: workerproto.Command{SessionID: "session", RunID: "run"}, emit: emit}).execute(context.Background(), scriptedToolCall("large-read", "read_file", string(args)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var page fileReadPageForTest
+	_ = json.Unmarshal([]byte(output), &page)
+	bounded, err := boundToolOutput(context.Background(), "run", "large-read", "read_file", output, resultOutputRef(output), emit)
+	if err != nil || bounded.reference == nil || !strings.Contains(output, "artifactId") || exceedsToolBudget(bounded.model) {
 		t.Fatalf("large line did not become recoverable output: %v", err)
 	}
 	var preview struct {
@@ -252,5 +258,39 @@ func TestReadFileLargeLinePreservesArtifactRecoveryAndCoordinates(t *testing.T) 
 	next, _ := readFilePageForTest(t, path, map[string]any{"startLine": preview.NextLine})
 	if next.Content != "3: after\n4: last" || next.Truncated || next.NextLine != 0 {
 		t.Fatalf("continuation skipped source lines: %+v", next)
+	}
+}
+
+func TestReadFileStreamsMultiMiBSingleLineAndRecoversAllBytes(t *testing.T) {
+	db, emit := outputToolStore(t)
+	path := filepath.Join(t.TempDir(), "huge.txt")
+	long := strings.Repeat("完整🙂<\x00", 200000)
+	content := "before\n" + long + "\nafter"
+	if err := os.WriteFile(path, []byte(content), 0600); err != nil {
+		t.Fatal(err)
+	}
+	arguments, _ := json.Marshal(map[string]any{"path": path, "startLine": 2, "lineCount": 2})
+	output, err := (&toolRuntime{parent: workerproto.Command{SessionID: "session", RunID: "run"}, emit: emit}).readFile(context.Background(), scriptedToolCall("huge-read", "read_file", string(arguments)))
+	if err != nil || exceedsToolBudget(output) {
+		t.Fatalf("unbounded read: %v", err)
+	}
+	var preview struct {
+		fileReadPageForTest
+		ArtifactID string `json:"artifactId"`
+	}
+	if err = json.Unmarshal([]byte(output), &preview); err != nil || preview.ArtifactID == "" || preview.EndLine != 2 || preview.NextLine != 3 || preview.TotalLines != 3 {
+		t.Fatalf("missing line recovery: %s %v", output, err)
+	}
+	artifact, err := db.GetArtifact(context.Background(), "session", preview.ArtifactID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	saved, err := os.ReadFile(artifact.OutputPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var full fileReadPageForTest
+	if err = json.Unmarshal(saved, &full); err != nil || full.Content != "2: "+long || full.Bytes != len(content) {
+		t.Fatalf("large line lost bytes: %v", err)
 	}
 }

@@ -1,5 +1,5 @@
 import { availableVistaPort } from './test_port.mjs'
-import { prepareVistaTestConfig } from './test_config.mjs'
+import { prepareVistaTestConfig, projectRulesFixture } from './test_config.mjs'
 import { createServer } from 'node:http'
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
@@ -11,6 +11,7 @@ const binary = process.env.VISTA_BIN || join(process.cwd(), 'bin', 'vista')
 const parent = join(process.cwd(), '.vista', 'test-state')
 mkdirSync(parent, { recursive: true })
 const state = mkdtempSync(join(parent, 'session-conflict-'))
+const readRules = projectRulesFixture(state)
 const path = join(state, 'shared.txt')
 writeFileSync(path, 'initial')
 const turns = new Map()
@@ -22,6 +23,7 @@ const server = createServer(async (request, response) => {
     let raw = ''
     for await (const chunk of request) raw += chunk
     const body = JSON.parse(raw)
+    if (readRules(body, response)) return
     const name = ['alpha', 'beta'].find(value => body.messages.some(message => message.role === 'user' && message.content?.includes(`session ${value}`)))
     if (!name) throw new Error('Session marker missing')
     const turn = (turns.get(name) || 0) + 1
@@ -32,7 +34,7 @@ const server = createServer(async (request, response) => {
     } else if (turn === 2) {
       const result = body.messages.findLast(message => message.role === 'tool')
       const file = JSON.parse(result?.content || '{}')
-      if (file.content !== 'initial' || !/^[a-f0-9]{64}$/.test(file.sha256)) throw new Error(`bad read result for ${name}`)
+      if (file.content !== '1: initial' || !/^[a-f0-9]{64}$/.test(file.sha256)) throw new Error(`bad read result for ${name}`)
       if ([...turns.values()].filter(value => value >= 2).length === 2) releaseWrites()
       await Promise.race([writesReady, new Promise((_, reject) => setTimeout(() => reject(new Error('Sessions did not reach the write barrier')), 10000))])
       event = toolCall(`${name}-write`, 'write_file', { path, expectedSha256: file.sha256, content: name })

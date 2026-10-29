@@ -27,7 +27,7 @@ type ModelRequest = { model?: string; reasoning?: { effort?: string; summary?: s
 type ProviderOutput = 'perplexity' | 'openrouter' | 'responses'
 type ModelFailure = { status: number; body: object; stream?: boolean }
 
-export const test = base.extend<{ vista: VistaFixture; configuredProvider: boolean; imageModel: boolean; budgetModel: boolean; replyWithPrompt: boolean; followUpTool: boolean; questionTool: boolean; memoryTool: boolean; progressCalls: number; longProgress: boolean; terminalReasoning: boolean; detachedTask: boolean; backgroundProcess: boolean; fileChanges: boolean; providerOutput: ProviderOutput | undefined; modelFailure: ModelFailure | undefined }>({
+export const test = base.extend<{ vista: VistaFixture; configuredProvider: boolean; imageModel: boolean; budgetModel: boolean; replyWithPrompt: boolean; followUpTool: boolean; questionTool: boolean; memoryTool: boolean; progressCalls: number; longProgress: boolean; terminalReasoning: boolean; emptyReply: boolean; detachedTask: boolean; backgroundProcess: boolean; fileChanges: boolean; providerOutput: ProviderOutput | undefined; modelFailure: ModelFailure | undefined }>({
   configuredProvider: [true, { option: true }],
   imageModel: [false, { option: true }],
   budgetModel: [false, { option: true }],
@@ -38,12 +38,13 @@ export const test = base.extend<{ vista: VistaFixture; configuredProvider: boole
   progressCalls: [0, { option: true }],
   longProgress: [false, { option: true }],
   terminalReasoning: [false, { option: true }],
+  emptyReply: [false, { option: true }],
   detachedTask: [false, { option: true }],
   backgroundProcess: [false, { option: true }],
   fileChanges: [false, { option: true }],
   providerOutput: [undefined, { option: true }],
   modelFailure: [undefined, { option: true }],
-  vista: async ({ configuredProvider, imageModel, budgetModel, replyWithPrompt, followUpTool, questionTool, memoryTool, progressCalls, longProgress, terminalReasoning, detachedTask, backgroundProcess, fileChanges, providerOutput, modelFailure }, use) => {
+  vista: async ({ configuredProvider, imageModel, budgetModel, replyWithPrompt, followUpTool, questionTool, memoryTool, progressCalls, longProgress, terminalReasoning, emptyReply, detachedTask, backgroundProcess, fileChanges, providerOutput, modelFailure }, use) => {
     if (!process.env.VISTA_CHROME) throw new Error('Set VISTA_CHROME to the isolated test browser executable')
     const binary = resolve(process.env.VISTA_BIN || join(import.meta.dirname, '../../bin/vista'))
     const root = resolve(import.meta.dirname, '../.vista/test-state')
@@ -116,16 +117,16 @@ export const test = base.extend<{ vista: VistaFixture; configuredProvider: boole
       if (providerOutput) {
         const event = (value: object) => `data: ${JSON.stringify(value)}\n\n`
         const source = 'https://example.com/source'
-        const text = titleRequest ? 'Provider output' : 'Cited answer.'
+        const text = titleRequest ? 'Provider output' : emptyReply ? '' : 'Cited answer.'
         if (providerOutput === 'responses') {
           const annotations = titleRequest ? [] : [{ type: 'url_citation', url: source }]
-          const summary = !titleRequest && input.reasoning?.summary === 'auto' ? 'Checked the available source before answering.' : ''
+          const summary = !titleRequest && !emptyReply && input.reasoning?.summary === 'auto' ? 'Checked the available source before answering.' : ''
           if (summary && !terminalReasoning) response.write(event({ type: 'response.reasoning_summary_text.delta', item_id: 'reasoning', delta: summary }))
-          response.write(event({ type: 'response.output_text.delta', item_id: 'message', delta: text }))
+          if (text) response.write(event({ type: 'response.output_text.delta', item_id: 'message', delta: text }))
           for (const annotation of annotations) response.write(event({ type: 'response.output_text.annotation.added', item_id: 'message', annotation }))
           response.end(event({ type: 'response.completed', response: { status: 'completed', output: [
             ...summary ? [{ type: 'reasoning', id: 'reasoning', summary: [{ type: 'summary_text', text: summary }] }] : [],
-            ...titleRequest ? [] : [{ type: 'mcp_call', id: 'hosted-fixture', status: 'completed', result: { evidence: 'Provider executed this tool.' } }],
+            ...(titleRequest || emptyReply ? [] : [{ type: 'mcp_call', id: 'hosted-fixture', status: 'completed', result: { evidence: 'Provider executed this tool.' } }]),
             { type: 'message', id: 'message', role: 'assistant', content: [{ type: 'output_text', text, annotations }] },
           ] } }))
         } else {

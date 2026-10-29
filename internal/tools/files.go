@@ -1,7 +1,7 @@
 package tools
 
 import (
-	"bytes"
+	"bufio"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -126,7 +126,7 @@ func WriteFile(ctx context.Context, stateDir, path, expectedSHA256, content stri
 	if err := ctx.Err(); err != nil {
 		return "", err
 	}
-	current, err := ReadFile(path)
+	current, err := fileDigest(ctx, path)
 	if expectedSHA256 == "missing" {
 		if err == nil {
 			return "", ErrConflict
@@ -135,7 +135,7 @@ func WriteFile(ctx context.Context, stateDir, path, expectedSHA256, content stri
 			return "", err
 		}
 	} else {
-		if errors.Is(err, os.ErrNotExist) || (err == nil && current.SHA256 != expectedSHA256) {
+		if errors.Is(err, os.ErrNotExist) || (err == nil && current != expectedSHA256) {
 			return "", ErrConflict
 		}
 		if err != nil {
@@ -173,6 +173,28 @@ func WriteFile(ctx context.Context, stateDir, path, expectedSHA256, content stri
 	}
 	newHash := sha256.Sum256([]byte(content))
 	return hex.EncodeToString(newHash[:]), nil
+}
+
+// Hash existing text without reintroducing a whole-file read limit when a
+// numbered page from a large file is used for an optimistic replacement.
+func fileDigest(ctx context.Context, path string) (string, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return "", err
+	}
+	defer file.Close()
+	info, err := file.Stat()
+	if err != nil {
+		return "", err
+	}
+	if !info.Mode().IsRegular() {
+		return "", errors.New("file must be regular")
+	}
+	hash := sha256.New()
+	if err := scanText(ctx, io.TeeReader(file, hash), func([]byte, bool) error { return nil }); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(hash.Sum(nil)), nil
 }
 
 type Match struct {
@@ -233,35 +255,82 @@ func Search(ctx context.Context, root, pattern string) (SearchResult, error) {
 			return nil
 		}
 		info, err := entry.Info()
-		if err != nil || !info.Mode().IsRegular() || info.Size() > maxFileBytes {
+		if err != nil {
+			result.Truncated = true
 			return nil
 		}
-		if result.FilesScanned >= maxSearchFiles || bytesRead+info.Size() > maxSearchBytes {
+		if !info.Mode().IsRegular() {
+			return nil
+		}
+		if result.FilesScanned >= maxSearchFiles || bytesRead >= maxSearchBytes {
 			result.Truncated = true
 			return errLimit
 		}
-		result.FilesScanned++
-		bytesRead += info.Size()
 		f, err := os.Open(path)
 		if err != nil {
+			result.Truncated = true
 			return nil
 		}
-		b, readErr := io.ReadAll(io.LimitReader(f, maxFileBytes+1))
-		f.Close()
-		if readErr != nil || len(b) > maxFileBytes || !utf8.Valid(b) || bytes.IndexByte(b, 0) >= 0 {
-			return nil
-		}
-		for line, text := range strings.Split(string(b), "\n") {
-			if re.MatchString(text) {
-				if len(result.Matches) >= maxSearchResults {
-					result.Truncated = true
+		defer f.Close()
+		result.FilesScanned++
+		remaining := int64(maxSearchBytes) - bytesRead
+		fileMatches := []Match{}
+		offset, lineStart, line := int64(0), int64(0), 1
+		var prefix strings.Builder
+		binary := false
+		scanErr := scanText(ctx, io.LimitReader(f, remaining), func(fragment []byte, end bool) error {
+			if strings.IndexByte(string(fragment), 0) >= 0 {
+				binary = true
+			}
+			if prefix.Len() < 512 {
+				prefix.Write(fragment[:min(len(fragment), 512-prefix.Len())])
+			}
+			offset += int64(len(fragment))
+			if end {
+				if info.Size() > remaining && offset >= remaining {
+					// A budget boundary is not the end of a source line.
 					return errLimit
 				}
-				if len(text) > 512 {
-					text = text[:512]
+				if !binary && re.MatchReader(bufio.NewReader(webContextReader{ctx, io.NewSectionReader(f, lineStart, offset-lineStart)})) {
+					text := prefix.String()
+					for !utf8.ValidString(text) {
+						text = text[:len(text)-1]
+					}
+					fileMatches = append(fileMatches, Match{Path: path, Line: line, Text: text})
+					if len(result.Matches)+len(fileMatches) > maxSearchResults {
+						return errLimit
+					}
 				}
-				result.Matches = append(result.Matches, Match{Path: path, Line: line + 1, Text: text})
+				line++
+				offset++ // delimiter; final synthetic newline is corrected below
+				lineStart = offset
+				prefix.Reset()
 			}
+			return nil
+		})
+		position, _ := f.Seek(0, io.SeekCurrent)
+		bytesRead += position
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		if scanErr != nil && info.Size() > remaining && position >= remaining {
+			// Cutting inside a UTF-8 rune must still expose completed matches
+			// and report a partial scan, rather than silently dropping the file.
+			scanErr = errLimit
+		}
+		if scanErr != nil && !errors.Is(scanErr, errLimit) {
+			// Invalid UTF-8/binary files are not text-search candidates.
+			if !strings.Contains(scanErr.Error(), "not UTF-8") {
+				result.Truncated = true
+			}
+			return nil
+		}
+		if !binary {
+			result.Matches = append(result.Matches, fileMatches[:min(len(fileMatches), maxSearchResults-len(result.Matches))]...)
+		}
+		if errors.Is(scanErr, errLimit) || info.Size() > remaining {
+			result.Truncated = true
+			return errLimit
 		}
 		return nil
 	})

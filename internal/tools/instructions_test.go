@@ -1,6 +1,10 @@
 package tools
 
 import (
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -26,20 +30,29 @@ func TestProjectInstructionsFollowTargetPath(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	files, err := DiscoverProjectInstructions(filepath.Join(left, "nested", "file.txt"))
+	files, err := DiscoverProjectInstructions(context.Background(), filepath.Join(left, "nested", "file.txt"))
 	if err != nil || len(files) != 3 {
 		t.Fatalf("left instructions: %+v %v", files, err)
 	}
 	if files[0].Path != filepath.Join(root, "AGENTS.md") || files[1].Path != filepath.Join(left, "CLAUDE.md") || files[2].Path != filepath.Join(left, "nested", "AGENTS.md") {
 		t.Fatalf("wrong precedence: %+v", files)
 	}
-	other, err := DiscoverProjectInstructions(filepath.Join(right, "file.txt"))
+	other, err := DiscoverProjectInstructions(context.Background(), filepath.Join(right, "file.txt"))
 	if err != nil || len(other) != 2 || other[1].Path != filepath.Join(right, "AGENTS.md") {
 		t.Fatalf("right instructions: %+v %v", other, err)
 	}
 	page, err := ReadProjectInstruction(files[2].Path, 0)
-	if err != nil || page.Content != "near rule" {
+	hash := sha256.Sum256([]byte("near rule"))
+	if err != nil || page.Content != "near rule" || files[2].SHA256 != hex.EncodeToString(hash[:]) || files[2].SHA256 != page.SHA256 {
 		t.Fatalf("read instruction: %+v %v", page, err)
+	}
+}
+
+func TestProjectInstructionDiscoveryCanBeCanceled(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err := DiscoverProjectInstructions(ctx, t.TempDir()); !errors.Is(err, context.Canceled) {
+		t.Fatalf("canceled discovery: %v", err)
 	}
 }
 
@@ -50,7 +63,7 @@ func TestLongProjectInstructionsAreDiscoveredAndReadable(t *testing.T) {
 	if err := os.WriteFile(path, []byte(content), 0600); err != nil {
 		t.Fatal(err)
 	}
-	files, err := DiscoverProjectInstructions(dir)
+	files, err := DiscoverProjectInstructions(context.Background(), dir)
 	if err != nil || len(files) == 0 || files[len(files)-1].Path != path || files[len(files)-1].Bytes != int64(len(content)) {
 		t.Fatalf("long instructions were skipped: %+v %v", files, err)
 	}
