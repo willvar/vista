@@ -1,7 +1,6 @@
 """Deliver original GAIA image attachments through Vista's message API."""
 
 import argparse
-import base64
 import json
 from pathlib import Path
 
@@ -15,11 +14,10 @@ def image_inputs(directory):
         for path in sorted(directory.iterdir()):
             media = IMAGE_TYPES.get(path.suffix.lower())
             if path.is_file() and media:
-                with path.open("rb") as stream:
-                    data = stream.read(MAX_IMAGE_BYTES + 1)
-                if len(data) > MAX_IMAGE_BYTES:
-                    raise ValueError("Original GAIA image exceeds Vista 1 MiB input limit: " + path.name)
-                images.append({"mediaType": media, "name": path.name, "data": base64.b64encode(data).decode()})
+                size = path.stat().st_size
+                if size > MAX_IMAGE_BYTES:
+                    raise ValueError("Original GAIA image exceeds Vista 50 MiB input limit: " + path.name)
+                images.append({"mediaType": media, "name": path.name, "path": str(path), "bytes": size})
     return images
 
 
@@ -28,7 +26,7 @@ def execute(root, logs, effort=None, files=Path("/app/files")):
     def load():
         images = image_inputs(files)
         delivery.extend({"name": image["name"], "media_type": image["mediaType"],
-                         "bytes": len(base64.b64decode(image["data"]))} for image in images)
+                         "bytes": image["bytes"]} for image in images)
         return images
     logs.mkdir(parents=True, exist_ok=True)
     try:

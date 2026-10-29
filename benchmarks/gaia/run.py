@@ -137,7 +137,7 @@ def main(argv=None):
                       for label, value in source_binaries.items()}
         by_id = {row["task"]: row for row in tasks}
         entries = [{**entry, **by_id[entry["task"]]} for entry in schedule(list(candidates), list(by_id), args.rounds)]
-        source_files = [*HERE.glob("*.py"), HERE / "sources.json", HERE / "requirements.lock",
+        source_files = [*HERE.glob("*.py"), HERE / "instruction.txt", HERE / "sources.json", HERE / "requirements.lock",
                         *(SHARED / name for name in ("vista_agent.py", "vista_runner.py", "benchmark_profile.py", "summarize.py", "requirements.lock"))]
         adapter_hashes = {str(path): digest(path) for path in source_files}
         plan = {"suite": "gaia", "dataset": "GAIA validation", "dataset_commit": SOURCES["dataset"]["revision"],

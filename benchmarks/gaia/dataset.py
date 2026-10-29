@@ -14,7 +14,7 @@ HERE = Path(__file__).resolve().parent
 SOURCES = json.loads((HERE / "sources.json").read_text())
 IMAGE_TYPES = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
                ".webp": "image/webp", ".gif": "image/gif"}
-MAX_IMAGE_BYTES = 1 << 20  # internal/store/images.go; preserve originals, never resize.
+MAX_IMAGE_BYTES = 50 << 20  # internal/resources/images.go; preserve originals, never resize.
 
 VERIFIER = """#!/bin/bash
 set -euo pipefail
@@ -29,6 +29,13 @@ passed = answer.is_file() and question_scorer(answer.read_text().strip(), Path('
 Path('/logs/verifier/reward.txt').write_text('1' if passed else '0')
 PY
 """
+
+
+def instruction_template():
+    path = HERE / "instruction.txt"
+    if digest(path) != SOURCES["instruction"]["sha256"]:
+        raise ValueError("GAIA instruction template hash differs from sources.json")
+    return path.read_text()
 
 
 def validate_records(rows):
@@ -53,14 +60,14 @@ def write_task(directory, row, attachment, scorer):
     environment.mkdir(parents=True)
     tests.mkdir()
     dockerfile = "FROM python:3.11-slim-bookworm\nWORKDIR /app\nRUN apt-get update && apt-get install -y --no-install-recommends curl && rm -rf /var/lib/apt/lists/*\n"
-    instruction = "# GAIA task\n\n" + row["Question"]
+    question = row["Question"]
     name = row.get("file_name") or ""
     if name:
         (environment / "workspace").mkdir()
         shutil.copyfile(attachment, environment / "workspace" / name)
         dockerfile += "COPY workspace/ /app/files/\n"
-        instruction += f"\n\nOriginal attachment: `/app/files/{name}`."
-    instruction += "\n\nWrite ONLY the final answer to `/app/answer.txt`, using the format requested by the question. Do not include an explanation in that file.\n"
+        question += f"\n\n## Attached File\n\nA file has been provided at `/app/files/{name}`. You may need to read or analyze this file to answer the question."
+    instruction = instruction_template().replace("{question}", question)
     (directory / "instruction.md").write_text(instruction)
     (environment / "Dockerfile").write_text(dockerfile)
     level = int(row["Level"])
@@ -122,6 +129,7 @@ def prepare(directory, cache, offline=False):
 
 
 def check_dataset(directory):
+    instruction_template()
     manifest = json.loads((directory / "manifest.json").read_text())
     if manifest["sources"] != SOURCES:
         raise ValueError("Prepared GAIA dataset differs from sources.json; prepare a new dataset directory")

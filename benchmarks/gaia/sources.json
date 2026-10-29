@@ -7,6 +7,12 @@
     "levels": {"1": 53, "2": 86, "3": 26},
     "attachments": 38
   },
+  "instruction": {
+    "repo": "laude-institute/harbor",
+    "revision": "209a48a7424218828465c3c716b042f2b381dbed",
+    "filename": "adapters/gaia/template/instruction.md",
+    "sha256": "76c209733ab4800160f8e61e836e9cffa4410aaada75497a369bed2534fc233c"
+  },
   "scorer": {
     "repo": "gaia-benchmark/leaderboard",
     "revision": "9f133d71362e77b3539f1514f31b9c101a545fec",

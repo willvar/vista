@@ -15,6 +15,7 @@ import tempfile
 import threading
 import tomllib
 import unittest
+import urllib.error
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
@@ -24,6 +25,7 @@ sys.path[:0] = [str(HERE), str(HERE.parent / "harbor")]
 
 import dataset
 import gaia_runner
+import vista_runner
 from benchmark_profile import digest
 from gaia_agent import GAIAVistaAgent
 from summarize import summarize_run
@@ -99,15 +101,63 @@ class GAIATest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "changed"):
             dataset.check_dataset(directory)
 
+    def test_instruction_matches_the_original_full_evaluation_template(self):
+        self.prepared()
+        instruction = self.root / "dataset" / TASK / "instruction.md"
+        self.assertEqual(digest(instruction), "256bf6346325bf7d6256a74d353e1cbb952cfae9e309f704b87553503e4aa774")
+        row = {"task_id": TASK, "Level": 1, "Question": "Synthetic question", "Final answer": "fixture-answer"}
+        dataset.write_task(self.root / "without-attachment", row, None, "")
+        self.assertEqual(digest(self.root / "without-attachment/instruction.md"),
+                         "b50d423af07c204d23256e8e6c2a871e10b25d942f6fb23f719da03f7c3bf640")
+
+    def test_changed_instruction_template_is_rejected_before_running(self):
+        directory = self.prepared()
+        (self.root / "instruction.txt").write_text("A simplified task template")
+        with patch.object(dataset, "HERE", self.root):
+            with self.assertRaisesRegex(ValueError, "instruction template hash"):
+                dataset.check_dataset(directory)
+
+    def test_image_transport_preserves_originals_for_both_binary_interfaces(self):
+        path = self.root / "original.png"
+        path.write_bytes(PNG)
+        image = {"path": str(path), "mediaType": "image/png", "name": path.name}
+        ref = {"hash": hashlib.sha256(PNG).hexdigest(), "bytes": len(PNG), "mediaType": "image/png", "name": path.name}
+        def upload(request, timeout):
+            self.assertEqual(request.data.read(), PNG)
+            self.assertEqual(timeout, 60)
+            return io.BytesIO(json.dumps(ref).encode())
+        with patch.object(vista_runner.urllib.request, "urlopen", side_effect=upload):
+            self.assertEqual(vista_runner.upload_image("http://127.0.0.1:1", TASK, image), ref)
+        missing = urllib.error.HTTPError("fixture", 404, "Not Found", {}, None)
+        self.addCleanup(missing.close)
+        with patch.object(vista_runner.urllib.request, "urlopen", side_effect=missing):
+            inline = vista_runner.upload_image("http://127.0.0.1:1", TASK, image)
+        self.assertEqual(base64.b64decode(inline["data"]), PNG)
+        self.assertEqual(inline["name"], path.name)
+        self.assertEqual(inline["mediaType"], "image/png")
+
+    def test_image_transport_does_not_bypass_current_binary_rejections(self):
+        path = self.root / "original.png"
+        path.write_bytes(PNG)
+        image = {"path": str(path), "mediaType": "image/png", "name": path.name}
+        for status in (400, 403, 413, 503):
+            with self.subTest(status=status):
+                error = urllib.error.HTTPError("fixture", status, "Rejected", {}, None)
+                self.addCleanup(error.close)
+                with patch.object(vista_runner.urllib.request, "urlopen", side_effect=error) as upload:
+                    with self.assertRaises(urllib.error.HTTPError):
+                        vista_runner.upload_image("http://127.0.0.1:1", TASK, image)
+                upload.assert_called_once()
+
     def test_original_images_are_unchanged_and_oversized_images_are_never_resized(self):
         (self.root / "original.png").write_bytes(PNG)
         (self.root / "notes.txt").write_text("not an image")
         images = gaia_runner.image_inputs(self.root)
         self.assertEqual(len(images), 1)
-        self.assertEqual(base64.b64decode(images[0]["data"]), PNG)
+        self.assertEqual(Path(images[0]["path"]).read_bytes(), PNG)
         self.assertEqual(images[0]["mediaType"], "image/png")
         (self.root / "large.jpg").write_bytes(b"x" * (dataset.MAX_IMAGE_BYTES + 1))
-        with self.assertRaisesRegex(ValueError, "1 MiB"):
+        with self.assertRaisesRegex(ValueError, "50 MiB"):
             gaia_runner.image_inputs(self.root)
 
     def test_full_validation_counts_and_attachment_names_are_checked(self):
@@ -131,7 +181,8 @@ class GAIATest(unittest.TestCase):
         scorer.write_text("import numpy as np\ndef question_scorer(answer, expected): return answer == expected\n")
         attachment = self.root / "original.png"
         attachment.write_bytes(PNG)
-        sources = {"dataset": {**dataset.SOURCES["dataset"], "sha256": digest(metadata), "levels": {"1": 1}, "attachments": 1},
+        sources = {"instruction": dataset.SOURCES["instruction"],
+                   "dataset": {**dataset.SOURCES["dataset"], "sha256": digest(metadata), "levels": {"1": 1}, "attachments": 1},
                    "scorer": {**dataset.SOURCES["scorer"], "sha256": digest(scorer)}}
         downloads = {"2023/validation/metadata.parquet": metadata, "scorer.py": scorer, "2023/validation/original.png": attachment}
         with patch.object(dataset, "SOURCES", sources), \

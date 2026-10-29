@@ -1,6 +1,7 @@
 """Container-side stdlib client. Vista, not this adapter, performs the task."""
 
 import argparse
+import base64
 from datetime import datetime, timedelta, timezone
 import json
 import os
@@ -11,6 +12,7 @@ import subprocess
 import time
 import urllib.error
 import urllib.request
+import urllib.parse
 
 
 ROOT = Path(__file__).resolve().parent
@@ -54,6 +56,25 @@ def request(address, path, body=None):
         raise RuntimeError(f"Vista API {path}: HTTP {error.code}") from error
 
 
+def upload_image(address, session_id, image):
+    path = Path(image["path"])
+    with path.open("rb") as stream:
+        req = urllib.request.Request(
+            address + "/api/sessions/" + session_id + "/resources?name=" + urllib.parse.quote(image["name"]),
+            data=stream, method="POST", headers={"Content-Type": image["mediaType"], "Content-Length": str(path.stat().st_size)})
+        try:
+            with urllib.request.urlopen(req, timeout=60) as response:
+                return json.load(response)
+        except urllib.error.HTTPError as error:
+            if error.code != 404:
+                raise
+            error.close()
+    # Historical Vista builds accept inline originals instead of resource uploads.
+    # Keep the original bytes and let that binary enforce its own input limit.
+    return {"mediaType": image["mediaType"], "name": image["name"],
+            "data": base64.b64encode(path.read_bytes()).decode()}
+
+
 def execute(root, logs, effort=None, image_loader=None):
     config = root / "xdg/vista"
     logs.mkdir(parents=True, exist_ok=True)
@@ -92,7 +113,9 @@ def execute(root, logs, effort=None, image_loader=None):
         if image_loader is not None:
             images = image_loader()
             if images:
-                body["images"] = images
+                body["images"] = [upload_image(address, session["id"], image) for image in images]
+                summary["image_input_transport"] = ["legacy-inline" if "data" in image else "resource-upload"
+                                                    for image in body["images"]]
         sent = request(address, f"/sessions/{session['id']}/messages", body)
         summary.update(session_id=session["id"], run_id=sent["runId"])
         cursor, finished = 0, None

@@ -19,13 +19,13 @@ class GAIAVistaAgent(VistaAgent):
     async def install(self, environment):
         await super().install(environment)
         await environment.upload_file(Path(vista_runner.__file__), REMOTE + "/vista_runner.py")
-        for name in ("gaia_runner.py", "dataset.py", "sources.json", "benchmark_profile.py"):
+        for name in ("gaia_runner.py", "dataset.py", "instruction.txt", "sources.json", "benchmark_profile.py"):
             source = HERE / name
             if name == "benchmark_profile.py":
                 source = Path(benchmark_profile.__file__)
             await environment.upload_file(source, REMOTE + "/" + ("runner.py" if name == "gaia_runner.py" else name))
         network = self.profile / "search.json"
-        paths = [REMOTE + "/vista_runner.py", REMOTE + "/runner.py", REMOTE + "/dataset.py",
+        paths = [REMOTE + "/vista_runner.py", REMOTE + "/runner.py", REMOTE + "/dataset.py", REMOTE + "/instruction.txt",
                  REMOTE + "/sources.json", REMOTE + "/benchmark_profile.py"]
         if network.is_file():
             paths.append(REMOTE + "/xdg/vista/search.json")
