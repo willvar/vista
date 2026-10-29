@@ -1,7 +1,7 @@
 import { availableVistaPort } from './test_port.mjs'
 import { prepareVistaTestConfig, projectRulesFixture } from './test_config.mjs'
 import { createServer } from 'node:http'
-import { execFile, execFileSync } from 'node:child_process'
+import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 import { mkdtempSync, rmSync, existsSync, readFileSync, mkdirSync } from 'node:fs'
 import { join } from 'node:path'
@@ -54,7 +54,7 @@ try {
   if (!beforeCrash.some(event => event.kind === 'tool' && event.data.status === 'started' && event.data.tool?.name === 'shell')) throw new Error('shell started before its record was persisted')
   if (!beforeCrash.some(event => event.kind === 'artifact' && event.data.status === 'started')) throw new Error('shell output was not registered before the command started')
   const serverPid = JSON.parse(readFileSync(join(state, 'vista', 'state', 'instance.json'), 'utf8')).pid
-  const workerPid = Number(execFileSync('ps', ['-o', 'pid=', '--ppid', String(serverPid)], { encoding: 'utf8' }).trim().split(/\s+/)[0])
+  const workerPid = (await api('/status')).workerMetrics.find(item => item.sessionId === session.id)?.pid
   if (!workerPid || !childPid) throw new Error(`missing process identities: worker=${workerPid} child=${childPid}`)
   const masterCrash = process.env.VISTA_CRASH_MASTER === '1'
   process.kill(masterCrash ? serverPid : workerPid, 'SIGKILL')

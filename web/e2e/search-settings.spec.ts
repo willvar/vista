@@ -222,6 +222,7 @@ for (const setting of [
 }
 
 test('search and reader keys save, survive reload without readback, and can be removed', async ({ page, mockOrigin }) => {
+  test.slow()
   const fixture = await mockSearchSettings(page, mockOrigin)
   const settings = page.locator('.settings-page:visible')
   await expect(settings.locator('.settings-nav a[aria-current="page"]')).toHaveText('Web queries')

@@ -163,9 +163,27 @@ class BenchmarkTest(unittest.TestCase):
                 title = str(body["messages"][0]["content"]).startswith("Write a short, specific title")
                 if not title:
                     requests.append(body)
-                if not title and not any(message["role"] == "tool" for message in body["messages"]):
-                    delta = {"tool_calls": [{"index": 0, "id": "fixture-shell", "type": "function", "function": {
-                        "name": "shell", "arguments": json.dumps({"directory": str(workspace), "command": "printf 'benchmark fixture' > marker.txt"}),
+                rules, pages = {}, {}
+                for message in body["messages"]:
+                    if message["role"] != "tool":
+                        continue
+                    try:
+                        result = json.loads(message["content"])
+                    except (ValueError, TypeError):
+                        continue
+                    if result.get("status") == "instructions_required":
+                        rules.update((rule["path"], rule) for rule in result["instructions"])
+                    if "sha256" in result and "nextOffset" in result:
+                        pages[result["path"]] = result
+                pending = next((rule for path, rule in rules.items()
+                                if pages.get(path, {}).get("sha256") != rule["sha256"]
+                                or pages[path]["truncated"]), None)
+                if not title and (pending or not (workspace / "marker.txt").exists()):
+                    name = "read_project_instruction" if pending else "shell"
+                    arguments = ({"path": pending["path"], "offset": pages.get(pending["path"], {}).get("nextOffset", 0)}
+                                 if pending else {"directory": str(workspace), "command": "printf 'benchmark fixture' > marker.txt"})
+                    delta = {"tool_calls": [{"index": 0, "id": f"fixture-{len(body['messages'])}", "type": "function", "function": {
+                        "name": name, "arguments": json.dumps(arguments),
                     }}]}
                     reason = "tool_calls"
                 else:
@@ -194,7 +212,9 @@ class BenchmarkTest(unittest.TestCase):
             server.server_close()
             thread.join(timeout=5)
         self.assertEqual((workspace / "marker.txt").read_text(), "benchmark fixture")
-        self.assertEqual(len(requests), 2)
+        # Each tool turn must be followed by another model request, including
+        # directory-rule reads and the shell retry after acknowledgment.
+        self.assertEqual(len(requests), 1 + sum(message["role"] == "tool" for message in requests[-1]["messages"]))
         self.assertTrue(any(message["role"] == "tool" for message in requests[-1]["messages"]))
         usage = vista_usage(self.root / "logs/vista-events.jsonl")
         self.assertTrue(usage["complete"])

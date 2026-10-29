@@ -1,7 +1,7 @@
 import { availableVistaPort } from './test_port.mjs'
 import { prepareVistaTestConfig } from './test_config.mjs'
 import { createServer } from 'node:http'
-import { execFile, execFileSync } from 'node:child_process'
+import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
@@ -38,8 +38,7 @@ try {
     return response.json()
   }
   const session = await api('/sessions', { method: 'POST', body: JSON.stringify({ title: 'catalog test' }) })
-  const serverPid = JSON.parse(readFileSync(join(vistaConfig, 'state', 'instance.json'), 'utf8')).pid
-  const workerPid = Number(execFileSync('ps', ['-o', 'pid=', '--ppid', String(serverPid)], { encoding: 'utf8' }).trim().split(/\s+/)[0])
+  const workerPid = (await api('/status')).workerMetrics.find(item => item.sessionId === session.id)?.pid
   if (!workerPid) throw new Error('Worker was not started')
   if (readFileSync(`/proc/${workerPid}/environ`, 'utf8').includes('DEEPSEEK_API_KEY')) throw new Error('catalog key leaked into Worker environment')
   const run = await api(`/sessions/${session.id}/messages`, { method: 'POST', body: JSON.stringify({ content: 'hello' }) })

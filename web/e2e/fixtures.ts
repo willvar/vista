@@ -4,7 +4,8 @@ import { createHash } from 'node:crypto'
 import { createServer } from 'node:http'
 import { createServer as createPortReservation } from 'node:net'
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
-import { resolve, join } from 'node:path'
+import { resolve, join, parse } from 'node:path'
+import { projectRulesFixture } from '../../scripts/test_config.mjs'
 
 export type VistaFixture = {
   origin: string
@@ -54,6 +55,9 @@ export const test = base.extend<{ vista: VistaFixture; configuredProvider: boole
     mkdirSync(workspacePath)
     writeFileSync(join(workspacePath, 'source.txt'), 'original')
     writeFileSync(join(workspacePath, 'deleted.txt'), 'restore me')
+    const readRules = projectRulesFixture(state)
+    // Text-only command fixtures do not operate on checkout files.
+    const outputDirectory = parse(state).root
     const configuredModel = budgetModel ? { provider: 'catalog', providerId: 'openrouter', id: 'qwen/qwen3.8-flash' }
       : providerOutput === 'perplexity' ? { provider: 'openai-chat', providerId: 'custom', authentication: 'bearer', id: 'sonar-pro' }
       : providerOutput === 'openrouter' ? { provider: 'catalog', providerId: 'openrouter', id: 'aion-labs/aion-2.0' }
@@ -90,6 +94,8 @@ export const test = base.extend<{ vista: VistaFixture; configuredProvider: boole
       try { input = JSON.parse(body) } catch { response.writeHead(400).end(); return }
       const titleRequest = providerOutput === 'responses' ? body.includes('Write a short, specific title')
         : String(input.messages?.[0]?.content || '').startsWith('Write a short, specific title')
+      if (!titleRequest && !providerOutput && fileChanges
+        && readRules(input, response)) return
       const gate = titleRequest ? undefined : replyGate
       const streamBeforeGate = pauseAfterText
       if (!titleRequest) {
@@ -181,7 +187,7 @@ export const test = base.extend<{ vista: VistaFixture; configuredProvider: boole
           const start = currentPrompt === 'Start process'
           const functionName = start ? 'start_background' : 'shell'
           const command = start ? "printf 'monitor ready\\n'; while :; do printf 'live tick\\n'; sleep 0.2; done" : "printf 'command evidence'; exit 7"
-          const tool_calls = [{ index: 0, id: 'process-tool', type: 'function', function: { name: functionName, arguments: JSON.stringify({ directory: state, command, timeoutSeconds: 60 }) } }]
+          const tool_calls = [{ index: 0, id: 'process-tool', type: 'function', function: { name: functionName, arguments: JSON.stringify({ directory: outputDirectory, command, timeoutSeconds: 60 }) } }]
           response.end(`data: ${JSON.stringify({ choices: [{ delta: { tool_calls }, finish_reason: 'tool_calls' }] })}\n\ndata: [DONE]\n\n`)
           return
         }
@@ -202,7 +208,7 @@ export const test = base.extend<{ vista: VistaFixture; configuredProvider: boole
             response.write('data: {"choices":[{"delta":{"reasoning_content":"Background inspection in progress."}}]}\n\n')
             await Promise.race([backgroundGate, new Promise<void>(resolve => response.once('close', resolve))])
             if (response.destroyed) return
-            const tool_calls = [{ index: 0, id: 'background-shell', type: 'function', function: { name: 'shell', arguments: JSON.stringify({ directory: state, command: "printf 'background evidence'" }) } }]
+            const tool_calls = [{ index: 0, id: 'background-shell', type: 'function', function: { name: 'shell', arguments: JSON.stringify({ directory: outputDirectory, command: "printf 'background evidence'" }) } }]
             response.end(`data: ${JSON.stringify({ choices: [{ delta: { tool_calls }, finish_reason: 'tool_calls' }] })}\n\ndata: [DONE]\n\n`)
           } else {
             response.end('data: {"choices":[{"delta":{"content":"Background report complete."},"finish_reason":"stop"}]}\n\ndata: [DONE]\n\n')
@@ -219,7 +225,7 @@ export const test = base.extend<{ vista: VistaFixture; configuredProvider: boole
         response.write(`data: ${JSON.stringify({ choices: [{ delta: { content }, finish_reason: null }] })}\n\n`)
         if (gate && streamBeforeGate) await gate
         const delta = turn <= progressCalls ? { tool_calls: [{ index: 0, id: `progress-${turn}`, type: 'function', function: {
-          name: 'shell', arguments: JSON.stringify({ directory: state, command: progressCalls <= 6 ? "sleep 0.3; printf 'Tool result'" : "printf 'Tool result'" }),
+          name: 'shell', arguments: JSON.stringify({ directory: outputDirectory, command: progressCalls <= 6 ? "sleep 0.3; printf 'Tool result'" : "printf 'Tool result'" }),
         } }] } : {}
         response.write(`data: ${JSON.stringify({ choices: [{ delta, finish_reason: turn <= progressCalls ? 'tool_calls' : 'stop' }] })}\n\n`)
         response.end('data: {"choices":[],"usage":{"prompt_tokens":20,"completion_tokens":5}}\n\ndata: [DONE]\n\n')
@@ -252,7 +258,7 @@ export const test = base.extend<{ vista: VistaFixture; configuredProvider: boole
         && !input.messages.slice(lastUser + 1).some(message => message.role === 'tool')
       if (needsFollowUpTool) {
         const toolCalls = [{ index: 0, id: 'follow-up-price', type: 'function', function: {
-          name: 'shell', arguments: JSON.stringify({ directory: state, command: "printf 'price lookup result'" }),
+          name: 'shell', arguments: JSON.stringify({ directory: outputDirectory, command: "printf 'price lookup result'" }),
         } }]
         response.write(`data: ${JSON.stringify({ choices: [{ delta: { tool_calls: toolCalls }, finish_reason: 'tool_calls' }] })}\n\n`)
         response.end('data: {"choices":[],"usage":{"prompt_tokens":20,"completion_tokens":5}}\n\ndata: [DONE]\n\n')

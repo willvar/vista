@@ -1,7 +1,7 @@
 import { availableVistaPort } from './test_port.mjs'
 import { prepareVistaTestConfig, projectRulesFixture } from './test_config.mjs'
 import { createServer } from 'node:http'
-import { execFile, execFileSync } from 'node:child_process'
+import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 import { mkdtempSync, readFileSync, existsSync, rmSync, mkdirSync } from 'node:fs'
 import { join } from 'node:path'
@@ -70,7 +70,7 @@ try {
   if (output.jobId !== job.id) throw new Error('job output lookup failed')
   if (doubleCrash) {
     const serverPid = JSON.parse(readFileSync(join(state, 'vista', 'state', 'instance.json'), 'utf8')).pid
-    workerPid = Number(execFileSync('ps', ['-o', 'pid=', '--ppid', String(serverPid)], { encoding: 'utf8' }).trim().split(/\s+/)[0])
+    workerPid = status.workerMetrics.find(item => item.sessionId === session.id)?.pid
     if (!workerPid) throw new Error('Worker PID unavailable')
     process.kill(workerPid, 'SIGSTOP')
     process.kill(serverPid, 'SIGKILL')
