@@ -5,6 +5,8 @@ import (
 	"errors"
 	"sync"
 
+	"vista/internal/instance"
+	"vista/internal/mcphost"
 	"vista/internal/tools"
 	"vista/internal/workerproto"
 )
@@ -51,12 +53,22 @@ func (s *Session) Run(ctx context.Context, command workerproto.Command, emit fun
 	defer func() {
 		go func() {
 			scope.delegations.wg.Wait()
+			if scope.mcp != nil {
+				_ = scope.mcp.Close()
+			}
 			s.mu.Lock()
 			delete(s.runs, command.RunID)
 			s.mu.Unlock()
 			s.wg.Done()
 		}()
 	}()
+	if command.MCPHost.Managed || command.MCPHost.Endpoint != "" {
+		stateDir, err := instance.Dir()
+		if err != nil {
+			return "", err
+		}
+		scope.mcp = mcphost.NewExecution(s.ctx, command.MCPHost, stateDir, mcphost.Definitions(command.MCPServers, command.SearchProviders))
+	}
 	return runWithScope(ctx, command, emit, nil, nextInput, jobs, scope)
 }
 

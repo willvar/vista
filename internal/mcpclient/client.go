@@ -46,12 +46,33 @@ type CallResult struct {
 	IsError    bool   `json:"isError"`
 }
 type Server struct {
+	remote      Connection
 	session     *mcp.ClientSession
 	command     *exec.Cmd
 	outputLimit int
+	transport   *http.Transport
+}
+
+type Connection interface {
+	ListTools(context.Context, string) (ToolPage, error)
+	CallTool(context.Context, string, json.RawMessage) (CallResult, error)
+	Close() error
+}
+
+type connectorKey struct{}
+type Connector func(context.Context, Config, bool) (Connection, error)
+
+// WithConnector routes both configured tools and built-in MCP searches through
+// the same host. A proxy Close releases its local handle, not the shared server.
+func WithConnector(ctx context.Context, connect Connector) context.Context {
+	return context.WithValue(ctx, connectorKey{}, connect)
 }
 
 func Open(ctx context.Context, config Config) (*Server, error) {
+	if connect, ok := ctx.Value(connectorKey{}).(Connector); ok {
+		remote, err := connect(ctx, config, false)
+		return &Server{remote: remote}, err
+	}
 	var dir string
 	if config.OAuth {
 		var err error
@@ -83,12 +104,16 @@ func OpenWithConfigDir(ctx context.Context, config Config, dir string) (*Server,
 	return openWithHandler(ctx, config, handler, 10*time.Second, maxHTTPResponse)
 }
 
-// OpenSearch leaves result sizing to the user's websearch character setting.
+// OpenSearch leaves result sizing to the user's websearch byte setting.
 // Ordinary MCP connections retain their separate transport bound.
 func OpenSearch(ctx context.Context, endpoint, token string) (*Server, error) {
 	config := Config{ID: "search", Name: "search", Transport: "http", Endpoint: endpoint, Token: token}
 	if err := ValidateConfig(config); err != nil {
 		return nil, err
+	}
+	if connect, ok := ctx.Value(connectorKey{}).(Connector); ok {
+		remote, err := connect(ctx, config, true)
+		return &Server{remote: remote}, err
 	}
 	return openWithHandler(ctx, config, nil, 10*time.Second, -1)
 }
@@ -98,6 +123,7 @@ func openWithHandler(ctx context.Context, config Config, handler auth.OAuthHandl
 	var transport mcp.Transport
 	var command *exec.Cmd
 	var local *commandTransport
+	var base *http.Transport
 	switch config.Transport {
 	case "stdio":
 		command = exec.Command(config.Command, config.Args...)
@@ -106,8 +132,7 @@ func openWithHandler(ctx context.Context, config Config, handler auth.OAuthHandl
 		local = &commandTransport{command: command}
 		transport = local
 	case "http":
-		base := http.DefaultTransport.(*http.Transport).Clone()
-		base.DisableKeepAlives = true
+		base = http.DefaultTransport.(*http.Transport).Clone()
 		httpClient := &http.Client{Transport: &boundedTransport{base: base, token: config.Token, headers: config.Headers, limit: outputLimit}, Timeout: max(30*time.Second, connectTimeout), CheckRedirect: func(*http.Request, []*http.Request) error { return errors.New("MCP endpoint redirected") }}
 		transport = &mcp.StreamableClientTransport{Endpoint: config.Endpoint, HTTPClient: httpClient, MaxRetries: -1, MaxEventSize: outputLimit, DisableStandaloneSSE: true, OAuthHandler: handler}
 	}
@@ -115,6 +140,9 @@ func openWithHandler(ctx context.Context, config Config, handler auth.OAuthHandl
 	defer cancel()
 	session, err := client.Connect(connectCtx, transport, &mcp.ClientSessionOptions{ProtocolVersion: ProtocolVersion})
 	if err != nil {
+		if base != nil {
+			base.CloseIdleConnections()
+		}
 		if local != nil && local.conn != nil {
 			_ = local.conn.Close()
 		}
@@ -122,9 +150,12 @@ func openWithHandler(ctx context.Context, config Config, handler auth.OAuthHandl
 	}
 	if initialized := session.InitializeResult(); initialized == nil || initialized.ProtocolVersion != ProtocolVersion {
 		_ = session.Close()
+		if base != nil {
+			base.CloseIdleConnections()
+		}
 		return nil, fmt.Errorf("MCP %s did not negotiate protocol %s", config.Name, ProtocolVersion)
 	}
-	return &Server{session: session, command: command, outputLimit: outputLimit}, nil
+	return &Server{session: session, command: command, outputLimit: outputLimit, transport: base}, nil
 }
 
 func ValidateConfig(config Config) error {
@@ -204,13 +235,26 @@ func loopback(host string) bool {
 }
 
 func (s *Server) Close() error {
+	if s != nil && s.remote != nil {
+		return s.remote.Close()
+	}
 	if s == nil || s.session == nil {
 		return nil
 	}
-	return s.session.Close()
+	err := s.session.Close()
+	if s.transport != nil {
+		s.transport.CloseIdleConnections()
+	}
+	return err
 }
 
+// Wait lets the host detect dead stdio/HTTP sessions without replaying calls.
+func (s *Server) Wait() error { return s.session.Wait() }
+
 func (s *Server) ListTools(ctx context.Context, cursor string) (ToolPage, error) {
+	if s.remote != nil {
+		return s.remote.ListTools(ctx, cursor)
+	}
 	callCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 	result, err := s.session.ListTools(callCtx, &mcp.ListToolsParams{Cursor: cursor})
@@ -238,6 +282,9 @@ func (s *Server) ListTools(ctx context.Context, cursor string) (ToolPage, error)
 }
 
 func (s *Server) CallTool(ctx context.Context, name string, arguments json.RawMessage) (CallResult, error) {
+	if s.remote != nil {
+		return s.remote.CallTool(ctx, name, arguments)
+	}
 	limit := s.outputLimit
 	if name == "" || len(name) > 128 || len(arguments) > 4096 {
 		return CallResult{}, errors.New("MCP tool name or arguments exceed limits")

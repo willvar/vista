@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -21,6 +22,9 @@ import (
 
 func mcpAPI(t *testing.T, a *App, method, path string, body any, status int) *httptest.ResponseRecorder {
 	t.Helper()
+	if strings.HasSuffix(path, "/check") {
+		testMCPHost(t, a)
+	}
 	var data []byte
 	if body != nil {
 		var err error
@@ -233,6 +237,7 @@ func TestMCPSettingsConcurrentEditDiscardsStaleCheck(t *testing.T) {
 			config := workerproto.MCPServer{ID: "check", Name: "Original display name", Transport: "http", Endpoint: remote.URL}
 			mcpAPI(t, a, "POST", "/mcp-config", config, 204)
 			request := httptest.NewRequest("POST", "http://127.0.0.1:5186/api/mcp-servers/check/check", nil)
+			testMCPHost(t, a)
 			response := httptest.NewRecorder()
 			done := make(chan struct{})
 			go func() { defer close(done); a.handler().ServeHTTP(response, request) }()
@@ -312,16 +317,24 @@ func TestMCPSettingsCustomHeadersAreRedactedPreservedReplacedAndRemoved(t *testi
 
 func TestMCPSettingsClosingCheckCancelsNetworkAndKeepsPreviousStatus(t *testing.T) {
 	started, disconnected := make(chan struct{}), make(chan struct{})
+	var lists atomic.Int32
+	handler := mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return mcpSettingsFixture() }, &mcp.StreamableHTTPOptions{JSONResponse: true, Stateless: true})
 	remote := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_, _ = io.Copy(io.Discard, r.Body)
-		close(started)
-		<-r.Context().Done()
-		close(disconnected)
+		data, _ := io.ReadAll(r.Body)
+		if strings.Contains(string(data), `"tools/list"`) && lists.Add(1) == 1 {
+			close(started)
+			<-r.Context().Done()
+			close(disconnected)
+			return
+		}
+		r.Body = io.NopCloser(strings.NewReader(string(data)))
+		handler.ServeHTTP(w, r)
 	}))
 	defer remote.Close()
 	a := &App{configDir: mcpConfigDir(t)}
 	mcpAPI(t, a, "POST", "/mcp-config", workerproto.MCPServer{ID: "cancel", Name: "cancel", Transport: "http", Endpoint: remote.URL}, 204)
 	a.mcpChecks = map[string]mcpCheck{"cancel": {Status: "available", ToolCount: 2}}
+	testMCPHost(t, a)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	r := httptest.NewRequest("POST", "http://127.0.0.1:5186/api/mcp-servers/cancel/check", nil).WithContext(ctx)

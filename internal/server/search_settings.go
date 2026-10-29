@@ -27,8 +27,8 @@ type searchSettingsConfig struct {
 	FetchOrder          []string          `json:"fetchOrder"`
 	JinaAPIKey          string            `json:"jinaApiKey,omitempty"`
 	DeepSeekFetchAPIKey string            `json:"deepseekFetchApiKey,omitempty"`
-	SummaryLength       int               `json:"summaryLength"`
-	FetchPreviewLength  int               `json:"fetchPreviewLength"`
+	SearchPreviewBytes  int               `json:"searchPreviewBytes"`
+	FetchPreviewBytes   int               `json:"fetchPreviewBytes"`
 }
 
 type searchProviderSetting struct {
@@ -64,12 +64,12 @@ func validSearchOrder(order []string) bool {
 }
 
 func validWebfetchOrder(order []string) bool {
-	if len(order) != 3 {
+	if len(order) != 2 {
 		return false
 	}
 	seen := make(map[string]bool, len(order))
 	for _, name := range order {
-		if name != "vista" && name != "jina" && name != "deepseek" || seen[name] {
+		if name != "jina" && name != "deepseek" || seen[name] {
 			return false
 		}
 		seen[name] = true
@@ -80,7 +80,8 @@ func validWebfetchOrder(order []string) bool {
 // Initialize once per configuration directory.
 // Persist the initial order before serving requests so restarts never reshuffle it.
 func loadSearchSettings(dir string) (searchSettingsConfig, error) {
-	settings := searchSettingsConfig{SummaryLength: 1000, FetchPreviewLength: 8000}
+	settings := searchSettingsConfig{SearchPreviewBytes: workerproto.DefaultNetworkPreviewBytes, FetchPreviewBytes: workerproto.DefaultNetworkPreviewBytes}
+	migrate := false
 	file, err := os.Open(filepath.Join(dir, searchSettingsFilename))
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return settings, errors.New("could not read search settings")
@@ -89,9 +90,30 @@ func loadSearchSettings(dir string) (searchSettingsConfig, error) {
 		// The credentials and order fit comfortably within this bounded file.
 		data, readErr := io.ReadAll(io.LimitReader(file, (256<<10)+1))
 		file.Close()
-		if readErr != nil || len(data) > 256<<10 || decodeSettingsRequest(strings.NewReader(string(data)), &settings) != nil {
+		var saved struct {
+			searchSettingsConfig
+			SearchPreviewBytes *int `json:"searchPreviewBytes"`
+			FetchPreviewBytes  *int `json:"fetchPreviewBytes"`
+			SummaryLength      *int `json:"summaryLength"`
+			FetchPreviewLength *int `json:"fetchPreviewLength"`
+		}
+		if readErr != nil || len(data) > 256<<10 || decodeSettingsRequest(strings.NewReader(string(data)), &saved) != nil {
 			return searchSettingsConfig{}, errors.New("invalid search settings")
 		}
+		settings = saved.searchSettingsConfig
+		settings.SearchPreviewBytes = workerproto.DefaultNetworkPreviewBytes
+		settings.FetchPreviewBytes = workerproto.DefaultNetworkPreviewBytes
+		if saved.SearchPreviewBytes != nil {
+			settings.SearchPreviewBytes = *saved.SearchPreviewBytes
+		} else if saved.SummaryLength != nil {
+			settings.SearchPreviewBytes = legacyPreviewBytes(*saved.SummaryLength, 1000, 8)
+		}
+		if saved.FetchPreviewBytes != nil {
+			settings.FetchPreviewBytes = *saved.FetchPreviewBytes
+		} else if saved.FetchPreviewLength != nil {
+			settings.FetchPreviewBytes = legacyPreviewBytes(*saved.FetchPreviewLength, 8000, 1)
+		}
+		migrate = saved.SearchPreviewBytes == nil || saved.FetchPreviewBytes == nil || saved.SummaryLength != nil || saved.FetchPreviewLength != nil
 	}
 	for name, key := range settings.APIKeys {
 		if !validSearchProvider(name) || !validSearchAPIKey(key) {
@@ -101,13 +123,13 @@ func loadSearchSettings(dir string) (searchSettingsConfig, error) {
 	if settings.JinaAPIKey != "" && !validSearchAPIKey(settings.JinaAPIKey) {
 		return searchSettingsConfig{}, errors.New("invalid search settings")
 	}
-	if settings.DeepSeekFetchAPIKey != "" && !validSearchAPIKey(settings.DeepSeekFetchAPIKey) || settings.SummaryLength < 0 || settings.FetchPreviewLength < 0 {
+	if settings.DeepSeekFetchAPIKey != "" && !validSearchAPIKey(settings.DeepSeekFetchAPIKey) || settings.SearchPreviewBytes < 0 || settings.FetchPreviewBytes < 0 {
 		return searchSettingsConfig{}, errors.New("invalid search settings")
 	}
 	if settings.APIKeys == nil {
 		settings.APIKeys = map[string]string{}
 	}
-	initialize := settings.Order == nil || settings.FetchOrder == nil
+	initialize := migrate || settings.Order == nil || settings.FetchOrder == nil
 	if settings.Order == nil {
 		external := []string{"firecrawl", "parallel", "tavily", "exa", "deepseek"}
 		rand.Shuffle(len(external), func(i, j int) { external[i], external[j] = external[j], external[i] })
@@ -115,8 +137,24 @@ func loadSearchSettings(dir string) (searchSettingsConfig, error) {
 	} else if !validSearchOrder(settings.Order) {
 		return searchSettingsConfig{}, errors.New("invalid search settings")
 	}
+	// Preserve external-reader order and credentials from earlier versions.
+	if len(settings.FetchOrder) == 3 {
+		normalized := make([]string, 0, 2)
+		removed := false
+		for _, name := range settings.FetchOrder {
+			if name == "vista" && !removed {
+				removed = true
+				continue
+			}
+			normalized = append(normalized, name)
+		}
+		if removed && validWebfetchOrder(normalized) {
+			settings.FetchOrder = normalized
+			initialize = true
+		}
+	}
 	if settings.FetchOrder == nil {
-		settings.FetchOrder = []string{"vista", "jina", "deepseek"}
+		settings.FetchOrder = []string{"jina", "deepseek"}
 	} else if !validWebfetchOrder(settings.FetchOrder) {
 		return searchSettingsConfig{}, errors.New("invalid webfetch order")
 	}
@@ -126,6 +164,24 @@ func loadSearchSettings(dir string) (searchSettingsConfig, error) {
 		}
 	}
 	return settings, nil
+}
+
+// Character limits have no exact byte equivalent. Upgrade the old defaults to
+// 50 KiB and retain unlimited. Preserve custom capacity using the UTF-8 upper
+// bound (up to eight search hits), rounded up to a whole KiB for the UI.
+func legacyPreviewBytes(characters, oldDefault, results int) int {
+	if characters <= 0 {
+		return characters
+	}
+	if characters == oldDefault {
+		return workerproto.DefaultNetworkPreviewBytes
+	}
+	factor := utf8.UTFMax * results
+	maximum := int(^uint(0)>>1) / 1024 * 1024
+	if characters > (maximum-1023)/factor {
+		return maximum
+	}
+	return (characters*factor + 1023) / 1024 * 1024
 }
 
 func writeSearchSettings(dir string, settings searchSettingsConfig) error {
@@ -180,13 +236,13 @@ func (a *App) currentSearchProviders() []workerproto.SearchProvider {
 func (a *App) currentWebfetchSettings() workerproto.WebfetchConfig {
 	a.searchMu.RLock()
 	defer a.searchMu.RUnlock()
-	return workerproto.WebfetchConfig{Order: append([]string(nil), a.searchConfig.FetchOrder...), JinaAPIKey: a.searchConfig.JinaAPIKey, DeepSeekAPIKey: a.searchConfig.DeepSeekFetchAPIKey, PreviewLength: a.searchConfig.FetchPreviewLength}
+	return workerproto.WebfetchConfig{Order: append([]string(nil), a.searchConfig.FetchOrder...), JinaAPIKey: a.searchConfig.JinaAPIKey, DeepSeekAPIKey: a.searchConfig.DeepSeekFetchAPIKey, PreviewBytes: a.searchConfig.FetchPreviewBytes}
 }
 
-func (a *App) currentSearchSummaryLength() int {
+func (a *App) currentSearchPreviewBytes() int {
 	a.searchMu.RLock()
 	defer a.searchMu.RUnlock()
-	return a.searchConfig.SummaryLength
+	return a.searchConfig.SearchPreviewBytes
 }
 
 func (a *App) searchSettings(w http.ResponseWriter, r *http.Request) {
@@ -213,17 +269,17 @@ func (a *App) searchSettings(w http.ResponseWriter, r *http.Request) {
 		if a.searchConfig.DeepSeekFetchAPIKey != "" {
 			deepseekSource = "settings"
 		}
-		jsonOut(w, map[string]any{"providers": providers, "order": a.searchConfig.Order, "fetchOrder": a.searchConfig.FetchOrder, "jinaReader": searchProviderSetting{Name: "jina", Source: jinaSource}, "deepseekFetch": searchProviderSetting{Name: "deepseek", Source: deepseekSource}, "summaryLength": a.searchConfig.SummaryLength, "fetchPreviewLength": a.searchConfig.FetchPreviewLength})
+		jsonOut(w, map[string]any{"providers": providers, "order": a.searchConfig.Order, "fetchOrder": a.searchConfig.FetchOrder, "jinaReader": searchProviderSetting{Name: "jina", Source: jinaSource}, "deepseekFetch": searchProviderSetting{Name: "deepseek", Source: deepseekSource}, "searchPreviewBytes": a.searchConfig.SearchPreviewBytes, "fetchPreviewBytes": a.searchConfig.FetchPreviewBytes})
 	case http.MethodPatch:
 		r.Body = http.MaxBytesReader(w, r.Body, 32<<10)
 		var input struct {
 			Order              []string `json:"order"`
 			FetchOrder         []string `json:"fetchOrder"`
-			SummaryLength      *int     `json:"summaryLength"`
-			FetchPreviewLength *int     `json:"fetchPreviewLength"`
+			SearchPreviewBytes *int     `json:"searchPreviewBytes"`
+			FetchPreviewBytes  *int     `json:"fetchPreviewBytes"`
 		}
-		if decodeSettingsRequest(r.Body, &input) != nil || input.Order == nil && input.FetchOrder == nil && input.SummaryLength == nil && input.FetchPreviewLength == nil {
-			http.Error(w, "provide order, fetchOrder, summaryLength, or fetchPreviewLength", http.StatusBadRequest)
+		if decodeSettingsRequest(r.Body, &input) != nil || input.Order == nil && input.FetchOrder == nil && input.SearchPreviewBytes == nil && input.FetchPreviewBytes == nil {
+			http.Error(w, "provide order, fetchOrder, searchPreviewBytes, or fetchPreviewBytes", http.StatusBadRequest)
 			return
 		}
 		if input.Order != nil && !validSearchOrder(input.Order) {
@@ -231,15 +287,15 @@ func (a *App) searchSettings(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if input.FetchOrder != nil && !validWebfetchOrder(input.FetchOrder) {
-			http.Error(w, "fetchOrder must contain vista, jina, and deepseek exactly once", http.StatusBadRequest)
+			http.Error(w, "fetchOrder must contain jina and deepseek exactly once", http.StatusBadRequest)
 			return
 		}
-		if input.SummaryLength != nil && *input.SummaryLength < 0 {
-			http.Error(w, "summaryLength must be a non-negative integer; 0 means unlimited", http.StatusBadRequest)
+		if input.SearchPreviewBytes != nil && *input.SearchPreviewBytes < 0 {
+			http.Error(w, "searchPreviewBytes must be a non-negative integer; 0 means unlimited", http.StatusBadRequest)
 			return
 		}
-		if input.FetchPreviewLength != nil && *input.FetchPreviewLength < 0 {
-			http.Error(w, "fetchPreviewLength must be a non-negative integer; 0 means unlimited", http.StatusBadRequest)
+		if input.FetchPreviewBytes != nil && *input.FetchPreviewBytes < 0 {
+			http.Error(w, "fetchPreviewBytes must be a non-negative integer; 0 means unlimited", http.StatusBadRequest)
 			return
 		}
 		a.searchMu.Lock()
@@ -251,17 +307,18 @@ func (a *App) searchSettings(w http.ResponseWriter, r *http.Request) {
 		if input.FetchOrder != nil {
 			settings.FetchOrder = input.FetchOrder
 		}
-		if input.SummaryLength != nil {
-			settings.SummaryLength = *input.SummaryLength
+		if input.SearchPreviewBytes != nil {
+			settings.SearchPreviewBytes = *input.SearchPreviewBytes
 		}
-		if input.FetchPreviewLength != nil {
-			settings.FetchPreviewLength = *input.FetchPreviewLength
+		if input.FetchPreviewBytes != nil {
+			settings.FetchPreviewBytes = *input.FetchPreviewBytes
 		}
 		if err := writeSearchSettings(a.configDir, settings); err != nil {
 			http.Error(w, "could not save search settings", http.StatusInternalServerError)
 			return
 		}
 		a.searchConfig = settings
+		a.refreshMCPHost()
 		w.WriteHeader(http.StatusNoContent)
 	case http.MethodPut, http.MethodDelete:
 		r.Body = http.MaxBytesReader(w, r.Body, 32<<10)
@@ -314,6 +371,7 @@ func (a *App) searchSettings(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		a.searchConfig = settings
+		a.refreshMCPHost()
 		w.WriteHeader(http.StatusNoContent)
 	default:
 		http.Error(w, "method", http.StatusMethodNotAllowed)

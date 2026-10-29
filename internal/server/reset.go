@@ -13,6 +13,7 @@ import (
 	"strings"
 	"sync"
 
+	"vista/internal/mcphost"
 	"vista/internal/platform"
 	"vista/internal/provider"
 )
@@ -79,6 +80,9 @@ func (h *appHandler) stopApp() error {
 	h.app.stopAll()
 	h.requests.Wait()
 	h.app.background.Wait()
+	if err := mcphost.Recover(h.app.dir); err != nil {
+		return err
+	}
 	owners, err := h.app.store.WorkerOwners(context.Background())
 	if err != nil {
 		return err

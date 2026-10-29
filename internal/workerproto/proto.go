@@ -6,43 +6,53 @@ import (
 	"vista/internal/resources"
 )
 
+const DefaultNetworkPreviewBytes = 50 << 10
+
 // Frames are newline-delimited JSON on a dedicated Worker stdin/stdout pipe.
 // Result frames have a byte limit; command fields are validated after decoding.
 type Command struct {
-	RPCID               string           `json:"rpcId,omitempty"`
-	ResourcePath        string           `json:"resourcePath,omitempty"`
-	ResourceName        string           `json:"resourceName,omitempty"`
-	ResourceType        string           `json:"resourceType,omitempty"`
-	MemoryLimit         int64            `json:"memoryLimit,omitempty"`
-	Debug               bool             `json:"debug,omitempty"`
-	TaskID              string           `json:"taskId,omitempty"`
-	ParentTaskID        string           `json:"parentTaskId,omitempty"`
-	Join                string           `json:"join,omitempty"`
-	Action              string           `json:"action,omitempty"`
-	AckID               string           `json:"ackId,omitempty"`
-	Input               *Command         `json:"input,omitempty"`
-	Error               string           `json:"error,omitempty"`
-	JobID               string           `json:"jobId,omitempty"`
-	SessionID           string           `json:"sessionId,omitempty"`
-	MessageSequence     int64            `json:"messageSequence,omitempty"`
-	InputID             string           `json:"inputId,omitempty"`
-	RunID               string           `json:"runId"`
-	Prompt              string           `json:"prompt"`
-	ReplyLanguage       string           `json:"replyLanguage,omitempty"`
-	QuestionCallID      string           `json:"questionCallId,omitempty"`
-	Images              []Image          `json:"images,omitempty"`
-	Model               modelcfg.Model   `json:"model"`
-	History             []Message        `json:"history,omitempty"`
-	MCPServers          []MCPServer      `json:"mcpServers,omitempty"`
-	SearchProviders     []SearchProvider `json:"searchProviders,omitempty"`
-	SearchSummaryLength int              `json:"searchSummaryLength,omitempty"`
-	Webfetch            WebfetchConfig   `json:"webfetch,omitzero"`
+	MCPHost            MCPHost          `json:"mcpHost,omitzero"`
+	RPCID              string           `json:"rpcId,omitempty"`
+	ResourcePath       string           `json:"resourcePath,omitempty"`
+	ResourceName       string           `json:"resourceName,omitempty"`
+	ResourceType       string           `json:"resourceType,omitempty"`
+	MemoryLimit        int64            `json:"memoryLimit,omitempty"`
+	Debug              bool             `json:"debug,omitempty"`
+	TaskID             string           `json:"taskId,omitempty"`
+	ParentTaskID       string           `json:"parentTaskId,omitempty"`
+	Join               string           `json:"join,omitempty"`
+	Action             string           `json:"action,omitempty"`
+	AckID              string           `json:"ackId,omitempty"`
+	Input              *Command         `json:"input,omitempty"`
+	Error              string           `json:"error,omitempty"`
+	JobID              string           `json:"jobId,omitempty"`
+	SessionID          string           `json:"sessionId,omitempty"`
+	MessageSequence    int64            `json:"messageSequence,omitempty"`
+	InputID            string           `json:"inputId,omitempty"`
+	RunID              string           `json:"runId"`
+	Prompt             string           `json:"prompt"`
+	ReplyLanguage      string           `json:"replyLanguage,omitempty"`
+	QuestionCallID     string           `json:"questionCallId,omitempty"`
+	Images             []Image          `json:"images,omitempty"`
+	Model              modelcfg.Model   `json:"model"`
+	History            []Message        `json:"history,omitempty"`
+	MCPServers         []MCPServer      `json:"mcpServers,omitempty"`
+	SearchProviders    []SearchProvider `json:"searchProviders,omitempty"`
+	SearchPreviewBytes int              `json:"searchPreviewBytes,omitempty"`
+	Webfetch           WebfetchConfig   `json:"webfetch,omitzero"`
+}
+
+// The private loopback endpoint is sent only over Worker IPC, never public SSE.
+type MCPHost struct {
+	Managed  bool   `json:"managed,omitempty"`
+	Endpoint string `json:"endpoint"`
+	Token    string `json:"token"`
 }
 type WebfetchConfig struct {
 	Order          []string `json:"order"`
 	JinaAPIKey     string   `json:"jinaApiKey,omitempty"`
 	DeepSeekAPIKey string   `json:"deepseekApiKey,omitempty"`
-	PreviewLength  int      `json:"previewLength"`
+	PreviewBytes   int      `json:"previewBytes"`
 }
 type SearchProvider struct {
 	Name     string `json:"name"`

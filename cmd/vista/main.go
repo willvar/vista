@@ -15,6 +15,7 @@ import (
 	"github.com/spf13/cobra"
 	"vista/internal/appdirs"
 	"vista/internal/instance"
+	"vista/internal/mcphost"
 	"vista/internal/platform"
 	"vista/internal/server"
 	"vista/internal/worker"
@@ -69,6 +70,7 @@ func newRootCommand() *cobra.Command {
 	addPortFlag(serveCommand, &port)
 	root.AddCommand(serveCommand)
 	root.AddCommand(&cobra.Command{Use: "worker", Hidden: true, RunE: func(*cobra.Command, []string) error { return worker.Run() }})
+	root.AddCommand(&cobra.Command{Use: "mcp-host", Hidden: true, Args: cobra.NoArgs, RunE: func(*cobra.Command, []string) error { return mcphost.Run() }})
 	return root
 }
 

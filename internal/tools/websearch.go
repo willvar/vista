@@ -96,17 +96,8 @@ func searchOne(ctx context.Context, config workerproto.SearchProvider, query str
 	if config.Name != "exa" && config.Name != "firecrawl" && config.Name != "parallel" {
 		return nil, errors.New("unknown websearch provider")
 	}
-	endpoint := config.Endpoint
-	token := config.APIKey
-	if config.Name == "exa" && token != "" {
-		u, _ := url.Parse(endpoint)
-		q := u.Query()
-		q.Set("exaApiKey", token)
-		u.RawQuery = q.Encode()
-		endpoint = u.String()
-		token = ""
-	}
-	server, err := mcpclient.OpenSearch(ctx, endpoint, token)
+	connection, _ := mcpclient.SearchConfig(config.Name, config.Endpoint, config.APIKey)
+	server, err := mcpclient.OpenSearch(ctx, connection.Endpoint, connection.Token)
 	if err != nil {
 		return nil, err
 	}

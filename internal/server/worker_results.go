@@ -27,6 +27,7 @@ type workerResultConsumer struct {
 	done               <-chan struct{}
 	async              func(func())
 	refreshCredentials func(context.Context, modelcfg.Model) (modelcfg.Model, error)
+	mcpEndpoint        func(context.Context) (workerproto.MCPHost, error)
 	ctx                context.Context
 	store              *store.Store
 	sessionID          string
@@ -44,6 +45,12 @@ func (a *App) workerResultConsumer(id string, w *worker) *workerResultConsumer {
 	return &workerResultConsumer{
 		admitMedia: a.admitHeavy, rpc: w.receiveRPC, ctx: a.ctx, store: a.store, sessionID: id, stateDir: a.dir,
 		done: w.done, refreshCredentials: a.refreshModelCredentials, async: a.background.Go,
+		mcpEndpoint: func(ctx context.Context) (workerproto.MCPHost, error) {
+			if a.mcpHost == nil {
+				return workerproto.MCPHost{}, errors.New("MCP host is unavailable")
+			}
+			return a.mcpHost.Endpoint(ctx)
+		},
 		send:       w.send,
 		notify:     func() { a.hub.notify(id) },
 		changed:    a.notifyWorkerState,
@@ -137,6 +144,8 @@ func (c *workerResultConsumer) consume(result workerproto.Result) error {
 		return c.memoryChange(result)
 	case "model_credentials":
 		return c.credentials(result)
+	case "mcp_host":
+		return c.mcpHostEndpoint(result)
 	case "context_usage":
 		if result.RunID == "" || result.Depth != 0 || result.TaskID != "" && result.TaskID != "main" || result.ContextUsage == nil || result.ContextUsage.Tokens < 0 {
 			return errors.New("invalid context usage")

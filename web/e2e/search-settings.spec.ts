@@ -22,10 +22,10 @@ async function mockSearchSettings(page: Page, origin: string) {
   const fixture = {
     keys: {} as Record<string, string>,
     order: ['firecrawl', 'parallel', 'tavily', 'exa', 'deepseek'],
-    fetchOrder: ['vista', 'jina', 'deepseek'],
-    summaryLength: 1000,
-    fetchPreviewLength: 8000,
-    writes: [] as { method: string; name?: string; apiKey?: string; order?: string[]; fetchOrder?: string[]; summaryLength?: number; fetchPreviewLength?: number }[],
+    fetchOrder: ['jina', 'deepseek'],
+    searchPreviewBytes: 50 * 1024,
+    fetchPreviewBytes: 50 * 1024,
+    writes: [] as { method: string; name?: string; apiKey?: string; order?: string[]; fetchOrder?: string[]; searchPreviewBytes?: number; fetchPreviewBytes?: number }[],
     unexpected: [] as string[],
     failSave: false,
     failRead: false,
@@ -42,7 +42,7 @@ async function mockSearchSettings(page: Page, origin: string) {
     if (path === '/search-config') {
       if (method === 'GET') {
         if (fixture.failRead) return route.fulfill({ status: 500, body: 'Could not load search settings' })
-        return reply({ order: fixture.order, fetchOrder: fixture.fetchOrder, providers: ['firecrawl', 'parallel', 'tavily', 'exa', 'deepseek'].map(name => ({ name, source: fixture.keys[name] ? 'settings' : name === 'exa' ? 'environment' : 'none' })), jinaReader: { name: 'jina', source: fixture.keys.jina ? 'settings' : 'none' }, deepseekFetch: { name: 'deepseek', source: fixture.keys['deepseek-fetch'] ? 'settings' : 'none' }, summaryLength: fixture.summaryLength, fetchPreviewLength: fixture.fetchPreviewLength })
+        return reply({ order: fixture.order, fetchOrder: fixture.fetchOrder, providers: ['firecrawl', 'parallel', 'tavily', 'exa', 'deepseek'].map(name => ({ name, source: fixture.keys[name] ? 'settings' : name === 'exa' ? 'environment' : 'none' })), jinaReader: { name: 'jina', source: fixture.keys.jina ? 'settings' : 'none' }, deepseekFetch: { name: 'deepseek', source: fixture.keys['deepseek-fetch'] ? 'settings' : 'none' }, searchPreviewBytes: fixture.searchPreviewBytes, fetchPreviewBytes: fixture.fetchPreviewBytes })
       }
       if (method === 'PUT' || method === 'DELETE' || method === 'PATCH') {
         const body = request.postDataJSON()
@@ -51,8 +51,8 @@ async function mockSearchSettings(page: Page, origin: string) {
         if (method === 'PATCH') {
           if (body.order) fixture.order = body.order
           if (body.fetchOrder) fixture.fetchOrder = body.fetchOrder
-          if (body.summaryLength !== undefined) fixture.summaryLength = body.summaryLength
-          if (body.fetchPreviewLength !== undefined) fixture.fetchPreviewLength = body.fetchPreviewLength
+          if (body.searchPreviewBytes !== undefined) fixture.searchPreviewBytes = body.searchPreviewBytes
+          if (body.fetchPreviewBytes !== undefined) fixture.fetchPreviewBytes = body.fetchPreviewBytes
         }
         else if (method === 'PUT') fixture.keys[body.name] = body.apiKey
         else delete fixture.keys[body.name]
@@ -155,19 +155,19 @@ test('DeepSeek search and fetch keys are configured and cleared independently', 
 })
 
 for (const setting of [
-  { key: 'summaryLength', label: 'Initial content per search result', initial: 1000, otherKey: 'fetchPreviewLength', otherLabel: 'Initial content per page', otherInitial: 8000 },
-  { key: 'fetchPreviewLength', label: 'Initial content per page', initial: 8000, otherKey: 'summaryLength', otherLabel: 'Initial content per search result', otherInitial: 1000 },
+  { key: 'searchPreviewBytes', label: 'Initial search result size', initial: 50, otherKey: 'fetchPreviewBytes', otherLabel: 'Initial page content size', otherInitial: 50 },
+  { key: 'fetchPreviewBytes', label: 'Initial page content size', initial: 50, otherKey: 'searchPreviewBytes', otherLabel: 'Initial search result size', otherInitial: 50 },
 ] as const) {
-  test(`${setting.key} preserves both drafts and saves custom or unlimited initial lengths`, async ({ page, mockOrigin }, testInfo) => {
+  test(`${setting.key} preserves both drafts and saves KiB as byte budgets or unlimited`, async ({ page, mockOrigin }, testInfo) => {
     const fixture = await mockSearchSettings(page, mockOrigin)
     const form = page.getByRole('form', { name: setting.label, exact: true })
     await expect(page.locator('.search-settings-content > p').first()).toHaveText('Configure web search and page reading services for the agent.')
     await expect(page.locator('.search-settings-content')).toContainText('skipping methods without required keys')
     await expect(page.locator('.fetch-order-form')).not.toContainText('required keys')
     await expect(page.getByRole('img', { name: 'A higher initial content limit can reduce errors and omissions caused by incomplete information, but uses more context and input tokens.', exact: true })).toHaveCount(1)
-    await expect(form.locator('.search-settings-hint').first()).toHaveText(`Default: ${setting.initial.toLocaleString('en-US')} characters.`)
+    await expect(form.locator('.search-settings-hint').first()).toHaveText(setting.key === 'searchPreviewBytes' ? 'Default: 50 KiB per search, shared by all results.' : 'Default: 50 KiB per page.')
     const input = form.getByRole('spinbutton', { name: setting.label, exact: true })
-    const unlimited = form.getByRole('checkbox', { name: 'No character limit', exact: true })
+    const unlimited = form.getByRole('checkbox', { name: 'No size limit', exact: true })
     const save = form.getByRole('button', { name: 'Save changes', exact: true })
     const other = page.getByRole('form', { name: setting.otherLabel, exact: true })
     const otherInput = other.getByRole('spinbutton')
@@ -184,14 +184,14 @@ for (const setting of [
     fixture.failSave = true
     await save.click()
     await expect(page.getByRole('alert')).toContainText('Could not save search settings')
-    expect(fixture[setting.key]).toBe(setting.initial)
+    expect(fixture[setting.key]).toBe(setting.initial * 1024)
     fixture.failSave = false
     await page.getByRole('button', { name: 'Retry', exact: true }).click()
     await expect(input).toHaveValue('777')
     await save.click()
     await expect(form.getByRole('status')).toHaveText('Updated. Changes apply to the next run.')
-    expect(fixture[setting.key]).toBe(777)
-    expect(fixture[setting.otherKey]).toBe(setting.otherInitial)
+    expect(fixture[setting.key]).toBe(777 * 1024)
+    expect(fixture[setting.otherKey]).toBe(setting.otherInitial * 1024)
     await expect(otherInput).toHaveValue('2345')
     await page.reload()
     await expect(input).toHaveValue('777')
@@ -210,10 +210,10 @@ for (const setting of [
     await expect(note).toHaveCount(0)
     await input.fill('')
     await expect(save).toBeDisabled()
-    await input.fill('2000')
+    await input.fill('1.5')
     await save.click()
     await expect(save).toBeDisabled()
-    expect(fixture[setting.key]).toBe(2000)
+    expect(fixture[setting.key]).toBe(1536)
     await page.emulateMedia({ colorScheme: 'dark' })
     await form.scrollIntoViewIfNeeded()
     await page.screenshot({ path: testInfo.outputPath(`${setting.key}-dark.png`), animations: 'disabled' })
@@ -226,7 +226,7 @@ test('search and reader keys save, survive reload without readback, and can be r
   const settings = page.locator('.settings-page:visible')
   await expect(settings.locator('.settings-nav a[aria-current="page"]')).toHaveText('Web queries')
   await expect(settings.locator('input[type=password]')).toHaveCount(0)
-  await expect(settings.locator('[data-provider="vista"] button')).toHaveCount(2)
+  await expect(settings.locator('[data-provider="vista"]')).toHaveCount(0)
   const names = ['Firecrawl', 'Parallel', 'Tavily', 'Exa', 'Jina Reader']
   for (const name of names) {
     const id = name === 'Jina Reader' ? 'jina' : name.toLowerCase()
@@ -376,40 +376,40 @@ test('key editor preserves failed saves, retries loading, and discards canceled 
   expect(fixture.unexpected).toEqual([])
 })
 
-test('page reading order defaults to Vista and saves independently from search and keys', async ({ page, mockOrigin }, testInfo) => {
+test('page reading order defaults to Jina and saves independently from search and keys', async ({ page, mockOrigin }, testInfo) => {
   const fixture = await mockSearchSettings(page, mockOrigin)
   const fetch = page.getByRole('form', { name: 'Page reading priority', exact: true })
   const search = page.getByRole('form', { name: 'Search priority', exact: true })
   const rowOrder = () => fetch.locator('li').evaluateAll(rows => rows.map(row => row.getAttribute('data-provider')))
   const save = fetch.getByRole('button', { name: 'Save order', exact: true })
-  expect(await rowOrder()).toEqual(['vista', 'jina', 'deepseek'])
-  await expect(fetch.getByRole('button', { name: 'Move Vista built-in up', exact: true })).toBeDisabled()
+  expect(await rowOrder()).toEqual(['jina', 'deepseek'])
+  await expect(fetch.getByRole('button', { name: 'Move Jina Reader up', exact: true })).toBeDisabled()
   await expect(fetch.getByRole('button', { name: 'Move DeepSeek down', exact: true })).toBeDisabled()
   await expect(save).toBeDisabled()
-  await fetch.getByRole('button', { name: 'Move Jina Reader up', exact: true }).click()
-  expect(await rowOrder()).toEqual(['jina', 'vista', 'deepseek'])
+  await fetch.getByRole('button', { name: 'Move DeepSeek up', exact: true }).click()
+  expect(await rowOrder()).toEqual(['deepseek', 'jina'])
   await search.getByRole('button', { name: 'Move Exa up', exact: true }).click()
   fixture.failSave = true
   await save.click()
   await expect(page.getByRole('alert')).toContainText('Could not save search settings')
-  expect(fixture.fetchOrder).toEqual(['vista', 'jina', 'deepseek'])
-  expect(await rowOrder()).toEqual(['jina', 'vista', 'deepseek'])
+  expect(fixture.fetchOrder).toEqual(['jina', 'deepseek'])
+  expect(await rowOrder()).toEqual(['deepseek', 'jina'])
   fixture.failSave = false
   await page.getByRole('button', { name: 'Retry', exact: true }).click()
   const jina = await editKey(page, 'Jina Reader')
   await jina.getByLabel('Jina Reader API Key', { exact: true }).fill('jina-user-secret')
   await jina.getByRole('button', { name: 'Save changes', exact: true }).click()
   await expect(jina).toBeHidden()
-  expect(await rowOrder()).toEqual(['jina', 'vista', 'deepseek'])
+  expect(await rowOrder()).toEqual(['deepseek', 'jina'])
   await save.click()
   await expect(fetch.getByRole('status')).toHaveText('Updated. Changes apply to the next run.')
-  expect(fixture.fetchOrder).toEqual(['jina', 'vista', 'deepseek'])
+  expect(fixture.fetchOrder).toEqual(['deepseek', 'jina'])
   expect(fixture.order).toEqual(['firecrawl', 'parallel', 'tavily', 'exa', 'deepseek'])
   await expect(search.getByRole('button', { name: 'Save order', exact: true })).toBeEnabled()
-  expect(fixture.writes.at(-1)).toEqual({ method: 'PATCH', fetchOrder: ['jina', 'vista', 'deepseek'] })
+  expect(fixture.writes.at(-1)).toEqual({ method: 'PATCH', fetchOrder: ['deepseek', 'jina'] })
   await page.reload()
-  await expect(fetch.locator('li')).toHaveCount(3)
-  expect(await rowOrder()).toEqual(['jina', 'vista', 'deepseek'])
+  await expect(fetch.locator('li')).toHaveCount(2)
+  expect(await rowOrder()).toEqual(['deepseek', 'jina'])
   await expect(save).toBeDisabled()
   await expect(fetch.locator('[data-provider="jina"] .search-quota-tag')).toHaveText('Paid quota')
   await fetch.scrollIntoViewIfNeeded()
@@ -455,7 +455,7 @@ test('search settings remain readable and reachable in English and Chinese', asy
     }
     await page.emulateMedia({ colorScheme: 'light' })
     const fetch = settings.locator('.fetch-order-form')
-    await expect(fetch.locator('.search-provider-name')).toHaveText(language === 'en' ? ['Vista built-in', 'Jina Reader', 'DeepSeek'] : ['Vista 内置', 'Jina Reader', 'DeepSeek'])
+    await expect(fetch.locator('.search-provider-name')).toHaveText(['Jina Reader', 'DeepSeek'])
     await expect(settings.locator('.search-quota-tag:not(.has-key)')).toHaveText([...(Array(3).fill(language === 'en' ? 'Free quota' : '免费额度')), language === 'en' ? 'Not configured' : '未配置', language === 'en' ? 'Free quota' : '免费额度', language === 'en' ? 'Not configured' : '未配置'])
     await expect(settings.locator('.search-quota-tag.has-key')).toHaveText(language === 'en' ? 'Paid quota' : '付费额度')
     await fetch.scrollIntoViewIfNeeded()

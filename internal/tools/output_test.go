@@ -70,3 +70,27 @@ func TestOutputReaderStaysInsideOutputDirectory(t *testing.T) {
 		t.Fatal("preview followed symlink outside output directory")
 	}
 }
+
+func TestOutputPreviewUsesBytesWithoutBreakingUTF8(t *testing.T) {
+	root := t.TempDir()
+	if err := os.Mkdir(filepath.Join(root, "outputs"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(root, "outputs", "page.txt")
+	content := "中🙂evidence"
+	if err := os.WriteFile(path, []byte(content), 0600); err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		limit int
+		want  string
+	}{{0, content}, {1, ""}, {3, "中"}, {6, "中"}, {7, "中🙂"}, {8, "中🙂e"}, {100, content}} {
+		page, err := ReadOutputPreview(root, path, tc.limit)
+		if err != nil || page.Content != tc.want || page.NextOffset != int64(len(tc.want)) || page.Truncated != (tc.want != content) {
+			t.Fatalf("preview limit %d: %+v %v", tc.limit, page, err)
+		}
+	}
+	if _, err := ReadOutputPreview(root, path, -1); err == nil {
+		t.Fatal("negative byte budget accepted")
+	}
+}

@@ -10,6 +10,8 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"vista/internal/instance"
+	"vista/internal/mcphost"
 	"vista/internal/modeltrace"
 	"vista/internal/platform"
 	"vista/internal/provider"
@@ -47,6 +49,14 @@ func runWithInputSource(ctx context.Context, command workerproto.Command, emit f
 	}
 	// Standalone callers have no session lifetime beyond this call.
 	scope.delegations.sessionCtx = ctx
+	if command.MCPHost.Managed || command.MCPHost.Endpoint != "" {
+		stateDir, err := instance.Dir()
+		if err != nil {
+			return "", err
+		}
+		scope.mcp = mcphost.NewExecution(ctx, command.MCPHost, stateDir, mcphost.Definitions(command.MCPServers, command.SearchProviders))
+		defer scope.mcp.Close()
+	}
 	defer scope.delegations.close()
 	return runWithScope(ctx, command, emit, inputs, nextInput, jobs, scope)
 }
@@ -62,6 +72,9 @@ func runWithScope(ctx context.Context, command workerproto.Command, emit func(wo
 }
 
 func run(ctx context.Context, command workerproto.Command, emit func(workerproto.Result) error, scope *runScope, depth int, inputs <-chan workerproto.Command, nextInput func(*workerproto.CompletedReply) (*workerproto.Command, error), jobs *tools.BackgroundManager, taskStarted bool) (answer string, runErr error) {
+	if scope.mcp != nil {
+		ctx = scope.mcp.Context(ctx)
+	}
 	ctx = replylanguage.WithDefault(ctx, command.ReplyLanguage)
 	if command.TaskID == "" {
 		command.TaskID = "main"

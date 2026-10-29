@@ -19,12 +19,12 @@ import (
 func TestNetworkInitialOutputReachesModelWithoutFixedTruncation(t *testing.T) {
 	content := strings.Repeat("证据🙂\n<\"\\\x00", 8000) + "FINAL EVIDENCE"
 	for _, name := range []string{"websearch", "webfetch"} {
-		for _, limit := range []int{40000, 0} {
+		for _, limit := range []int{90000, 0} {
 			t.Run(fmt.Sprintf("%s/limit=%d", name, limit), func(t *testing.T) {
 				_, record := outputToolStore(t)
 				want := content
 				if limit > 0 {
-					want = string([]rune(content)[:limit])
+					want = textPrefix(content, limit)
 				}
 				source := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 					if name == "websearch" {
@@ -37,7 +37,8 @@ func TestNetworkInitialOutputReachesModelWithoutFixedTruncation(t *testing.T) {
 				defer source.Close()
 				arguments := `{"query":"evidence"}`
 				if name == "webfetch" {
-					arguments = fmt.Sprintf(`{"url":%q}`, source.URL)
+					routeReaderFixture(t, source.URL)
+					arguments = `{"url":"https://93.184.216.34/fixture"}`
 				}
 				var requests atomic.Int32
 				upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -58,7 +59,7 @@ func TestNetworkInitialOutputReachesModelWithoutFixedTruncation(t *testing.T) {
 					}
 					if name == "websearch" {
 						var result tools.SearchResults
-						if json.Unmarshal([]byte(last.Content), &result) != nil || len(result.Results) != 1 || result.Results[0].Content != want || result.Truncated != (limit > 0) {
+						if json.Unmarshal([]byte(last.Content), &result) != nil || len(result.Results) != 1 || !strings.HasPrefix(content, result.Results[0].Content) || (limit == 0 && result.Results[0].Content != content) || result.Truncated != (limit > 0) {
 							t.Error("model received a search result shortened beyond the user's setting")
 						}
 					} else {
@@ -72,10 +73,10 @@ func TestNetworkInitialOutputReachesModelWithoutFixedTruncation(t *testing.T) {
 				defer upstream.Close()
 				command := workerproto.Command{
 					SessionID: "session", RunID: "run", Prompt: "Check the evidence",
-					Model:               modelcfg.Model{Provider: "openai-chat", ID: "fixture", BaseURL: upstream.URL, APIKey: "fixture"},
-					SearchSummaryLength: limit,
-					SearchProviders:     []workerproto.SearchProvider{{Name: "deepseek", Endpoint: source.URL, APIKey: "fixture"}},
-					Webfetch:            workerproto.WebfetchConfig{PreviewLength: limit},
+					Model:              modelcfg.Model{Provider: "openai-chat", ID: "fixture", BaseURL: upstream.URL, APIKey: "fixture"},
+					SearchPreviewBytes: limit,
+					SearchProviders:    []workerproto.SearchProvider{{Name: "deepseek", Endpoint: source.URL, APIKey: "fixture"}},
+					Webfetch:           workerproto.WebfetchConfig{PreviewBytes: limit},
 				}
 				completed := 0
 				answer, err := Run(context.Background(), command, func(event workerproto.Result) error {

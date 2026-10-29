@@ -92,6 +92,7 @@ export type ServerStatus = {
   eventStreamLimit: number
   memory: { heapBytes: number; rssBytes: number; peakRssBytes: number }
   workerMetrics: Array<{ sessionId: string; pid: number; memory: { heapBytes: number; rssBytes: number; sampledAt: string } }>
+  mcpHost?: { pid: number; memory: { heapBytes: number; rssBytes: number; sampledAt?: string } } | null
   sampledAt: string
 }
 export type QuestionReplyInput = { runId: string; answers: QuestionAnswer[] }

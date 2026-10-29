@@ -3,7 +3,7 @@ import { openSettingsSection } from './settings-navigation'
 import { test as base, expect, type Page } from '@playwright/test'
 import { createServer } from 'vite'
 import { resolve } from 'node:path'
-import type { MCPState } from '../src/client/types'
+import type { MCPServer, MCPState } from '../src/client/types'
 
 const test = base.extend<{}, { mockOrigin: string }>({
   mockOrigin: [async ({}, use) => {
@@ -164,6 +164,34 @@ test('MCP services save, edit, toggle, reload and delete without exposing saved 
   await page.reload()
   await expect(page.locator('.mcp-empty')).toBeVisible()
   expect(fixture.unexpected).toEqual([])
+})
+
+test('hosted connection states arrive through SSE without replacing an active editor', async ({ page, mockOrigin }) => {
+  const fixture = await mockMCP(page, mockOrigin)
+  const row = await addRemote(page)
+  const reads: string[] = []
+  page.on('request', request => {
+    if (request.method() === 'GET' && new URL(request.url()).pathname === '/api/mcp-config') reads.push(request.url())
+  })
+  const push = async (status: string, toolCount: number, error = '') => {
+    fixture.servers[0]!.check = { status, toolCount, error }
+    await notifyState(page, ['mcp'], { mcp: {
+      servers: fixture.servers.map(({ token, clientSecret, ...server }) => ({ ...server, hasToken: !!token, hasClientSecret: !!clientSecret } as MCPServer)),
+      maxServers: 4, defaultDirectory: '/home/user/project', logins: [],
+    } as MCPState })
+  }
+  await push('connecting', 0)
+  await expect(row.locator('.mcp-status')).toHaveText('Connecting…')
+  await row.getByRole('button', { name: 'Edit remote', exact: true }).click()
+  const editor = page.getByRole('dialog', { name: 'Edit MCP server', exact: true })
+  await editor.getByLabel('Name', { exact: true }).fill('Unsaved label')
+  await push('available', -1)
+  await expect(row.locator('.mcp-status')).toHaveText('Available')
+  await expect(editor.getByLabel('Name', { exact: true })).toHaveValue('Unsaved label')
+  await push('error', 0, 'Connection interrupted')
+  await expect(row.locator('.mcp-error')).toHaveText('Connection interrupted')
+  await expect(editor.getByLabel('Name', { exact: true })).toHaveValue('Unsaved label')
+  expect(reads).toEqual([])
 })
 
 test('stdio arguments are explicit and the inner editor dismisses without closing settings', async ({ page, mockOrigin }) => {

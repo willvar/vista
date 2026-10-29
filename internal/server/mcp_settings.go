@@ -15,6 +15,7 @@ import (
 
 	"github.com/google/uuid"
 	"vista/internal/mcpclient"
+	"vista/internal/mcphost"
 	"vista/internal/workerproto"
 
 	"vista/internal/platform"
@@ -59,8 +60,8 @@ func (a *App) mcpConfigSnapshotLocked() mcpConfigSnapshot {
 	return mcpConfigSnapshot{servers, 4, directory}
 }
 
-// Each execution takes an independent snapshot. Saving settings does not change
-// connections already owned by a running Agent.
+// Each execution retains its configuration versions in the shared MCP host.
+// Saving settings does not change a running execution's snapshot.
 func (a *App) currentMCPServers() []workerproto.MCPServer {
 	a.mcpMu.Lock()
 	defer a.mcpMu.Unlock()
@@ -206,6 +207,7 @@ func (a *App) mcpSettings(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	a.mcpServers = next
+	defer a.refreshMCPHost()
 	changed := !sameMCPConnection(previous, current)
 	if changed && r.Method != http.MethodPatch {
 		delete(a.mcpChecks, input.ID)
@@ -319,32 +321,20 @@ func (a *App) mcpServerAction(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) checkMCP(ctx context.Context, config workerproto.MCPServer) ([]mcpclient.Tool, error) {
-	server, err := mcpclient.OpenWithConfigDir(ctx, config, a.configDir)
+	if a.mcpHost == nil {
+		return nil, errors.New("MCP host is unavailable")
+	}
+	a.refreshMCPHost()
+	host, err := a.mcpHost.Endpoint(ctx)
 	if err != nil {
 		return nil, err
 	}
-	defer server.Close()
-	tools := []mcpclient.Tool{}
-	cursor := ""
-	seen := map[string]bool{}
-	for {
-		page, err := server.ListTools(ctx, cursor)
-		if err != nil {
-			return nil, err
-		}
-		tools = append(tools, page.Tools...)
-		if len(tools) > 1024 {
-			return nil, errors.New("MCP discovery exceeds 1024 tools")
-		}
-		if page.NextCursor == "" {
-			return tools, nil
-		}
-		if seen[page.NextCursor] {
-			return nil, errors.New("MCP server repeated a tool-list cursor")
-		}
-		seen[page.NextCursor] = true
-		cursor = page.NextCursor
+	lease, err := mcphost.Acquire(ctx, host, a.dir, []mcphost.Definition{{Config: config}})
+	if err != nil {
+		return nil, err
 	}
+	defer lease.Close()
+	return lease.Inspect(ctx, config)
 }
 
 func mcpError(err error, config workerproto.MCPServer) string {

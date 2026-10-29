@@ -127,7 +127,7 @@ func TestDeepSeekFetchSavesOnlyCompleteMarkdown(t *testing.T) {
 		return webfetchResponseFixture(req, 200, "application/json", string(encoded)), nil
 	})}
 	var output strings.Builder
-	page, err := webfetchWithClient(context.Background(), "https://93.184.216.34/article", "text", &output, client, workerproto.WebfetchConfig{Order: []string{"deepseek", "vista", "jina"}, DeepSeekAPIKey: "fetch-key", JinaAPIKey: "other-key"})
+	page, err := webfetchWithClient(context.Background(), "https://93.184.216.34/article", "text", &output, client, workerproto.WebfetchConfig{Order: []string{"deepseek", "jina"}, DeepSeekAPIKey: "fetch-key", JinaAPIKey: "other-key"})
 	if err != nil || page.Reader != "deepseek" || page.Format != "markdown" || page.URL != "https://93.184.216.34/article" || output.String() != full {
 		t.Fatalf("fetch: page=%+v bytes=%d err=%v", page, output.Len(), err)
 	}
@@ -145,8 +145,8 @@ func TestDeepSeekFetchFailuresFallBackWithoutPollutingOutput(t *testing.T) {
 			return webfetchResponseFixture(req, 200, "text/plain", "origin evidence"), nil
 		})}
 		var output strings.Builder
-		page, err := webfetchWithClient(context.Background(), "https://93.184.216.34/article", "text", &output, client, workerproto.WebfetchConfig{Order: []string{"deepseek", "vista", "jina"}, DeepSeekAPIKey: "fetch-key"})
-		if err != nil || page.Reader != "vista" || output.String() != "origin evidence" {
+		page, err := webfetchWithClient(context.Background(), "https://93.184.216.34/article", "text", &output, client, workerproto.WebfetchConfig{Order: []string{"deepseek", "jina"}, DeepSeekAPIKey: "fetch-key"})
+		if err != nil || page.Reader != "jina" || output.String() != "origin evidence" {
 			t.Fatalf("fallback: %+v %q %v", page, output.String(), err)
 		}
 	}
@@ -164,8 +164,14 @@ func TestDeepSeekFetchSkippedWithoutKeyOrForPrivateTargets(t *testing.T) {
 			return webfetchResponseFixture(req, 200, "text/plain", "local evidence"), nil
 		})}
 		var output strings.Builder
-		page, err := webfetchWithClient(context.Background(), tc.target, "text", &output, client, workerproto.WebfetchConfig{Order: []string{"deepseek", "vista", "jina"}, DeepSeekAPIKey: tc.key})
-		if err != nil || page.Reader != "vista" || output.String() != "local evidence" {
+		page, err := webfetchWithClient(context.Background(), tc.target, "text", &output, client, workerproto.WebfetchConfig{Order: []string{"deepseek", "jina"}, DeepSeekAPIKey: tc.key})
+		if tc.target != "https://93.184.216.34/article" {
+			if err == nil {
+				t.Fatal("private target accepted")
+			}
+			continue
+		}
+		if err != nil || page.Reader != "jina" || output.String() != "local evidence" {
 			t.Fatalf("skip: %+v %v", page, err)
 		}
 	}
@@ -184,7 +190,7 @@ func TestDeepSeekFetchCancellationAndRedactedErrors(t *testing.T) {
 			}
 			return webfetchResponseFixture(req, 403, "text/plain", "reflected fetch+key fetch%2Bkey"), nil
 		})}
-		_, err := webfetchWithClient(ctx, "https://93.184.216.34/article", "markdown", io.Discard, client, workerproto.WebfetchConfig{Order: []string{"deepseek", "vista", "jina"}, DeepSeekAPIKey: "fetch+key"})
+		_, err := webfetchWithClient(ctx, "https://93.184.216.34/article", "markdown", io.Discard, client, workerproto.WebfetchConfig{Order: []string{"deepseek", "jina"}, DeepSeekAPIKey: "fetch+key"})
 		if cancelRequest {
 			if !errors.Is(err, context.Canceled) || calls != 1 {
 				t.Fatalf("cancel: %v, calls=%d", err, calls)

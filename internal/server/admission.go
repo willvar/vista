@@ -24,6 +24,10 @@ func admitMemory(available, used uint64, config memoryConfig) error {
 // Caller holds App.mu.
 func (a *App) residentMemoryLocked() uint64 {
 	used := platform.RSS()
+	if a.mcpHost != nil {
+		_, metrics := a.mcpHost.Status()
+		used += metrics.RSSBytes
+	}
 	for _, worker := range a.workers {
 		used += worker.metrics.RSSBytes
 	}

@@ -140,7 +140,7 @@ async function remove(server: MCPServer) {
 function status(server: MCPServer) {
   if (server.disabled) return t('mcpDisabled')
   if (server.oauth && !server.authorized) return t('mcpAuthorizationRequired')
-  return t(({ available: 'mcpAvailable', error: 'mcpUnavailable', authorization_required: 'mcpAuthorizationRequired' } as Record<string, string>)[server.check.status] || 'mcpUnchecked')
+  return t(({ connecting: 'mcpConnecting', available: 'mcpAvailable', error: 'mcpUnavailable', authorization_required: 'mcpAuthorizationRequired' } as Record<string, string>)[server.check.status] || 'mcpUnchecked')
 }
 function checkedAt(value?: string) { return value && !value.startsWith('0001-') ? formatDateTime(value, locale.value) : '' }
 
@@ -289,7 +289,7 @@ defineExpose({ imported: () => { saved.value = true }, headerAction: computed(()
     <article v-for="server in servers" :key="server.id" class="mcp-server" :data-mcp="server.name" :data-mcp-id="server.id">
       <div class="mcp-server-heading"><div class="mcp-name"><strong>{{ server.name }}</strong><span class="mcp-badge">{{ server.transport === 'stdio' ? 'stdio' : 'HTTP' }}</span></div><a-switch :checked="!server.disabled" :disabled="busy" :aria-label="t('mcpEnable', { name: server.name })" @update:checked="toggle(server, !!$event)" /></div>
       <p class="mcp-address">{{ server.transport === 'http' ? server.endpoint : [server.command, ...(server.args || [])].join(' ') }}</p>
-      <div class="mcp-status" :class="{ available: !server.disabled && server.check.status === 'available', failed: !server.disabled && server.check.status === 'error' }"><span class="mcp-status-dot" aria-hidden="true"></span>{{ status(server) }}<span v-if="server.check.status === 'available'">· {{ t('mcpToolCount', { count: server.check.toolCount }) }}</span></div>
+      <div class="mcp-status" :class="{ available: !server.disabled && server.check.status === 'available', failed: !server.disabled && server.check.status === 'error' }"><span class="mcp-status-dot" aria-hidden="true"></span>{{ status(server) }}<span v-if="!server.disabled && server.check.status === 'available' && server.check.toolCount >= 0">· {{ t('mcpToolCount', { count: server.check.toolCount }) }}</span></div>
       <p v-if="server.check.error && !server.disabled" class="mcp-error">{{ server.check.error }}</p>
       <small v-if="checkedAt(server.check.checkedAt)" class="mcp-hint">{{ t('mcpCheckedAt', { time: checkedAt(server.check.checkedAt) }) }}</small>
       <div class="mcp-actions">

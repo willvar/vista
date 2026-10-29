@@ -139,6 +139,7 @@ func (a *App) runMCPLogin(ctx context.Context, login *mcpLogin, config workerpro
 	}
 	login.Status = "connected"
 	delete(a.mcpChecks, config.ID)
+	a.refreshMCPHost()
 }
 
 func (a *App) mcpLoginStatus(w http.ResponseWriter, r *http.Request) {

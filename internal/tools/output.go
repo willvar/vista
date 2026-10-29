@@ -1,7 +1,6 @@
 package tools
 
 import (
-	"bufio"
 	"errors"
 	"io"
 	"os"
@@ -60,11 +59,11 @@ func openOutput(stateDir, outputPath string) (*os.File, error) {
 	return root.Open(rel)
 }
 
-// ReadOutputPreview applies only the user's character setting. Zero returns
-// the entire saved text; byte paging and line budgets do not apply here.
-func ReadOutputPreview(stateDir, outputPath string, characters int) (OutputPage, error) {
-	if characters < 0 {
-		return OutputPage{}, errors.New("character limit must be nonnegative")
+// ReadOutputPreview applies only the user's UTF-8 byte setting. Zero returns
+// the entire saved text; continuation-page and line budgets do not apply here.
+func ReadOutputPreview(stateDir, outputPath string, limit int) (OutputPage, error) {
+	if limit < 0 {
+		return OutputPage{}, errors.New("byte limit must be nonnegative")
 	}
 	file, err := openOutput(stateDir, outputPath)
 	if err != nil {
@@ -78,31 +77,19 @@ func ReadOutputPreview(stateDir, outputPath string, characters int) (OutputPage,
 	if !info.Mode().IsRegular() {
 		return OutputPage{}, errors.New("invalid output path")
 	}
-	var content string
-	var next int64
-	if characters == 0 {
-		data, err := io.ReadAll(file)
-		if err != nil {
-			return OutputPage{}, err
-		}
-		content, next = strings.ToValidUTF8(string(data), "�"), int64(len(data))
-	} else {
-		reader := bufio.NewReader(file)
-		var text strings.Builder
-		for range characters {
-			value, size, err := reader.ReadRune()
-			if err == io.EOF {
-				break
-			}
-			if err != nil {
-				return OutputPage{}, err
-			}
-			text.WriteRune(value)
-			next += int64(size)
-		}
-		content = text.String()
+	var source io.Reader = file
+	if limit > 0 {
+		source = io.LimitReader(file, int64(limit))
 	}
-	return OutputPage{NextOffset: next, AvailableBytes: info.Size(), Content: content, Truncated: next < info.Size()}, nil
+	data, err := io.ReadAll(source)
+	if err != nil {
+		return OutputPage{}, err
+	}
+	if int64(len(data)) < info.Size() {
+		data = completeUTF8Prefix(data)
+	}
+	next := int64(len(data))
+	return OutputPage{NextOffset: next, AvailableBytes: info.Size(), Content: strings.ToValidUTF8(string(data), "�"), Truncated: next < info.Size()}, nil
 }
 
 func ReadOutputPage(stateDir, outputPath string, offset int64, limit int) (OutputPage, error) {

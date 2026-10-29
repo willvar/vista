@@ -87,16 +87,17 @@ func TestAgentWebSearchFallsBackWithinOneToolCall(t *testing.T) {
 	}
 }
 
-func TestWebSearchSummarySettingPreservesFullResultsForRangeReads(t *testing.T) {
+func TestWebSearchByteBudgetPreservesFullResultsForRangeReads(t *testing.T) {
 	for _, tc := range []struct {
 		name    string
 		limit   int
 		content string
 		count   int
 	}{
-		{"character limit", 3, "中文🙂evidence beyond the preview", 2},
-		{"default length", 1000, strings.Repeat("证据🙂café\n", 1400), 8},
-		{"large character limit", 20000, strings.Repeat("证据🙂café\n", 4000), 8},
+		{"metadata exceeds budget", 3, "中文🙂evidence beyond the preview", 2},
+		{"UTF-8 byte limit", 180, "中文🙂evidence beyond the preview", 2},
+		{"default bytes", 50 << 10, strings.Repeat("证据🙂café\n", 1400), 8},
+		{"large byte limit", 90000, strings.Repeat("证据🙂café\n", 4000), 8},
 		{"line limit", 5000, strings.Repeat("x\n", 3000), 8},
 		{"escaped content", 20000, strings.Repeat("<\x00🙂\\\"", 5000), 8},
 		{"unlimited short", 0, "中文🙂 complete summary", 2},
@@ -114,7 +115,7 @@ func TestWebSearchSummarySettingPreservesFullResultsForRangeReads(t *testing.T) 
 				json.NewEncoder(w).Encode(map[string]any{"results": hits})
 			}))
 			defer server.Close()
-			parent := workerproto.Command{SessionID: "session", RunID: "run", SearchSummaryLength: tc.limit, SearchProviders: []workerproto.SearchProvider{{Name: "deepseek", Endpoint: server.URL, APIKey: "search-key"}}}
+			parent := workerproto.Command{SessionID: "session", RunID: "run", SearchPreviewBytes: tc.limit, SearchProviders: []workerproto.SearchProvider{{Name: "deepseek", Endpoint: server.URL, APIKey: "search-key"}}}
 			call := provider.ToolCall{ID: "search"}
 			call.Function.Name, call.Function.Arguments = "websearch", `{"query":"sources"}`
 			runtime := &toolRuntime{parent: parent, emit: emit}
@@ -127,24 +128,29 @@ func TestWebSearchSummarySettingPreservesFullResultsForRangeReads(t *testing.T) 
 				ArtifactID string `json:"artifactId"`
 				Hint       string `json:"hint"`
 			}
-			if json.Unmarshal([]byte(output), &preview) != nil || len(preview.Results) != tc.count {
-				t.Fatal("search dropped results")
+			if json.Unmarshal([]byte(output), &preview) != nil || len(preview.Results) > tc.count {
+				t.Fatal("invalid search preview")
 			}
-			want := tc.content
-			if tc.limit > 0 {
-				want = string([]rune(want)[:tc.limit])
+			if tc.limit == 0 && len(preview.Results) != tc.count {
+				t.Fatal("unlimited search dropped results")
 			}
 			for _, hit := range preview.Results {
-				if hit.Content != want || !utf8.ValidString(hit.Content) {
-					t.Fatal("preview did not honor the Unicode character limit")
+				if !strings.HasPrefix(tc.content, hit.Content) || !utf8.ValidString(hit.Content) || tc.limit == 0 && hit.Content != tc.content {
+					t.Fatal("preview lost its UTF-8 source prefix")
 				}
 			}
-			if tc.limit > 0 && (!preview.Truncated || preview.ArtifactID == "" || !strings.Contains(preview.Hint, "read_tool_output")) {
-				t.Fatal("truncated summaries lack a readable full result")
+			if tc.limit > 0 {
+				encoded, _ := json.Marshal(preview.SearchResults)
+				if len(preview.Results) > 0 && len(encoded) > tc.limit {
+					t.Fatal("combined search text exceeded the byte budget")
+				}
+				if !preview.Truncated || preview.ArtifactID == "" || !strings.Contains(preview.Hint, "read_tool_output") {
+					t.Fatal("truncated search lacks a readable full result")
+				}
 			}
 			bounded, err := boundToolOutput(context.Background(), "run", call.ID, call.Function.Name, output, resultOutputRef(output), emit)
 			if err != nil || bounded.model != output {
-				t.Fatalf("tool pipeline overrode the user's character setting: %v", err)
+				t.Fatalf("tool pipeline overrode the user's byte setting: %v", err)
 			}
 			if tc.name == "unlimited short" {
 				if bounded.model != output || preview.Truncated {

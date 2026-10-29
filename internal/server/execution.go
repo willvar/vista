@@ -359,7 +359,7 @@ func (a *App) dispatchRun(ctx context.Context, sessionID, runID string, message 
 		a.notifySession(sessionID)
 		return errors.New("could not load image input")
 	}
-	command := workerproto.Command{SessionID: sessionID, MessageSequence: message.Sequence, RunID: runID, Prompt: message.Content, ReplyLanguage: language, QuestionCallID: message.QuestionCallID, Images: currentImages, Model: model, MCPServers: a.currentMCPServers(), SearchProviders: a.currentSearchProviders(), SearchSummaryLength: a.currentSearchSummaryLength(), Webfetch: a.currentWebfetchSettings()}
+	command := workerproto.Command{SessionID: sessionID, MessageSequence: message.Sequence, RunID: runID, Prompt: message.Content, ReplyLanguage: language, QuestionCallID: message.QuestionCallID, Images: currentImages, Model: model, MCPServers: a.currentMCPServers(), SearchProviders: a.currentSearchProviders(), SearchPreviewBytes: a.currentSearchPreviewBytes(), Webfetch: a.currentWebfetchSettings()}
 	command.Debug = len(debug) > 0 && debug[0]
 	if err := a.dispatchWorker(ctx, sessionID, command); err != nil {
 		completed, _ := a.store.FinishRun(context.Background(), sessionID, runID, "", "interrupted", "")
@@ -387,6 +387,9 @@ func (a *App) sendWorker(id string, command workerproto.Command) error {
 // A run is visible in the database before context preparation finishes. A
 // cancellation accepted during that interval must prevent its later dispatch.
 func (a *App) dispatchWorker(ctx context.Context, id string, command workerproto.Command) error {
+	if a.mcpHost != nil && command.Action != "compact" {
+		command.MCPHost = a.mcpHost.Descriptor()
+	}
 	a.mu.Lock()
 	w := a.workers[id]
 	ready := workerCanReceive(w)

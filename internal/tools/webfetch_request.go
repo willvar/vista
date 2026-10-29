@@ -1,7 +1,6 @@
 package tools
 
 import (
-	"bufio"
 	"context"
 	"errors"
 	"fmt"
@@ -10,154 +9,83 @@ import (
 	"net/http"
 	"net/netip"
 	"net/url"
+	"os"
 	"strings"
 
 	"vista/internal/useragent"
 	"vista/internal/workerproto"
 )
 
-// Choose a usable response before writing anything to the artifact. Failed
-// attempts and challenge pages must never be prepended to recovered content.
-func webfetchResponse(ctx context.Context, client *http.Client, rawURL, format string, settings workerproto.WebfetchConfig) (*http.Response, string, error) {
+// Each reader must finish decoding and content validation before selection.
+func webfetchResponse(ctx context.Context, client *http.Client, rawURL string, output io.Writer, settings workerproto.WebfetchConfig) (WebPage, error) {
 	order := settings.Order
 	if order == nil {
-		order = []string{"vista", "jina", "deepseek"}
+		order = []string{"jina", "deepseek"}
 	}
-	seen := make(map[string]bool, len(order))
+	if len(order) != 2 || order[0] == order[1] {
+		return WebPage{}, errors.New("webfetch order must contain jina and deepseek exactly once")
+	}
 	for _, method := range order {
-		if method != "vista" && method != "jina" && method != "deepseek" || seen[method] {
-			return nil, "", errors.New("webfetch order must contain vista, jina, and deepseek exactly once")
+		if method != "jina" && method != "deepseek" {
+			return WebPage{}, errors.New("webfetch order must contain jina and deepseek exactly once")
 		}
-		seen[method] = true
 	}
-	if len(order) != 3 {
-		return nil, "", errors.New("webfetch order must contain vista, jina, and deepseek exactly once")
+	if !publicWebReaderURL(ctx, rawURL) {
+		return WebPage{}, errors.New("external readers require a public URL without credentials; use shell for local or private content")
 	}
 	var failures []error
-	readerURL := rawURL
 	for _, method := range order {
 		if ctx.Err() != nil {
-			return nil, "", ctx.Err()
+			return WebPage{}, ctx.Err()
+		}
+		if method == "deepseek" && settings.DeepSeekAPIKey == "" {
+			continue
 		}
 		var response *http.Response
 		var err error
-		name := "Vista built-in"
-		if method == "vista" {
-			response, err = webfetchDirectResponse(ctx, client, rawURL, format)
-			if response != nil {
-				readerURL = response.Request.URL.String()
-			}
-		} else if method == "deepseek" {
-			if settings.DeepSeekAPIKey == "" {
-				continue
-			}
-			name = "DeepSeek"
-			if !publicWebReaderURL(ctx, rawURL) || !publicWebReaderURL(ctx, readerURL) {
-				failures = append(failures, errors.New("DeepSeek: URL is not public or contains credentials"))
-				continue
-			}
-			response, err = webfetchDeepSeekResponse(ctx, client, readerURL, settings)
-			if err != nil {
-				err = sanitizedSearchError(err, settings.DeepSeekAPIKey)
-			}
+		if method == "deepseek" {
+			response, err = webfetchDeepSeekResponse(ctx, client, rawURL, settings)
 		} else {
-			name = "Jina Reader"
-			// A remote reader is only for public, unauthenticated URLs, even
-			// when the user has placed it first in the reading order.
-			if !publicWebReaderURL(ctx, rawURL) || !publicWebReaderURL(ctx, readerURL) {
-				failures = append(failures, errors.New("Jina Reader: URL is not public or contains credentials"))
-				continue
-			}
-			response, err = webfetchGET(ctx, client, "https://r.jina.ai/"+readerURL, "markdown", settings.JinaAPIKey)
-			if err == nil {
-				err = webfetchResponseError(response, true)
-				if err != nil {
-					response.Body.Close()
-				}
-			}
+			response, err = webfetchGET(ctx, client, "https://r.jina.ai/"+rawURL, settings.JinaAPIKey)
 		}
 		if err == nil {
-			return response, method, nil
+			var staged *os.File
+			staged, err = stageReader(ctx, response)
+			if err == nil {
+				page := WebPage{URL: rawURL, ContentType: "text/markdown", Format: "markdown", Reader: method}
+				_, copyErr := io.Copy(output, webContextReader{ctx, staged})
+				staged.Close()
+				os.Remove(staged.Name())
+				return page, copyErr
+			}
 		}
-		failures = append(failures, fmt.Errorf("%s: %w", name, err))
+		err = sanitizedSearchError(sanitizedSearchError(err, settings.JinaAPIKey), settings.DeepSeekAPIKey)
+		failures = append(failures, fmt.Errorf("%s: %w", method, err))
 	}
 	if ctx.Err() != nil {
-		return nil, "", ctx.Err()
+		return WebPage{}, ctx.Err()
 	}
-	return nil, "", fmt.Errorf("webfetch automatic reading attempts failed; use another source instead of repeating this URL unchanged: %w", errors.Join(failures...))
+	return WebPage{}, fmt.Errorf("webfetch reading attempts failed; use another source instead of repeating this URL unchanged: %w", errors.Join(failures...))
 }
-
-func webfetchDirectResponse(ctx context.Context, client *http.Client, rawURL, format string) (*http.Response, error) {
-	response, err := webfetchGET(ctx, client, rawURL, format, "")
-	if err != nil {
-		return nil, err
-	}
-	err = webfetchResponseError(response, false)
-	if err != nil {
-		response.Body.Close()
-	}
-	// Keep the selected UA. The outer chain can try another reading service.
-	return response, err
-}
-
-func webfetchGET(ctx context.Context, client *http.Client, rawURL, format, jinaAPIKey string) (*http.Response, error) {
+func webfetchGET(ctx context.Context, client *http.Client, rawURL, key string) (*http.Response, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
 	if err != nil {
 		return nil, err
 	}
-	req.Header.Set("Accept-Language", "en-US,en;q=0.9")
-	accept := "text/html,application/xhtml+xml,application/json;q=0.9,application/xml;q=0.9,text/plain;q=0.8,*/*;q=0.5"
-	if format == "markdown" {
-		accept = "text/markdown," + accept
-	}
-	req.Header.Set("Accept", accept)
-	if jinaAPIKey != "" {
-		req.Header.Set("Authorization", "Bearer "+jinaAPIKey)
+	req.Header.Set("Accept", "text/markdown,text/plain;q=0.9")
+	if key != "" {
+		req.Header.Set("Authorization", "Bearer "+key)
 	}
 	return useragent.Do(client, req)
 }
-
-func webfetchResponseError(response *http.Response, reader bool) error {
+func webfetchResponseError(response *http.Response) error {
 	if response.Header.Get("cf-mitigated") == "challenge" {
-		return fmt.Errorf("webfetch HTTP status %d: website requires browser verification", response.StatusCode)
+		return errors.New("reader requires browser verification")
 	}
 	if response.StatusCode != http.StatusOK {
 		return fmt.Errorf("webfetch HTTP status %d", response.StatusCode)
 	}
-	contentType := strings.ToLower(response.Header.Get("Content-Type"))
-	if !reader && contentType != "" && !strings.Contains(contentType, "html") {
-		return nil
-	}
-	// Inspect a prefix without consuming it or limiting the saved document.
-	// Preserve read errors for the normal streaming path and partial artifact.
-	body := bufio.NewReaderSize(response.Body, 8192)
-	prefix, _ := body.Peek(8192)
-	response.Body = webfetchReadCloser{Reader: body, Closer: response.Body}
-	lower := strings.ToLower(string(prefix))
-	if strings.Contains(lower, "<title>just a moment") ||
-		strings.Contains(lower, "<title>attention required! | cloudflare") ||
-		strings.Contains(lower, "<title>access denied") ||
-		strings.Contains(lower, "<title>verify you are human") {
-		return errors.New("webfetch received a browser verification page instead of the requested document")
-	}
-	if reader {
-		preamble, _, _ := strings.Cut(lower, "markdown content:")
-		if strings.Contains(preamble, "warning: target url returned error") ||
-			strings.Contains(preamble, "warning: this page maybe requiring captcha") ||
-			strings.HasPrefix(strings.TrimSpace(preamble), "title: just a moment") ||
-			strings.HasPrefix(strings.TrimSpace(preamble), "title: access denied") {
-			return errors.New("reader returned an error or verification page instead of the requested document")
-		}
-		if strings.TrimSpace(lower) == "" {
-			return errors.New("reader returned no document content")
-		}
-	}
 	return nil
-}
-
-type webfetchReadCloser struct {
-	io.Reader
-	io.Closer
 }
 
 func publicWebReaderURL(ctx context.Context, rawURL string) bool {

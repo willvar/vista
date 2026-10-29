@@ -22,9 +22,9 @@ func TestWebfetchPreservesPageAndReadsSavedRangesWithoutRefetching(t *testing.T)
 	large := strings.Repeat("你好🙂 evidence ", 15000) + "FINAL EVIDENCE"
 	for _, tc := range []struct{ name, contentType, format, body, want string }{
 		{"plain text", "text/plain", "text", large, large},
-		{"converted HTML", "text/html; charset=utf-8", "markdown", "<p>" + large + "</p>", large},
-		{"JSON escaping", "application/json", "text", `{"data":"` + strings.Repeat(`<🙂\n\"`, 24000) + `"}`, `{"data":"` + strings.Repeat(`<🙂\n\"`, 24000) + `"}`},
-		{"line budget", "text/plain", "text", strings.Repeat("\n", 2500), strings.Repeat("\n", 2500)},
+		{"reader Markdown", "text/markdown; charset=utf-8", "markdown", large, large},
+		{"JSON escaping", "text/plain", "text", `{"data":"` + strings.Repeat(`<🙂\n\"`, 24000) + `"}`, `{"data":"` + strings.Repeat(`<🙂\n\"`, 24000) + `"}`},
+		{"line budget", "text/plain", "text", strings.Repeat("evidence\n", 2500), strings.Repeat("evidence\n", 2500)},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			db, save := outputToolStore(t)
@@ -42,10 +42,11 @@ func TestWebfetchPreservesPageAndReadsSavedRangesWithoutRefetching(t *testing.T)
 				_, _ = w.Write([]byte(tc.body))
 			}))
 			defer server.Close()
+			routeReaderFixture(t, server.URL)
 			call := provider.ToolCall{ID: "fetch-page"}
 			call.Function.Name = "webfetch"
-			call.Function.Arguments = fmt.Sprintf(`{"url":%q,"format":%q}`, server.URL, tc.format)
-			parent := workerproto.Command{SessionID: "session", RunID: "run", TaskID: "main", Webfetch: workerproto.WebfetchConfig{PreviewLength: 1000}}
+			call.Function.Arguments = fmt.Sprintf(`{"url":%q,"format":%q}`, "https://93.184.216.34/fixture", tc.format)
+			parent := workerproto.Command{SessionID: "session", RunID: "run", TaskID: "main", Webfetch: workerproto.WebfetchConfig{PreviewBytes: 1000}}
 			runtime := &toolRuntime{parent: parent, emit: emit}
 			ctx := context.Background()
 			output, err := runtime.execute(ctx, call)
@@ -98,22 +99,23 @@ func TestWebfetchPreservesPageAndReadsSavedRangesWithoutRefetching(t *testing.T)
 	}
 }
 
-func TestWebfetchInitialLengthUsesCharactersAndKeepsFullPageReadable(t *testing.T) {
+func TestWebfetchInitialBytesKeepFullPageReadable(t *testing.T) {
 	for _, tc := range []struct {
 		name    string
 		limit   int
 		content string
 	}{
 		{"Unicode", 3, "中文🙂and the remaining evidence"},
-		{"one emoji", 1, "🙂evidence"},
-		{"default characters", 8000, strings.Repeat("中文🙂", 4000)},
+		{"partial emoji", 3, "🙂evidence"},
+		{"one emoji", 4, "🙂evidence"},
+		{"default bytes", 50 << 10, strings.Repeat("中文🙂", 6000)},
 		{"larger than old byte preview", 10000, strings.Repeat("evidence", 2000)},
 		{"larger than fixed byte budgets", 90000, strings.Repeat("证据🙂evidence", 15000)},
-		{"larger than fixed line budget", 5000, strings.Repeat("\n", 10000)},
+		{"larger than fixed line budget", 5000, strings.Repeat("evidence\n", 10000)},
 		{"escaped content", 20000, strings.Repeat("<\x00🙂\\\"", 5000)},
 		{"unlimited complete", 0, strings.Repeat("evidence", 2000)},
 		{"unlimited large", 0, strings.Repeat("中文🙂evidence", 10000)},
-		{"unlimited lines", 0, strings.Repeat("\n", 10000)},
+		{"unlimited lines", 0, strings.Repeat("evidence\n", 10000)},
 		{"limit exceeds page length", 90000, "all evidence"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -125,9 +127,10 @@ func TestWebfetchInitialLengthUsesCharactersAndKeepsFullPageReadable(t *testing.
 				_, _ = w.Write([]byte(tc.content))
 			}))
 			defer server.Close()
-			parent := workerproto.Command{SessionID: "session", RunID: "run", Webfetch: workerproto.WebfetchConfig{PreviewLength: tc.limit}}
+			routeReaderFixture(t, server.URL)
+			parent := workerproto.Command{SessionID: "session", RunID: "run", Webfetch: workerproto.WebfetchConfig{PreviewBytes: tc.limit}}
 			call := provider.ToolCall{ID: "configured-fetch"}
-			call.Function.Name, call.Function.Arguments = "webfetch", fmt.Sprintf(`{"url":%q}`, server.URL)
+			call.Function.Name, call.Function.Arguments = "webfetch", fmt.Sprintf(`{"url":%q}`, "https://93.184.216.34/fixture")
 			output, err := (&toolRuntime{parent: parent, emit: emit}).execute(context.Background(), call)
 			var result webfetchResult
 			if err != nil || json.Unmarshal([]byte(output), &result) != nil || !utf8.ValidString(result.Content) || result.NextOffset != len(result.Content) || result.Bytes != int64(len(tc.content)) {
@@ -135,14 +138,14 @@ func TestWebfetchInitialLengthUsesCharactersAndKeepsFullPageReadable(t *testing.
 			}
 			want := tc.content
 			if tc.limit > 0 {
-				want = string([]rune(want)[:min(tc.limit, utf8.RuneCountInString(want))])
+				want = textPrefix(want, tc.limit)
 			}
 			if result.Content != want || result.Truncated != (want != tc.content) {
-				t.Fatal("initial output did not honor the user's character setting")
+				t.Fatal("initial output did not honor the user's byte setting")
 			}
 			bounded, err := boundToolOutput(context.Background(), "run", call.ID, call.Function.Name, output, resultOutputRef(output), emit)
 			if err != nil || bounded.model != output {
-				t.Fatalf("tool pipeline overrode the user's character setting: %v", err)
+				t.Fatalf("tool pipeline overrode the user's byte setting: %v", err)
 			}
 			artifact, err := db.GetArtifact(context.Background(), "session", result.ArtifactID)
 			if err != nil || !artifact.Complete || artifact.Bytes != int64(len(tc.content)) {
@@ -174,8 +177,9 @@ func TestWebfetchSmallPageReturnsCompleteSnapshot(t *testing.T) {
 		_, _ = w.Write([]byte("small page 你好"))
 	}))
 	defer server.Close()
+	routeReaderFixture(t, server.URL)
 	call := provider.ToolCall{}
-	call.Function.Name, call.Function.Arguments = "webfetch", fmt.Sprintf(`{"url":%q}`, server.URL)
+	call.Function.Name, call.Function.Arguments = "webfetch", fmt.Sprintf(`{"url":%q}`, "https://93.184.216.34/fixture")
 	output, err := (&toolRuntime{parent: workerproto.Command{SessionID: "session", RunID: "run"}, emit: emit}).execute(context.Background(), call)
 	var result webfetchResult
 	if err != nil || json.Unmarshal([]byte(output), &result) != nil || result.ArtifactID == "" || result.Truncated || !result.Complete || result.Content != "small page 你好" || result.Bytes != int64(len(result.Content)) {
@@ -192,12 +196,13 @@ func TestWebfetchIncompleteDownloadKeepsReadableArtifact(t *testing.T) {
 		_, _ = w.Write([]byte(content))
 	}))
 	defer server.Close()
+	routeReaderFixture(t, server.URL)
 	call := provider.ToolCall{ID: "incomplete-fetch"}
-	call.Function.Name, call.Function.Arguments = "webfetch", fmt.Sprintf(`{"url":%q}`, server.URL)
+	call.Function.Name, call.Function.Arguments = "webfetch", fmt.Sprintf(`{"url":%q}`, "https://93.184.216.34/fixture")
 	parent := workerproto.Command{SessionID: "session", RunID: "run"}
 	output, err := (&toolRuntime{parent: parent, emit: emit}).execute(context.Background(), call)
 	var result webfetchResult
-	if err == nil || json.Unmarshal([]byte(output), &result) != nil || result.ArtifactID == "" || result.Complete || result.Bytes != int64(len(content)) {
+	if err == nil || json.Unmarshal([]byte(output), &result) != nil || result.ArtifactID == "" || result.Complete || result.Bytes != 0 {
 		t.Fatalf("partial output metadata: bytes=%d, complete=%t, error=%v", result.Bytes, result.Complete, err)
 	}
 	artifact, err := db.GetArtifact(context.Background(), "session", result.ArtifactID)
@@ -205,8 +210,8 @@ func TestWebfetchIncompleteDownloadKeepsReadableArtifact(t *testing.T) {
 		t.Fatalf("incomplete artifact: %+v, %v", artifact, err)
 	}
 	full, err := os.ReadFile(artifact.OutputPath)
-	if err != nil || string(full) != content {
-		t.Fatal("partial download was lost")
+	if err != nil || len(full) != 0 {
+		t.Fatal("failed candidate contaminated the artifact")
 	}
 }
 
@@ -217,8 +222,9 @@ func TestWebfetchFailsWhenFullOutputCannotBeSaved(t *testing.T) {
 		_, _ = w.Write([]byte(strings.Repeat("page", 50000)))
 	}))
 	defer server.Close()
+	routeReaderFixture(t, server.URL)
 	call := provider.ToolCall{ID: "fetch"}
-	call.Function.Name, call.Function.Arguments = "webfetch", fmt.Sprintf(`{"url":%q}`, server.URL)
+	call.Function.Name, call.Function.Arguments = "webfetch", fmt.Sprintf(`{"url":%q}`, "https://93.184.216.34/fixture")
 	failure := errors.New("artifact storage unavailable")
 	runtime := &toolRuntime{parent: workerproto.Command{RunID: "run"}, emit: func(workerproto.Result) error { return failure }}
 	output, err := runtime.execute(context.Background(), call)

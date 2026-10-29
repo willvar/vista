@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/modelcontextprotocol/go-sdk/auth"
 	"github.com/modelcontextprotocol/go-sdk/oauthex"
 	"golang.org/x/oauth2"
@@ -20,9 +21,11 @@ import (
 )
 
 type oauthCredential struct {
-	Endpoint string        `json:"endpoint"`
-	Config   oauth2.Config `json:"config"`
-	Token    oauth2.Token  `json:"token"`
+	Generation string        `json:"generation,omitempty"`
+	OriginPath string        `json:"originPath,omitempty"`
+	Endpoint   string        `json:"endpoint"`
+	Config     oauth2.Config `json:"config"`
+	Token      oauth2.Token  `json:"token"`
 }
 
 func oauthPath(dir, id string) string { return filepath.Join(dir, "mcp-oauth", id+".json") }
@@ -40,11 +43,30 @@ func CommitOAuth(staging, dir string, config Config) error {
 	if err != nil {
 		return err
 	}
-	return writeOAuth(oauthPath(dir, config.ID), credential)
+	path := oauthPath(dir, config.ID)
+	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+		return err
+	}
+	unlock, err := lockOAuth(path)
+	if err != nil {
+		return err
+	}
+	defer unlock()
+	credential.Generation, credential.OriginPath = uuid.NewString(), ""
+	return writeOAuth(path, credential)
 }
 
 func RemoveOAuth(dir, id string) error {
-	err := os.Remove(oauthPath(dir, id))
+	path := oauthPath(dir, id)
+	unlock, err := lockOAuth(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	defer unlock()
+	err = os.Remove(path)
 	if errors.Is(err, os.ErrNotExist) {
 		return nil
 	}
@@ -116,27 +138,51 @@ type storedTokenSource struct {
 	endpoint string
 }
 
-func (s *storedTokenSource) Token() (*oauth2.Token, error) {
-	lock, err := os.OpenFile(s.path+".lock", os.O_CREATE|os.O_RDWR, 0600)
+func lockOAuth(path string) (func(), error) {
+	lock, err := os.OpenFile(path+".lock", os.O_CREATE|os.O_RDWR, 0600)
 	if err != nil {
 		return nil, err
 	}
-	defer lock.Close()
 	deadline := time.Now().Add(30 * time.Second)
 	for {
 		if err := platform.TryLock(lock); err == nil {
 			break
 		} else if !platform.IsLockBusy(err) {
+			lock.Close()
 			return nil, err
 		}
 		if time.Now().After(deadline) {
+			lock.Close()
 			return nil, errors.New("MCP OAuth credential lock timeout")
 		}
 		time.Sleep(20 * time.Millisecond)
 	}
+	return func() { _ = lock.Close() }, nil
+}
+
+func (s *storedTokenSource) Token() (*oauth2.Token, error) {
+	unlock, err := lockOAuth(s.path)
+	if err != nil {
+		return nil, err
+	}
+	defer unlock()
 	credential, err := readOAuth(s.path, s.endpoint)
 	if err != nil {
 		return nil, err
+	}
+	previous := credential.Token
+	// Snapshots keep old runs authorized after configuration edits. Refresh a
+	// current grant under its original file lock and persist rotating tokens,
+	// without recreating deleted credentials or overwriting a newer login.
+	mirror := false
+	if credential.OriginPath != "" && credential.OriginPath != s.path {
+		if releaseOrigin, lockErr := lockOAuth(credential.OriginPath); lockErr == nil {
+			defer releaseOrigin()
+			if current, readErr := readOAuth(credential.OriginPath, s.endpoint); readErr == nil && oauthGeneration(current) == credential.Generation {
+				credential.Token = current.Token
+				mirror = true
+			}
+		}
 	}
 	httpClient := &http.Client{Timeout: 20 * time.Second}
 	ctx := context.WithValue(context.Background(), oauth2.HTTPClient, httpClient)
@@ -144,10 +190,17 @@ func (s *storedTokenSource) Token() (*oauth2.Token, error) {
 	if err != nil {
 		return nil, errors.New("MCP OAuth token refresh failed; reauthorize in WebUI Settings > MCP")
 	}
-	if token.AccessToken != credential.Token.AccessToken || token.RefreshToken != credential.Token.RefreshToken || !token.Expiry.Equal(credential.Token.Expiry) {
+	if token.AccessToken != previous.AccessToken || token.RefreshToken != previous.RefreshToken || !token.Expiry.Equal(previous.Expiry) {
 		credential.Token = *token
 		if err := writeOAuth(s.path, credential); err != nil {
 			return nil, err
+		}
+		if mirror {
+			original := credential
+			original.OriginPath = ""
+			if err := writeOAuth(credential.OriginPath, original); err != nil {
+				return nil, err
+			}
 		}
 	}
 	return token, nil

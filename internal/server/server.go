@@ -27,6 +27,7 @@ import (
 	"vista/internal/codexauth"
 	"vista/internal/copilotauth"
 	"vista/internal/instance"
+	"vista/internal/mcphost"
 	"vista/internal/modelcatalog"
 	"vista/internal/modeltrace"
 	"vista/internal/platform"
@@ -55,6 +56,7 @@ type worker struct {
 	overBudget      bool
 }
 type App struct {
+	mcpHost                *mcphost.Process
 	memoryMu               sync.Mutex
 	memoryConfig           memoryConfig
 	background             sync.WaitGroup
@@ -241,6 +243,9 @@ func loadApp(parent context.Context, cancel context.CancelFunc, configDir, dir s
 			return nil, fmt.Errorf("clear previous Worker ownership record: %w", err)
 		}
 	}
+	if err := mcphost.Recover(dir); err != nil {
+		return nil, err
+	}
 	// Only uncommitted HTTP input is staged here. Old Workers are gone, so
 	// abandoned uploads can be discarded without touching retained resources.
 	if err := os.RemoveAll(filepath.Join(dir, "inputs")); err != nil {
@@ -295,6 +300,7 @@ func (a *App) start() error {
 		return err
 	}
 	a.background.Go(a.cleanModelDiagnostics)
+	a.startMCPHost()
 	a.background.Go(func() { a.pollModelCatalog(a.ctx) })
 	a.refreshLocalModels(a.ctx)
 	a.background.Go(func() { a.pollLocalModels(a.ctx) })
@@ -424,7 +430,12 @@ func (a *App) statusSnapshot(ctx context.Context, host string) (map[string]any, 
 		}
 		break
 	}
-	return map[string]any{"state": "running", "version": buildinfo.Version, "binaryHash": a.buildInfo.BinaryHash, "sourceCommit": a.buildInfo.SourceCommit, "sourceModified": a.buildInfo.SourceModified, "hostOS": a.hostOS, "address": "http://" + host, "provider": providerName, "model": defaultModel.ID, "defaultModel": defaultModelLabel, "defaultModelKey": models.Default, "uptimeSeconds": int(time.Since(a.started).Seconds()), "sessions": map[string]int{"total": counts.Total, "open": counts.Open, "closed": counts.Total - counts.Open, "running": counts.Running, "idle": counts.Open - counts.Running, "unavailable": unavailable, "workers": count}, "managedBackgroundProcesses": counts.Jobs, "eventStreams": a.hub.subscriberCount() + a.updates.count(), "eventStreamLimit": maxEventStreams + maxStateEventStreams, "memory": map[string]uint64{"heapBytes": mem.HeapAlloc, "rssBytes": platform.RSS(), "peakRssBytes": platform.PeakRSS()}, "capacity": map[string]any{"config": a.memorySettings(), "residentBytes": residentBytes}, "workerMetrics": workerMetrics, "sampledAt": time.Now().UTC().Format(time.RFC3339Nano)}, nil
+	var mcpHostStatus any
+	if a.mcpHost != nil {
+		pid, metrics := a.mcpHost.Status()
+		mcpHostStatus = map[string]any{"pid": pid, "memory": metrics}
+	}
+	return map[string]any{"state": "running", "version": buildinfo.Version, "binaryHash": a.buildInfo.BinaryHash, "sourceCommit": a.buildInfo.SourceCommit, "sourceModified": a.buildInfo.SourceModified, "hostOS": a.hostOS, "address": "http://" + host, "provider": providerName, "model": defaultModel.ID, "defaultModel": defaultModelLabel, "defaultModelKey": models.Default, "uptimeSeconds": int(time.Since(a.started).Seconds()), "sessions": map[string]int{"total": counts.Total, "open": counts.Open, "closed": counts.Total - counts.Open, "running": counts.Running, "idle": counts.Open - counts.Running, "unavailable": unavailable, "workers": count}, "managedBackgroundProcesses": counts.Jobs, "eventStreams": a.hub.subscriberCount() + a.updates.count(), "eventStreamLimit": maxEventStreams + maxStateEventStreams, "memory": map[string]uint64{"heapBytes": mem.HeapAlloc, "rssBytes": platform.RSS(), "peakRssBytes": platform.PeakRSS()}, "capacity": map[string]any{"config": a.memorySettings(), "residentBytes": residentBytes}, "workerMetrics": workerMetrics, "mcpHost": mcpHostStatus, "sampledAt": time.Now().UTC().Format(time.RFC3339Nano)}, nil
 }
 
 func (a *App) modelList(w http.ResponseWriter, r *http.Request) {

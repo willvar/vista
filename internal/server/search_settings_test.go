@@ -229,20 +229,20 @@ func TestDeepSeekSearchAndFetchKeysAreIndependent(t *testing.T) {
 	}
 }
 
-func TestSearchSummaryLengthPersistsWithoutChangingOrdersOrKeys(t *testing.T) {
+func TestSearchPreviewBytesPersistsWithoutChangingOrdersOrKeys(t *testing.T) {
 	app := newSearchSettingsApp(t)
-	if app.currentSearchSummaryLength() != 1000 {
-		t.Fatal("incorrect default summary length")
+	if app.currentSearchPreviewBytes() != 50<<10 {
+		t.Fatal("incorrect default search byte budget")
 	}
 	orders := append([]string(nil), app.searchConfig.Order...)
 	fetch := app.currentWebfetchSettings()
 	for _, limit := range []int{32, 0, 2000} {
-		body, _ := json.Marshal(map[string]int{"summaryLength": limit})
+		body, _ := json.Marshal(map[string]int{"searchPreviewBytes": limit})
 		if w := searchSettingsRequest(app, http.MethodPatch, string(body)); w.Code != http.StatusNoContent {
 			t.Fatal(w.Body.String())
 		}
 		settings, err := loadSearchSettings(app.configDir)
-		if err != nil || settings.SummaryLength != limit || app.currentSearchSummaryLength() != limit || !reflect.DeepEqual(settings.Order, orders) || !reflect.DeepEqual(app.currentWebfetchSettings(), fetch) {
+		if err != nil || settings.SearchPreviewBytes != limit || app.currentSearchPreviewBytes() != limit || !reflect.DeepEqual(settings.Order, orders) || !reflect.DeepEqual(app.currentWebfetchSettings(), fetch) {
 			t.Fatalf("summary update changed unrelated settings: %v", err)
 		}
 	}
@@ -258,24 +258,24 @@ func TestSearchSummaryLengthPersistsWithoutChangingOrdersOrKeys(t *testing.T) {
 	}
 }
 
-func TestFetchPreviewLengthPersistsAndKeepsRunSnapshotsIndependent(t *testing.T) {
+func TestFetchPreviewBytesPersistsAndKeepsRunSnapshotsIndependent(t *testing.T) {
 	app := newSearchSettingsApp(t)
 	before := app.currentWebfetchSettings()
-	if before.PreviewLength != 8000 {
-		t.Fatal("incorrect default initial page length")
+	if before.PreviewBytes != 50<<10 {
+		t.Fatal("incorrect default page byte budget")
 	}
 	for _, limit := range []int{3, 0, 12000} {
-		body, _ := json.Marshal(map[string]int{"fetchPreviewLength": limit})
+		body, _ := json.Marshal(map[string]int{"fetchPreviewBytes": limit})
 		if w := searchSettingsRequest(app, http.MethodPatch, string(body)); w.Code != http.StatusNoContent {
 			t.Fatal(w.Body.String())
 		}
 		settings, err := loadSearchSettings(app.configDir)
 		current := app.currentWebfetchSettings()
-		if err != nil || settings.FetchPreviewLength != limit || current.PreviewLength != limit || !reflect.DeepEqual(current.Order, before.Order) || current.JinaAPIKey != before.JinaAPIKey || current.DeepSeekAPIKey != before.DeepSeekAPIKey || app.currentSearchSummaryLength() != 1000 || before.PreviewLength != 8000 {
+		if err != nil || settings.FetchPreviewBytes != limit || current.PreviewBytes != limit || !reflect.DeepEqual(current.Order, before.Order) || current.JinaAPIKey != before.JinaAPIKey || current.DeepSeekAPIKey != before.DeepSeekAPIKey || app.currentSearchPreviewBytes() != 50<<10 || before.PreviewBytes != 50<<10 {
 			t.Fatalf("initial page length changed unrelated settings or an active snapshot: %+v %v", current, err)
 		}
 		var view struct {
-			Length int `json:"fetchPreviewLength"`
+			Length int `json:"fetchPreviewBytes"`
 		}
 		w := searchSettingsRequest(app, http.MethodGet, "")
 		if w.Code != http.StatusOK || json.Unmarshal(w.Body.Bytes(), &view) != nil || view.Length != limit {
@@ -307,8 +307,8 @@ func TestSearchSettingsRejectInvalidRequestsAndFailedWrites(t *testing.T) {
 	}
 	for _, body := range []string{
 		`{}`, `null`, `[]`, `{"order":null}`, `{"order":[]}`,
-		`{"summaryLength":-1}`, `{"summaryLength":1.5}`, `{"summaryLength":"1000"}`, `{"summaryLength":null}`,
-		`{"fetchPreviewLength":-1}`, `{"fetchPreviewLength":1.5}`, `{"fetchPreviewLength":"8000"}`, `{"fetchPreviewLength":null}`,
+		`{"searchPreviewBytes":-1}`, `{"searchPreviewBytes":1.5}`, `{"searchPreviewBytes":"1000"}`, `{"searchPreviewBytes":null}`,
+		`{"fetchPreviewBytes":-1}`, `{"fetchPreviewBytes":1.5}`, `{"fetchPreviewBytes":"8000"}`, `{"fetchPreviewBytes":null}`,
 		`{"fetchOrder":null}`, `{"fetchOrder":[]}`, `{"fetchOrder":["vista"]}`, `{"fetchOrder":["jina","jina"]}`,
 		`{"fetchOrder":["vista","other"]}`, `{"fetchOrder":["vista",42]}`,
 		`{"order":["exa","firecrawl","parallel","tavily","deepseek"],"fetchOrder":["vista","vista"]}`,
@@ -378,7 +378,7 @@ func TestSearchSettingsConcurrentUpdates(t *testing.T) {
 		}
 	})
 	group.Go(func() {
-		if w := searchSettingsRequest(app, http.MethodPatch, `{"fetchOrder":["jina","vista","deepseek"]}`); w.Code != http.StatusNoContent {
+		if w := searchSettingsRequest(app, http.MethodPatch, `{"fetchOrder":["deepseek","jina"]}`); w.Code != http.StatusNoContent {
 			t.Errorf("concurrent webfetch reorder: %d %s", w.Code, w.Body.String())
 		}
 	})
@@ -403,7 +403,7 @@ func TestSearchSettingsConcurrentUpdates(t *testing.T) {
 	if !reflect.DeepEqual(settings.Order, order) || !reflect.DeepEqual(app.searchConfig.Order, order) {
 		t.Fatal("concurrent key update lost search order")
 	}
-	if !reflect.DeepEqual(settings.FetchOrder, []string{"jina", "vista", "deepseek"}) {
+	if !reflect.DeepEqual(settings.FetchOrder, []string{"deepseek", "jina"}) {
 		t.Fatal("concurrent update lost webfetch order")
 	}
 	for _, provider := range app.currentSearchProviders() {
@@ -425,12 +425,12 @@ func TestWebfetchOrderPersistsIndependentlyOfSearchAndKeys(t *testing.T) {
 			t.Fatalf("webfetch order: %d %s", w.Code, w.Body.String())
 		}
 	}
-	get([]string{"vista", "jina", "deepseek"})
-	if w := searchSettingsRequest(app, http.MethodPatch, `{"fetchOrder":["jina","vista","deepseek"]}`); w.Code != http.StatusNoContent {
+	get([]string{"jina", "deepseek"})
+	if w := searchSettingsRequest(app, http.MethodPatch, `{"fetchOrder":["deepseek","jina"]}`); w.Code != http.StatusNoContent {
 		t.Fatalf("reorder webfetch: %d %s", w.Code, w.Body.String())
 	}
-	get([]string{"jina", "vista", "deepseek"})
-	if !reflect.DeepEqual(app.searchConfig.Order, search) || !reflect.DeepEqual(before.Order, []string{"vista", "jina", "deepseek"}) {
+	get([]string{"deepseek", "jina"})
+	if !reflect.DeepEqual(app.searchConfig.Order, search) || !reflect.DeepEqual(before.Order, []string{"jina", "deepseek"}) {
 		t.Fatal("webfetch update changed search order or an active run snapshot")
 	}
 	for _, method := range []string{http.MethodPut, http.MethodDelete} {
@@ -442,13 +442,13 @@ func TestWebfetchOrderPersistsIndependentlyOfSearchAndKeys(t *testing.T) {
 			t.Fatal(w.Body.String())
 		}
 		saved, err := loadSearchSettings(app.configDir)
-		if err != nil || !reflect.DeepEqual(saved.FetchOrder, []string{"jina", "vista", "deepseek"}) || !reflect.DeepEqual(saved.Order, search) {
+		if err != nil || !reflect.DeepEqual(saved.FetchOrder, []string{"deepseek", "jina"}) || !reflect.DeepEqual(saved.Order, search) {
 			t.Fatalf("key update lost reading priority on restart: %+v %v", saved, err)
 		}
 	}
 	snapshot := app.currentWebfetchSettings()
-	snapshot.Order[0] = "vista"
-	get([]string{"jina", "vista", "deepseek"})
+	snapshot.Order[0] = "invalid"
+	get([]string{"deepseek", "jina"})
 	// A failed atomic write must leave both the saved and active order intact.
 	path := filepath.Join(app.configDir, searchSettingsFilename)
 	if err := os.Remove(path); err != nil {
@@ -457,10 +457,10 @@ func TestWebfetchOrderPersistsIndependentlyOfSearchAndKeys(t *testing.T) {
 	if err := os.Mkdir(path, 0700); err != nil {
 		t.Fatal(err)
 	}
-	if w := searchSettingsRequest(app, http.MethodPatch, `{"fetchOrder":["vista","jina","deepseek"]}`); w.Code != http.StatusInternalServerError {
+	if w := searchSettingsRequest(app, http.MethodPatch, `{"fetchOrder":["jina","deepseek"]}`); w.Code != http.StatusInternalServerError {
 		t.Fatalf("failed write accepted: %d", w.Code)
 	}
-	get([]string{"jina", "vista", "deepseek"})
+	get([]string{"deepseek", "jina"})
 }
 
 func TestSearchSettingsReachNextWorkerRun(t *testing.T) {
@@ -477,7 +477,7 @@ func TestSearchSettingsReachNextWorkerRun(t *testing.T) {
 	sink := &imageCommandSink{}
 	app.store, app.workers = db, map[string]*worker{"session": {input: sink}}
 	order := []string{"tavily", "exa", "firecrawl", "parallel", "deepseek"}
-	body, _ := json.Marshal(map[string]any{"order": order, "fetchOrder": []string{"jina", "vista", "deepseek"}, "summaryLength": 123, "fetchPreviewLength": 345})
+	body, _ := json.Marshal(map[string]any{"order": order, "fetchOrder": []string{"deepseek", "jina"}, "searchPreviewBytes": 123, "fetchPreviewBytes": 345})
 	if w := searchSettingsRequest(app, http.MethodPatch, string(body)); w.Code != http.StatusNoContent {
 		t.Fatal("could not save search order")
 	}
@@ -511,13 +511,13 @@ func TestSearchSettingsReachNextWorkerRun(t *testing.T) {
 			t.Fatalf("worker did not receive saved %s key", provider.Name)
 		}
 	}
-	if !reflect.DeepEqual(command.Webfetch.Order, []string{"jina", "vista", "deepseek"}) {
+	if !reflect.DeepEqual(command.Webfetch.Order, []string{"deepseek", "jina"}) {
 		t.Fatalf("worker webfetch order: %v", command.Webfetch.Order)
 	}
 	if command.Webfetch.JinaAPIKey != "jina-secret" {
 		t.Fatalf("worker did not receive Jina Reader key: %q", command.Webfetch.JinaAPIKey)
 	}
-	if command.SearchSummaryLength != 123 || command.Webfetch.PreviewLength != 345 || command.Webfetch.DeepSeekAPIKey != "fetch-only-secret" {
+	if command.SearchPreviewBytes != 123 || command.Webfetch.PreviewBytes != 345 || command.Webfetch.DeepSeekAPIKey != "fetch-only-secret" {
 		t.Fatal("worker did not receive initial content lengths or independent fetch key")
 	}
 }
@@ -539,8 +539,8 @@ func TestSearchSettingsInitialOrderIsPersistedOnce(t *testing.T) {
 			if err != nil || !validSearchOrder(first.Order) {
 				t.Fatalf("initial order must include every external provider: %v %v", first.Order, err)
 			}
-			if !reflect.DeepEqual(first.FetchOrder, []string{"vista", "jina", "deepseek"}) {
-				t.Fatalf("initial webfetch order must be Vista first: %v", first.FetchOrder)
+			if !reflect.DeepEqual(first.FetchOrder, []string{"jina", "deepseek"}) {
+				t.Fatalf("initial webfetch order must be Jina first: %v", first.FetchOrder)
 			}
 			if legacy && first.APIKeys["exa"] != "legacy-secret" {
 				t.Fatal("initializing order lost existing credentials")
@@ -624,5 +624,62 @@ func TestSearchSettingsInitializationFailureAndInvalidSavedOrder(t *testing.T) {
 		if got, err := os.ReadFile(path); err != nil || string(got) != data {
 			t.Fatal("invalid settings were overwritten")
 		}
+	}
+}
+
+func TestSearchSettingsRemoveBuiltInReaderPreservingExternalOrderAndKeys(t *testing.T) {
+	for _, order := range []string{`["vista","deepseek","jina"]`, `["deepseek","vista","jina"]`, `["deepseek","jina","vista"]`} {
+		dir := t.TempDir()
+		if err := os.Chmod(dir, 0700); err != nil {
+			t.Fatal(err)
+		}
+		original := `{"order":["exa","firecrawl","parallel","tavily","deepseek"],"fetchOrder":` + order + `,"apiKeys":{"exa":"search-key"},"jinaApiKey":"reader-key","deepseekFetchApiKey":"fetch-key","searchPreviewBytes":123,"fetchPreviewBytes":456}`
+		if err := os.WriteFile(filepath.Join(dir, searchSettingsFilename), []byte(original), 0600); err != nil {
+			t.Fatal(err)
+		}
+		config, err := loadSearchSettings(dir)
+		if err != nil || !reflect.DeepEqual(config.FetchOrder, []string{"deepseek", "jina"}) || config.APIKeys["exa"] != "search-key" || config.JinaAPIKey != "reader-key" || config.DeepSeekFetchAPIKey != "fetch-key" || config.SearchPreviewBytes != 123 || config.FetchPreviewBytes != 456 {
+			t.Fatalf("normalization lost user settings: %v", err)
+		}
+		reloaded, err := loadSearchSettings(dir)
+		if err != nil || !reflect.DeepEqual(config, reloaded) {
+			t.Fatalf("normalization was not durable: %v", err)
+		}
+	}
+}
+
+func TestSearchSettingsMigrateCharacterLimitsToBytesOnce(t *testing.T) {
+	for _, tc := range []struct {
+		name, limits  string
+		search, fetch int
+	}{
+		{"defaults", `"summaryLength":1000,"fetchPreviewLength":8000`, 50 << 10, 50 << 10},
+		{"unlimited", `"summaryLength":0,"fetchPreviewLength":0`, 0, 0},
+		{"custom capacity", `"summaryLength":2345,"fetchPreviewLength":12000`, 74 << 10, 47 << 10},
+		{"new settings win", `"summaryLength":1000,"fetchPreviewLength":8000,"searchPreviewBytes":12345,"fetchPreviewBytes":0`, 12345, 0},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			if err := os.Chmod(dir, 0700); err != nil {
+				t.Fatal(err)
+			}
+			path := filepath.Join(dir, searchSettingsFilename)
+			original := `{"apiKeys":{"exa":"search-key"},"jinaApiKey":"reader-key","order":["exa","firecrawl","parallel","tavily","deepseek"],"fetchOrder":["deepseek","jina"],` + tc.limits + `}`
+			if err := os.WriteFile(path, []byte(original), 0600); err != nil {
+				t.Fatal(err)
+			}
+			settings, err := loadSearchSettings(dir)
+			if err != nil || settings.SearchPreviewBytes != tc.search || settings.FetchPreviewBytes != tc.fetch || settings.APIKeys["exa"] != "search-key" || settings.JinaAPIKey != "reader-key" || !reflect.DeepEqual(settings.FetchOrder, []string{"deepseek", "jina"}) {
+				t.Fatalf("migration lost limits, order or keys: search=%d fetch=%d err=%v", settings.SearchPreviewBytes, settings.FetchPreviewBytes, err)
+			}
+			data, err := os.ReadFile(path)
+			if err != nil || strings.Contains(string(data), `"summaryLength"`) || strings.Contains(string(data), `"fetchPreviewLength"`) {
+				t.Fatal("legacy units remain in saved settings")
+			}
+			reloaded, err := loadSearchSettings(dir)
+			if err != nil || !reflect.DeepEqual(settings, reloaded) {
+				t.Fatalf("byte settings were converted twice: %v", err)
+			}
+		})
 	}
 }

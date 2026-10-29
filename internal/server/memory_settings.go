@@ -94,5 +94,6 @@ func (a *App) memorySettingsHTTP(w http.ResponseWriter, r *http.Request) {
 		_ = worker.send(workerproto.Command{Action: "limits", RunID: "limits", MemoryLimit: int64(input.WorkerMiB) << 20})
 	}
 	a.updates.notify("status")
+	a.refreshMCPHost()
 	jsonOut(w, input)
 }

@@ -10,10 +10,10 @@ type SearchProvider = { name: string; source: 'settings' | 'environment' | 'none
 const names: Record<string, string> = { exa: 'Exa', firecrawl: 'Firecrawl', parallel: 'Parallel', tavily: 'Tavily', deepseek: 'DeepSeek', 'deepseek-fetch': 'DeepSeek' }
 const jinaName = 'Jina Reader'
 type OrderKind = 'order' | 'fetchOrder'
-type PreviewKind = 'summaryLength' | 'fetchPreviewLength'
+type PreviewKind = 'searchPreviewBytes' | 'fetchPreviewBytes'
 const orderSections: { key: OrderKind; title: string; hint: string; preview: PreviewKind; previewTitle: string; previewHint: string; defaultLength: number }[] = [
-  { key: 'order', title: 'searchOrder', hint: 'searchOrderHint', preview: 'summaryLength', previewTitle: 'searchPreviewLength', previewHint: 'searchPreviewHint', defaultLength: 1000 },
-  { key: 'fetchOrder', title: 'fetchOrder', hint: 'fetchOrderHint', preview: 'fetchPreviewLength', previewTitle: 'fetchPreviewLength', previewHint: 'fetchPreviewHint', defaultLength: 8000 },
+  { key: 'order', title: 'searchOrder', hint: 'searchOrderHint', preview: 'searchPreviewBytes', previewTitle: 'searchPreviewLength', previewHint: 'searchPreviewHint', defaultLength: 50 },
+  { key: 'fetchOrder', title: 'fetchOrder', hint: 'fetchOrderHint', preview: 'fetchPreviewBytes', previewTitle: 'fetchPreviewLength', previewHint: 'fetchPreviewHint', defaultLength: 50 },
 ]
 const emit = defineEmits<{ 'modal-open': [open: boolean] }>()
 const { t } = useI18n({ useScope: 'global' })
@@ -22,12 +22,12 @@ const providers = ref<SearchProvider[]>([])
 const jinaReader = ref<SearchProvider>({ name: 'jina', source: 'none' })
 const deepseekFetch = ref<SearchProvider>({ name: 'deepseek', source: 'none' })
 const previews = reactive<Record<PreviewKind, { length: number | null; unlimited: boolean; saved: number }>>({
-  summaryLength: { length: 1000, unlimited: false, saved: 1000 },
-  fetchPreviewLength: { length: 8000, unlimited: false, saved: 8000 },
+  searchPreviewBytes: { length: 50, unlimited: false, saved: 50 * 1024 },
+  fetchPreviewBytes: { length: 50, unlimited: false, saved: 50 * 1024 },
 })
-function previewValue(key: PreviewKind) { return previews[key].unlimited ? 0 : previews[key].length }
+function previewValue(key: PreviewKind) { return previews[key].unlimited ? 0 : previews[key].length === null ? null : previews[key].length! * 1024 }
 function previewDirty(key: PreviewKind) { return previewValue(key) !== previews[key].saved }
-function validPreview(key: PreviewKind) { return previews[key].unlimited || Number.isSafeInteger(previews[key].length) && previews[key].length! > 0 }
+function validPreview(key: PreviewKind) { return previews[key].unlimited || Number.isSafeInteger(previewValue(key)) && previewValue(key)! > 0 }
 const orders = reactive<Record<OrderKind, string[]>>({ order: [], fetchOrder: [] })
 const savedOrders = reactive<Record<OrderKind, string[]>>({ order: [], fetchOrder: [] })
 function orderDirty(key: OrderKind) { return orders[key].join(',') !== savedOrders[key].join(',') }
@@ -61,7 +61,7 @@ async function refresh() {
       savedOrders[key] = result[key]
       if (!previewDirty(preview)) {
         previews[preview].unlimited = result[preview] === 0
-        previews[preview].length = result[preview] || defaultLength
+        previews[preview].length = result[preview] ? result[preview] / 1024 : defaultLength
       }
       previews[preview].saved = result[preview]
     }
@@ -80,7 +80,7 @@ async function load() {
 onMounted(load)
 
 function providerName(name: string) {
-  return name === 'vista' ? t('vistaReader') : name === 'jina' ? jinaName : names[name] || name
+  return name === 'jina' ? jinaName : names[name] || name
 }
 function keySource(name: string): SearchProvider['source'] {
   return name === 'jina' ? jinaReader.value.source : name === 'deepseek-fetch' ? deepseekFetch.value.source : providers.value.find(provider => provider.name === name)?.source || 'none'
@@ -93,7 +93,7 @@ function keyStatus(source: SearchProvider['source'], name: string) {
   return t(source === 'settings' ? 'searchKeySaved' : source === 'environment' ? 'searchKeyEnvironment' : 'searchKeyAnonymous')
 }
 function editKey(name: string) {
-  if (loading.value || busy.value || name === 'vista') return
+  if (loading.value || busy.value) return
   editing.value = name
   keyDraft.value = ''
   keyError.value = ''
@@ -230,10 +230,10 @@ async function updateKey(remove = false) {
           <span class="search-order-number" aria-hidden="true">{{ index + 1 }}</span>
           <span class="search-order-name">
             <span class="search-provider-name">{{ providerName(name) }}</span>
-            <span v-if="name !== 'vista'" class="search-quota-tag" :class="{ 'has-key': keySource(credentialName(name, section.key)) !== 'none' }" :title="keyStatus(keySource(credentialName(name, section.key)), name)">{{ t(keySource(credentialName(name, section.key)) !== 'none' ? 'searchPaidQuota' : name === 'deepseek' ? 'searchKeyUnconfigured' : 'searchFreeQuota') }}</span>
+            <span class="search-quota-tag" :class="{ 'has-key': keySource(credentialName(name, section.key)) !== 'none' }" :title="keyStatus(keySource(credentialName(name, section.key)), name)">{{ t(keySource(credentialName(name, section.key)) !== 'none' ? 'searchPaidQuota' : name === 'deepseek' ? 'searchKeyUnconfigured' : 'searchFreeQuota') }}</span>
           </span>
           <div class="search-order-actions">
-            <a-button v-if="name !== 'vista'" html-type="button" type="text" :aria-label="t('editSearchKey', { name: providerName(name) })" :title="t('editSearchKey', { name: providerName(name) })" :disabled="loading || !!busy" @click="editKey(credentialName(name, section.key))"><EditOutlined /></a-button>
+            <a-button html-type="button" type="text" :aria-label="t('editSearchKey', { name: providerName(name) })" :title="t('editSearchKey', { name: providerName(name) })" :disabled="loading || !!busy" @click="editKey(credentialName(name, section.key))"><EditOutlined /></a-button>
             <a-button html-type="button" type="text" :aria-label="t('searchMoveUp', { name: providerName(name) })" :title="t('searchMoveUp', { name: providerName(name) })" :disabled="loading || !!busy || index === 0" @click="move(section.key, index, -1)"><ArrowUpOutlined /></a-button>
             <a-button html-type="button" type="text" :aria-label="t('searchMoveDown', { name: providerName(name) })" :title="t('searchMoveDown', { name: providerName(name) })" :disabled="loading || !!busy || index === orders[section.key].length - 1" @click="move(section.key, index, 1)"><ArrowDownOutlined /></a-button>
           </div>
@@ -267,8 +267,8 @@ async function updateKey(remove = false) {
       <label :for="section.preview">{{ t(section.previewTitle) }}</label>
       <p :id="`${section.preview}-hint`" class="search-settings-hint">{{ t(section.previewHint) }}</p>
       <div class="web-preview-controls">
-        <a-input-number :id="section.preview" v-model:value="previews[section.preview].length" :aria-label="t(section.previewTitle)" :aria-describedby="`${section.preview}-hint web-preview-hint`" :min="1" :precision="0" :disabled="loading || !!busy || previews[section.preview].unlimited" />
-        <span>{{ t('webPreviewCharacters') }}</span>
+        <a-input-number :id="section.preview" v-model:value="previews[section.preview].length" :aria-label="t(section.previewTitle)" :aria-describedby="`${section.preview}-hint web-preview-hint`" :min="1 / 1024" :step="1" :disabled="loading || !!busy || previews[section.preview].unlimited" />
+        <span>{{ t('webPreviewKiB') }}</span>
         <a-checkbox v-model:checked="previews[section.preview].unlimited" :disabled="loading || !!busy">{{ t('webPreviewUnlimited') }}</a-checkbox>
       </div>
       <div class="search-provider-actions"><a-button html-type="submit" type="primary" :loading="busy === section.preview" :disabled="loading || !!busy || !previewDirty(section.preview) || !validPreview(section.preview)">{{ t('saveChanges') }}</a-button></div>

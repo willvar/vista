@@ -6,9 +6,11 @@ import (
 
 	"vista/internal/agentconfig"
 	"vista/internal/appdirs"
+	"vista/internal/mcphost"
 )
 
 type runScope struct {
+	mcp        *mcphost.Execution
 	modelTurns atomic.Int32
 	// Read once at the root run's start and shared unchanged by all descendants.
 	delegationDepth int

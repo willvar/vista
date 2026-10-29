@@ -19,6 +19,7 @@ import (
 	"github.com/google/uuid"
 	"vista/internal/agent"
 	"vista/internal/appdirs"
+	"vista/internal/mcphost"
 	modelcfg "vista/internal/model"
 	"vista/internal/platform"
 	"vista/internal/provider"
@@ -100,6 +101,10 @@ func Run() error {
 	}
 	sessionCtx, cancelSession := context.WithCancel(context.Background())
 	defer cancelSession()
+	sessionCtx = mcphost.WithEndpointResolver(sessionCtx, func(ctx context.Context) (workerproto.MCPHost, error) {
+		ack, err := awaitAck(ctx, workerproto.Result{Kind: "mcp_host"})
+		return ack.MCPHost, err
+	})
 	sessionCtx = provider.WithCredentialResolver(sessionCtx, func(ctx context.Context, model modelcfg.Model) (modelcfg.Model, error) {
 		request := &workerproto.CredentialRequest{Key: model.Key, Ref: model.CredentialRef}
 		if deadline, ok := ctx.Deadline(); ok {
