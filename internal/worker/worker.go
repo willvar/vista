@@ -9,7 +9,9 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"runtime"
+	"strconv"
 	"sync"
 	"syscall"
 	"time"
@@ -28,6 +30,9 @@ import (
 
 // Run serves the worker IPC stream until its input closes.
 func Run() error {
+	if mib, err := strconv.ParseInt(os.Getenv("VISTA_WORKER_MEMORY_MIB"), 10, 64); err == nil && mib >= 128 {
+		setMemoryLimit(mib << 20)
+	}
 	configDir, err := appdirs.Config()
 	if err != nil {
 		return err
@@ -115,9 +120,13 @@ func Run() error {
 	done := make(chan struct{})
 	defer close(done)
 	go func() {
-		ticker := time.NewTicker(5 * time.Second)
+		ticker := time.NewTicker(time.Second)
 		defer ticker.Stop()
 		for {
+			if limit := workerMemoryLimit.Load(); limit > 0 && platform.RSS() > limit {
+				log.Printf("Worker memory limit exceeded")
+				os.Exit(1)
+			}
 			var memory runtime.MemStats
 			runtime.ReadMemStats(&memory)
 			_ = emit(workerproto.Result{Kind: "metrics", Metrics: &workerproto.Metrics{HeapBytes: memory.HeapAlloc, HeapObjects: memory.HeapObjects, HeapInuseBytes: memory.HeapInuse, HeapIdleBytes: memory.HeapIdle, HeapReleasedBytes: memory.HeapReleased, StackInuseBytes: memory.StackInuse, OtherSysBytes: memory.OtherSys, SysBytes: memory.Sys, GCCount: memory.NumGC, RSSBytes: platform.RSS(), PeakRSSBytes: platform.PeakRSS(), TotalAllocBytes: memory.TotalAlloc, Goroutines: runtime.NumGoroutine(), SampledAt: time.Now().UTC().Format(time.RFC3339)}})
@@ -128,6 +137,10 @@ func Run() error {
 			}
 		}
 	}()
+	var rpcMu sync.Mutex
+	rpcCancels := map[string]context.CancelFunc{}
+	var rpcJobs sync.WaitGroup
+	defer func() { cancelSession(); rpcJobs.Wait() }()
 	var activeMu sync.Mutex
 	activeID := ""
 	var activeCancel context.CancelFunc
@@ -166,6 +179,47 @@ func Run() error {
 				pending <- command
 			}
 			ackMu.Unlock()
+			continue
+		}
+		if command.Action == "limits" {
+			setMemoryLimit(command.MemoryLimit)
+			continue
+		}
+		if command.Action == "cancel_rpc" {
+			rpcMu.Lock()
+			if cancel := rpcCancels[command.RPCID]; cancel != nil {
+				cancel()
+			}
+			rpcMu.Unlock()
+			continue
+		}
+		if command.Action == "import_resource" || command.Action == "title" {
+			if command.RPCID == "" || len(command.RPCID) > 64 || !filepath.IsAbs(command.ResourcePath) && command.Action == "import_resource" {
+				return errors.New("invalid worker RPC")
+			}
+			rpcCtx, rpcCancel := context.WithCancel(sessionCtx)
+			rpcMu.Lock()
+			rpcCancels[command.RPCID] = rpcCancel
+			rpcMu.Unlock()
+			rpcJobs.Go(func() {
+				defer rpcCancel()
+				defer func() { rpcMu.Lock(); delete(rpcCancels, command.RPCID); rpcMu.Unlock() }()
+				result := workerproto.Result{Kind: "rpc", RPCID: command.RPCID, RunID: command.RunID, Status: "succeeded"}
+				var err error
+				if command.Action == "import_resource" {
+					result.Resource, err = importResource(rpcCtx, command, emitPersisted)
+				} else {
+					result.Content, err = resourceTitle(rpcCtx, command, emitPersisted, emit)
+				}
+				if err != nil {
+					result.Status = "failed"
+					result.Content = err.Error()
+				}
+				if len(result.Content) > 8192 {
+					result.Content = result.Content[:8192]
+				}
+				_ = emit(result)
+			})
 			continue
 		}
 		if command.Action == "cancel" {
@@ -232,7 +286,7 @@ func Run() error {
 					pending = result.Pending
 					return nil
 				}
-				needsAck := result.Kind == "memory_change" || result.Kind == "checklist" || result.Kind == "context_notice" || result.Kind == "model_history" ||
+				needsAck := result.Kind == "media_admission" || result.Kind == "resource_import" || result.Kind == "memory_change" || result.Kind == "checklist" || result.Kind == "context_notice" || result.Kind == "model_history" ||
 					(result.Kind == "tool" || result.Kind == "artifact") && result.Status == "started" ||
 					result.Kind == "agent_task"
 				if !needsAck {

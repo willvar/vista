@@ -52,12 +52,12 @@ export function createVistaClient(fetchImpl: typeof fetch = fetch): VistaClient 
         await result.body?.cancel()
         throw new Error('invalid image response')
       }
-      if (Number(result.headers.get('Content-Length')) > 1_048_576) {
+      if (Number(result.headers.get('Content-Length')) > 50 * 1_048_576) {
         await result.body?.cancel()
-        throw new Error('image response exceeds 1 MiB')
+        throw new Error('image response exceeds 50 MiB')
       }
       const blob = await result.blob()
-      if (blob.size > 1_048_576) throw new Error('image response exceeds 1 MiB')
+      if (blob.size > 50 * 1_048_576) throw new Error('image response exceeds 50 MiB')
       return blob
     },
     streamEvents(sessionId, options) {

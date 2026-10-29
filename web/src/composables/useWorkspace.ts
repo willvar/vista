@@ -56,7 +56,8 @@ function createWorkspace() {
       }
     },
   })
-  watch(debugMode, value => stateSync.setMetrics(value && !document.hidden))
+  const wantsMetrics = computed(() => debugMode.value || route.name === 'settings-about')
+  watch(wantsMetrics, value => stateSync.setMetrics(value && !document.hidden))
   let disposed = false
   const conversation = useConversation({ client, sessions, modelCatalog, error, busy, refresh: refreshSessions, translate: t, interactionPreferences,
     onSessionStarted: async session => { await router.push(`/sessions/${session.id}`) } })
@@ -130,7 +131,7 @@ function createWorkspace() {
   }
   function resumeState() {
     if (!document.hidden) {
-      if (!stateSync.setMetrics(debugMode.value)) stateSync.reconnect()
+      if (!stateSync.setMetrics(wantsMetrics.value)) stateSync.reconnect()
     } else stateSync.setMetrics(false)
   }
 

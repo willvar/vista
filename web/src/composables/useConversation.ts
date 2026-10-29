@@ -106,7 +106,8 @@ export function useConversation({ client, sessions, modelCatalog, error, busy, r
   const editingMessage = ref<Message | null>(null)
   const rollbackFailure = ref('')
   let editBackup: { draft: string; quote: QuotedText | null; images: File[] } | null = null
-  type MessageDraft = { message: Message; images: { name: string; mediaType: string; data: string }[] }
+  type ImageRef = { hash: string; name: string; mediaType: string; bytes: number }
+  type MessageDraft = { message: Message; images: ImageRef[] }
   let draftRevision = 0
   let recallingScope: Scope | null = null
   let welcomeImages: File[] = []
@@ -664,9 +665,14 @@ export function useConversation({ client, sessions, modelCatalog, error, busy, r
     return (await loadFullModelOutput(message)).content
   }
 
-  function draftFiles(result: MessageDraft) {
-    return result.images.map((image, index) => new File([Uint8Array.from(atob(image.data), char => char.charCodeAt(0))],
-      image.name || `image-${index + 1}`, { type: image.mediaType }))
+  async function draftFiles(scope: Scope, result: MessageDraft) {
+    const files: File[] = []
+    for (const [index, image] of result.images.entries()) {
+      if (!current(scope)) break
+      const blob = await client.image(`/sessions/${encodeURIComponent(scope.id)}/resources/${encodeURIComponent(image.hash)}`, scope.controller.signal)
+      files.push(new File([blob], image.name || `image-${index + 1}`, { type: image.mediaType }))
+    }
+    return files
   }
   function cancelEditMessage() {
     if (!editingMessage.value) return
@@ -685,7 +691,8 @@ export function useConversation({ client, sessions, modelCatalog, error, busy, r
     try {
       const result = await request<MessageDraft>(scope, `/sessions/${scope.id}/messages/${message.id}/draft`)
       if (!current(scope)) return false
-      const files = draftFiles(result)
+      const files = await draftFiles(scope, result)
+      if (!current(scope)) return false
       editBackup ||= { draft: draft.value, quote: quotedText.value, images: [...attachedImages.value] }
       editingMessage.value = result.message
       draft.value = result.message.content
@@ -714,13 +721,22 @@ export function useConversation({ client, sessions, modelCatalog, error, busy, r
     const owner = startBusy()
     rollbackFailure.value = ''
     try {
+      // Rollback releases ownership held only by discarded history. Recover
+      // the originals first, while their download URLs remain authorized.
+      let files: File[] = []
+      if (message.imageCount) {
+        const original = await request<MessageDraft>(scope, `/sessions/${scope.id}/messages/${message.id}/draft`)
+        if (!current(scope)) return false
+        files = await draftFiles(scope, original)
+        if (!current(scope)) return false
+      }
       const result = await request<MessageDraft>(scope, `/sessions/${scope.id}/messages/${message.id}/revert`, { method: 'POST' })
       if (!current(scope)) return false
       editingMessage.value = null
       editBackup = null
       draft.value = result.message.content
       quotedText.value = null
-      attachedImages.value = draftFiles(result)
+      attachedImages.value = files
       await reloadAfterRollback()
       return true
     } catch (failure) {
@@ -762,7 +778,7 @@ export function useConversation({ client, sessions, modelCatalog, error, busy, r
   }
   function addImages(files: File[]) {
     const next = [...attachedImages.value, ...files]
-    if (next.some(file => file.size < 1 || file.size > 1048576 || !['image/png', 'image/jpeg', 'image/webp', 'image/gif'].includes(file.type))) { error.value = t('imageLimit'); return }
+    if (next.some(file => file.size < 1 || file.size > 50 * 1048576 || !['image/png', 'image/jpeg', 'image/webp', 'image/gif'].includes(file.type))) { error.value = t('imageLimit'); return }
     attachedImages.value = next
     error.value = ''
   }
@@ -785,12 +801,6 @@ export function useConversation({ client, sessions, modelCatalog, error, busy, r
     quotedText.value = { text: quote.text, role: quote.role }
   }
   function removeQuote() { quotedText.value = null }
-  async function encodedImage(file: File) {
-    const bytes = new Uint8Array(await file.arrayBuffer())
-    let binary = ''
-    for (let index = 0; index < bytes.length; index += 8192) binary += String.fromCharCode(...bytes.subarray(index, index + 8192))
-    return { mediaType: file.type, name: file.name, data: btoa(binary) }
-  }
   async function applySentMessage(scope: Scope, result: SendMessageResult) {
     if (!current(scope)) return
     if (state.hasNewer) { await selectSession(selected.value!); return }
@@ -825,7 +835,6 @@ export function useConversation({ client, sessions, modelCatalog, error, busy, r
     const owner = startBusy()
     const startedGeneration = generation
     try {
-      const images = await Promise.all(files.map(encodedImage))
       if (!session) {
         const controller = new AbortController()
         firstSendController = controller
@@ -850,6 +859,13 @@ export function useConversation({ client, sessions, modelCatalog, error, busy, r
       }
       if (!scope) return
       if (!current(scope)) return
+      const images: ImageRef[] = []
+      for (const file of files) {
+        images.push(await request<ImageRef>(scope, `/sessions/${scope.id}/resources?name=${encodeURIComponent(file.name)}`, {
+          method: 'POST', headers: { 'Content-Type': file.type }, body: file,
+        }))
+        if (!current(scope)) return
+      }
       const result = await request<SendMessageResult>(scope, `/sessions/${scope.id}/messages`, { method: 'POST', body: JSON.stringify({ content, images, mode, modelKey, reasoningEffort, selectionMode: modeChoice, selectionTier: tierChoice, ...(edited ? { replacesMessageId: edited.id } : {}) }) })
       if (!current(scope)) return
       if (draft.value === text) draft.value = ''

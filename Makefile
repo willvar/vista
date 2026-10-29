@@ -142,6 +142,7 @@ capacity: test-bin test-mcp-fixture
 	$(TEST_ENV) VISTA_LONG_OUTPUT_RESPONSES=0 node scripts/long_output_smoke.mjs
 	$(TEST_ENV) VISTA_LONG_OUTPUT_RESPONSES=1 node scripts/long_output_smoke.mjs
 	$(TEST_ENV) node scripts/slow_sse_capacity_smoke.mjs
+	$(TEST_ENV) node scripts/image_guard_smoke.mjs
 	@set -eu; \
 	for protocol in $(IMAGE_PROTOCOLS); do \
 		printf '\nRunning image capacity (%s)\n' "$$protocol"; \

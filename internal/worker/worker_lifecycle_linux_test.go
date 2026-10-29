@@ -22,7 +22,6 @@ import (
 	modelcfg "vista/internal/model"
 	"vista/internal/platform"
 	"vista/internal/resources"
-	"vista/internal/store"
 	"vista/internal/workerproto"
 )
 
@@ -180,6 +179,10 @@ func startWorkerFixtureProcess(t *testing.T, configRoots ...string) (*json.Encod
 			if json.Unmarshal(scanner.Bytes(), &result) != nil {
 				continue
 			}
+			if result.Kind == "media_admission" {
+				_ = json.NewEncoder(input).Encode(workerproto.Command{Action: "ack", AckID: result.AckID, RunID: result.RunID})
+				continue
+			}
 			select {
 			case results <- result:
 			case <-stopped:
@@ -195,7 +198,7 @@ func TestWorkerSendsCurrentAndInterjectedImagesWithoutReplayingHistory(t *testin
 	if err != nil {
 		t.Fatal(err)
 	}
-	data = append(data, make([]byte, store.MaxImageBytes-len(data))...)
+	data = append(data, make([]byte, (1<<20)-len(data))...)
 	root := t.TempDir()
 	library := resources.Library{StateDir: filepath.Join(root, "vista", "state")}
 	unlock, err := library.Lock(context.Background())

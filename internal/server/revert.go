@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"sync"
 	"time"
+	"vista/internal/resources"
 	"vista/internal/store"
 )
 
@@ -18,11 +19,7 @@ func (a *App) lockSessionMutation(id string) func() {
 	return mu.Unlock
 }
 
-type revertedImage struct {
-	MediaType string `json:"mediaType"`
-	Name      string `json:"name"`
-	Data      []byte `json:"data"`
-}
+type revertedImage = resources.Ref
 type revertedConversation struct {
 	Message store.Message   `json:"message"`
 	Images  []revertedImage `json:"images"`
@@ -34,18 +31,18 @@ func (a *App) messageDraft(requestCtx context.Context, sessionID, messageID stri
 	if err != nil {
 		return revertedConversation{}, err
 	}
-	images, err := a.store.MessageImages(requestCtx, sessionID, messageID)
+	images, err := a.store.MessageResources(requestCtx, sessionID, messageID)
 	if err != nil {
 		return revertedConversation{}, err
 	}
 	result := revertedConversation{Message: message, Images: []revertedImage{}}
 	for _, image := range images {
-		result.Images = append(result.Images, revertedImage{MediaType: image.MediaType, Name: image.Name, Data: image.Data})
+		result.Images = append(result.Images, image)
 	}
 	return result, nil
 }
 
-func (a *App) revertConversation(requestCtx context.Context, sessionID, messageID string) (revertedConversation, error) {
+func (a *App) revertConversation(requestCtx context.Context, sessionID, messageID string, retain ...resources.Ref) (revertedConversation, error) {
 	result, err := a.messageDraft(requestCtx, sessionID, messageID)
 	if err != nil {
 		return revertedConversation{}, err
@@ -73,7 +70,7 @@ func (a *App) revertConversation(requestCtx context.Context, sessionID, messageI
 	if err != nil {
 		return revertedConversation{}, err
 	}
-	result.Event, err = a.store.Revert(ctx, sessionID, messageID, message.Sequence)
+	result.Event, err = a.store.Revert(ctx, sessionID, messageID, message.Sequence, retain...)
 	if err == nil {
 		if paths, readErr := a.store.ArtifactPaths(ctx, sessionID); readErr == nil {
 			retained := map[string]bool{}

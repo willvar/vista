@@ -64,7 +64,7 @@ func (a *App) compactSession(w http.ResponseWriter, r *http.Request, sessionID s
 		counts, countErr := a.store.SessionCounts(r.Context())
 		err = countErr
 		if err == nil {
-			err = admitRun(available, counts.Running)
+			err = a.admitRun(available, counts.Running)
 		}
 	}
 	var through int64

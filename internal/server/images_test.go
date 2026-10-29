@@ -14,6 +14,7 @@ import (
 	"testing"
 
 	"vista/internal/modelcatalog"
+	"vista/internal/resources"
 	"vista/internal/store"
 	"vista/internal/workerproto"
 )
@@ -33,7 +34,8 @@ func testPNG(t *testing.T) []byte {
 
 func TestImageSubmissionDispatchAndReadWithoutToken(t *testing.T) {
 	ctx := context.Background()
-	s, err := store.Open(filepath.Join(t.TempDir(), "images.db"))
+	stateDir := t.TempDir()
+	s, err := store.Open(filepath.Join(stateDir, "images.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -47,14 +49,15 @@ func TestImageSubmissionDispatchAndReadWithoutToken(t *testing.T) {
 	if err := modelcatalog.Validate(models); err != nil {
 		t.Fatal(err)
 	}
-	app := &App{store: s, models: models, workers: map[string]*worker{session: {input: sink}}}
+	app := &App{dir: stateDir, store: s, models: models, workers: map[string]*worker{session: {input: sink}}}
 	data := testPNG(t)
 	data = append(data, make([]byte, store.MaxImageBytes-len(data))...)
-	image := map[string]any{"mediaType": "image/png", "data": base64.StdEncoding.EncodeToString(data)}
+	image := seedImageRef(t, app, session, data)
 	body, _ := json.Marshal(map[string]any{"content": "", "modelKey": "image", "images": []any{image, image, image, image}})
-	if len(body) <= 4<<20 {
-		t.Fatal("fixture does not exceed the old HTTP and IPC size limits")
+	if len(body) > 4096 {
+		t.Fatal("message must contain bounded references only")
 	}
+
 	w := httptest.NewRecorder()
 	app.submitMessage(w, httptest.NewRequest(http.MethodPost, "/api/sessions/"+session+"/messages", bytes.NewReader(body)), session)
 	if w.Code != http.StatusAccepted {
@@ -118,7 +121,8 @@ func TestImageSubmissionDispatchAndReadWithoutToken(t *testing.T) {
 }
 
 func TestImageSubmissionRejectsUnsupportedModelAndInvalidPayload(t *testing.T) {
-	s, err := store.Open(filepath.Join(t.TempDir(), "images.db"))
+	stateDir := t.TempDir()
+	s, err := store.Open(filepath.Join(stateDir, "images.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -128,20 +132,20 @@ func TestImageSubmissionRejectsUnsupportedModelAndInvalidPayload(t *testing.T) {
 		t.Fatal(err)
 	}
 	models := modelCatalog{Default: "text", Models: []configuredModel{{Key: "text", Provider: "openai-chat", ID: "test", APIKey: "key"}}}
-	app := &App{store: s, models: models, workers: map[string]*worker{session: {input: &imageCommandSink{}}}}
-	image := base64.StdEncoding.EncodeToString(testPNG(t))
+	app := &App{dir: stateDir, store: s, models: models, workers: map[string]*worker{session: {input: &imageCommandSink{}}}}
+	image := seedImageRef(t, app, session, testPNG(t))
 	for _, tc := range []struct {
-		name, mediaType, data, want string
-		enabled                     bool
+		name, mediaType, want string
+		enabled               bool
 	}{
-		{"unsupported model", "image/png", image, "does not support image", false},
-		{"wrong media type", "image/jpeg", image, "does not match content", true},
+		{"unsupported model", "image/png", "does not support image", false},
+		{"wrong media type", "image/jpeg", "metadata does not match", true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			if tc.enabled {
 				app.models.Models[0].InputModalities = []string{"text", "image"}
 			}
-			body, _ := json.Marshal(map[string]any{"content": "look", "images": []any{map[string]any{"mediaType": tc.mediaType, "data": tc.data}}})
+			body, _ := json.Marshal(map[string]any{"content": "look", "images": []any{resources.Ref{Hash: image.Hash, MediaType: tc.mediaType, Bytes: image.Bytes}}})
 			w := httptest.NewRecorder()
 			app.submitMessage(w, httptest.NewRequest(http.MethodPost, "/messages", bytes.NewReader(body)), session)
 			if w.Code != http.StatusBadRequest || !strings.Contains(w.Body.String(), tc.want) {
@@ -153,4 +157,23 @@ func TestImageSubmissionRejectsUnsupportedModelAndInvalidPayload(t *testing.T) {
 	if err != nil || count.Running != 0 {
 		t.Fatalf("rejected input started a run: %+v %v", count, err)
 	}
+}
+
+func seedImageRef(t *testing.T, app *App, sessionID string, data []byte) resources.Ref {
+	t.Helper()
+	library := resources.Library{StateDir: app.dir}
+	unlock, err := library.Lock(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer unlock()
+	hash, size, err := library.Put(context.Background(), bytes.NewReader(data))
+	if err != nil {
+		t.Fatal(err)
+	}
+	ref := resources.Ref{Hash: hash, Bytes: size, MediaType: "image/png", Name: "fixture.png"}
+	if err = app.store.AttachResource(context.Background(), sessionID, ref, nil); err != nil {
+		t.Fatal(err)
+	}
+	return ref
 }

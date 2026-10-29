@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"strings"
+	"vista/internal/resources"
 )
 
 // Image is kept as bytes inside a running Worker. Callers must bound reads
@@ -14,11 +15,11 @@ type Image struct {
 	Data      []byte
 }
 
-const maxImageBytes = 1 << 20
+const maxImageBytes = resources.MaxImageBytes
 
 func validateImage(image Image) error {
 	if len(image.Data) == 0 || len(image.Data) > maxImageBytes {
-		return errors.New("image must be 1 byte to 1 MiB")
+		return errors.New("image must be 1 byte to 50 MiB")
 	}
 	if image.MediaType != "image/png" && image.MediaType != "image/jpeg" && image.MediaType != "image/webp" && image.MediaType != "image/gif" {
 		return errors.New("unsupported image media type")

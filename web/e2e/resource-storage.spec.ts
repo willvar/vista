@@ -12,8 +12,9 @@ test('originals survive compaction and closing, and become cleanable only after 
   const second = await vista.api('/sessions', { method: 'POST', body: '{}' })
   const idle = async (id: string) => expect.poll(async () => (await vista.api('/sessions')).find((item: any) => item.id === id)?.executing).toBe(false)
   const send = async (id: string, content: string, name?: string) => {
+    const images = name ? [await vista.api(`/sessions/${id}/resources?name=${encodeURIComponent(name)}`, { method: 'POST', headers: { 'Content-Type': 'image/png' }, body: original })] : []
     await vista.api(`/sessions/${id}/messages`, { method: 'POST', body: JSON.stringify({ content,
-      images: name ? [{ mediaType: 'image/png', name, data: original.toString('base64') }] : [],
+      images,
     }) })
     await idle(id)
   }

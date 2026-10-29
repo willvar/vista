@@ -1,4 +1,11 @@
 export default {
+  "memorySettings": "Memory and capacity",
+  "memorySettingsHint": "The budget checks measured memory used by Vista and conversation processes. New heavy work is refused when it is reached. A conversation exceeding its own limit is interrupted. These are soft guards, not an operating-system memory cap. Shell programs use additional memory.",
+  "memoryBudget": "Memory budget",
+  "memoryWorkerLimit": "Per-conversation limit",
+  "memoryConcurrentRuns": "Concurrent executions",
+  "memoryUsage": "Resident memory: {used} / {limit} MiB",
+
   "automaticTitles": "Generate conversation titles",
   "automaticTitlesHint": "Generating a title makes an extra model request. When disabled, new conversations use the default name with their creation time.",
   "untitledSession": "New Session",
@@ -752,7 +759,7 @@ export default {
   "send": "Send",
   "removeAttachment": "Remove",
   "welcomeHeading": "Here when you’re ready.",
-  "imageLimit": "Choose PNG, JPEG, WebP, or GIF images, each at most 1 MiB.",
+  "imageLimit": "Choose PNG, JPEG, WebP, or GIF images, each at most 50 MiB.",
   "imageUnsupported": "The selected model cannot receive images.",
   "modelUnavailable": "model unavailable",
   "custom": "Custom",

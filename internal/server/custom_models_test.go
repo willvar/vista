@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
-	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -265,7 +264,7 @@ func TestCustomModelDiscoveryImageCapabilitiesAndSubmission(t *testing.T) {
 				app.workers[model.Key] = &worker{input: sink}
 				body, _ := json.Marshal(map[string]any{
 					"content": "describe this", "modelKey": model.Key,
-					"images": []any{map[string]any{"mediaType": "image/png", "data": base64.StdEncoding.EncodeToString(imageData)}},
+					"images": []any{seedImageRef(t, app, model.Key, imageData)},
 				})
 				result := httptest.NewRecorder()
 				app.submitMessage(result, httptest.NewRequest(http.MethodPost, "/messages", bytes.NewReader(body)), model.Key)

@@ -63,7 +63,8 @@ test('reduced-motion image previews keep their end events and close repeatedly',
     return canvas.toDataURL('image/png').split(',')[1]!
   })
   const session = await vista.api('/sessions', { method: 'POST', body: '{}' })
-  await vista.api(`/sessions/${session.id}/messages`, { method: 'POST', body: JSON.stringify({ content: 'Inspect the image.', images: [{ mediaType: 'image/png', data }] }) })
+  const image = await vista.api(`/sessions/${session.id}/resources?name=motion.png`, { method: 'POST', headers: { 'Content-Type': 'image/png' }, body: Buffer.from(data, 'base64') })
+  await vista.api(`/sessions/${session.id}/messages`, { method: 'POST', body: JSON.stringify({ content: 'Inspect the image.', images: [image] }) })
   await expect.poll(async () => (await vista.api(`/sessions/${session.id}/messages`)).some((message: { role: string }) => message.role === 'assistant')).toBe(true)
   await page.goto(`${vista.origin}/sessions/${session.id}`)
   const thumbnail = page.locator('.message-image-thumbnail img')

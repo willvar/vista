@@ -9,6 +9,11 @@ import (
 // Frames are newline-delimited JSON on a dedicated Worker stdin/stdout pipe.
 // Result frames have a byte limit; command fields are validated after decoding.
 type Command struct {
+	RPCID               string           `json:"rpcId,omitempty"`
+	ResourcePath        string           `json:"resourcePath,omitempty"`
+	ResourceName        string           `json:"resourceName,omitempty"`
+	ResourceType        string           `json:"resourceType,omitempty"`
+	MemoryLimit         int64            `json:"memoryLimit,omitempty"`
 	Debug               bool             `json:"debug,omitempty"`
 	TaskID              string           `json:"taskId,omitempty"`
 	ParentTaskID        string           `json:"parentTaskId,omitempty"`
@@ -75,6 +80,8 @@ type CredentialRequest struct {
 }
 
 type Result struct {
+	RPCID        string             `json:"rpcId,omitempty"`
+	Resource     *resources.Ref     `json:"resource,omitempty"`
 	DiagnosticID string             `json:"diagnosticId,omitempty"`
 	Memory       *MemoryChange      `json:"memory,omitempty"`
 	Credential   *CredentialRequest `json:"credential,omitempty"`

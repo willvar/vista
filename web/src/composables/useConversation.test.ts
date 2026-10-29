@@ -581,7 +581,7 @@ test('withdrawing a multi-image input retains all images alongside an existing a
   assert.deepEqual(await Promise.all(conversation.attachedImages.value.slice(3).map(file => file.text())), ['image-0', 'image-1', 'image-2', 'image-3'])
   assert.deepEqual(conversation.attachedImages.value.slice(3).map(file => file.name), ['original-0.png', 'original-1.png', 'original-2.png', 'original-3.png'])
   assert.equal(conversation.pendingInputs.value.length, 0)
-  conversation.addImages([new File([new Uint8Array(1048577)], 'oversized.png', { type: 'image/png' })])
+  conversation.addImages([new File([new Uint8Array(50 * 1048576 + 1)], 'oversized.png', { type: 'image/png' })])
   assert.equal(error.value, 'imageLimit')
   assert.equal(conversation.attachedImages.value.length, 7)
 })
@@ -851,6 +851,11 @@ test('the first welcome send creates one session and sends the exact chosen mode
   const created = { ...session('first'), modelKey: 'second', manualModelKey: 'second' }
   const { conversation, modelCatalog, saved, busy } = fixture(t, (path, options) => {
     if (options?.method !== 'POST') return
+    if (path.includes('/resources?')) {
+      const file = options.body as File
+      posts.push({ path, body: { name: file.name, bytes: file.size } })
+      return Promise.resolve({ hash: 'a'.repeat(64), mediaType: file.type, name: file.name, bytes: file.size })
+    }
     posts.push({ path, body: JSON.parse(String(options.body)) })
     if (path === '/sessions') { requested.resolve(); return creating.promise }
     if (path === '/sessions/first/messages') return Promise.resolve({ runId: 'first-run', message: message('first-user', 1, 'first-run') })
@@ -867,9 +872,10 @@ test('the first welcome send creates one session and sends the exact chosen mode
   assert.equal(posts.length, 1)
   creating.resolve(created)
   await sending
-  assert.deepEqual(posts.map(item => item.path), ['/sessions', '/sessions/first/messages'])
-  assert.deepEqual(posts[1].body, {
-    content: 'Exact first message', images: [{ mediaType: 'image/png', name: 'welcome.png', data: btoa('png') }], mode: 'now',
+  assert.deepEqual(posts.map(item => item.path), ['/sessions', '/sessions/first/resources?name=welcome.png', '/sessions/first/messages'])
+  assert.deepEqual(posts[1].body, { name: 'welcome.png', bytes: 3 })
+  assert.deepEqual(posts[2].body, {
+    content: 'Exact first message', images: [{ hash: 'a'.repeat(64), mediaType: 'image/png', name: 'welcome.png', bytes: 3 }], mode: 'now',
     modelKey: 'second', reasoningEffort: 'high', selectionMode: 'manual', selectionTier: 'speed',
   })
   assert.deepEqual(destinations, ['first'])
@@ -1327,15 +1333,24 @@ test('editing submits one replacement request and reloads authoritative history'
 })
 
 test('withdrawal returns the original attachments and leaves an idle draft', async t => {
-  const original = { ...message('original', 2, 'run'), content: 'Original question' }
+  const original = { ...message('original', 2, 'run'), content: 'Original question', imageCount: 1 }
+  const draft = { message: original, images: [{ name: 'source.png', mediaType: 'image/png', hash: 'a'.repeat(64), bytes: 20 }] }
   let withdrawn = false
-  const { conversation } = fixture(t, (path, options) => {
+  const order: string[] = []
+  const { conversation, client } = fixture(t, (path, options) => {
+    if (path.endsWith('/original/draft')) { order.push('draft'); return Promise.resolve(draft) }
     if (path.endsWith('/original/revert') && options?.method === 'POST') {
+      order.push('revert')
       withdrawn = true
-      return Promise.resolve({ message: original, images: [{ name: 'source.png', mediaType: 'image/png', data: btoa('original image bytes') }] })
+      return Promise.resolve(draft)
     }
     if (path.endsWith('/messages')) return Promise.resolve(withdrawn ? [] : [original])
   })
+  client.image = async () => {
+    assert.equal(withdrawn, false, 'Discarded originals must be downloaded before ownership is released')
+    order.push('image')
+    return new Blob(['original image bytes'], { type: 'image/png' })
+  }
   await conversation.selectSession(session('a'))
   assert.equal(await conversation.withdrawMessage(original), true)
   assert.equal(conversation.messages.value.length, 0)
@@ -1343,6 +1358,44 @@ test('withdrawal returns the original attachments and leaves an idle draft', asy
   assert.equal(conversation.attachedImages.value[0]?.name, 'source.png')
   assert.equal(await conversation.attachedImages.value[0]?.text(), 'original image bytes')
   assert.equal(conversation.agentWorking.value, false)
+  assert.deepEqual(order, ['draft', 'image', 'revert'])
+})
+
+test('failed attachment recovery leaves sent history and the current draft intact', async t => {
+  const original = { ...message('original', 2, 'run'), imageCount: 1 }
+  let mutations = 0
+  const { conversation, client } = fixture(t, (path, options) => {
+    if (path.endsWith('/original/draft')) return Promise.resolve({ message: original, images: [{ hash: 'a'.repeat(64) }] })
+    if (options?.method === 'POST') mutations++
+    if (path.endsWith('/messages')) return Promise.resolve([original])
+  })
+  client.image = async () => { throw new Error('Original download interrupted') }
+  await conversation.selectSession(session('a'))
+  conversation.draft.value = 'Keep my current draft'
+  assert.equal(await conversation.withdrawMessage(original), false)
+  assert.equal(mutations, 0)
+  assert.equal(conversation.messages.value[0]?.id, original.id)
+  assert.equal(conversation.draft.value, 'Keep my current draft')
+  assert.match(conversation.rollbackFailure.value, /Original download interrupted/)
+})
+
+test('switching conversations during attachment recovery cannot withdraw the previous message', async t => {
+  const original = { ...message('original', 2, 'run'), imageCount: 1 }
+  const download = deferred<Blob>(), started = deferred<void>()
+  let mutations = 0
+  const { conversation, client } = fixture(t, (path, options) => {
+    if (path.endsWith('/original/draft')) return Promise.resolve({ message: original, images: [{ hash: 'a'.repeat(64) }] })
+    if (options?.method === 'POST') mutations++
+  })
+  client.image = async () => { started.resolve(); return download.promise }
+  await conversation.selectSession(session('a'))
+  const pending = conversation.withdrawMessage(original)
+  await started.promise
+  await conversation.selectSession(session('b'))
+  download.resolve(new Blob(['image']))
+  assert.equal(await pending, false)
+  assert.equal(mutations, 0)
+  assert.equal(conversation.draft.value, 'draft B')
 })
 
 test('late edit loading cannot replace another session draft', async t => {

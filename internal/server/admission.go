@@ -1,42 +1,54 @@
 package server
 
 import (
+	"errors"
 	"fmt"
 
-	"vista/internal/workerproto"
+	"vista/internal/platform"
 )
 
-// Soft reservations include room for bursts; they are not OS hard limits.
-// Calibrate these values with the 8 GiB / 20 Session release baseline.
-const systemReserve = 512 << 20
-const workerReserve = 96 << 20
-const runReserve = 64 << 20
-const workerHeapSoft = 160 << 20
-const workerRSSSoft = 256 << 20
-const maxWorkers = 64
-const maxConcurrentRuns = 20
+// Admission uses measured resident memory, not per-session predictions. These
+// are soft guards; the OS remains the authority on process allocation/OOM.
+const minimumAvailableMemory = 128 << 20
 
-func admitWorker(available uint64, workers int) error {
-	if workers >= maxWorkers {
-		return fmt.Errorf("Worker limit of %d reached", maxWorkers)
+func admitMemory(available, used uint64, config memoryConfig) error {
+	if available < minimumAvailableMemory {
+		return fmt.Errorf("insufficient available system memory: %d MiB", available>>20)
 	}
-	required := uint64(systemReserve) + uint64(workers+1)*uint64(workerReserve)
-	if available < required {
-		return fmt.Errorf("insufficient available memory to open Session: %d MiB available, %d MiB reserved", available>>20, required>>20)
+	if used >= uint64(config.BudgetMiB)<<20 {
+		return fmt.Errorf("Vista memory budget reached: %d / %d MiB; wait for work to finish or increase the budget in About Vista", used>>20, config.BudgetMiB)
 	}
 	return nil
 }
 
-func admitRun(available uint64, running int) error {
-	if running >= maxConcurrentRuns {
-		return fmt.Errorf("concurrent execution limit of %d reached", maxConcurrentRuns)
+// Caller holds App.mu.
+func (a *App) residentMemoryLocked() uint64 {
+	used := platform.RSS()
+	for _, worker := range a.workers {
+		used += worker.metrics.RSSBytes
 	}
-	required := uint64(systemReserve) + uint64(running+1)*uint64(runReserve)
-	if available < required {
-		return fmt.Errorf("insufficient available memory to execute: %d MiB available, %d MiB reserved", available>>20, required>>20)
-	}
-	return nil
+	return used
 }
-func overWorkerSoftLimit(metrics workerproto.Metrics) bool {
-	return metrics.HeapBytes > workerHeapSoft || metrics.RSSBytes > workerRSSSoft
+func (a *App) admitWorkerLocked(available uint64) error {
+	return admitMemory(available, a.residentMemoryLocked(), a.memorySettings())
+}
+func (a *App) admitRun(available uint64, running int) error {
+	settings := a.memorySettings()
+	if running >= settings.ConcurrentRuns {
+		return errors.New("concurrent execution limit reached; wait or adjust memory settings in About Vista")
+	}
+	a.mu.Lock()
+	used := a.residentMemoryLocked()
+	a.mu.Unlock()
+	return admitMemory(available, used, settings)
+}
+func (a *App) admitHeavy() error {
+	available, err := platform.AvailableMemory()
+	if err != nil {
+		return fmt.Errorf("memory admission unavailable: %w", err)
+	}
+	a.mu.Lock()
+	used := a.residentMemoryLocked()
+	a.mu.Unlock()
+	return admitMemory(available, used, a.memorySettings())
 }

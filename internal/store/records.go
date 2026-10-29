@@ -213,7 +213,11 @@ func (s *Store) beginRun(ctx context.Context, sessionID, runID, messageID, conte
 	}
 	m := Message{ID: messageID, SessionID: sessionID, RunID: runID, Sequence: next, Role: "user", Content: content, QuestionCallID: questionCallID, ImageCount: len(images), CreatedAt: at}
 	for _, image := range images {
-		m.ImageBytes += len(image.Data)
+		if len(image.Data) > 0 {
+			m.ImageBytes += len(image.Data)
+		} else {
+			m.ImageBytes += int(image.Bytes)
+		}
 	}
 	if _, err = tx.ExecContext(ctx, "INSERT INTO messages(id,session_id,run_id,sequence,role,content,created_at) VALUES(?,?,?,?,?,?,?)", m.ID, m.SessionID, m.RunID, m.Sequence, m.Role, m.Content, m.CreatedAt); err != nil {
 		return Message{}, Event{}, err

@@ -66,7 +66,7 @@ func TestRevertEndpointRetainsFileChangesAndRestoresDraftResourceBoundary(t *tes
 	if err := json.Unmarshal(w.Body.Bytes(), &result); err != nil {
 		t.Fatal(err)
 	}
-	if result.Message.Content != message.Content || len(result.Images) != 1 || result.Images[0].Name != "original.png" || len(result.Images[0].Data) == 0 {
+	if result.Message.Content != message.Content || len(result.Images) != 1 || result.Images[0].Name != "original.png" || result.Images[0].Hash == "" {
 		t.Fatal("draft lost", result)
 	}
 	for name, content := range map[string]string{"modified": "agent changes", "added": "created", "external": "user changes"} {

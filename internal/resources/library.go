@@ -195,3 +195,48 @@ func (l Library) Files(ctx context.Context, visit func(File) error) error {
 	}
 	return err
 }
+
+// Open verifies an original with bounded buffers and rewinds it for streaming.
+// Callers retain Lock until the file closes. No image bytes enter Server heap.
+func (l Library) Open(ctx context.Context, ref Ref) (*os.File, error) {
+	path, err := l.Path(ref.Hash)
+	if err != nil {
+		return nil, err
+	}
+	file, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	fail := func(err error) (*os.File, error) { file.Close(); return nil, err }
+	info, err := file.Stat()
+	if err != nil {
+		return fail(err)
+	}
+	if !info.Mode().IsRegular() || ref.Bytes <= 0 || info.Size() != ref.Bytes {
+		return fail(errors.New("resource size does not match its reference"))
+	}
+	hash := sha256.New()
+	buffer := make([]byte, 32<<10)
+	for {
+		if err := ctx.Err(); err != nil {
+			return fail(err)
+		}
+		n, err := file.Read(buffer)
+		if n > 0 {
+			hash.Write(buffer[:n])
+		}
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return fail(err)
+		}
+	}
+	if hex.EncodeToString(hash.Sum(nil)) != ref.Hash {
+		return fail(errors.New("resource content does not match its hash"))
+	}
+	if _, err = file.Seek(0, io.SeekStart); err != nil {
+		return fail(err)
+	}
+	return file, nil
+}

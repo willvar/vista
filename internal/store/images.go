@@ -6,17 +6,22 @@ import (
 	"database/sql"
 	"errors"
 	"net/http"
+	"os"
 	"time"
 
 	"vista/internal/resources"
+	"vista/internal/workerproto"
 )
 
-const MaxImageBytes = 1 << 20
+const MaxImageBytes = resources.MaxImageBytes
 
 func ValidateImages(images []Image) error {
 	for _, image := range images {
+		if len(image.Data) == 0 && resources.ValidHash(image.Hash) && image.Bytes > 0 && image.Bytes <= MaxImageBytes && resources.ValidImageType(image.MediaType) && len(image.Name) <= 1024 {
+			continue
+		}
 		if len(image.Data) == 0 || len(image.Data) > MaxImageBytes {
-			return errors.New("image must be 1 byte to 1 MiB")
+			return errors.New("image must be 1 byte to 50 MiB")
 		}
 		switch image.MediaType {
 		case "image/png", "image/jpeg", "image/webp", "image/gif":
@@ -46,9 +51,22 @@ func (s *Store) writeImages(ctx context.Context, tx *sql.Tx, sessionID, table, c
 		return err
 	}
 	for position, image := range images {
-		hash, size, err := s.library.Put(ctx, bytes.NewReader(image.Data))
-		if err != nil {
-			return err
+		hash, size := image.Hash, image.Bytes
+		if len(image.Data) > 0 {
+			var err error
+			hash, size, err = s.library.Put(ctx, bytes.NewReader(image.Data))
+			if err != nil {
+				return err
+			}
+		} else {
+			var exists int
+			err := tx.QueryRowContext(ctx, "SELECT count(*) FROM resources r JOIN session_resources sr ON sr.hash=r.hash WHERE sr.session_id=? AND r.hash=? AND r.bytes=? AND r.media_type=?", sessionID, hash, size, image.MediaType).Scan(&exists)
+			if err != nil {
+				return err
+			}
+			if exists != 1 {
+				return errors.New("image resource is not owned by this Session")
+			}
 		}
 		if _, err := tx.ExecContext(ctx, "INSERT INTO resources(hash,media_type,bytes,created_at) VALUES(?,?,?,?) ON CONFLICT(hash) DO NOTHING", hash, image.MediaType, size, time.Now().UTC().Format(time.RFC3339Nano)); err != nil {
 			return err
@@ -98,7 +116,7 @@ func (s *Store) ResolveImages(ctx context.Context, refs []resources.Ref) ([]Imag
 	images := make([]Image, 0, len(refs))
 	for _, ref := range refs {
 		if ref.Bytes > MaxImageBytes {
-			return nil, errors.New("image exceeds 1 MiB")
+			return nil, errors.New("image exceeds 50 MiB")
 		}
 		data, err := s.library.Read(ref)
 		if err != nil {
@@ -146,4 +164,55 @@ func (s *Store) SessionResources(ctx context.Context, sessionID string, after st
 		return nil, err
 	}
 	return readResourceRows(rows)
+}
+
+// AttachResource is called only for Worker-verified originals while that Worker
+// holds the library lock. Workers publish bytes; Server alone commits ownership.
+// A tool source records the history boundary that retains an imported/reread
+// original across later rollbacks. Unsent HTTP uploads have no tool source.
+func (s *Store) AttachResource(ctx context.Context, sessionID string, ref resources.Ref, source *workerproto.Result) error {
+	if !resources.ValidHash(ref.Hash) || !resources.ValidImageType(ref.MediaType) || ref.Bytes < 1 || ref.Bytes > MaxImageBytes || len(ref.Name) > 1024 {
+		return errors.New("invalid resource reference")
+	}
+	path, _ := s.library.Path(ref.Hash)
+	info, err := os.Stat(path)
+	if err != nil {
+		return err
+	}
+	if !info.Mode().IsRegular() || info.Size() != ref.Bytes {
+		return errors.New("resource file is unavailable")
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	var open bool
+	if err = tx.QueryRowContext(ctx, "SELECT is_open FROM sessions WHERE id=?", sessionID).Scan(&open); err != nil {
+		return err
+	}
+	if !open {
+		return ErrClosed
+	}
+	if source != nil {
+		active, err := executionActive(ctx, tx, sessionID, source.RunID, source.TaskID)
+		if err != nil {
+			return err
+		}
+		if !active {
+			return ErrNotFound
+		}
+	}
+	if _, err = tx.ExecContext(ctx, "INSERT INTO resources(hash,media_type,bytes,created_at) VALUES(?,?,?,?) ON CONFLICT(hash) DO NOTHING", ref.Hash, ref.MediaType, ref.Bytes, time.Now().UTC().Format(time.RFC3339Nano)); err != nil {
+		return err
+	}
+	if _, err = tx.ExecContext(ctx, "INSERT INTO session_resources(session_id,hash,name) VALUES(?,?,?) ON CONFLICT DO NOTHING", sessionID, ref.Hash, ref.Name); err != nil {
+		return err
+	}
+	if source != nil {
+		if _, err = appendEvent(ctx, tx, sessionID, "resource_import", map[string]any{"runId": source.RunID, "taskId": source.TaskID, "resource": ref}); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
 }

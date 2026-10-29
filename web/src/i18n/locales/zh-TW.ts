@@ -2,6 +2,13 @@
 import type en from './en.ts'
 
 export default {
+  "memorySettings": "記憶體與容量",
+  "memorySettingsHint": "按 Vista 主程序和會話程序的實際記憶體佔用檢查預算。達到預算時拒絕新的高開銷操作；會話程序超過自身上限時中斷執行。這是軟保護，並非作業系統的記憶體硬限制。Shell 啟動的程式另佔記憶體。",
+  "memoryBudget": "記憶體預算",
+  "memoryWorkerLimit": "單個會話程序上限",
+  "memoryConcurrentRuns": "同時執行數",
+  "memoryUsage": "實際駐留記憶體：{used} / {limit} MiB",
+
   "automaticTitles": "自動生成會話標題",
   "automaticTitlesHint": "生成標題會額外請求一次模型。關閉後，新會話使用預設名稱，並附上建立時間。",
   "untitledSession": "新會話",
@@ -755,7 +762,7 @@ export default {
   "send": "傳送",
   "removeAttachment": "移除",
   "welcomeHeading": "準備好了，就開始吧",
-  "imageLimit": "支援 PNG、JPEG、WebP 或 GIF 圖片，每張不超過 1 MiB。",
+  "imageLimit": "支援 PNG、JPEG、WebP 或 GIF 圖片，每張不超過 50 MiB。",
   "imageUnsupported": "當前模型不支援圖片輸入。",
   "modelUnavailable": "模型不可用",
   "custom": "自定義",

@@ -71,7 +71,9 @@ export type RunProgress = { runId: string; phase: 'starting' | 'model' | 'reason
 export type Job = { id: string; runId: string; callId?: string; taskId?: string; parentTaskId?: string; directory: string; command: string; status: string; bytes: number; exitCode: number; complete: boolean; error?: string; createdAt?: string; startedAt?: string; expiresAt?: string; finishedAt?: string; signal?: string; terminationReason?: string }
 export type Artifact = { id: string; runId: string; callId?: string; taskId?: string; parentTaskId?: string; status: string; bytes: number; complete: boolean; error?: string }
 export type OutputView = { content: string; offset: number; nextOffset: number; availableBytes: number; lastSequence?: number; complete?: boolean }
+export type MemoryConfig = { budgetMiB: number; workerMiB: number; concurrentRuns: number }
 export type ServerStatus = {
+  capacity?: { config: MemoryConfig; residentBytes: number }
   state: string
   version: string
   binaryHash: string
@@ -93,7 +95,7 @@ export type ServerStatus = {
   sampledAt: string
 }
 export type QuestionReplyInput = { runId: string; answers: QuestionAnswer[] }
-export type SendMessageInput = { content?: string; images?: Array<{ mediaType: string; data: string }>; questionReply?: QuestionReplyInput; mode?: 'now' | 'later'; modelKey?: string; reasoningEffort?: string; selectionMode?: 'manual' | 'auto'; selectionTier?: 'speed' | 'quality' }
+export type SendMessageInput = { content?: string; images?: Array<{ mediaType: string; hash: string; bytes: number; name?: string }>; questionReply?: QuestionReplyInput; mode?: 'now' | 'later'; modelKey?: string; reasoningEffort?: string; selectionMode?: 'manual' | 'auto'; selectionTier?: 'speed' | 'quality' }
 export type SendMessageResult = { runId?: string; message?: Message; input?: QueuedInput; event: StreamEvent }
 export type ModelSpeedStats = { count: number; failures: number; medianMs: number | null; p90Ms: number | null; lowConfidence: boolean }
 export type ModelSelectionStats = {

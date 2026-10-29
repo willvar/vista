@@ -17,7 +17,7 @@ import (
 
 func TestSAPAIImageTemplateShapeAndLimit(t *testing.T) {
 	image := testImage(t)
-	image.Data = append(append([]byte(nil), image.Data...), bytes.Repeat([]byte{0}, maxImageBytes-len(image.Data))...)
+	image.Data = append(append([]byte(nil), image.Data...), bytes.Repeat([]byte{0}, (1<<20)-len(image.Data))...)
 	dataURL := "data:image/png;base64," + base64.StdEncoding.EncodeToString(image.Data)
 	requests := 0
 	endpoint := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -67,7 +67,7 @@ func TestSAPAIImageTemplateShapeAndLimit(t *testing.T) {
 		t.Fatalf("SAP image turn: %+v, requests=%d, err=%v", turn, requests, err)
 	}
 	message.Images[0].Data = make([]byte, maxImageBytes+1)
-	if _, err := ModelTurn(context.Background(), model, []ChatMessage{message}, nil); err == nil || !strings.Contains(err.Error(), "1 MiB") || requests != 1 {
+	if _, err := ModelTurn(context.Background(), model, []ChatMessage{message}, nil); err == nil || !strings.Contains(err.Error(), "50 MiB") || requests != 1 {
 		t.Fatalf("SAP accepted oversized image request: %v, requests=%d", err, requests)
 	}
 }

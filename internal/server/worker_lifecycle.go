@@ -102,7 +102,7 @@ func (a *App) startWorkerUsing(id string, launch func(context.Context, string) (
 		a.mu.Unlock()
 		return errors.New("server is stopping")
 	}
-	if err := admitWorker(available, len(a.workers)+a.workerStarting); err != nil {
+	if err := a.admitWorkerLocked(available); err != nil {
 		a.mu.Unlock()
 		return err
 	}
@@ -139,6 +139,7 @@ func (a *App) launchWorker(ctx context.Context, id string) (*worker, *bufio.Scan
 	}
 	cmd := exec.Command(exe, "worker")
 	cmd.Env = modelcatalog.WorkerEnvironment(os.Environ(), a.modelCredentialEnvironment()...)
+	cmd.Env = append(cmd.Env, fmt.Sprintf("VISTA_WORKER_MEMORY_MIB=%d", a.memorySettings().WorkerMiB))
 	return a.launchWorkerCommand(ctx, id, cmd)
 }
 

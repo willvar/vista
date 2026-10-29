@@ -5,17 +5,15 @@ import (
 	"database/sql"
 	"errors"
 	"log"
-	"strings"
 	"time"
-	"unicode/utf8"
-
-	"github.com/google/uuid"
 
 	"vista/internal/agentconfig"
 	modelcfg "vista/internal/model"
 	"vista/internal/modeltrace"
 	"vista/internal/provider"
 	"vista/internal/replylanguage"
+	"vista/internal/sessiontitle"
+	"vista/internal/workerproto"
 )
 
 var titleSlots = make(chan struct{}, 2)
@@ -25,8 +23,8 @@ var titleSlots = make(chan struct{}, 2)
 // before their first text token.
 const sessionTitleTimeout = 2 * time.Minute
 
-var errSessionTitleTools = errors.New("title response requested tools")
-var errSessionTitleEmpty = errors.New("title response contained no usable title")
+var errSessionTitleTools = sessiontitle.ErrTools
+var errSessionTitleEmpty = sessiontitle.ErrEmpty
 
 func (a *App) generateSessionTitle(sessionID, messageID string, model modelcfg.Model, diagnostics ...modeltrace.Scope) {
 	parent := a.ctx
@@ -75,16 +73,34 @@ func (a *App) generateSessionTitle(sessionID, messageID string, model modelcfg.M
 		return
 	}
 	ctx = replylanguage.WithDefault(ctx, language)
-	storedImages, err := a.store.MessageImages(ctx, sessionID, messageID)
+	refs, err := a.store.MessageResources(ctx, sessionID, messageID)
 	if err != nil {
 		logSessionTitleFailure(sessionID, model, "images", err)
 		return
 	}
-	images := make([]provider.Image, 0, len(storedImages))
-	for _, image := range storedImages {
-		images = append(images, provider.Image{MediaType: image.MediaType, Data: image.Data})
+	var title string
+	if len(refs) == 0 {
+		title, err = makeSessionTitle(provider.WithCredentialResolver(ctx, a.refreshModelCredentials), model, prompt, nil)
+	} else {
+		if err = a.admitHeavy(); err != nil {
+			logSessionTitleFailure(sessionID, model, "capacity", err)
+			return
+		}
+		a.mu.Lock()
+		worker := a.workers[sessionID]
+		ready := workerCanReceive(worker)
+		a.mu.Unlock()
+		if !ready {
+			return
+		}
+		var result workerproto.Result
+		command := workerproto.Command{Action: "title", SessionID: sessionID, Prompt: prompt, Images: refs, Model: model, ReplyLanguage: language}
+		if len(diagnostics) > 0 {
+			command.RunID, command.Debug = diagnostics[0].RunID, diagnostics[0].Enabled
+		}
+		result, err = worker.rpc(ctx, command)
+		title = result.Content
 	}
-	title, err := makeSessionTitle(provider.WithCredentialResolver(ctx, a.refreshModelCredentials), model, prompt, images)
 	if err != nil {
 		logSessionTitleFailure(sessionID, model, "model", err)
 		return
@@ -125,49 +141,7 @@ func logSessionTitleFailure(sessionID string, model modelcfg.Model, stage string
 }
 
 func makeSessionTitle(ctx context.Context, model modelcfg.Model, prompt string, images []provider.Image) (string, error) {
-	model = provider.ForPurpose(model, provider.PurposeTitle)
-	if model.ProviderID == "opencode-go" {
-		// Zen Go requires a routing session header even for one-shot requests.
-		// Keep title generation out of the foreground conversation by using an
-		// ephemeral side-request identity.
-		model.SessionID = uuid.NewString()
-	}
-	system := "Write a short, specific title for the user's message. Return only the title, without quotes, markdown, or a trailing period. Use at most 8 words or 24 Chinese characters. Name the task described in the message and images without answering or carrying it out."
-	messages := []provider.ChatMessage{
-		{Role: "system", Content: system},
-		{Role: "user", Content: "User message:\n" + titleExcerpt(prompt, 1200), Images: images},
-	}
-	// Title generation does not expose reasoning to the UI, but providers may
-	// still stream it before the title. Consume and discard those deltas so a
-	// reasoning-capable model can complete the request.
-	turn, err := provider.ModelTurnStreamWithReasoning(ctx, model, messages, nil, nil, func(string) error { return nil })
-	if err != nil {
-		return "", err
-	}
-	if len(turn.Calls) != 0 || len(turn.HostedCalls) != 0 {
-		return "", errSessionTitleTools
-	}
-	title := cleanSessionTitle(turn.Text)
-	if title == "" {
-		return "", errSessionTitleEmpty
-	}
-	return title, nil
+	return sessiontitle.Generate(ctx, model, prompt, images)
 }
-
-func titleExcerpt(value string, limit int) string {
-	value = strings.TrimSpace(value)
-	if utf8.RuneCountInString(value) <= limit {
-		return value
-	}
-	return string([]rune(value)[:limit])
-}
-
-func cleanSessionTitle(value string) string {
-	value = strings.TrimSpace(strings.SplitN(value, "\n", 2)[0])
-	value = strings.Trim(value, " \t\r\"'`“”‘’《》「」『』#*。.!！?？:：")
-	value = strings.Join(strings.Fields(value), " ")
-	if value == "" || value == "New session" || utf8.RuneCountInString(value) > 60 || len(value) > 200 {
-		return ""
-	}
-	return value
-}
+func titleExcerpt(value string, limit int) string { return sessiontitle.Excerpt(value, limit) }
+func cleanSessionTitle(value string) string       { return sessiontitle.Clean(value) }

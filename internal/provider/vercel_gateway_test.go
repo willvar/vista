@@ -52,7 +52,7 @@ func TestVercelGatewayV3ImageFilePartsAndLimit(t *testing.T) {
 		t.Fatalf("Gateway image turn: %+v, requests=%d, err=%v", turn, requests, err)
 	}
 	message.Images[0].Data = make([]byte, maxImageBytes+1)
-	if _, err := ModelTurn(context.Background(), model, []ChatMessage{message}, nil); err == nil || !strings.Contains(err.Error(), "1 MiB") || requests != 1 {
+	if _, err := ModelTurn(context.Background(), model, []ChatMessage{message}, nil); err == nil || !strings.Contains(err.Error(), "50 MiB") || requests != 1 {
 		t.Fatalf("Gateway accepted oversized image request: %v, requests=%d", err, requests)
 	}
 }

@@ -3,7 +3,7 @@ import { prepareVistaTestConfig } from './test_config.mjs'
 import { createServer } from 'node:http'
 import { execFile, execFileSync } from 'node:child_process'
 import { promisify } from 'node:util'
-import { mkdtempSync, mkdirSync, rmSync } from 'node:fs'
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 
 // HTTP-only capacity smoke: no browser is launched, and the Provider is local.
@@ -30,6 +30,7 @@ const provider = createServer(async (request, response) => {
 })
 await new Promise(resolve => provider.listen(0, '127.0.0.1', resolve))
 prepareVistaTestConfig(state)
+writeFileSync(join(state, 'vista/capacity.json'), JSON.stringify({ budgetMiB: 8192, workerMiB: 1024, concurrentRuns: 20 }), { mode: 0o600 })
 const env = { ...process.env, VISTA_PORT: await availableVistaPort(), XDG_CONFIG_HOME: state, TMPDIR: state, VISTA_NO_BROWSER: '1', VISTA_OPENAI_API_KEY: 'capacity-key', VISTA_OPENAI_MODEL: 'capacity-test', VISTA_OPENAI_BASE_URL: `http://127.0.0.1:${provider.address().port}/v1`, ...(memoryRegression ? { GOGC: '30' } : {}) }
 let started = false
 try {

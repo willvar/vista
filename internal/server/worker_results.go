@@ -22,6 +22,8 @@ import (
 // persist its effects, then notify readers or acknowledge committed work. It has
 // no process ownership; the caller decides what to do when consumption fails.
 type workerResultConsumer struct {
+	admitMedia         func() error
+	rpc                func(workerproto.Result)
 	done               <-chan struct{}
 	async              func(func())
 	refreshCredentials func(context.Context, modelcfg.Model) (modelcfg.Model, error)
@@ -40,7 +42,7 @@ type workerResultConsumer struct {
 
 func (a *App) workerResultConsumer(id string, w *worker) *workerResultConsumer {
 	return &workerResultConsumer{
-		ctx: a.ctx, store: a.store, sessionID: id, stateDir: a.dir,
+		admitMedia: a.admitHeavy, rpc: w.receiveRPC, ctx: a.ctx, store: a.store, sessionID: id, stateDir: a.dir,
 		done: w.done, refreshCredentials: a.refreshModelCredentials, async: a.background.Go,
 		send:       w.send,
 		notify:     func() { a.hub.notify(id) },
@@ -58,8 +60,15 @@ func (a *App) recordWorkerMetrics(id string, w *worker, metrics workerproto.Metr
 	var terminate bool
 	a.mu.Lock()
 	if a.workers[id] == w {
+		if metrics.SampledAt == "" && metrics.RSSBytes != 0 {
+			// Media admission reports current RSS only; retain the latest full sample.
+			rss := metrics.RSSBytes
+			metrics = w.metrics
+			metrics.RSSBytes = rss
+			metrics.PeakRSSBytes = max(metrics.PeakRSSBytes, rss)
+		}
 		w.metrics = metrics
-		if !w.overBudget && overWorkerSoftLimit(metrics) {
+		if !w.overBudget && metrics.RSSBytes > uint64(a.memorySettings().WorkerMiB)<<20 {
 			w.overBudget = true
 			terminate = true
 		}
@@ -86,6 +95,32 @@ func (c *workerResultConsumer) consumeFrame(frame []byte) error {
 
 func (c *workerResultConsumer) consume(result workerproto.Result) error {
 	switch result.Kind {
+	case "rpc":
+		if result.RPCID == "" || len(result.RPCID) > 64 || len(result.Content) > 8192 {
+			return errors.New("invalid worker RPC result")
+		}
+		if c.rpc != nil {
+			c.rpc(result)
+		}
+		return nil
+	case "media_admission":
+		if result.AckID == "" {
+			return errors.New("missing admission acknowledgment")
+		}
+		if result.Metrics != nil && c.metrics != nil {
+			c.metrics(*result.Metrics)
+		}
+		var err error
+		if c.admitMedia != nil {
+			err = c.admitMedia()
+		}
+		ack := workerproto.Command{Action: "ack", RunID: result.RunID, AckID: result.AckID}
+		if err != nil {
+			ack.Error = err.Error()
+		}
+		return c.send(ack)
+	case "resource_import":
+		return c.importResource(result)
 	case "model_diagnostic":
 		if _, err := uuid.Parse(result.DiagnosticID); err != nil || result.RunID == "" {
 			return errors.New("invalid diagnostic reference")

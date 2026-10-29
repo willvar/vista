@@ -49,7 +49,7 @@ func TestModelDispatchValidationPrecedesUnknownProtocol(t *testing.T) {
 	}{
 		{"text", ChatMessage{Role: "user", Content: "hello"}, `unsupported model provider "unknown"`},
 		{"valid image", ChatMessage{Role: "user", Images: []Image{testImage(t)}}, "image input is not supported by unknown"},
-		{"invalid image", ChatMessage{Role: "user", Images: []Image{{MediaType: "image/png"}}}, "image must be 1 byte to 1 MiB"},
+		{"invalid image", ChatMessage{Role: "user", Images: []Image{{MediaType: "image/png"}}}, "image must be 1 byte to 50 MiB"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			_, err := ModelTurn(context.Background(), modelcfg.Model{Provider: "unknown"}, []ChatMessage{test.message}, nil)

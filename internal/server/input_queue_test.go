@@ -19,7 +19,8 @@ import (
 
 func inputQueueFixture(t *testing.T) (*App, string) {
 	t.Helper()
-	db, err := store.Open(filepath.Join(t.TempDir(), "vista.db"))
+	stateDir := t.TempDir()
+	db, err := store.Open(filepath.Join(stateDir, "vista.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -31,7 +32,7 @@ func inputQueueFixture(t *testing.T) (*App, string) {
 	if _, _, err := db.BeginRun(context.Background(), id, "run", "first", "work"); err != nil {
 		t.Fatal(err)
 	}
-	return &App{ctx: context.Background(), store: db, dir: t.TempDir(), workers: map[string]*worker{}}, id
+	return &App{ctx: context.Background(), store: db, dir: stateDir, workers: map[string]*worker{}}, id
 }
 
 func TestWorkerPullReadsLatestInputAndCommitsBeforeAcknowledgment(t *testing.T) {

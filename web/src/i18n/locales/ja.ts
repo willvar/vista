@@ -2,6 +2,13 @@ import type en from './en.ts'
 
 
 export default {
+  "memorySettings": "メモリと容量",
+  "memorySettingsHint": "Vista と会話プロセスの実測メモリを確認し、予算に達すると新しい高負荷処理を拒否します。会話が個別の上限を超えると中断します。OS のハード制限ではありません。シェルプログラムは追加のメモリを使用します。",
+  "memoryBudget": "メモリ予算",
+  "memoryWorkerLimit": "会話ごとの上限",
+  "memoryConcurrentRuns": "同時実行数",
+  "memoryUsage": "常駐メモリ: {used} / {limit} MiB",
+
   "automaticTitles": "会話タイトルを自動生成",
   "automaticTitlesHint": "タイトルの生成にはモデルへの追加リクエストが必要です。無効にすると、新しい会話は既定の名前に作成日時を付けて表示されます。",
   "untitledSession": "新しい会話",
@@ -755,7 +762,7 @@ export default {
   "send": "送信",
   "removeAttachment": "削除",
   "welcomeHeading": "準備ができたら、始めましょう",
-  "imageLimit": "PNG、JPEG、WebP、GIF に対応。1 枚あたり 1 MiB まで。",
+  "imageLimit": "PNG、JPEG、WebP、GIF に対応。1 枚あたり 50 MiB まで。",
   "imageUnsupported": "選択中のモデルは画像を入力できません。",
   "modelUnavailable": "モデルを利用できません",
   "custom": "カスタム",

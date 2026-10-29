@@ -88,7 +88,7 @@ func TestUserImagesRejectInvalidOrUnboundedData(t *testing.T) {
 	}{
 		{"assistant image", ChatMessage{Role: "assistant", Images: []Image{image}}, "user message"},
 		{"wrong media type", ChatMessage{Role: "user", Images: []Image{{MediaType: "image/jpeg", Data: image.Data}}}, "does not match"},
-		{"oversized image", ChatMessage{Role: "user", Images: []Image{{MediaType: "image/png", Data: bytes.Repeat([]byte("x"), maxImageBytes+1)}}}, "1 MiB"},
+		{"oversized image", ChatMessage{Role: "user", Images: []Image{{MediaType: "image/png", Data: bytes.Repeat([]byte("x"), maxImageBytes+1)}}}, "50 MiB"},
 	}
 	for _, check := range checks {
 		t.Run(check.name, func(t *testing.T) {
@@ -111,7 +111,7 @@ func TestUserImagesRejectInvalidOrUnboundedData(t *testing.T) {
 
 func TestImageRequestHasNoAggregateByteLimit(t *testing.T) {
 	image := testImage(t)
-	image.Data = append(append([]byte(nil), image.Data...), bytes.Repeat([]byte{0}, maxImageBytes-len(image.Data))...)
+	image.Data = append(append([]byte(nil), image.Data...), bytes.Repeat([]byte{0}, (1<<20)-len(image.Data))...)
 	requests := 0
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requests++

@@ -5,6 +5,8 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"strings"
+	"vista/internal/resources"
 	"vista/internal/workerproto"
 )
 
@@ -21,7 +23,7 @@ func (s *Store) RevertTarget(ctx context.Context, sessionID, messageID string) (
 // The terminal marker keeps SSE sequence numbers monotonic even when all prior
 // messages are removed. Deleted context/checkpoint/output refs cannot be read
 // through model history tools or resurrected by a replacement Worker.
-func (s *Store) Revert(ctx context.Context, sessionID, messageID string, sequence int64) (Event, error) {
+func (s *Store) Revert(ctx context.Context, sessionID, messageID string, sequence int64, retain ...resources.Ref) (Event, error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return Event{}, err
@@ -33,6 +35,15 @@ func (s *Store) Revert(ctx context.Context, sessionID, messageID string, sequenc
 	}
 	if !exists {
 		return Event{}, sql.ErrNoRows
+	}
+	for _, ref := range retain {
+		var owned bool
+		if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM session_resources sr JOIN resources r ON r.hash=sr.hash WHERE sr.session_id=? AND r.hash=? AND r.media_type=? AND r.bytes=?)`, sessionID, ref.Hash, ref.MediaType, ref.Bytes).Scan(&owned); err != nil {
+			return Event{}, err
+		}
+		if !owned {
+			return Event{}, ErrNotFound
+		}
 	}
 	var affectedRun string
 	if err := tx.QueryRowContext(ctx, `SELECT run_id FROM messages WHERE id=? AND session_id=?`, messageID, sessionID).Scan(&affectedRun); err != nil {
@@ -81,10 +92,23 @@ func (s *Store) Revert(ctx context.Context, sessionID, messageID string, sequenc
 	if _, err := tx.ExecContext(ctx, `DELETE FROM queued_inputs WHERE session_id=?`, sessionID); err != nil {
 		return Event{}, err
 	}
-	if _, err := tx.ExecContext(ctx, `DELETE FROM session_resources WHERE session_id=? AND NOT EXISTS(SELECT 1 FROM message_resources mr JOIN messages m ON m.id=mr.message_id WHERE m.session_id=session_resources.session_id AND mr.hash=session_resources.hash)`, sessionID); err != nil {
+	if _, err := tx.ExecContext(ctx, `DELETE FROM events WHERE session_id=? AND sequence>=? AND sequence<? AND kind NOT IN ('session_renamed','session_title','session_selection','reply_language')`, sessionID, sequence, event.Sequence); err != nil {
 		return Event{}, err
 	}
-	if _, err := tx.ExecContext(ctx, `DELETE FROM events WHERE session_id=? AND sequence>=? AND sequence<? AND kind NOT IN ('session_renamed','session_title','session_selection','reply_language')`, sessionID, sequence, event.Sequence); err != nil {
+	// Keep earlier tool imports/rereads as well as formal attachments. A
+	// replacement may retain only the already-owned refs validated above, in
+	// this same transaction so cleanup can never observe them as unreferenced.
+	prune := `DELETE FROM session_resources WHERE session_id=?
+ AND NOT EXISTS(SELECT 1 FROM message_resources mr JOIN messages m ON m.id=mr.message_id WHERE m.session_id=session_resources.session_id AND mr.hash=session_resources.hash)
+ AND NOT EXISTS(SELECT 1 FROM events e WHERE e.session_id=session_resources.session_id AND e.kind='resource_import' AND json_extract(e.data,'$.resource.hash')=session_resources.hash)`
+	args := []any{sessionID}
+	if len(retain) > 0 {
+		prune += " AND hash NOT IN (" + strings.TrimSuffix(strings.Repeat("?,", len(retain)), ",") + ")"
+		for _, ref := range retain {
+			args = append(args, ref.Hash)
+		}
+	}
+	if _, err := tx.ExecContext(ctx, prune, args...); err != nil {
 		return Event{}, err
 	}
 	if _, err := tx.ExecContext(ctx, `DELETE FROM runs WHERE session_id=? AND NOT EXISTS(SELECT 1 FROM messages WHERE run_id=runs.id)`, sessionID); err != nil {

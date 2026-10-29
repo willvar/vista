@@ -1,5 +1,5 @@
 import { availableVistaPort } from './test_port.mjs'
-import { prepareVistaTestConfig } from './test_config.mjs'
+import { prepareVistaTestConfig, projectRulesFixture } from './test_config.mjs'
 import { createServer } from 'node:http'
 import { execFile, spawn } from 'node:child_process'
 import { promisify } from 'node:util'
@@ -36,6 +36,7 @@ const requiredCgroupMiB = Number(process.env.VISTA_REQUIRE_CGROUP_MIB || 0)
 if (!Number.isInteger(requiredCgroupMiB) || requiredCgroupMiB < 0) throw new Error('VISTA_REQUIRE_CGROUP_MIB must be a nonnegative integer')
 if (requiredCgroupMiB && initialCgroup?.maxMiB !== requiredCgroupMiB) throw new Error(`expected ${requiredCgroupMiB} MiB cgroup limit, got ${initialCgroup?.maxMiB ?? 'none'}`)
 const state = mkdtempSync(join(process.env.VISTA_TEST_TMPDIR || process.cwd(), 'vista-mixed-capacity-'))
+const readRules = projectRulesFixture(state)
 const counts = { shell: 0, mcp: 0, delegate: 0, child: 0, summary: 0 }
 const provider = createServer((request, response) => {
   handleProvider(request, response).catch(error => {
@@ -52,8 +53,9 @@ async function handleProvider(request, response) {
   let raw = ''
   for await (const chunk of request) raw += chunk
   const body = JSON.parse(raw)
+  const prompt = body.messages.findLast(message => message.role === 'user')?.content
+  if (prompt?.startsWith('shell:') && readRules(body, response)) return
   const userIndex = body.messages.findLastIndex(message => message.role === 'user')
-  const prompt = body.messages[userIndex]?.content
   const results = body.messages.slice(userIndex + 1).filter(message => message.role === 'tool')
   await delay(2500)
   response.writeHead(200, { 'Content-Type': 'text/event-stream' })
@@ -101,6 +103,7 @@ mkdirSync(vistaConfig, { mode: 0o700 })
 writeFileSync(join(vistaConfig, 'models.json'), JSON.stringify({ default: 'mock', models: [{ key: 'mock', provider: 'openai-chat', id: 'mock', apiKey: 'fake', baseUrl: `http://127.0.0.1:${provider.address().port}/v1` }] }), { mode: 0o600 })
 let fixtureProcess
 prepareVistaTestConfig(state)
+writeFileSync(join(state, 'vista/capacity.json'), JSON.stringify({ budgetMiB: 8192, workerMiB: 1024, concurrentRuns: 20 }), { mode: 0o600 })
 const env = { ...process.env, VISTA_PORT: await availableVistaPort(), XDG_CONFIG_HOME: state, TMPDIR: state, VISTA_NO_BROWSER: '1' }
 let started = false
 try {
@@ -205,7 +208,7 @@ try {
         }
         throw new Error(`Session ${index} did not finish round ${round}`)
       }))
-      const failures = results.filter((result, index) => result.finished.status !== 'succeeded' || result.tools.length !== (index < 8 ? 1 : 2) || result.tools.some(item => item.status !== 'succeeded'))
+      const failures = results.filter((result, index) => result.finished.status !== 'succeeded' || result.tools.filter(item => item.tool?.name !== 'read_project_instruction').length !== (index < 8 ? 1 : 2) || result.tools.some(item => item.status !== 'succeeded'))
       if (failures.length) throw new Error(`mixed round ${round} failed: ${JSON.stringify(failures.map(result => ({ status: result.finished.status, message: result.finished.message?.content, tools: result.tools.map(item => ({ name: item.tool?.name, status: item.status })) })))}`)
       await delay(5500)
       const status = await api('/status')
@@ -222,7 +225,7 @@ try {
   const finalCgroup = cgroupMemory()
   if (requiredCgroupMiB && finalCgroup?.maxMiB !== requiredCgroupMiB) throw new Error(`cgroup limit disappeared or changed: ${finalCgroup?.maxMiB ?? 'none'}`)
   if (initialCgroup && finalCgroup && (finalCgroup.oom > initialCgroup.oom || finalCgroup.oomKill > initialCgroup.oomKill)) throw new Error(`cgroup OOM events increased: ${JSON.stringify({ initialCgroup, finalCgroup })}`)
-  console.log(JSON.stringify({ rounds, mcpTransport, closedSessionCount, idle: { ...memory(idle), groups: groups(idle) }, sampledPeak: samples.reduce((best, item) => item.workerRSSMiB > best.workerRSSMiB ? item : best, samples[0]), checkpoints, after: memory(after), cgroup: finalCgroup, sessions: after.sessions, calls: counts, workerPIDs: originalWorkers, workerIdentityChecks: rounds + 1 }, null, 2))
+  console.log(JSON.stringify({ rounds, mcpTransport, closedSessionCount, ruleRequests: readRules.requests, idle: { ...memory(idle), groups: groups(idle) }, sampledPeak: samples.reduce((best, item) => item.workerRSSMiB > best.workerRSSMiB ? item : best, samples[0]), checkpoints, after: memory(after), cgroup: finalCgroup, sessions: after.sessions, calls: counts, workerPIDs: originalWorkers, workerIdentityChecks: rounds + 1 }, null, 2))
   if (diagnosticHoldMs) await delay(diagnosticHoldMs)
 } finally {
   if (started) try { await promisify(execFile)(binary, ['stop'], { env }) } catch {}

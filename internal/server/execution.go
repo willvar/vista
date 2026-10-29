@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"context"
 	"database/sql"
-	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"log"
@@ -20,6 +19,7 @@ import (
 	"vista/internal/platform"
 	"vista/internal/provider"
 	"vista/internal/question"
+	"vista/internal/resources"
 	"vista/internal/store"
 	"vista/internal/workerproto"
 )
@@ -47,12 +47,9 @@ func (a *App) submitMessage(w http.ResponseWriter, r *http.Request, sessionID st
 		SelectionMode     string          `json:"selectionMode"`
 		SelectionTier     string          `json:"selectionTier"`
 		QuestionReply     *question.Reply `json:"questionReply,omitempty"`
-		Images            []struct {
-			MediaType string `json:"mediaType"`
-			Name      string `json:"name"`
-			Data      string `json:"data"`
-		} `json:"images"`
+		Images            []resources.Ref `json:"images"`
 	}
+	r.Body = http.MaxBytesReader(w, r.Body, 64<<10)
 	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
 		http.Error(w, "invalid message", 400)
 		return
@@ -64,21 +61,26 @@ func (a *App) submitMessage(w http.ResponseWriter, r *http.Request, sessionID st
 	}
 	images := make([]store.Image, 0, len(input.Images))
 	for _, image := range input.Images {
-		if len(image.Data) > base64.StdEncoding.EncodedLen(store.MaxImageBytes) {
-			http.Error(w, "image exceeds 1 MiB", 400)
+		images = append(images, store.Image{Hash: image.Hash, MediaType: image.MediaType, Bytes: image.Bytes, Name: image.Name})
+	}
+	if len(images) > 0 {
+		if err := a.admitHeavy(); err != nil {
+			http.Error(w, err.Error(), 503)
 			return
 		}
-		data, err := base64.StdEncoding.DecodeString(image.Data)
-		if err != nil {
-			http.Error(w, "invalid image base64", 400)
-			return
-		}
-		images = append(images, store.Image{MediaType: image.MediaType, Name: image.Name, Data: data})
 	}
 	if err := store.ValidateImages(images); err != nil {
 		http.Error(w, err.Error(), 400)
 		return
 	}
+	for _, image := range images {
+		ref, err := a.store.SessionResource(r.Context(), sessionID, image.Hash)
+		if err != nil || ref.MediaType != image.MediaType || ref.Bytes != image.Bytes {
+			http.Error(w, "image resource is unavailable or metadata does not match this Session", 400)
+			return
+		}
+	}
+
 	if input.Mode == "" {
 		input.Mode = "now"
 	}
@@ -173,7 +175,7 @@ func (a *App) submitMessage(w http.ResponseWriter, r *http.Request, sessionID st
 			http.Error(w, "invalid replaced message", 400)
 			return
 		}
-		if _, err := a.revertConversation(r.Context(), sessionID, messageID.String()); err != nil {
+		if _, err := a.revertConversation(r.Context(), sessionID, messageID.String(), input.Images...); err != nil {
 			revertHTTPError(w, err)
 			return
 		}
@@ -292,7 +294,7 @@ func (a *App) submitMessage(w http.ResponseWriter, r *http.Request, sessionID st
 		http.Error(w, "could not check execution capacity", 500)
 		return
 	}
-	if err := admitRun(available, counts.Running); err != nil {
+	if err := a.admitRun(available, counts.Running); err != nil {
 		a.admissionMu.Unlock()
 		http.Error(w, err.Error(), 503)
 		return
@@ -546,7 +548,7 @@ func (a *App) launchQueuedInput(sessionID string) {
 		var counts store.Counts
 		counts, err = a.store.SessionCounts(a.ctx)
 		if err == nil {
-			err = admitRun(available, counts.Running)
+			err = a.admitRun(available, counts.Running)
 		}
 	}
 	if err != nil {

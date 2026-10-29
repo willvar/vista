@@ -48,7 +48,7 @@ func TestCohereImageRequestShapeAndLimits(t *testing.T) {
 		t.Fatalf("Cohere image turn: %+v, calls=%d, err=%v", turn, calls, err)
 	}
 	message.Images[0].Data = make([]byte, maxImageBytes+1)
-	if _, err := ModelTurn(context.Background(), model, []ChatMessage{message}, nil); err == nil || !strings.Contains(err.Error(), "1 MiB") || calls != 1 {
+	if _, err := ModelTurn(context.Background(), model, []ChatMessage{message}, nil); err == nil || !strings.Contains(err.Error(), "50 MiB") || calls != 1 {
 		t.Fatalf("Cohere accepted oversized image request: %v, calls=%d", err, calls)
 	}
 

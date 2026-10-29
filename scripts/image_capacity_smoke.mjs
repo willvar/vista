@@ -107,6 +107,7 @@ const model = protocol === 'bedrock'
   : { key: 'image', provider: protocol, id: 'mock', apiKey: 'test', baseUrl: `http://127.0.0.1:${provider.address().port}/${protocol === 'cohere' ? 'v2' : 'v1'}`, inputModalities: ['text', 'image'] }
 writeFileSync(join(vistaConfig, 'models.json'), JSON.stringify({ default: 'image', models: [model] }), { mode: 0o600 })
 prepareVistaTestConfig(state)
+writeFileSync(join(state, 'vista/capacity.json'), JSON.stringify({ budgetMiB: 8192, workerMiB: 1024, concurrentRuns: 20 }), { mode: 0o600 })
 const env = { ...process.env, VISTA_PORT: await availableVistaPort(), XDG_CONFIG_HOME: state, TMPDIR: state, VISTA_NO_BROWSER: '1' }
 if (protocol === 'bedrock' || protocol === 'bedrock-mantle-responses') Object.assign(env, { AWS_ACCESS_KEY_ID: 'test-access', AWS_SECRET_ACCESS_KEY: 'test-secret', AWS_REGION: 'us-east-1', AWS_BEARER_TOKEN_BEDROCK: '' })
 if (protocol === 'sap-ai-core') env.AICORE_SERVICE_KEY = JSON.stringify({ url: `http://127.0.0.1:${provider.address().port}`, clientid: 'test-client', clientsecret: 'test-secret', serviceurls: { AI_API_URL: `http://127.0.0.1:${provider.address().port}` } })
@@ -117,14 +118,17 @@ try {
   started = true
   const endpoint = new URL(url).origin
   async function api(path, options = {}) {
-    const response = await fetch(endpoint + '/api' + path, { ...options, headers: { 'Content-Type': 'application/json' } })
+    const response = await fetch(endpoint + '/api' + path, { ...options, headers: { 'Content-Type': 'application/json', ...options.headers } })
     if (!response.ok) throw new Error(`${path}: ${response.status} ${await response.text()}`)
     return response.json()
   }
   const sessions = []
   for (let i = 0; i < 20; i++) sessions.push(await api('/sessions', { method: 'POST', body: JSON.stringify({ title: `image load ${i}` }) }))
-  const payload = JSON.stringify({ content: 'describe', images: [{ mediaType: 'image/png', data: encoded }, { mediaType: 'image/png', data: encoded }] })
-  const runs = await Promise.all(sessions.map(session => api(`/sessions/${session.id}/messages`, { method: 'POST', body: payload })))
+  const payloads = await Promise.all(sessions.map(async session => {
+    const image = await api(`/sessions/${session.id}/resources?name=original.png`, { method: 'POST', headers: { 'Content-Type': 'image/png' }, body: png })
+    return JSON.stringify({ content: 'describe', images: [image, image] })
+  }))
+  const runs = await Promise.all(sessions.map((session, i) => api(`/sessions/${session.id}/messages`, { method: 'POST', body: payloads[i] })))
   await new Promise(resolve => setTimeout(resolve, 1500))
   const during = await api('/status')
   if (during.sessions.running !== 20 || during.sessions.workers !== 20) throw new Error(`expected 20 active Workers: ${JSON.stringify(during.sessions)}`)
@@ -143,7 +147,7 @@ try {
   if (calls !== 20 || results.some(item => item.status !== 'succeeded')) throw new Error(`image runs failed: calls=${calls}, results=${JSON.stringify(results)}`)
   const checkpoints = []
   for (let i = 0; i < 20; i++) {
-    const sent = await api(`/sessions/${sessions[0].id}/messages`, { method: 'POST', body: payload })
+    const sent = await api(`/sessions/${sessions[0].id}/messages`, { method: 'POST', body: payloads[0] })
     let cursor = sent.event.sequence
     let finished = false
     for (let poll = 0; poll < 300 && !finished; poll++) {

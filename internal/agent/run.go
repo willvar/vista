@@ -11,6 +11,7 @@ import (
 	"unicode/utf8"
 
 	"vista/internal/modeltrace"
+	"vista/internal/platform"
 	"vista/internal/provider"
 	"vista/internal/replylanguage"
 	"vista/internal/resources"
@@ -249,6 +250,18 @@ turnLoop:
 		}
 		modelStarted := time.Now()
 		var firstTextMS *float64
+		hasVisual := false
+		for _, message := range messages {
+			if message.VisualInput() && len(message.Resources) > 0 {
+				hasVisual = true
+				break
+			}
+		}
+		if hasVisual {
+			if err := emit(workerproto.Result{RunID: command.RunID, Kind: "media_admission", Metrics: &workerproto.Metrics{RSSBytes: platform.RSS()}}); err != nil {
+				return "", err
+			}
+		}
 		requestMessages, requestErr := materializeResources(ctx, command, messages)
 		if requestErr != nil {
 			return "", requestErr

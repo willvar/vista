@@ -185,3 +185,59 @@ func resourceCall(name, arguments string) provider.ToolCall {
 	call.Function.Name, call.Function.Arguments = name, arguments
 	return call
 }
+
+func TestReadResourceImportsLocalOriginalWithSessionOwnership(t *testing.T) {
+	db, ctx := checkpointFixture(t)
+	path := filepath.Join(t.TempDir(), "downloaded.png")
+	data := append(resourcePNG(t), make([]byte, 2<<20)...)
+	if err := os.WriteFile(path, data, 0600); err != nil {
+		t.Fatal(err)
+	}
+	command := workerproto.Command{SessionID: "session", RunID: "tool-image", Model: modelcfg.Model{Provider: "openai-chat", ID: "fixture"}}
+	if _, _, err := db.BeginRun(ctx, "session", command.RunID, "tool-input", "Inspect an image"); err != nil {
+		t.Fatal(err)
+	}
+	r := &toolRuntime{parent: command, emit: func(result workerproto.Result) error {
+		if result.Kind == "resource_import" {
+			return db.AttachResource(ctx, "session", *result.Resource, &result)
+		}
+		return nil
+	}}
+	args, _ := json.Marshal(map[string]string{"path": path})
+	output, err := r.readResource(ctx, resourceCall("read_resource", string(args)))
+	if err != nil || len(r.resourceResults) != 1 || !strings.Contains(output, "visualInput") {
+		t.Fatalf("path image: %v", err)
+	}
+	ref := r.resourceResults[0]
+	if _, err = db.SessionResource(ctx, "session", ref.Hash); err != nil {
+		t.Fatal("ownership not committed", err)
+	}
+	if err = os.Remove(path); err != nil {
+		t.Fatal(err)
+	}
+	request, err := materializeResources(ctx, command, []provider.ChatMessage{(provider.ChatMessage{Role: "tool", Resources: []resources.Ref{ref}}).WithVisualInput(true)})
+	if err != nil || len(request[0].Images) != 1 || !bytes.Equal(request[0].Images[0].Data, data) {
+		t.Fatalf("tool image unavailable after source removal: %v", err)
+	}
+	args, _ = json.Marshal(map[string]string{"hash": ref.Hash})
+	if _, err = r.readResource(ctx, resourceCall("read_resource", string(args))); err != nil {
+		t.Fatal("original cannot be reread by hash", err)
+	}
+	events, err := db.EventsAfter(ctx, "session", 0, 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reads := 0
+	for _, event := range events {
+		if event.Kind == "resource_import" {
+			reads++
+		}
+	}
+	if reads != 2 {
+		t.Fatal("path and hash reads must both retain their history boundary", reads)
+	}
+	args, _ = json.Marshal(map[string]string{"path": path, "hash": ref.Hash})
+	if _, err = r.readResource(ctx, resourceCall("read_resource", string(args))); err == nil {
+		t.Fatal("ambiguous image selector accepted")
+	}
+}

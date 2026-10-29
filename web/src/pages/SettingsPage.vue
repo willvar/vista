@@ -15,6 +15,7 @@ import ResourceStorageSettings from '../ResourceStorageSettings.vue'
 import ProviderLogin from '../ProviderLogin.vue'
 import ConfigurationImport from '../ConfigurationImport.vue'
 import OMPCatalogSettings from '../OMPCatalogSettings.vue'
+import CapacitySettings from '../CapacitySettings.vue'
 import UserAgentSettings from '../UserAgentSettings.vue'
 import ResetVistaSettings from '../ResetVistaSettings.vue'
 import VistaMark from '../VistaMark.vue'
@@ -263,6 +264,7 @@ watch(() => route.fullPath, () => {
           <ResetVistaSettings v-if="debugMode" @modal-open="resetModalOpen = $event" />
           <OMPCatalogSettings ref="sectionActions" :client="workspace.client" />
           <UserAgentSettings :client="workspace.client" />
+          <CapacitySettings :client="workspace.client" :status="serverStatus" />
           <dl v-if="serverStatus" class="about-build-info">
             <template v-if="serverStatus.binaryHash">
               <dt>{{ t('binaryHash') }}</dt>

@@ -36,7 +36,7 @@ func materializeResources(ctx context.Context, command workerproto.Command, mess
 			if !strings.HasPrefix(ref.MediaType, "image/") {
 				continue
 			}
-			if ref.Bytes > 1<<20 {
+			if ref.Bytes > resources.MaxImageBytes {
 				return nil, fmt.Errorf("resource %s exceeds the supported image input size", ref.Hash)
 			}
 			if unlock == nil {

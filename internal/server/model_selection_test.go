@@ -17,12 +17,13 @@ import (
 func selectionApp(t *testing.T) *App {
 	t.Helper()
 	useExplicitReasoningCatalog(t)
-	s, err := store.Open(filepath.Join(t.TempDir(), "selection.db"))
+	stateDir := t.TempDir()
+	s, err := store.Open(filepath.Join(stateDir, "selection.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { s.Close() })
-	return &App{store: s, models: modelCatalog{Default: "manual-luna", Models: []configuredModel{{Key: "manual-luna", ID: "gpt-6-luna", Provider: "openai-responses", ProviderID: "openai", BaseURL: "https://models.example/v1", Context: 128000}}}}
+	return &App{dir: stateDir, store: s, models: modelCatalog{Default: "manual-luna", Models: []configuredModel{{Key: "manual-luna", ID: "gpt-6-luna", Provider: "openai-responses", ProviderID: "openai", BaseURL: "https://models.example/v1", Context: 128000}}}}
 }
 
 func TestModelSelectionPreferencesAPIAndInvitationPersistence(t *testing.T) {

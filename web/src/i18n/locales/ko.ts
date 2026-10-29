@@ -2,6 +2,13 @@ import type en from './en.ts'
 
 
 export default {
+  "memorySettings": "메모리 및 용량",
+  "memorySettingsHint": "Vista와 대화 프로세스의 실제 메모리를 확인합니다. 예산에 도달하면 새로운 고부하 작업을 거부하고, 대화가 개별 한도를 넘으면 중단합니다. 운영체제의 강제 제한은 아닙니다. 셸 프로그램은 추가 메모리를 사용합니다.",
+  "memoryBudget": "메모리 예산",
+  "memoryWorkerLimit": "대화별 한도",
+  "memoryConcurrentRuns": "동시 실행 수",
+  "memoryUsage": "상주 메모리: {used} / {limit} MiB",
+
   "automaticTitles": "대화 제목 자동 생성",
   "automaticTitlesHint": "제목을 생성하면 모델에 추가로 요청합니다. 끄면 새 대화의 기본 이름에 생성 날짜와 시간을 붙입니다.",
   "untitledSession": "새 대화",
@@ -755,7 +762,7 @@ export default {
   "send": "보내기",
   "removeAttachment": "삭제",
   "welcomeHeading": "준비되셨다면, 시작해 볼까요?",
-  "imageLimit": "PNG, JPEG, WebP 또는 GIF 이미지를 선택하세요. 각 파일은 최대 1 MiB까지 지원합니다.",
+  "imageLimit": "PNG, JPEG, WebP 또는 GIF 이미지를 선택하세요. 각 파일은 최대 50 MiB까지 지원합니다.",
   "imageUnsupported": "선택한 모델은 이미지를 입력받을 수 없습니다.",
   "modelUnavailable": "모델 사용 불가",
   "custom": "사용자 지정",

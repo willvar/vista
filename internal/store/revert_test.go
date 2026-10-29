@@ -1,6 +1,7 @@
 package store
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"encoding/json"
@@ -8,8 +9,95 @@ import (
 	"path/filepath"
 	"testing"
 	"vista/internal/question"
+	"vista/internal/resources"
 	"vista/internal/workerproto"
 )
+
+func TestRevertKeepsEarlierToolImagesAndExplicitReplacementRefs(t *testing.T) {
+	s := revertStore(t)
+	ctx := context.Background()
+	publish := func(name string, source *workerproto.Result) resources.Ref {
+		t.Helper()
+		image := fixtureImage(t)
+		data := append(image.Data, []byte(name)...)
+		unlock, err := s.library.Lock(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer unlock()
+		hash, size, err := s.library.Put(ctx, bytes.NewReader(data))
+		if err != nil {
+			t.Fatal(err)
+		}
+		ref := resources.Ref{Hash: hash, Bytes: size, MediaType: image.MediaType, Name: name}
+		if err = s.AttachResource(ctx, "s", ref, source); err != nil {
+			t.Fatal(err)
+		}
+		return ref
+	}
+	first, _, err := s.BeginRun(ctx, "s", "r1", "m1", "keep earlier evidence")
+	if err != nil {
+		t.Fatal(err)
+	}
+	earlier := publish("earlier.png", &workerproto.Result{RunID: "r1"})
+	if _, err := s.FinishRun(ctx, "s", "r1", "a1", "succeeded", "earlier image inspected"); err != nil {
+		t.Fatal(err)
+	}
+	target, _, err := s.BeginRun(ctx, "s", "r2", "m2", "discard this image read")
+	if err != nil {
+		t.Fatal(err)
+	}
+	discarded := publish("discarded.png", &workerproto.Result{RunID: "r2"})
+	if _, err := s.FinishRun(ctx, "s", "r2", "a2", "succeeded", "later image inspected"); err != nil {
+		t.Fatal(err)
+	}
+	replacement := publish("replacement.png", nil)
+	abandoned := publish("abandoned.png", nil)
+	if _, err := s.Revert(ctx, "s", target.ID, target.Sequence, replacement); err != nil {
+		t.Fatal(err)
+	}
+	for _, ref := range []resources.Ref{earlier, replacement} {
+		if _, err := s.SessionResource(ctx, "s", ref.Hash); err != nil {
+			t.Fatal("retained resource lost ownership", ref.Name, err)
+		}
+	}
+	for _, ref := range []resources.Ref{discarded, abandoned} {
+		if _, err := s.SessionResource(ctx, "s", ref.Hash); !errors.Is(err, sql.ErrNoRows) {
+			t.Fatal("discarded resource remained visible", ref.Name, err)
+		}
+	}
+	if _, _, err := s.BeginRunWithImages(ctx, "s", "r3", "m3", "edited message", []Image{{Hash: replacement.Hash, MediaType: replacement.MediaType, Bytes: replacement.Bytes, Name: replacement.Name}}); err != nil {
+		t.Fatal("replacement image was pruned before the new input could link it", err)
+	}
+	if _, err := s.FinishRun(ctx, "s", "r3", "a3", "succeeded", "replacement inspected"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Revert(ctx, "s", first.ID, first.Sequence); err != nil {
+		t.Fatal(err)
+	}
+	refs, err := s.SessionResources(ctx, "s", "", 100)
+	if err != nil || len(refs) != 0 {
+		t.Fatal("full rollback retained tool or replacement images", refs, err)
+	}
+}
+
+func TestRevertRejectsUnownedReplacementBeforeChangingHistory(t *testing.T) {
+	s := revertStore(t)
+	ctx := context.Background()
+	target, _, err := s.BeginRun(ctx, "s", "run", "input", "keep until validation succeeds")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.FinishRun(ctx, "s", "run", "reply", "succeeded", "answer"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Revert(ctx, "s", target.ID, target.Sequence, resources.Ref{Hash: "missing", MediaType: "image/png", Bytes: 1}); !errors.Is(err, ErrNotFound) {
+		t.Fatal("unowned replacement accepted", err)
+	}
+	if _, err := s.RevertTarget(ctx, "s", target.ID); err != nil {
+		t.Fatal("validation failure removed history", err)
+	}
+}
 
 func revertStore(t *testing.T) *Store {
 	t.Helper()

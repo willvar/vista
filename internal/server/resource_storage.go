@@ -109,13 +109,5 @@ func (a *App) sessionResource(w http.ResponseWriter, r *http.Request, sessionID,
 		http.Error(w, "could not read resource reference", 500)
 		return
 	}
-	images, err := a.store.ResolveImages(r.Context(), []resources.Ref{ref})
-	if err != nil {
-		http.Error(w, "resource file is unavailable", http.StatusNotFound)
-		return
-	}
-	w.Header().Set("Content-Type", ref.MediaType)
-	w.Header().Set("X-Content-Type-Options", "nosniff")
-	w.Header().Set("Cache-Control", "no-store")
-	_, _ = w.Write(images[0].Data)
+	a.serveResource(w, r, ref)
 }

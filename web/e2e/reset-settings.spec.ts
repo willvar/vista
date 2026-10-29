@@ -62,8 +62,9 @@ test.describe('full reset', () => {
   test('stops a real Worker and background process, deletes data and restarts the runtime', async ({ page, vista }) => {
     await vista.api('/preferences', { method: 'PATCH', body: JSON.stringify({ feedbackInvitationSeen: true }) })
     const session = await vista.api('/sessions', { method: 'POST', body: '{}' })
+    const image = await vista.api(`/sessions/${session.id}/resources?name=reset.png`, { method: 'POST', headers: { 'Content-Type': 'image/png' }, body: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/lN8AAAAASUVORK5CYII=', 'base64') })
     await vista.api(`/sessions/${session.id}/messages`, { method: 'POST', body: JSON.stringify({
-      content: 'Keep this image', images: [{ mediaType: 'image/png', data: 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/lN8AAAAASUVORK5CYII=' }],
+      content: 'Keep this image', images: [image],
     }) })
     await expect.poll(async () => (await vista.api('/sessions')).find((item: { id: string }) => item.id === session.id)?.executing).toBe(false)
     await vista.api(`/sessions/${session.id}/messages`, { method: 'POST', body: JSON.stringify({ content: 'Start process' }) })

@@ -40,6 +40,8 @@ import (
 var webAssets embed.FS
 
 type worker struct {
+	rpcMu           sync.Mutex
+	pendingRPC      map[string]chan workerproto.Result
 	cmd             *exec.Cmd
 	owner           store.WorkerOwner
 	input           io.WriteCloser
@@ -53,6 +55,8 @@ type worker struct {
 	overBudget      bool
 }
 type App struct {
+	memoryMu               sync.Mutex
+	memoryConfig           memoryConfig
 	background             sync.WaitGroup
 	closeContext           context.CancelFunc
 	sessionMutations       sync.Map // Per-session HTTP/queued-dispatch serialization.
@@ -237,6 +241,11 @@ func loadApp(parent context.Context, cancel context.CancelFunc, configDir, dir s
 			return nil, fmt.Errorf("clear previous Worker ownership record: %w", err)
 		}
 	}
+	// Only uncommitted HTTP input is staged here. Old Workers are gone, so
+	// abandoned uploads can be discarded without touching retained resources.
+	if err := os.RemoveAll(filepath.Join(dir, "inputs")); err != nil {
+		return nil, fmt.Errorf("discard interrupted image uploads: %w", err)
+	}
 	if _, err := st.InterruptRunning(context.Background(), ""); err != nil {
 		return nil, fmt.Errorf("reconcile interrupted executions: %w", err)
 	}
@@ -271,7 +280,11 @@ func loadApp(parent context.Context, cancel context.CancelFunc, configDir, dir s
 	if err != nil {
 		return nil, err
 	}
-	app := &App{workers: map[string]*worker{}, workerFailures: map[string]workerFailureWindow{}, store: st, dir: dir, configDir: configDir, started: time.Now(), buildInfo: build, hostOS: platform.HostOS(), ctx: ctx, cancel: cancel, closeContext: closeContext, models: models, baseModels: models, localModels: map[string][]configuredModel{}, customInventories: map[string][]configuredModel{}, mcpServers: mcpServers, searchProviders: searchConfigs, searchConfig: searchSettings}
+	memorySettings, err := loadMemoryConfig(configDir)
+	if err != nil {
+		return nil, err
+	}
+	app := &App{memoryConfig: memorySettings, workers: map[string]*worker{}, workerFailures: map[string]workerFailureWindow{}, store: st, dir: dir, configDir: configDir, started: time.Now(), buildInfo: build, hostOS: platform.HostOS(), ctx: ctx, cancel: cancel, closeContext: closeContext, models: models, baseModels: models, localModels: map[string][]configuredModel{}, customInventories: map[string][]configuredModel{}, mcpServers: mcpServers, searchProviders: searchConfigs, searchConfig: searchSettings}
 	app.initCatalogUpdates()
 	return app, nil
 }
@@ -309,6 +322,7 @@ func (a *App) handler() http.Handler {
 	})
 	mux.HandleFunc("/api/events", a.stateEvents)
 	mux.HandleFunc("/api/status", a.status)
+	mux.HandleFunc("/api/memory-config", a.memorySettingsHTTP)
 	mux.HandleFunc("/api/resource-storage", a.resourceStorage)
 	mux.HandleFunc("/api/models", a.modelList)
 	mux.HandleFunc("/api/model-catalog", a.ompCatalog)
@@ -381,6 +395,7 @@ func (a *App) statusSnapshot(ctx context.Context, host string) (map[string]any, 
 	}
 	a.mu.Lock()
 	count := len(a.workers)
+	residentBytes := a.residentMemoryLocked()
 	workerMetrics := make([]map[string]any, 0, count)
 	for id, worker := range a.workers {
 		workerMetrics = append(workerMetrics, map[string]any{"sessionId": id, "pid": worker.cmd.Process.Pid, "memory": worker.metrics})
@@ -409,7 +424,7 @@ func (a *App) statusSnapshot(ctx context.Context, host string) (map[string]any, 
 		}
 		break
 	}
-	return map[string]any{"state": "running", "version": buildinfo.Version, "binaryHash": a.buildInfo.BinaryHash, "sourceCommit": a.buildInfo.SourceCommit, "sourceModified": a.buildInfo.SourceModified, "hostOS": a.hostOS, "address": "http://" + host, "provider": providerName, "model": defaultModel.ID, "defaultModel": defaultModelLabel, "defaultModelKey": models.Default, "uptimeSeconds": int(time.Since(a.started).Seconds()), "sessions": map[string]int{"total": counts.Total, "open": counts.Open, "closed": counts.Total - counts.Open, "running": counts.Running, "idle": counts.Open - counts.Running, "unavailable": unavailable, "workers": count}, "managedBackgroundProcesses": counts.Jobs, "eventStreams": a.hub.subscriberCount() + a.updates.count(), "eventStreamLimit": maxEventStreams + maxStateEventStreams, "memory": map[string]uint64{"heapBytes": mem.HeapAlloc, "rssBytes": platform.RSS(), "peakRssBytes": platform.PeakRSS()}, "workerMetrics": workerMetrics, "sampledAt": time.Now().UTC().Format(time.RFC3339Nano)}, nil
+	return map[string]any{"state": "running", "version": buildinfo.Version, "binaryHash": a.buildInfo.BinaryHash, "sourceCommit": a.buildInfo.SourceCommit, "sourceModified": a.buildInfo.SourceModified, "hostOS": a.hostOS, "address": "http://" + host, "provider": providerName, "model": defaultModel.ID, "defaultModel": defaultModelLabel, "defaultModelKey": models.Default, "uptimeSeconds": int(time.Since(a.started).Seconds()), "sessions": map[string]int{"total": counts.Total, "open": counts.Open, "closed": counts.Total - counts.Open, "running": counts.Running, "idle": counts.Open - counts.Running, "unavailable": unavailable, "workers": count}, "managedBackgroundProcesses": counts.Jobs, "eventStreams": a.hub.subscriberCount() + a.updates.count(), "eventStreamLimit": maxEventStreams + maxStateEventStreams, "memory": map[string]uint64{"heapBytes": mem.HeapAlloc, "rssBytes": platform.RSS(), "peakRssBytes": platform.PeakRSS()}, "capacity": map[string]any{"config": a.memorySettings(), "residentBytes": residentBytes}, "workerMetrics": workerMetrics, "sampledAt": time.Now().UTC().Format(time.RFC3339Nano)}, nil
 }
 
 func (a *App) modelList(w http.ResponseWriter, r *http.Request) {
@@ -621,6 +636,10 @@ func (a *App) session(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(204)
 		return
 	}
+	if len(bits) == 2 && bits[1] == "resources" && r.Method == http.MethodPost {
+		a.uploadResource(w, r, item.ID)
+		return
+	}
 	if len(bits) == 5 && bits[1] == "messages" && bits[3] == "images" && r.Method == "GET" {
 		messageID, parseErr := uuid.Parse(bits[2])
 		index, indexErr := strconv.Atoi(bits[4])
@@ -628,19 +647,16 @@ func (a *App) session(w http.ResponseWriter, r *http.Request) {
 			http.NotFound(w, r)
 			return
 		}
-		image, err := a.store.MessageImage(r.Context(), item.ID, messageID.String(), index)
-		if errors.Is(err, sql.ErrNoRows) {
-			http.NotFound(w, r)
-			return
-		}
+		refs, err := a.store.MessageResources(r.Context(), item.ID, messageID.String())
 		if err != nil {
 			http.Error(w, "could not read message image", 500)
 			return
 		}
-		w.Header().Set("Content-Type", image.MediaType)
-		w.Header().Set("X-Content-Type-Options", "nosniff")
-		w.Header().Set("Cache-Control", "no-store")
-		_, _ = w.Write(image.Data)
+		if index >= len(refs) {
+			http.NotFound(w, r)
+			return
+		}
+		a.serveResource(w, r, refs[index])
 		return
 	}
 	if len(bits) == 2 && bits[1] == "artifacts" && r.Method == "GET" {

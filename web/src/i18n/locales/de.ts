@@ -2,6 +2,13 @@ import type en from './en.ts'
 
 
 export default {
+  "memorySettings": "Arbeitsspeicher und Kapazität",
+  "memorySettingsHint": "Das Budget prüft den gemessenen Speicher von Vista und Gesprächsprozessen. Bei Erreichen werden neue aufwendige Vorgänge abgelehnt. Ein Gespräch über seinem eigenen Limit wird unterbrochen. Dies sind weiche Schutzgrenzen, keine Betriebssystemgrenzen. Shell-Programme benötigen zusätzlichen Speicher.",
+  "memoryBudget": "Speicherbudget",
+  "memoryWorkerLimit": "Limit pro Gespräch",
+  "memoryConcurrentRuns": "Gleichzeitige Ausführungen",
+  "memoryUsage": "Residenter Speicher: {used} / {limit} MiB",
+
   "automaticTitles": "Unterhaltungstitel generieren",
   "automaticTitlesHint": "Ein Titel erfordert eine zusätzliche Modellanfrage. Wenn deaktiviert, erhalten neue Unterhaltungen den Standardnamen mit ihrer Erstellungszeit.",
   "untitledSession": "Neue Unterhaltung",
@@ -755,7 +762,7 @@ export default {
   "send": "Senden",
   "removeAttachment": "Entfernen",
   "welcomeHeading": "Bereit, wenn du starten möchtest.",
-  "imageLimit": "PNG-, JPEG-, WebP- oder GIF-Bilder, jeweils bis 1 MiB.",
+  "imageLimit": "PNG-, JPEG-, WebP- oder GIF-Bilder, jeweils bis 50 MiB.",
   "imageUnsupported": "Das gewählte Modell unterstützt keine Bilder.",
   "modelUnavailable": "Modell nicht verfügbar",
   "custom": "Benutzerdefiniert",

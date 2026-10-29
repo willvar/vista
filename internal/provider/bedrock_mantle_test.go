@@ -47,7 +47,7 @@ func TestBedrockMantleStreamsReasoning(t *testing.T) {
 
 func TestBedrockMantleResponsesImageRequestAndLargeSignedBody(t *testing.T) {
 	image := testImage(t)
-	image.Data = append(append([]byte(nil), image.Data...), bytes.Repeat([]byte{0}, maxImageBytes-len(image.Data))...)
+	image.Data = append(append([]byte(nil), image.Data...), bytes.Repeat([]byte{0}, (1<<20)-len(image.Data))...)
 	dataURL, err := imageDataURL(image)
 	if err != nil {
 		t.Fatal(err)
@@ -90,7 +90,7 @@ func TestBedrockMantleResponsesImageRequestAndLargeSignedBody(t *testing.T) {
 		t.Fatalf("large signed media body: turn=%+v requests=%d err=%v", turn, requests, err)
 	}
 	message.Images[0].Data = make([]byte, maxImageBytes+1)
-	if _, err := ModelTurn(context.Background(), model, []ChatMessage{message}, nil); err == nil || !strings.Contains(err.Error(), "1 MiB") || requests != 2 {
+	if _, err := ModelTurn(context.Background(), model, []ChatMessage{message}, nil); err == nil || !strings.Contains(err.Error(), "50 MiB") || requests != 2 {
 		t.Fatalf("Mantle accepted oversized image request: %v, requests=%d", err, requests)
 	}
 }

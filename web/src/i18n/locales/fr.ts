@@ -2,6 +2,13 @@ import type en from './en.ts'
 
 
 export default {
+  "memorySettings": "Mémoire et capacité",
+  "memorySettingsHint": "Le budget vérifie la mémoire mesurée de Vista et des conversations. Une fois atteint, les nouvelles opérations lourdes sont refusées. Une conversation dépassant sa propre limite est interrompue. Ce sont des protections souples, pas des limites système. Les programmes shell utilisent de la mémoire supplémentaire.",
+  "memoryBudget": "Budget mémoire",
+  "memoryWorkerLimit": "Limite par conversation",
+  "memoryConcurrentRuns": "Exécutions simultanées",
+  "memoryUsage": "Mémoire résidente : {used} / {limit} MiB",
+
   "automaticTitles": "Générer les titres des conversations",
   "automaticTitlesHint": "Générer un titre nécessite une requête supplémentaire au modèle. Si cette option est désactivée, les nouvelles conversations utilisent le nom par défaut suivi de leur date et heure de création.",
   "untitledSession": "Nouvelle conversation",
@@ -755,7 +762,7 @@ export default {
   "send": "Envoyer",
   "removeAttachment": "Retirer",
   "welcomeHeading": "On commence quand vous voulez.",
-  "imageLimit": "Images PNG, JPEG, WebP ou GIF, de 1 MiB maximum chacune.",
+  "imageLimit": "Images PNG, JPEG, WebP ou GIF, de 50 MiB maximum chacune.",
   "imageUnsupported": "Le modèle choisi ne prend pas en charge les images.",
   "modelUnavailable": "modèle indisponible",
   "custom": "Personnalisé",
