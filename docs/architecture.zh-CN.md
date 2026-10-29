@@ -17,12 +17,13 @@
 | `internal/store/` | SQLite 事务、消息、事件、任务及输出引用 |
 | `internal/resources/` | SHA-256 原件文件及跨进程发布／读取／清理锁 |
 | `internal/tools/`、`internal/mcpclient/` | 文件、进程、网络、技能和 MCP 操作 |
+| `internal/mcphost/` | MCP 共享连接、执行租约及受监督的托管进程 |
 | `internal/agentconfig/` | 全局提示词和委派设置 |
 | `internal/appdirs/`、`internal/platform/` | 平台目录、进程归属、浏览器启动及指标 |
 | `internal/buildinfo/` | 版本、二进制哈希及 Go VCS 信息 |
 | `web/src/` | Vue 界面、会话状态、HTTP/SSE 客户端及虚拟滚动 |
 
-前端构建到 `internal/server/assets/`，由 Go 内嵌。Server、Worker 和 CLI 共用一个可执行文件，服务商协议在 Go 内实现，无独立 JavaScript 服务商进程。
+前端构建到 `internal/server/assets/`，由 Go 内嵌。Server、Worker、MCP 托管进程和 CLI 共用一个可执行文件，服务商协议在 Go 内实现，无独立 JavaScript 服务商进程。
 
 ## 进程与存储归属
 
@@ -149,24 +150,32 @@ Chat 适配器先合并兼容的推理片段，再检查 64 KiB 和 256 个独�
 
 OMP 和 models.dev 提供模型资料，Vista 负责路由与认证，自定义连接明确指定 API 格式。两个目录来源整体暂存、安装，失败保留旧目录。已有执行使用自己的配置快照。见[服务商路由](./providers.zh-CN.md)。
 
-`websearch` 按保存顺序尝试外部服务；`webfetch` 使用独立的 Vista 内置／Jina／DeepSeek 顺序。首次搜索顺序只随机一次，网页读取默认内置优先；DeepSeek 搜索和读取密钥分别配置。首次输出默认每条搜索结果 1,000 个 Unicode 字符、每页 8,000 个，0 取消首次截短。网络结果没有第二层固定工具结果截断，显式补读仍按字节分页。配置保存在 `search.json`，从下一次执行生效。
+`websearch` 按保存顺序尝试外部服务；`webfetch` 按独立保存的顺序尝试 Jina Reader／DeepSeek，默认 Jina 优先。首次搜索顺序只随机一次；各读取器完整解码并暂存后才可选为成功结果，正文为空、明确的错误／验证页、仅提示启用 JS 或返回格式不受支持时，继续尝试下一已配置读取器，正常短内容可成功。没有内置原站抓取／转换器；本地或私有内容通过 `shell` 下载。DeepSeek 搜索和读取密钥分别配置。首次输出默认一次搜索全部结果合计 50 KiB、每页正文 50 KiB，按 UTF-8 字节计算，0 取消首次截短。搜索来源信息和摘要共用一份结果预算，产物／补读元数据另计。旧字符配置的默认值升级为新默认值，不限制保持不变，自定义值按 UTF-8 最大容量换算并向上取整为 KiB。网络结果没有第二层固定工具结果截断，显式补读仍按字节分页。配置保存在 `search.json`，从下一次执行生效。
 
-文件搜索在进入被忽略目录前应用祖先和嵌套 `.gitignore` 及例外规则；明确读取不受此限制。`read_file` 使用从 1 开始的 `startLine`、`lineCount`（默认 200），返回原行号及 `nextLine`，哈希基于原文件。过大的单行使用产物保存；`read_tool_output` 仍按字节读取。
+文件搜索在进入被忽略目录前应用祖先和嵌套 `.gitignore` 及例外规则；明确读取不受此限制。`read_file` 使用从 1 开始的 `startLine`、`lineCount`（默认 200），返回原行号及 `nextLine`，流式扫描完整原文件以计算哈希和总行数，选中行暂存到磁盘。过大的单行流式保存为产物，不整行载入内存。搜索覆盖超过 1 MiB 的文件，保持全局 32 MiB／10,000 文件／100 结果预算，并显式标明结果不完整；`read_tool_output` 仍按字节读取。
 
-MCP 设置保存为 `mcp.json`，稳定 ID 与显示名称分离。每次执行独立拥有 MCP 连接，本地服务不是全局永久进程。设置中的连接检查使用独立临时握手；OAuth 仅在授权、握手成功且连接配置未变时发布凭据。界面和状态入口见[前端](../web/README.zh-CN.md)。
+执行 `read_file`、`write_file`、`search`、文件路径形式的 `read_skill`／`read_resource`、`shell` 或 `start_background` 前，工具运行时按明确的目标路径或工作目录，从外到内发现祖先目录中的 `AGENTS.md`、`CLAUDE.md` 和 `.github/copilot-instructions.md`。
+没有规则，或模型保留上下文中已完整读取所有适用规则的当前版本时，直接执行原操作，省去单独发现规则的模型轮次。
+否则返回 `instructions_required`、`executed: false` 及未读文件的路径、大小和 SHA-256，原操作不产生副作用。
+模型通过 `read_project_instruction` 读完全部分页，按作用范围和优先级应用，再重试或调整操作。
+每次成功请求按工具配对结果重建已读范围，各任务独立，因此同轮读取不会提前放行并发操作；缺失分页、文件变更和压缩后不再保留的正文均须重读。
+检查不缓存空目录，也不解析 shell 命令中的其它目标路径；跨目录工作仍可显式使用 `project_instructions`。
+内置 `skill://` 文档和按哈希读取的资源没有需要检查的文件系统目标。
+
+MCP 设置保存为 `mcp.json`，稳定 ID 与显示名称分离。独立且受监督的 MCP 托管进程统一拥有本地 stdio 服务和远程连接，包括使用 MCP 的网络搜索。启动后以有限并发异步预连接，跨执行复用。每次执行及其分离子任务保留所用配置版本；编辑、禁用或删除影响后续执行，旧版本无人使用时关闭；改名保留连接。设置中的连接检查复用同一托管入口。会话进程直接与私有托管端点交换工具数据，大结果通过临时文件传递，不经过主进程。断线后退避重连，不自动重放副作用不确定的中断调用。服务自身的浏览器、工作区等状态可能跨会话共享。OAuth 仅在授权、握手成功且连接配置未变时发布凭据。界面和状态入口见[前端](../web/README.zh-CN.md)。
 
 系统技能从 [`internal/tools/systemskills/`](../internal/tools/systemskills/) 的内置文件夹发现。每个文件夹只提供英文 `SKILL.md` 及配套文档，新增文件夹无需逐技能修改注册表或界面。`system:<文件夹>` 标识与 `skill://system/<文件夹>/` 读取路径独立于用户文件夹；`read_skill` 直接读取内置 Markdown，不释放文件。设置界面和运行时使用同一份英文元数据与文档，不随界面语言切换。用户技能仍位于配置根目录的普通文件夹中。
 
 `POST /api/extension-import` 接受 `source: "opencode"`、`kind: "mcp" | "skills"`、`action: "preview" | "import"`、可选 `configPath` 和来源工作目录 `directory`（绝对路径，默认 Vista 启动目录）。确认时需要返回的 `fingerprint` 及选中的 `ids`，并重新读取来源配置及解析后的引用；技能指纹还包含每个文件的内容和可执行权限。来源改变后须重新预览。预览不返回凭据、不保存配置；导入保留已有目标，不修改来源文件。
 
-MCP 导入同时接受 v2 的 `mcp.servers` 和 v1 的平铺服务条目，同一文档内优先使用原生条目；保留禁用状态，解析本地命令和目录，转移兼容的 Bearer 令牌、自定义 HTTP 请求头或 OAuth 客户端设置。设置读取不返回请求头的值，可在高级设置中保留、替换或删除。不支持的环境变量、超时及传输选项会跳过，不会静默丢弃。OAuth 服务可能需要在 Vista 重新授权。技能导入扫描全局 `skill/`、`skills/` 和 `skills` 中配置的路径（v2 数组或 v1 的 `paths`／`urls` 对象），先暂存完整副本，再独占创建新目标，失败时清理本次新建目录。远程技能 URL 及不支持的文件／链接结构不会导入。两类导入都不执行来源插件或 MCP 命令。
+MCP 导入同时接受 v2 的 `mcp.servers` 和 v1 的平铺服务条目，同一文档内优先使用原生条目；保留禁用状态，解析本地命令和目录，转移兼容的 Bearer 令牌、自定义 HTTP 请求头或 OAuth 客户端设置。设置读取不返回请求头的值，可在高级设置中保留、替换或删除。不支持的环境变量、超时及传输选项会跳过，不会静默丢弃。OAuth 服务可能需要在 Vista 重新授权。技能导入扫描全局 `skill/`、`skills/` 和 `skills` 中配置的路径（v2 数组或 v1 的 `paths`／`urls` 对象），先暂存完整副本，再独占创建新目标，失败时清理本次新建目录。远程技能 URL 及不支持的文件／链接结构不会导入。两类导入均不执行来源插件；配置保存后，由托管进程异步连接已启用的 MCP 服务。
 
 ## 资源、回退与限制
 
-原始附件位于 `state/resources/<哈希前缀>/<SHA-256>`，SQLite 只存元数据和归属，不存图片字节。新附件及显式 `read_resource` 结果只激活下一次请求的视觉输入，规范历史和检查点保留引用。见[资源约定](./resources.zh-CN.md)。
+原始附件位于 `state/resources/<哈希前缀>/<SHA-256>`，SQLite 只存元数据和归属，不存图片字节。Server 流式接收原始上传，Worker 校验最多 50 MiB 的原件、发布并等待会话归属提交确认。图片字节及含图片的模型请求均留在 Worker。新附件及显式 `read_resource(path|hash)` 结果只激活下一次请求的视觉输入，规范历史和检查点保留引用。见[资源约定](./resources.zh-CN.md)。
 
 撤回或编辑提交先停止该会话工作，再从所选用户消息处截断历史，不撤销文件或其他工具副作用，也不复用事件序号。见[消息回退](./message-revert.zh-CN.md)。
 
-[准入实现](../internal/server/admission.go)以 64 个常驻 Worker、20 个运行会话作为准入限制，并使用软内存预留；运行会话计数包含后台活动。Worker heap/RSS 监控和 Go 软限制不是操作系统强制的进程内存上限，外部 shell/MCP 占用另行观察。组件缓冲限制和单次操作超时不等于通用任务容量保证，见[验证](./testing.zh-CN.md)。
+关于 Vista 通过 `capacity.json` 及 `GET`／`PUT /api/memory-config` 提供内存预设和自定义限制，共用状态 SSE 携带已保存配置及主进程／Worker／MCP 托管进程的实际 RSS。默认总准入预算 2,048 MiB、单 Worker 或 MCP 托管进程 1,024 MiB、同时执行四个会话（包含后台活动），不设固定打开会话数上限。[准入实现](../internal/server/admission.go)在实测占用达到预算或系统可用内存低于 128 MiB 时拒绝新 Worker、执行和图片操作。限制变更发送到现有 Worker 和 MCP 托管进程；Go 软内存目标分别为各自限制的 75% 和 90%，每秒 RSS 检查停止超过限制的进程。这是软保护，并非操作系统硬上限或峰值估算；采样间隔内仍可能出现瞬时峰值，外部 shell/MCP 子进程内存不计入准入总量。中断工作记录状态，不自动重放。组件缓冲限制和单次操作超时不等于通用任务容量保证，见[验证](./testing.zh-CN.md)。
 
 服务监听回环地址，校验 Host/Origin，工具以本机用户权限执行，无逐次调用审批。HTTP／流错误保留脱敏后的服务商诊断，在消息区展示；实际步骤错误保留在步骤内。平台层实现 Linux、Windows 和 macOS 进程管理。

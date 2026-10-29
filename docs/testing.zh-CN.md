@@ -55,11 +55,12 @@ Windows 在 PowerShell 设置对应环境变量，路径使用 `.exe`。也可�
 | [slow_sse_capacity_smoke.mjs](../scripts/slow_sse_capacity_smoke.mjs) | 慢事件读取和长回复 |
 | [long_output_smoke.mjs](../scripts/long_output_smoke.mjs) | 模型长正文的持久化与读取 |
 | [image_capacity_smoke.mjs](../scripts/image_capacity_smoke.mjs) | 并发和重复图片输入，检查历史图片不被自动重发 |
+| [image_guard_smoke.mjs](../scripts/image_guard_smoke.mjs) | 50 MiB 原件、Worker 内存中断、原件保留与无重放的文本恢复 |
 | [evaluate_mixed_capacity.py](../scripts/evaluate_mixed_capacity.py) | 按明确 cgroup、负载和内存增长条件评估混合负载报告 |
 
-直接运行脚本需要绝对路径的 `VISTA_BIN` 和隔离的 `VISTA_TEST_TMPDIR`；混合／MCP 负载还需要 `VISTA_MCP_FIXTURE`，具体参数见脚本。评估器要求报告对应其指定的 8 GiB cgroup 和负载，不是通用报告校验器。普通 `make test memory`／`capacity` 不创建受限 cgroup，也不证明长期容量保证。
+直接运行脚本需要绝对路径的 `VISTA_BIN` 和隔离的 `VISTA_TEST_TMPDIR`；混合／MCP 负载还需要 `VISTA_MCP_FIXTURE`，具体参数见脚本。20 会话负载脚本在隔离配置中显式设置 8 GiB 准入预算和 20 个同时执行，不依赖产品默认值。评估器要求报告对应其指定的 8 GiB cgroup 和负载，不是通用报告校验器。普通 `make test memory`／`capacity` 不创建受限 cgroup，也不证明长期容量保证。
 
-记录二进制 SHA-256／源码提交、平台工具链、参数、失败、Worker 身份、空闲 heap／RSS 及 cgroup 峰值／OOM。比较预热后多个空闲检查点；软预留与 Go 软限制不是系统强制内存上限。浏览器内存单独测量，缓存边界测试本身不能证明浏览器长稳表现。
+记录二进制 SHA-256／源码提交、平台工具链、参数、失败、Worker 身份、空闲 heap／RSS 及 cgroup 峰值／OOM。比较预热后多个空闲检查点；实测内存准入与 Go 软限制不是系统强制内存上限。浏览器内存单独测量，缓存边界测试本身不能证明浏览器长稳表现。
 
 ## 真实模型评测
 

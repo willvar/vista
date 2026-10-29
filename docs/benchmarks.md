@@ -83,7 +83,8 @@ make benchmark gaia BENCHMARK_ARGS='--binary candidate=bin/vista --profile .vist
 ```
 
 `--prepare` downloads pinned validation metadata, original attachments, and the official scorer; it does not call a model.
-Revisions and metadata/scorer hashes are in [`sources.json`](../benchmarks/gaia/sources.json).
+Revisions and metadata, scorer, and instruction-template hashes are in [`sources.json`](../benchmarks/gaia/sources.json).
+The pinned Harbor task template retains its complete output requirements and answer-file example; preparation rejects changes to that template.
 Preparation validates all 165 tasks, level counts, and 38 attachments, then records generated task-file hashes.
 Data stays under `.vista/benchmarks/gaia/`.
 Use `--offline` with `--prepare` when all required files are already cached.
@@ -92,11 +93,13 @@ A prepared dataset is not overwritten; use `--dataset` for a different destinati
 Remove `--dry-run` to run all 165 validation tasks.
 `--level 1` or repeated `--task TASK_ID` selects a subset; report it as a subset.
 Runs use concurrency 1, one attempt, zero Harbor retries, and a 600-second agent limit.
+To compare builds under the same conditions, supply both `--binary before=/path/to/baseline --binary after=bin/vista` in one run; the builds share frozen tasks, instructions, scorer, profile, and adapter, with rotating order.
 The final answer goes in `/app/answer.txt`; Harbor supplies reference answers and the official scorer to the verifier after agent execution.
 The only scorer adjustment removes an unused NumPy import.
 
 Attachments remain original files in `/app/files/`.
-Supported original images also enter Vista through its message API, preserving the product's 1 MiB limit without resizing; oversized inputs remain unsuccessful trials.
+Supported original images also enter Vista through its Worker upload API, followed by message references, preserving the product's 50 MiB limit without resizing; oversized inputs remain unsuccessful trials.
+When a historical binary lacks that upload endpoint, the adapter submits the same original bytes through its legacy message API and retains that binary's own input limit.
 Other files are available to tools.
 The adapter does not add image/video tools or bypass Vista's existing capability boundaries.
 

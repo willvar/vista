@@ -18,7 +18,7 @@ File and shell tools execute their ordinary operations without making rollback c
 
 ## Effective context
 
-One SQLite transaction removes formal messages, model history, output chunks, compaction checkpoints, and subtask report references at and after the boundary. It restores earlier checklists and pending questions and discards the old queue. Conversation ownership of withdrawn attachments follows the remaining effective messages; originals already retrieved by the browser supply the draft. History, model-output, and resource-list reads cannot recover rolled-back content through its old ID.
+One SQLite transaction removes formal messages, model history, output chunks, compaction checkpoints, and subtask report references at and after the boundary. It restores earlier checklists and pending questions and discards the old queue. Resource ownership follows retained messages and earlier tool imports/rereads; an edit also retains its explicitly submitted, already-owned image references in that transaction. Before withdrawal, the browser downloads the original attachments to restore the draft. If this download fails, history is unchanged. History, model-output, and resource-list reads cannot recover rolled-back content through its old ID.
 
 When part of an execution remains, its surviving records are explicitly finalized as interrupted, so removing a terminal event cannot leave it apparently running. Conversation titles and model choices are independent user settings and do not roll back. Late automatic titles may write back only if their original first user message still exists.
 
@@ -30,3 +30,4 @@ When part of an execution remains, its surviving records are explicitly finalize
 - `internal/store/revert_test.go` and `internal/server/revert_test.go`: retained file changes, context/output truncation, same-run interjections, monotonic event sequences, attachments, resource ownership, pending questions, task reports, and late titles.
 - `web/src/composables/useConversation.test.ts`: edit cancellation, resubmission, restored attachments, rollback across tabs, and rapid conversation switching.
 - `web/e2e/message-revert.spec.ts`: desktop and mobile in isolated Chrome, with real Worker file changes, external modifications, editing, withdrawal, active rollback, background processes, and interjection boundaries.
+- `web/e2e/images.spec.ts`: editing, withdrawal and resending preserve original image bytes across resource-ownership changes.

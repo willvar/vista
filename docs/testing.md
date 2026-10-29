@@ -55,11 +55,12 @@ Cross-compilation confirms compilation only. Mock endpoints establish request/st
 | [slow_sse_capacity_smoke.mjs](../scripts/slow_sse_capacity_smoke.mjs) | Slow event readers and long replies |
 | [long_output_smoke.mjs](../scripts/long_output_smoke.mjs) | Long model-text persistence and reading |
 | [image_capacity_smoke.mjs](../scripts/image_capacity_smoke.mjs) | Concurrent and repeated image input; historical images must not be resent automatically |
+| [image_guard_smoke.mjs](../scripts/image_guard_smoke.mjs) | A 50 MiB original, Worker memory interruption, retained original and text recovery without replay |
 | [evaluate_mixed_capacity.py](../scripts/evaluate_mixed_capacity.py) | Evaluate mixed-workload reports against its explicit cgroup, workload, and memory-growth checks |
 
-Direct script runs need an absolute `VISTA_BIN` and isolated `VISTA_TEST_TMPDIR`; mixed/MCP workloads also need `VISTA_MCP_FIXTURE`. Parameters are defined in each script. The evaluator expects the report's specified 8 GiB cgroup and workload; it is not a generic validator for arbitrary reports. Ordinary `make test memory`/`capacity` does not create a constrained cgroup or establish a long-duration capacity guarantee.
+Direct script runs need an absolute `VISTA_BIN` and isolated `VISTA_TEST_TMPDIR`; mixed/MCP workloads also need `VISTA_MCP_FIXTURE`. Parameters are defined in each script. The 20-session load scripts explicitly configure an 8 GiB admission budget and 20 concurrent executions in their isolated state; they do not rely on the product defaults. The evaluator expects the report's specified 8 GiB cgroup and workload; it is not a generic validator for arbitrary reports. Ordinary `make test memory`/`capacity` does not create a constrained cgroup or establish a long-duration capacity guarantee.
 
-Record executable SHA-256/source revision, platform/toolchain, parameters, failures, Worker identities, idle heap/RSS, and any cgroup peak/OOM values. Compare several idle checkpoints after warm-up. Soft reservations and Go soft limits are not OS hard memory limits. Measure browser memory separately; bounded cache tests do not by themselves prove browser endurance.
+Record executable SHA-256/source revision, platform/toolchain, parameters, failures, Worker identities, idle heap/RSS, and any cgroup peak/OOM values. Compare several idle checkpoints after warm-up. Measured-memory admission and Go soft limits are not OS hard memory limits. Measure browser memory separately; bounded cache tests do not by themselves prove browser endurance.
 
 ## Live-model benchmarks
 

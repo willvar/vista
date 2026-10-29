@@ -79,7 +79,8 @@ make benchmark gaia BENCHMARK_ARGS='--binary candidate=bin/vista --profile .vist
 ```
 
 `--prepare` 下载固定版本的验证集资料、原始附件和官方判题器，不调用模型。
-版本和资料／判题器哈希见 [`sources.json`](../benchmarks/gaia/sources.json)。
+版本与元数据、判题器、任务模板的哈希记录在 [`sources.json`](../benchmarks/gaia/sources.json)。
+固定的 Harbor 任务模板保留完整输出要求和答案文件示例；准备数据时会拒绝模板变更。
 准备过程检查全部 165 题、各难度数量和 38 个附件，再记录生成的任务文件哈希。
 数据保存在 `.vista/benchmarks/gaia/`。
 文件已全部缓存时，可在 `--prepare` 时加入 `--offline`。
@@ -88,11 +89,13 @@ make benchmark gaia BENCHMARK_ARGS='--binary candidate=bin/vista --profile .vist
 移除 `--dry-run` 后运行全部 165 道验证题。
 `--level 1` 或重复的 `--task TASK_ID` 可选择子集，报告成绩时必须注明子集。
 并发为 1，只尝试一次，Harbor 重试为零，智能体限时 600 秒。
+比较构建时，在同一次运行中传入 `--binary before=/path/to/baseline --binary after=bin/vista`；两版共用固定的题目、指令、判题器、配置和适配器，并轮换执行顺序。
 最终答案写入 `/app/answer.txt`；智能体执行结束后，Harbor 才将参考答案和官方判题器交给验证步骤。
 判题器仅移除了未使用的 NumPy 导入。
 
 附件原样放在 `/app/files/`。
-支持的原始图片还会通过 Vista 消息 API 传入，保留产品的每张 1 MiB 上限，不缩图；超限输入仍计为未通过试验。
+支持的原始图片还会通过 Vista 的 Worker 上传 API 导入，再以引用提交消息，保留产品的每张 50 MiB 上限，不缩图；超限输入仍计为未通过试验。
+旧二进制没有此上传接口时，适配器通过旧版消息 API 提交相同的原图字节，并保留该二进制自身的输入上限。
 其他文件供工具读取。
 适配器不会额外提供图片／视频工具，也不会绕过 Vista 现有的能力边界。
 

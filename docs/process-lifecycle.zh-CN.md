@@ -2,9 +2,11 @@
 
 [English](./process-lifecycle.md)
 
-Linux 和 macOS 上每个会话 Worker 是独立进程会话的 leader，Shell／本地 MCP 各有进程组并保留 Worker 会话归属。正常退出时 Worker 清理本会话子进程；意外退出时 Server 清理并回收 Worker。Linux 使用 `/proc` 启动时间和 pidfd 核对身份，macOS 使用 `sysctl` 启动时间与会话 ID。Server 保存 Worker 的 PID 和启动身份，下次启动时核对身份并处理遗留进程。macOS 没有 Linux 的父进程死亡信号，Server 退出后由 IPC EOF 触发 Worker 收尾；再次启动也会核对持久化的 Worker 身份。
+MCP 连接由主进程监督的独立托管进程统一管理，本地 MCP 子进程归属于托管进程的进程会话或 Windows Job，而不归属于某个聊天会话。会话结束释放连接版本的占用；关闭浏览器不影响连接。托管进程退出时清理其本地进程树；意外退出后由主进程退避重启，但不重放已中断的工具调用。`state/mcp-host.json` 保存进程身份，供下次启动或重置清理；`state/mcp-host-data/` 中的临时结果及授权快照随占用释放或恢复清理。托管进程的实测内存计入总预算，并使用与会话进程相同的单进程软上限。
 
-Windows 使用带 `KILL_ON_JOB_CLOSE` 的 Job Object。启动受管子进程前先为当前进程建立外层 Job，子进程在创建时自动继承；Worker、Shell、本地 MCP 另以挂起状态启动，归入各自 Job 后才继续执行，覆盖父进程在启动中途崩溃的窗口，也避免快速派生子进程逃过归属登记。Job 句柄不传给子进程；所属父进程退出或崩溃时，系统回收该 Job 内的进程树。显式停止同样终止整棵树。持久化身份使用 Windows 进程创建时间，防止 PID 复用误杀。CLI 启动 Server 时同时脱离控制台与允许脱离的终端／SSH Job，服务在启动连接关闭后继续运行；受管 Worker 和工具仍保留在 Vista 的 Job 内。
+Linux 和 macOS 上每个会话 Worker 是独立进程会话的 leader，Shell 拥有独立进程组并保留 Worker 会话归属，本地 MCP 则归属于托管进程的进程会话。正常退出时 Worker 清理本会话子进程；意外退出时 Server 清理并回收 Worker。Linux 使用 `/proc` 启动时间和 pidfd 核对身份，macOS 使用 `sysctl` 启动时间与会话 ID。Server 保存 Worker 的 PID 和启动身份，下次启动时核对身份并处理遗留进程。macOS 没有 Linux 的父进程死亡信号，Server 退出后由 IPC EOF 触发 Worker 收尾；再次启动也会核对持久化的 Worker 身份。
+
+Windows 使用带 `KILL_ON_JOB_CLOSE` 的 Job Object。启动受管子进程前先为当前进程建立外层 Job，子进程在创建时自动继承；Worker、MCP 托管进程、Shell、本地 MCP 另以挂起状态启动，归入各自 Job 后才继续执行，覆盖父进程在启动中途崩溃的窗口，也避免快速派生子进程逃过归属登记。Job 句柄不传给子进程；所属父进程退出或崩溃时，系统回收该 Job 内的进程树。显式停止同样终止整棵树。持久化身份使用 Windows 进程创建时间，防止 PID 复用误杀。CLI 启动 Server 时同时脱离控制台与允许脱离的终端／SSH Job，服务在启动连接关闭后继续运行；受管 Worker 和工具仍保留在 Vista 的 Job 内。
 
 Windows 可在资源管理器中双击 `vista.exe`，启动或复用已运行的实例，并打开默认浏览器。只隐藏资源管理器启动的启动器控制台，终端命令保留正常输出。启动失败时，原生对话框显示原因及日志路径；浏览器命令无法启动时，对话框提供已运行实例的访问地址。
 

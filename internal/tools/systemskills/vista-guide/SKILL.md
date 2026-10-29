@@ -12,7 +12,7 @@ Official project sources:
 - [Releases](https://github.com/willvar/vista/releases): published versions, release notes, and downloads.
 - [Issues](https://github.com/willvar/vista/issues): reported problems and feature discussions.
 
-Vista settings apply to subsequent executions; saving them does not change the current execution's tools or model. Configure only the requested capability, preserve unrelated settings, and verify through the settings API. Do not edit Vista's database or request a restart for ordinary settings changes.
+Execution settings apply to subsequent runs; saving them does not change the current execution's tools or model. Memory guard changes also reach resident Workers. Configure only the requested capability, preserve unrelated settings, and verify through the settings API. Do not edit Vista's database or request a restart for ordinary settings changes.
 
 The runtime context identifies Vista's configuration directory. Read `state/instance.json` under that directory for the running service's `address`; do not assume its port. Use that address for `/api/` requests. If no instance is running, report that before trying to change settings through its API.
 
