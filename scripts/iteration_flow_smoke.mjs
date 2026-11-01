@@ -21,7 +21,7 @@ let releaseHold, held = false
 const hold = new Promise(resolve => { releaseHold = resolve })
 const upstream = createServer(async (request, response) => {
   if (request.method === 'GET' && request.url === '/v1/models') {
-    response.writeHead(200, { 'Content-Type': 'application/json' }).end(JSON.stringify({ data: models.map(id => ({ id })) })); return
+    response.writeHead(200, { 'Content-Type': 'application/json' }).end(JSON.stringify({ data: models.map(id => ({ id, input_modalities: ['text'], supports_tools: true })) })); return
   }
   if (request.method !== 'POST' || request.url !== '/v1/chat/completions') { response.writeHead(404).end(); return }
   let raw = ''
@@ -39,7 +39,7 @@ const upstream = createServer(async (request, response) => {
   response.end(`data: ${JSON.stringify({ choices: [{ delta: { content: title ? 'Fixture title' : 'Fixture answer' }, finish_reason: 'stop' }], usage: { prompt_tokens: 2000, completion_tokens: 8 } })}\n\ndata: [DONE]\n\n`)
 })
 await new Promise(done => upstream.listen(0, '127.0.0.1', done))
-writeFileSync(join(config, 'models.json'), JSON.stringify({ default: 'fixture-0', models: models.map((id, i) => ({ key: `fixture-${i}`, name: 'Fixture', id, provider: 'openai-chat', apiKey: 'fixture-key', context: 128000, baseUrl: `http://127.0.0.1:${upstream.address().port}/v1` })) }), { mode: 0o600 })
+writeFileSync(join(config, 'models.json'), JSON.stringify({ default: 'fixture-0', models: models.map((id, i) => ({ key: `fixture-${i}`, name: 'Fixture', id, inputModalities: ['text'], provider: 'openai-chat', apiKey: 'fixture-key', context: 128000, baseUrl: `http://127.0.0.1:${upstream.address().port}/v1` })) }), { mode: 0o600 })
 prepareVistaTestConfig(root)
 const env = { ...process.env, VISTA_PORT: await availableVistaPort(), XDG_CONFIG_HOME: root, APPDATA: root, TMPDIR: parent, VISTA_NO_BROWSER: '1' }
 const execute = promisify(execFile)
