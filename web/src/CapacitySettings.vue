@@ -20,13 +20,16 @@ const preset = ref<number | string>(2048)
 const busy = ref(false)
 const error = ref('')
 const equal = (a: MemoryConfig, b: MemoryConfig) => a.budgetMiB === b.budgetMiB && a.workerMiB === b.workerMiB && a.concurrentRuns === b.concurrentRuns
+const presetFor = (config: MemoryConfig) => presets.find(item => equal(item, config))?.budgetMiB || 'custom'
 const dirty = computed(() => !!saved.value && !equal(saved.value, draft.value))
 const valid = computed(() => Object.values(draft.value).every(Number.isSafeInteger) && draft.value.budgetMiB >= 256 && draft.value.budgetMiB <= 1048576 && draft.value.workerMiB >= 128 && draft.value.workerMiB <= draft.value.budgetMiB && draft.value.concurrentRuns >= 1 && draft.value.concurrentRuns <= 128)
 const options = computed(() => [...presets.map(item => ({ label: item.budgetMiB < 1024 ? `${item.budgetMiB} MiB` : `${item.budgetMiB / 1024} GiB`, value: item.budgetMiB })), { label: t('custom'), value: 'custom' }])
-function receive(config: MemoryConfig) {
-  if (!dirty.value) {
+function receive(config: MemoryConfig, reset = false) {
+  // Choosing Custom starts an edit even before any numeric limit changes.
+  const editing = dirty.value || !!saved.value && preset.value !== presetFor(saved.value)
+  if (reset || !editing) {
     draft.value = { ...config }
-    preset.value = presets.find(item => equal(item, config))?.budgetMiB || 'custom'
+    preset.value = presetFor(config)
   }
   saved.value = { ...config }
 }
@@ -41,7 +44,7 @@ async function save() {
   busy.value = true; error.value = ''
   try {
     const config = await props.client.request<MemoryConfig>('/memory-config', { method: 'PUT', body: JSON.stringify(draft.value) })
-    saved.value = { ...config }; receive(config)
+    receive(config, true)
   } catch (cause) { error.value = String(cause) }
   finally { busy.value = false }
 }

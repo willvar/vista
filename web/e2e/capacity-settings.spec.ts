@@ -1,5 +1,34 @@
 import { test, expect } from './fixtures'
 
+test('selecting custom without changing limits survives background metrics and configuration updates', async ({ page, vista }) => {
+  await page.goto(vista.origin + '/settings')
+  const metrics = page.waitForResponse(response => new URL(response.url()).pathname === '/api/events' && new URL(response.url()).searchParams.get('metrics') === '1')
+  await page.locator('.settings-nav').getByRole('link', { name: 'About Vista', exact: true }).click()
+  await metrics
+  const region = page.getByRole('region', { name: 'Memory and capacity', exact: true })
+  const save = region.getByRole('button', { name: 'Save changes', exact: true })
+  await expect(region.getByRole('status')).toContainText('/ 2048 MiB')
+  await region.locator('#memory-preset').click()
+  await page.locator('.ant-select-dropdown:visible .ant-select-item-option').filter({ hasText: /^Custom$/ }).click()
+  const budget = region.getByRole('spinbutton', { name: 'Memory budget', exact: true })
+  await expect(budget).toHaveValue('2048')
+  // Leave the editor untouched through the next five-second metrics push.
+  await page.waitForTimeout(6_000)
+  await expect(budget).toHaveValue('2048')
+  await expect(save).toBeDisabled()
+  expect(await vista.api('/memory-config')).toEqual({ budgetMiB: 2048, workerMiB: 1024, concurrentRuns: 4 })
+  await vista.api('/memory-config', { method: 'PUT', body: JSON.stringify({ budgetMiB: 4096, workerMiB: 2048, concurrentRuns: 8 }) })
+  await expect(region.getByRole('status')).toContainText('/ 4096 MiB')
+  await expect(budget).toHaveValue('2048')
+  await expect(region.getByRole('spinbutton', { name: 'Per-conversation limit', exact: true })).toHaveValue('1024')
+  await expect(region.getByRole('spinbutton', { name: 'Concurrent executions', exact: true })).toHaveValue('4')
+  await expect(save).toBeEnabled()
+  await save.click()
+  await expect(save).toBeDisabled()
+  await expect(region.locator('.memory-limits')).toContainText('1024 MiB')
+  expect(await vista.api('/memory-config')).toEqual({ budgetMiB: 2048, workerMiB: 1024, concurrentRuns: 4 })
+})
+
 test('capacity presets and custom limits save, synchronize and preserve an unsaved editor', async ({ page, vista }, testInfo) => {
   await page.goto(vista.origin + '/settings/about')
   const region = page.getByRole('region', { name: 'Memory and capacity', exact: true })
@@ -44,4 +73,10 @@ test('capacity presets and custom limits save, synchronize and preserve an unsav
   expect(bounds.right).toBeLessThanOrEqual(bounds.width)
   expect(bounds.overflow).toBeLessThanOrEqual(2)
   await page.screenshot({ path: testInfo.outputPath('capacity-settings.png'), animations: 'disabled' })
+  // A pristine custom configuration still follows another client's changes.
+  await vista.api('/memory-config', { method: 'PUT', body: JSON.stringify({ budgetMiB: 1024, workerMiB: 768, concurrentRuns: 2 }) })
+  await expect(region.getByRole('status')).toContainText('/ 1024 MiB')
+  await expect(region.locator('.memory-limits')).toContainText('768 MiB')
+  await expect(budget).toHaveCount(0)
+  await expect(save).toBeDisabled()
 })
