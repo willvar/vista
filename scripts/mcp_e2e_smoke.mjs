@@ -38,7 +38,7 @@ try {
   })
   async function handleProvider(request, response) {
     if (request.method === 'GET' && request.url === '/v1/models') {
-      response.writeHead(200, { 'Content-Type': 'application/json' }).end(JSON.stringify({ data: [{ id: 'mock' }] }))
+      response.writeHead(200, { 'Content-Type': 'application/json' }).end(JSON.stringify({ data: [{ id: 'mock', input_modalities: ['text'], supports_tools: true }] }))
       return
     }
     if (request.method !== 'POST' || request.url !== '/v1/chat/completions') {
@@ -89,7 +89,7 @@ try {
   await new Promise(resolve => provider.listen(0, '127.0.0.1', resolve))
   const vistaConfig = join(state, 'vista')
   mkdirSync(vistaConfig, { mode: 0o700 })
-  writeFileSync(join(vistaConfig, 'models.json'), JSON.stringify({ default: 'mock', models: [{ key: 'mock', provider: 'openai-chat', id: 'mock', apiKey: 'fake', baseUrl: `http://127.0.0.1:${provider.address().port}/v1` }] }), { mode: 0o600 })
+  writeFileSync(join(vistaConfig, 'models.json'), JSON.stringify({ default: 'mock', models: [{ key: 'mock', provider: 'openai-chat', id: 'mock', inputModalities: ['text'], apiKey: 'fake', baseUrl: `http://127.0.0.1:${provider.address().port}/v1` }] }), { mode: 0o600 })
   const mcpConfigs = [
     { id: 'local', name: 'Local tools', transport: 'stdio', command: fixture, args: ['stdio'], directory: state },
     { id: 'remote', name: 'Remote tools', transport: 'http', endpoint: `http://${address}/mcp`, token: 'fixture-token' }

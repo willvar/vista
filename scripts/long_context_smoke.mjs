@@ -16,7 +16,7 @@ let summaries = 0
 let forceOverflow = false
 let forceUnknownFailure = false
 const provider = createServer(async (request, response) => {
-  if (request.method === 'GET' && request.url === '/v1/models') { response.writeHead(200, { 'Content-Type': 'application/json' }).end(JSON.stringify({ data: [{ id: 'long-test' }] })); return }
+  if (request.method === 'GET' && request.url === '/v1/models') { response.writeHead(200, { 'Content-Type': 'application/json' }).end(JSON.stringify({ data: [{ id: 'long-test', input_modalities: ['text'], supports_tools: true }] })); return }
   if (request.method !== 'POST' || request.url !== '/v1/chat/completions') { response.writeHead(404).end(); return }
   let raw = ''
   for await (const chunk of request) raw += chunk
@@ -34,7 +34,7 @@ const provider = createServer(async (request, response) => {
 await new Promise(resolve => provider.listen(0, '127.0.0.1', resolve))
 const vistaConfig = join(state, 'vista')
 mkdirSync(vistaConfig, { mode: 0o700 })
-writeFileSync(join(vistaConfig, 'models.json'), JSON.stringify({ default: 'long', models: [{ key: 'long', provider: 'openai-chat', id: 'long-test', apiKey: 'fake-key', context: 128000, baseUrl: `http://127.0.0.1:${provider.address().port}/v1` }] }), { mode: 0o600 })
+writeFileSync(join(vistaConfig, 'models.json'), JSON.stringify({ default: 'long', models: [{ key: 'long', provider: 'openai-chat', id: 'long-test', inputModalities: ['text'], apiKey: 'fake-key', context: 128000, baseUrl: `http://127.0.0.1:${provider.address().port}/v1` }] }), { mode: 0o600 })
 prepareVistaTestConfig(state)
 const env = { ...process.env, VISTA_PORT: await availableVistaPort(), XDG_CONFIG_HOME: state, TMPDIR: state, VISTA_NO_BROWSER: '1' }
 let started = false

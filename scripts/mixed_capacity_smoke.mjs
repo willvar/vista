@@ -100,7 +100,7 @@ async function handleProvider(request, response) {
 await new Promise(resolve => provider.listen(0, '127.0.0.1', resolve))
 const vistaConfig = join(state, 'vista')
 mkdirSync(vistaConfig, { mode: 0o700 })
-writeFileSync(join(vistaConfig, 'models.json'), JSON.stringify({ default: 'mock', models: [{ key: 'mock', provider: 'openai-chat', id: 'mock', apiKey: 'fake', baseUrl: `http://127.0.0.1:${provider.address().port}/v1` }] }), { mode: 0o600 })
+writeFileSync(join(vistaConfig, 'models.json'), JSON.stringify({ default: 'mock', models: [{ key: 'mock', provider: 'openai-chat', id: 'mock', inputModalities: ['text'], apiKey: 'fake', baseUrl: `http://127.0.0.1:${provider.address().port}/v1` }] }), { mode: 0o600 })
 let fixtureProcess
 prepareVistaTestConfig(state)
 writeFileSync(join(state, 'vista/capacity.json'), JSON.stringify({ budgetMiB: 8192, workerMiB: 1024, concurrentRuns: 20 }), { mode: 0o600 })

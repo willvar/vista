@@ -30,7 +30,7 @@ mkdirSync(vistaConfig, { mode: 0o700 })
 writeFileSync(join(vistaConfig, 'mcp.json'), JSON.stringify(['first', 'second'].map(name => ({ id: name, name, transport: 'http', endpoint: `http://127.0.0.1:${provider.address().port}/mcp`, token: '<'.repeat(3800) }))), { mode: 0o600 })
 
 prepareVistaTestConfig(state)
-const env = { ...process.env, VISTA_PORT: await availableVistaPort(), XDG_CONFIG_HOME: state, TMPDIR: state, VISTA_NO_BROWSER: '1', VISTA_OPENAI_API_KEY: '<'.repeat(4096), VISTA_OPENAI_MODEL: 'mock', VISTA_OPENAI_BASE_URL: `http://127.0.0.1:${provider.address().port}/v1` }
+const env = { ...process.env, VISTA_PORT: await availableVistaPort(), XDG_CONFIG_HOME: state, TMPDIR: state, VISTA_NO_BROWSER: '1', VISTA_OPENAI_API_KEY: '<'.repeat(4096), VISTA_OPENAI_MODEL: 'gpt-4.1-mini', VISTA_OPENAI_BASE_URL: `http://127.0.0.1:${provider.address().port}/v1` }
 for (const name of ['EXA', 'FIRECRAWL', 'PARALLEL', 'TAVILY']) env[`VISTA_WEBSEARCH_${name}_API_KEY`] = '<'.repeat(4096)
 let started = false
 try {

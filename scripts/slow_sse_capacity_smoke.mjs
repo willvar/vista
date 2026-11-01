@@ -48,7 +48,7 @@ const provider = createServer(async (request, response) => {
 await new Promise(resolve => provider.listen(0, '127.0.0.1', resolve))
 prepareVistaTestConfig(state)
 writeFileSync(join(state, 'vista/capacity.json'), JSON.stringify({ budgetMiB: 8192, workerMiB: 1024, concurrentRuns: 20 }), { mode: 0o600 })
-const env = { ...process.env, VISTA_PORT: await availableVistaPort(), XDG_CONFIG_HOME: state, TMPDIR: state, VISTA_NO_BROWSER: '1', VISTA_OPENAI_API_KEY: 'mock-key', VISTA_OPENAI_MODEL: 'mock', VISTA_OPENAI_BASE_URL: `http://127.0.0.1:${provider.address().port}/v1` }
+const env = { ...process.env, VISTA_PORT: await availableVistaPort(), XDG_CONFIG_HOME: state, TMPDIR: state, VISTA_NO_BROWSER: '1', VISTA_OPENAI_API_KEY: 'mock-key', VISTA_OPENAI_MODEL: 'gpt-4.1-mini', VISTA_OPENAI_BASE_URL: `http://127.0.0.1:${provider.address().port}/v1` }
 let started = false
 const stalled = []
 try {

@@ -27,7 +27,7 @@ const provider = createServer(async (request, response) => {
   try {
     if (request.method === 'GET' && request.url === '/v1/models') {
       response.writeHead(200, { 'Content-Type': 'application/json' })
-      response.end(JSON.stringify({ data: [{ id: modelId }] }))
+      response.end(JSON.stringify({ data: [{ id: modelId, input_modalities: ['text'], supports_tools: true }] }))
       return
     }
     if (request.method !== 'POST' || request.url !== '/v1/chat/completions') {
@@ -85,7 +85,7 @@ const provider = createServer(async (request, response) => {
 })
 await new Promise(resolve => provider.listen(0, '127.0.0.1', resolve))
 writeFileSync(join(config, 'models.json'), JSON.stringify({
-  default: 'test', models: [{ key: 'test', provider: 'openai-chat', id: modelId,
+  default: 'test', models: [{ key: 'test', provider: 'openai-chat', id: modelId, inputModalities: ['text'],
     apiKey: 'test-key', context: compactContext || 128000, baseUrl: `http://127.0.0.1:${provider.address().port}/v1` }],
 }), { mode: 0o600 })
 prepareVistaTestConfig(state)

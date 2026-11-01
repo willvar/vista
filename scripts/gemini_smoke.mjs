@@ -16,7 +16,7 @@ const inputPath = join(state, 'note.txt')
 writeFileSync(inputPath, 'hello from Gemini tool')
 let calls = 0
 const provider = createServer(async (request, response) => {
-  if (request.url !== '/v1beta/models/gemini-test:streamGenerateContent?alt=sse' || request.headers['x-goog-api-key'] !== 'fake-key') throw new Error(`wrong Gemini route or key: ${request.url}`)
+  if (request.url !== '/v1beta/models/gemini-2.5-flash:streamGenerateContent?alt=sse' || request.headers['x-goog-api-key'] !== 'fake-key') throw new Error(`wrong Gemini route or key: ${request.url}`)
   let raw = ''
   for await (const chunk of request) raw += chunk
   const body = JSON.parse(raw)
@@ -35,7 +35,7 @@ const provider = createServer(async (request, response) => {
 })
 await new Promise(resolve => provider.listen(0, '127.0.0.1', resolve))
 prepareVistaTestConfig(state)
-const env = { ...process.env, VISTA_PORT: await availableVistaPort(), XDG_CONFIG_HOME: state, TMPDIR: state, VISTA_NO_BROWSER: '1', VISTA_GEMINI_API_KEY: 'fake-key', VISTA_GEMINI_MODEL: 'gemini-test', VISTA_GEMINI_BASE_URL: `http://127.0.0.1:${provider.address().port}/v1beta` }
+const env = { ...process.env, VISTA_PORT: await availableVistaPort(), XDG_CONFIG_HOME: state, TMPDIR: state, VISTA_NO_BROWSER: '1', VISTA_GEMINI_API_KEY: 'fake-key', VISTA_GEMINI_MODEL: 'gemini-2.5-flash', VISTA_GEMINI_BASE_URL: `http://127.0.0.1:${provider.address().port}/v1beta` }
 let started = false
 try {
   const url = (await promisify(execFile)(binary, ['start'], { env, encoding: 'utf8' })).stdout.trim()

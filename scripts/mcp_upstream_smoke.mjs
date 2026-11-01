@@ -119,7 +119,7 @@ try {
   await new Promise(resolve => provider.listen(0, '127.0.0.1', resolve))
   const vistaConfig = join(state, 'vista')
   mkdirSync(vistaConfig, { mode: 0o700 })
-  writeFileSync(join(vistaConfig, 'models.json'), JSON.stringify({ default: 'mock', models: [{ key: 'mock', provider: 'openai-chat', id: 'mock', apiKey: 'fake', baseUrl: `http://127.0.0.1:${provider.address().port}/v1` }] }), { mode: 0o600 })
+  writeFileSync(join(vistaConfig, 'models.json'), JSON.stringify({ default: 'mock', models: [{ key: 'mock', provider: 'openai-chat', id: 'mock', inputModalities: ['text'], apiKey: 'fake', baseUrl: `http://127.0.0.1:${provider.address().port}/v1` }] }), { mode: 0o600 })
   writeFileSync(join(vistaConfig, 'mcp.json'), JSON.stringify([
     { id: 'filesystem', name: 'filesystem', transport: 'stdio', command: process.execPath, args: [filesystem, state], directory: state },
     { id: 'everything', name: 'everything', transport: 'http', endpoint: `http://127.0.0.1:${port}/mcp` }
