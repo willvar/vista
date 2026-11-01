@@ -1,4 +1,10 @@
 export default {
+  "showUnrecognizedModels": "Show unrecognized models",
+  "showUnrecognizedModelsHint": "Enable this to select models whose capabilities Vista has not identified. Some features may be limited.",
+  "modelMetadataMissing": "Capabilities unknown",
+  "unrecognizedModelsHidden": "{count} unrecognized models hidden",
+  "modelVisibilitySettings": "Model visibility settings",
+  "noRecognizedModels": "No recognized models available",
   "memorySettings": "Memory and capacity",
   "memorySettingsHint": "The budget checks measured memory used by Vista and conversation processes. New heavy work is refused when it is reached. A conversation exceeding its own limit is interrupted. These are soft guards, not an operating-system memory cap. Shell programs use additional memory.",
   "memoryBudget": "Memory budget",

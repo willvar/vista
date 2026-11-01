@@ -4,11 +4,11 @@ export type QuestionAnswer = { options: string[]; text?: string }
 export type PendingReply = { runId: string; kind: 'question'; content: string; questions: QuestionPrompt[] }
 export type Session = { id: string; title: string; modelKey: string; open: boolean; running: boolean; executing: boolean; createdAt: string; pendingReply?: PendingReply; inputQueuePaused?: boolean; readSequence?: number; latestReplySequence?: number; latestRunStatus?: string; pendingInputCount?: number; selectionMode?: 'manual' | 'auto'; selectionTier?: 'speed' | 'quality'; manualModelKey?: string; manualReasoningEffort?: string; selectionReasoningEffort?: string }
 export type SessionListSnapshot = { items: Session[]; throughSequences: Record<string, number> }
-export type ModelInfo = { key: string; connectionId?: string; name?: string; modelName?: string; provider: string; providerId?: string; id: string; baseUrl?: string; tools?: boolean; context?: number; inputLimit?: number; outputLimit?: number; catalogReasoning?: boolean; status?: string; inputModalities?: string[]; outputModalities?: string[]; discoverySource?: string; reasoningOptions?: string[]; reasoningEffort?: string }
+export type ModelInfo = { key: string; connectionId?: string; name?: string; modelName?: string; recognized?: boolean; provider: string; providerId?: string; id: string; baseUrl?: string; tools?: boolean; context?: number; inputLimit?: number; outputLimit?: number; catalogReasoning?: boolean; status?: string; inputModalities?: string[]; outputModalities?: string[]; discoverySource?: string; reasoningOptions?: string[]; reasoningEffort?: string }
 export type CopilotAuthOptions = { enterpriseUrl?: string; clientId?: string }
 export type ModelSetting = {
   headerNames?: string[]; copilotAuth?: CopilotAuthOptions; key: string; connectionId?: string; kind?: string; name?: string; provider: string; providerId?: string; id: string; baseUrl?: string; hasApiKey: boolean; hasAccessToken?: boolean; credentialMode?: string; region?: string; project?: string; location?: string; resourceName?: string; deploymentId?: string; apiVersion?: string; editable: boolean }
-export type ModelSettings = { default: string; models: ModelSetting[] }
+export type ModelSettings = { default: string; models: ModelSetting[]; settingsRevision?: string }
 export type ProviderSetup = { id: string; name: string; aliases?: string; baseUrl?: string; fields?: string[]; credentialModes?: string[]; apiFormats?: string[]; models?: { id: string; name: string }[] }
 export type AgentSettings = { instructions: string; instructionsPath: string; delegationDepth: number; maxDelegationDepth: number; automaticTitles: boolean }
 export type Memory = { id: string; text: string; createdAt: string; updatedAt: string }
@@ -25,7 +25,7 @@ export type MCPConfig = { servers: MCPServer[]; maxServers: number; defaultDirec
 export type MCPState = MCPConfig & { logins: LoginUpdate[] }
 export type ResourceStorageStats = { totalBytes: number; totalCount: number; referencedBytes: number; referencedCount: number; cleanableBytes: number; cleanableCount: number; scannedAt: string }
 export type ResourceStorageStatus = { phase: string; action?: string; stats?: ResourceStorageStats; deletedCount: number; deletedBytes: number; error?: string }
-export type ModelCatalog = { default: string; models: ModelInfo[] }
+export type ModelCatalog = { default: string; models: ModelInfo[]; showUnrecognizedModels?: boolean; settingsRevision?: string }
 export type OMPCatalogInfo = {
   revision: string
   modelsDevRevision?: string

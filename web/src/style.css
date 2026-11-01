@@ -1366,13 +1366,14 @@ body {
   line-height: 1.7;
   flex: 1 1 220px;
 }
-.default-model-setting,.configured-providers {
+.default-model-setting,.model-visibility-setting,.configured-providers {
   margin: 24px 0 0;
-  padding: 0 0 24px;
   border: 0;
-  border-bottom: 1px solid var(--border-subtle);
   border-radius: 0;
   background: transparent;
+}
+.configured-providers {
+  margin-top: 32px;
 }
 .provider-empty-state {
   display: flex;
@@ -1422,8 +1423,13 @@ body {
   overflow-wrap: anywhere;
 }
 .configured-provider {
-  border-top: 1px solid var(--border-subtle);
   padding: 16px 0;
+}
+.configured-providers>h3+.configured-provider {
+  padding-top: 0;
+}
+.configured-provider+.configured-provider {
+  border-top: 1px solid var(--border-subtle);
 }
 .provider-heading {
   display: flex;
@@ -1593,19 +1599,22 @@ body {
 .locale-settings .ant-select {
   width: 100%;
 }
-.debug-mode-setting, .automatic-title-setting {
+.debug-mode-setting, .automatic-title-setting, .model-visibility-setting {
   flex-direction: row;
   align-items: center;
   gap: 24px;
 }
-.debug-mode-setting>div, .automatic-title-setting>div {
+.debug-mode-setting>div, .automatic-title-setting>div, .model-visibility-setting>div {
   flex: 1;
   min-width: 0;
 }
-.debug-mode-setting>.ant-switch, .automatic-title-setting>.ant-switch {
+.debug-mode-setting>.ant-switch, .automatic-title-setting>.ant-switch, .model-visibility-setting>.ant-switch {
   flex: none;
   align-self: center;
 }
+.model-metadata-tag { color: var(--muted); }
+.model-metadata-tag { margin-inline-start: 8px; font-size: var(--font-size-small); }
+.model-visibility-link { display: block; padding: 10px 12px; border-top: 1px solid var(--border); color: var(--accent); font-size: var(--font-size-small); white-space: normal; }
 .session-manager-stats>div {
   display: flex;
   flex-direction: column;

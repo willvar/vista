@@ -22,6 +22,36 @@ Authentication is independent: Bearer, `x-api-key`, `x-goog-api-key`, or none. C
 
 Metadata supplements names, capabilities, limits, and reasoning settings; it does not override a custom connection's explicit format. Failures do not probe or switch protocols. Manual model IDs are a fallback shown after failed or empty custom discovery, with the specific discovery error retained.
 
+Model pickers hide unrecognized models by default.
+Enable **Show unrecognized models** in Model connections to include them; unrecognized entries are labelled, and an empty filtered picker links to this setting with the hidden count.
+An exact catalog match, explicit input capabilities, or validated capabilities/limits from discovery counts as recognized; a display name alone does not.
+Text-only and non-reasoning models can be recognized.
+This classification describes the metadata available to Vista, not whether a model has particular capabilities; recognition does not imply complete metadata.
+Existing manual choices, the default model, and automatic tier bindings follow the setting too; a hidden choice falls back to a visible model, and no visible models leaves selection unavailable.
+Changing visibility does not interrupt an execution already in progress; subsequent executions apply the current setting.
+Filtering does not remove models from connection inventories or conversation history and is not a provider-compatibility check.
+
+Custom `/models` discovery reads optional metadata using these supported field shapes:
+
+| Metadata | Fields, in precedence order |
+| --- | --- |
+| Display name | `display_name`, `displayName`, `name` |
+| Context limit | `max_model_len`, `context_length`, `contextWindow`, `top_provider.context_length`; otherwise the sum of valid input and output limits |
+| Input limit | `limits.max_input_tokens`, `limits.input`, `inputTokenLimit` |
+| Output limit | `limits.max_output_tokens`, `limits.output`, `max_output_tokens`, `max_completion_tokens`, `top_provider.max_completion_tokens`, `max_tokens`, `outputTokenLimit` |
+| Tools | Boolean `supports_tools` / `supports_tool_calls`, `capabilities.tools` / `capabilities.tool_calls`, or the corresponding `metadata` booleans; otherwise membership of `tools` / `tool_choice` in `supported_parameters` |
+| Modalities | `input_modalities` / `output_modalities` (also camel case), `architecture.input_modalities` / `architecture.output_modalities`, `modalities.input` / `modalities.output`; `supports_vision` or `capabilities.vision` supplies text/image input when no list is declared |
+| Reasoning | Boolean `reasoning`, `reasoning.supported`, or `thinking`, plus `supported_reasoning_levels` or `reasoning.effort` arrays, at the top level, under `metadata`, or under `capabilities` |
+
+Valid live declarations override reference metadata for the same model; missing or malformed fields retain the catalog fallback.
+Explicit false values and empty reasoning-level arrays suppress catalog reasoning controls, while `reasoning: true` without levels keeps any catalog controls.
+Reasoning levels are limited to Vista's supported effort values and the selected transport's encodable controls; capability flags alone never invent a reasoning ladder.
+Positive integer limits are bounded before use, and each optional field and model is decoded independently.
+Explicit input or output modality lists without text exclude a model from the conversation inventory.
+Explicit user restrictions can further narrow context, tools, and input modalities.
+These derived values feed the composer, automatic selection, and Worker request configuration; they remain in memory and are not written into connection settings.
+Discovery cannot replace API formats, endpoints, authentication, or request headers.
+
 Discovery schedules are implemented separately: custom/Zen every minute, Copilot every five minutes, local services every 30 seconds. Temporary discovery errors retain the latest successful inventory. Editing a connection invalidates obsolete discovery responses. See [custom](../internal/server/custom_models.go), [Copilot](../internal/server/copilot_models.go), and [local](../internal/server/local_models.go) discovery.
 
 ## Importing connections

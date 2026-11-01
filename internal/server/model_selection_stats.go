@@ -45,11 +45,11 @@ func (a *App) modelSelectionStats(w http.ResponseWriter, r *http.Request) {
 	providers := map[string][]string{}
 	seen := map[string]bool{}
 	for _, entry := range catalog.Models {
-		if !entry.Available() || entry.Tools != nil && !*entry.Tools {
+		if !entry.Available() || !prefs.ShowUnrecognizedModels && !entry.Recognized() {
 			continue
 		}
 		model, key, err := catalog.Resolve(entry.Key)
-		if err != nil || model.Provider == "" || model.ID == "" || highestSelectionReasoning(&model) != nil {
+		if err != nil || model.Provider == "" || model.ID == "" || model.Tools != nil && !*model.Tools || highestSelectionReasoning(&model) != nil {
 			continue
 		}
 		name := entry.Name

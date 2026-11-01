@@ -42,7 +42,6 @@ function createWorkspace() {
   const settingsOpen = computed(() => route.name === 'settings' || String(route.name).startsWith('settings-'))
   const sessionManagerOpen = computed(() => route.name === 'session-manager')
   const needsProvider = computed(() => !modelCatalog.value.models.some(model => model.provider))
-  const presentation = usePresentation(modelCatalog)
   const interactionPreferences = useInteractionPreferences(client, cause => { error.value = String(cause) })
   const revisions = { sessions: 0, models: 0, status: 0 }
   const stateConnection = ref<StateConnection>({ phase: 'connecting' })
@@ -61,7 +60,8 @@ function createWorkspace() {
   let disposed = false
   const conversation = useConversation({ client, sessions, modelCatalog, error, busy, refresh: refreshSessions, translate: t, interactionPreferences,
     onSessionStarted: async session => { await router.push(`/sessions/${session.id}`) } })
-  const { selected, selectedModel } = conversation
+  const { selected } = conversation
+  const presentation = usePresentation(modelCatalog)
 
   async function refreshTopics(topics: StateTopic[], signal?: AbortSignal, pushed: WorkspaceSnapshots = {}) {
     await Promise.all(topics.map(async topic => {
@@ -118,9 +118,6 @@ function createWorkspace() {
         const catalog = pushed.models ?? await client.request<ModelCatalog>('/models', { signal })
         if (disposed || signal?.aborted || revision !== revisions.models) return
         modelCatalog.value = catalog
-        if (!catalog.models.some(model => model.key === selectedModel.value)) {
-          selectedModel.value = catalog.models.some(model => model.key === selected.value?.modelKey) ? selected.value!.modelKey : catalog.default
-        }
       }
     }))
   }

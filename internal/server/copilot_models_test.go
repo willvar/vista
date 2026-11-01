@@ -190,6 +190,12 @@ func TestCopilotEmptySuccessfulInventoryDoesNotRestorePinnedModels(t *testing.T)
 		t.Fatal("default model remained runnable after empty inventory")
 	}
 	w := httptest.NewRecorder()
+	st, err := store.Open(filepath.Join(t.TempDir(), "vista.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	app.store = st
 	app.modelList(w, httptest.NewRequest(http.MethodGet, "/api/models", nil))
 	var list struct {
 		Default string      `json:"default"`
@@ -198,12 +204,6 @@ func TestCopilotEmptySuccessfulInventoryDoesNotRestorePinnedModels(t *testing.T)
 	if w.Code != http.StatusOK || json.Unmarshal(w.Body.Bytes(), &list) != nil || list.Default != "" || len(list.Models) != 0 {
 		t.Fatalf("public model list leaked pinned model: %d %s", w.Code, w.Body.String())
 	}
-	st, err := store.Open(filepath.Join(t.TempDir(), "vista.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer st.Close()
-	app.store = st
 	w = httptest.NewRecorder()
 	app.status(w, httptest.NewRequest(http.MethodGet, "/api/status", nil))
 	var status struct {

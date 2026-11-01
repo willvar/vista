@@ -65,7 +65,7 @@ func (a *App) modelSettings(w http.ResponseWriter, r *http.Request) {
 			items = append(items, modelSetting{Kind: modelcatalog.SetupID(model), Key: model.Key, ConnectionID: model.ConnectionID, Name: model.Name, Provider: model.Provider, ProviderID: model.ProviderID, ID: model.ID, BaseURL: model.BaseURL, HasAPIKey: model.APIKey != "", Editable: exists && modelcatalog.Editable(model),
 				HeaderNames: headerNames, CopilotAuth: model.CopilotAuth, HasAccessToken: model.AccessToken != "", CredentialMode: mode, Region: model.Region, Project: model.Project, Location: model.Location, ResourceName: model.ResourceName, DeploymentID: model.DeploymentID, APIVersion: model.APIVersion})
 		}
-		jsonOut(w, map[string]any{"default": catalog.Default, "models": items})
+		jsonOut(w, map[string]any{"default": catalog.Default, "models": items, "settingsRevision": a.modelSettingsVersion(snapshot.revision)})
 	case http.MethodPatch:
 		r.Body = http.MaxBytesReader(w, r.Body, 8<<10)
 		var input struct {

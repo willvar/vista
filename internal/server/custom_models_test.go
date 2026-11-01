@@ -12,11 +12,55 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 
 	"vista/internal/modelcatalog"
+	"vista/internal/provider"
 	"vista/internal/workerproto"
 )
+
+func TestCustomMetadataRefreshUpdatesCapabilitiesWithoutChangingConnection(t *testing.T) {
+	ctx := context.Background()
+	var inventory atomic.Value
+	inventory.Store(`{"data":[{"id":"gpt-6-luna","reasoning":false,"supports_vision":false,"supports_tools":false,"context_length":8192,"max_output_tokens":2048},{"id":"private-alias","name":"Private Vision","input_modalities":["text","image"],"supported_reasoning_levels":["low","high"]}]}`)
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("X-Access") != "saved" || r.Header.Get("Authorization") != "" {
+			t.Error("discovery replaced saved authentication")
+		}
+		fmt.Fprint(w, inventory.Load().(string))
+	}))
+	defer upstream.Close()
+	a := selectionApp(t)
+	a.baseModels = modelCatalog{Default: "anchor", Models: []configuredModel{{Key: "anchor", ConnectionID: "custom", Name: "Test", Provider: "openai-chat", ProviderID: "custom", ID: "gpt-6-luna", BaseURL: upstream.URL, Authentication: "none", Context: 4096, Headers: map[string]string{"X-Access": "saved"}}}}
+	a.refreshCustomModels(ctx)
+	catalog := a.modelsSnapshot()
+	known, _, err := catalog.Resolve("anchor")
+	if err != nil || known.Context != 4096 || known.OutputLimit != 2048 || known.ImageInput == nil || *known.ImageInput || known.Tools == nil || *known.Tools || len(provider.SessionReasoningOptions(known)) != 0 {
+		t.Fatalf("reference or explicit limits overrode discovery: %+v %v", known, err)
+	}
+	var aliasKey string
+	for _, info := range catalog.Public() {
+		if info.ID == "private-alias" {
+			aliasKey = info.Key
+			if !info.Recognized || info.ModelName != "Private Vision" || !slices.Equal(info.InputModalities, []string{"text", "image"}) || !slices.Equal(info.ReasoningOptions, []string{"low", "high"}) {
+				t.Fatalf("derived metadata lost during rebuild: %+v", info)
+			}
+		}
+	}
+	if aliasKey == "" {
+		t.Fatal("discovered alias missing")
+	}
+	inventory.Store(`{"data":[{"id":"gpt-6-luna"},{"id":"private-alias","reasoning":false,"supports_vision":false,"api":"anthropic","headers":{"Authorization":"wrong"}}]}`)
+	a.refreshCustomModels(ctx)
+	updated, key, err := a.modelsSnapshot().Resolve(aliasKey)
+	if err != nil || key != aliasKey || updated.Provider != "openai-chat" || updated.Authentication != "none" || updated.Headers["X-Access"] != "saved" || updated.BaseURL != upstream.URL || updated.ImageInput == nil || *updated.ImageInput || len(provider.SessionReasoningOptions(updated)) != 0 {
+		t.Fatalf("refresh left stale metadata or changed the connection: %+v %v", updated, err)
+	}
+	if !a.modelsSnapshot().Models[0].Recognized() || a.baseModels.Models[0].Tools != nil || a.baseModels.Models[0].Context != 4096 {
+		t.Fatal("refresh mutated persisted restrictions or lost catalog recognition")
+	}
+}
 
 func TestCustomModelsAppearWithoutSavingEachID(t *testing.T) {
 	var mu sync.Mutex
@@ -141,7 +185,8 @@ func TestConnectedModelInventoryReplacesSavedModelsAfterSuccessfulRefresh(t *tes
 			if err := modelcatalog.ResolveCatalog(&base); err != nil {
 				t.Fatal(err)
 			}
-			app := &App{models: base, baseModels: base}
+			app := selectionApp(t)
+			app.models, app.baseModels = base, base
 			check := func(wantDefault string, wantKeys ...string) {
 				t.Helper()
 				catalog := app.modelsSnapshot()
@@ -187,7 +232,7 @@ func TestConnectedModelInventoryReplacesSavedModelsAfterSuccessfulRefresh(t *tes
 			if _, _, err := app.modelsSnapshot().Resolve(first.Key); err == nil {
 				t.Fatal("removed model is still selectable")
 			}
-			app = &App{models: base, baseModels: base}
+			app = &App{store: app.store, models: base, baseModels: base}
 			app.refreshCustomModels(context.Background())
 			check(second.Key, second.Key, newKey)
 

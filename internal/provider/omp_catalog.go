@@ -10,6 +10,8 @@ import (
 	"sort"
 	"sync"
 	"sync/atomic"
+
+	modelcfg "vista/internal/model"
 )
 
 // OMPModel is the stable subset of an oh-my-pi catalog row that Vista can use
@@ -29,12 +31,7 @@ type OMPModel struct {
 	ReasoningOptions []ReasoningOption `json:"reasoningOptions,omitempty"`
 }
 
-type ReasoningOption struct {
-	Type   string   `json:"type"`
-	Values []string `json:"values,omitempty"`
-	Min    *int     `json:"min,omitempty"`
-	Max    *int     `json:"max,omitempty"`
-}
+type ReasoningOption = modelcfg.ReasoningOption
 
 // OMPThinking supplies the fallback policy for OMP-only rows and retains legacy
 // saved models.dev effort lists. Matching models.dev controls replace this policy.

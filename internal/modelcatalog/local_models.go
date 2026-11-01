@@ -139,7 +139,7 @@ func discoveredModel(source LocalSource, base, id string, tools bool, context in
 	if apiKey == "" {
 		apiKey = "-" // OpenAI Chat requires a nonempty key; local endpoints ignore this placeholder.
 	}
-	return Configured{Key: key, Provider: "openai-chat", ProviderID: source.kind, ID: id, BaseURL: base, APIKey: apiKey, Tools: &tools, Context: context}.WithDiscoverySource(source.kind)
+	return Configured{Key: key, Provider: "openai-chat", ProviderID: source.kind, ID: id, BaseURL: base, APIKey: apiKey, Tools: &tools, Context: context, metadataKnown: true}.WithDiscoverySource(source.kind)
 }
 
 func discoverOllama(ctx context.Context, source LocalSource, base, endpoint string) ([]Configured, error) {

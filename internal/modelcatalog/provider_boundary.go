@@ -67,18 +67,19 @@ func (m Configured) providerConfig() provider.CatalogConfig {
 
 func (m Configured) providerMetadata() provider.CatalogMetadata {
 	return provider.CatalogMetadata{
-		BaseURLExplicit:  m.baseURLExplicit,
-		ResponsesRoute:   m.ResponsesRoute,
-		WireID:           m.wireID,
-		InputLimit:       m.inputLimit,
-		OutputLimit:      m.outputLimit,
-		Reasoning:        m.catalogReasoning,
-		Resolved:         m.catalogResolved,
-		Status:           m.status,
-		InputModalities:  m.inputModalities,
-		OutputModalities: m.outputModalities,
-		AzureCatalog:     m.azureCatalog,
-		AzureNative:      m.azureNative,
+		BaseURLExplicit:     m.baseURLExplicit,
+		ResponsesRoute:      m.ResponsesRoute,
+		WireID:              m.wireID,
+		InputLimit:          m.inputLimit,
+		OutputLimit:         m.outputLimit,
+		Reasoning:           m.catalogReasoning,
+		DiscoveredReasoning: m.discoveredReasoning,
+		Resolved:            m.catalogResolved,
+		Status:              m.status,
+		InputModalities:     m.inputModalities,
+		OutputModalities:    m.outputModalities,
+		AzureCatalog:        m.azureCatalog,
+		AzureNative:         m.azureNative,
 	}
 }
 

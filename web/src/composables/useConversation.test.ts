@@ -64,7 +64,7 @@ function fixture(t: TestContext, response?: (path: string, options?: RequestInit
     else Reflect.deleteProperty(globalThis, 'localStorage')
   })
   const sessions = ref([session('a'), session('b')])
-  const modelCatalog = ref<ModelCatalog>({ default: 'example', models: [{ key: 'example', provider: 'openai-chat', id: 'model', reasoningOptions: ['low', 'high'] }] })
+  const modelCatalog = ref<ModelCatalog>({ default: 'example', models: [{ key: 'example', provider: 'openai-chat', recognized: true, id: 'model', reasoningOptions: ['low', 'high'] }] })
   const error = ref('')
   const busy = ref(false)
   let refreshes = 0
@@ -221,7 +221,7 @@ for (const failed of [false, true]) {
 
 test('attachments use server capabilities for manual and automatic selection without a protocol whitelist', t => {
   const { conversation, modelCatalog } = fixture(t)
-  modelCatalog.value.models.push({ key: 'new-protocol', provider: 'future-protocol', id: 'vision', inputModalities: ['text', 'image'] })
+  modelCatalog.value.models.push({ key: 'new-protocol', provider: 'future-protocol', recognized: true, id: 'vision', inputModalities: ['text', 'image'] })
   conversation.chooseModel('new-protocol')
   assert.equal(conversation.canAttachImage.value, true)
   conversation.chooseModel('example')
@@ -532,7 +532,7 @@ test('a late read receipt cannot mark the next selected conversation read', asyn
 
 test('automatic mode keeps manual model and reasoning memory independent', async t => {
   const { conversation, modelCatalog, saved, streams } = fixture(t)
-  modelCatalog.value.models.push({ key: 'second', provider: 'openai-chat', id: 'model-second', reasoningOptions: ['low', 'high'] })
+  modelCatalog.value.models.push({ key: 'second', provider: 'openai-chat', recognized: true, id: 'model-second', reasoningOptions: ['low', 'high'] })
   await conversation.selectSession(session('a'))
   conversation.chooseModel('second')
   conversation.selectedReasoning.value = 'high'
@@ -545,6 +545,50 @@ test('automatic mode keeps manual model and reasoning memory independent', async
   conversation.chooseSelectionMode('manual')
   assert.equal(conversation.selectedModel.value, 'second')
   assert.equal(conversation.selectedReasoning.value, 'high')
+})
+
+test('hiding an active unknown choice also excludes restored manual choices and in-flight automatic events', async t => {
+  const { conversation, modelCatalog, streams } = fixture(t)
+  modelCatalog.value = { ...modelCatalog.value, showUnrecognizedModels: true, models: [
+    ...modelCatalog.value.models,
+    { key: 'unknown', id: 'private-id', provider: 'openai-chat', recognized: false },
+  ] }
+  await conversation.selectSession({ ...session('a'), modelKey: 'unknown', manualModelKey: 'unknown' })
+  conversation.chooseModel('unknown')
+  conversation.draft.value = 'Keep this draft'
+  assert.equal(conversation.selectedModel.value, 'unknown')
+
+  modelCatalog.value = { ...modelCatalog.value, showUnrecognizedModels: false }
+  assert.equal(conversation.selectedModel.value, 'example')
+  assert.equal(conversation.selected.value?.modelKey, 'unknown') // Recorded execution identity is history.
+  assert.equal(conversation.draft.value, 'Keep this draft')
+  conversation.chooseModel('unknown')
+  assert.equal(conversation.selectedModel.value, 'example')
+  conversation.chooseSelectionMode('auto')
+  streams.get('a')!.onEvent({ sequence: 2, kind: 'message', data: message('auto-user', 2, 'auto-run') })
+  streams.get('a')!.onEvent({ sequence: 3, kind: 'model_request', data: { runId: 'auto-run', turn: 1, key: 'unknown', id: 'private-id', provider: 'openai-chat' } })
+  assert.equal(conversation.selectedModel.value, 'example')
+  conversation.chooseSelectionMode('manual')
+  assert.equal(conversation.selectedModel.value, 'example')
+})
+
+test('hiding the only selected model clears selection across mode changes and reopening a session', async t => {
+  const { conversation, modelCatalog } = fixture(t)
+  const old = { ...session('a'), modelKey: 'unknown', manualModelKey: 'unknown' }
+  modelCatalog.value = { default: 'unknown', showUnrecognizedModels: true, models: [
+    { key: 'unknown', id: 'private-id', provider: 'openai-chat', recognized: false },
+  ] }
+  await conversation.selectSession(old)
+  conversation.chooseModel('unknown')
+  assert.equal(conversation.selectedModel.value, 'unknown')
+  modelCatalog.value = { ...modelCatalog.value, showUnrecognizedModels: false }
+  assert.equal(conversation.selectedModel.value, '')
+  conversation.chooseSelectionMode('auto')
+  assert.equal(conversation.canAttachImage.value, false)
+  conversation.chooseSelectionMode('manual')
+  assert.equal(conversation.selectedModel.value, '')
+  await conversation.selectSession(old)
+  assert.equal(conversation.selectedModel.value, '')
 })
 
 test('queued inputs are not clipped and withdrawing appends to the existing draft', async t => {
@@ -777,8 +821,8 @@ test('welcome view restores the last model, reasoning, mode and tier after prefe
   preferences.lastTier.value = 'quality'
   preferences.lastMode.value = 'auto'
   modelCatalog.value = { default: 'example', models: [
-    { key: 'example', id: 'model', provider: 'openai-chat' },
-    { key: 'other', id: 'other-id', provider: 'openai-chat', reasoningOptions: ['low', 'high'] },
+    { key: 'example', id: 'model', provider: 'openai-chat', recognized: true },
+    { key: 'other', id: 'other-id', provider: 'openai-chat', recognized: true, reasoningOptions: ['low', 'high'] },
   ] }
   preferences.ready.value = true
   assert.equal(conversation.selected.value, null)
@@ -860,7 +904,7 @@ test('the first welcome send creates one session and sends the exact chosen mode
     if (path === '/sessions') { requested.resolve(); return creating.promise }
     if (path === '/sessions/first/messages') return Promise.resolve({ runId: 'first-run', message: message('first-user', 1, 'first-run') })
   }, async item => { destinations.push(item.id) })
-  modelCatalog.value.models.push({ key: 'second', id: 'model-second', provider: 'openai-chat', reasoningOptions: ['low', 'high'], inputModalities: ['text', 'image'] })
+  modelCatalog.value.models.push({ key: 'second', id: 'model-second', provider: 'openai-chat', recognized: true, reasoningOptions: ['low', 'high'], inputModalities: ['text', 'image'] })
   conversation.chooseModel('second')
   conversation.selectedReasoning.value = 'high'
   conversation.draft.value = 'Exact first message'

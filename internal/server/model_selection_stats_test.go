@@ -44,8 +44,20 @@ func TestModelSelectionStatisticsAPIHighestConfigurationAndReset(t *testing.T) {
 	if w.Code != 200 || w.Header().Get("Cache-Control") != "no-store" || json.Unmarshal(w.Body.Bytes(), &result) != nil {
 		t.Fatalf("bad GET: %d %s", w.Code, w.Body.String())
 	}
-	if result.SpeedScope != "global" || result.QualityScope != "user" || len(result.Models) != 2 || len(result.Models[0].Providers) != 2 || result.Models[0].ReasoningEffort != "max" || result.Models[0].Speed.Count != 1 || result.Models[1].Speed.MedianMS != nil {
+	if result.SpeedScope != "global" || result.QualityScope != "user" || len(result.Models) != 1 || len(result.Models[0].Providers) != 2 || result.Models[0].ReasoningEffort != "max" || result.Models[0].Speed.Count != 1 {
 		t.Fatalf("bad configured stats: %+v", result)
+	}
+	show := true
+	if _, err := a.store.PatchPreferences(ctx, store.PreferencesPatch{ShowUnrecognizedModels: &show}); err != nil {
+		t.Fatal(err)
+	}
+	w = call(http.MethodGet, "")
+	if w.Code != 200 || json.Unmarshal(w.Body.Bytes(), &result) != nil || len(result.Models) != 2 || result.Models[1].Speed.MedianMS != nil {
+		t.Fatalf("revealed model absent from statistics: %d %s", w.Code, w.Body.String())
+	}
+	show = false
+	if _, err := a.store.PatchPreferences(ctx, store.PreferencesPatch{ShowUnrecognizedModels: &show}); err != nil {
+		t.Fatal(err)
 	}
 	for _, body := range []string{`{}`, `{"scope":"unknown"}`, `{"scope":"speed","userId":"someone"}`, `{"scope":"speed"} {}`} {
 		if w := call(http.MethodDelete, body); w.Code != 400 {

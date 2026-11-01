@@ -443,7 +443,12 @@ func (a *App) modelList(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "method", 405)
 		return
 	}
-	jsonOut(w, a.publicModelsSnapshot())
+	snapshot, err := a.publicModelsSnapshot(r.Context())
+	if err != nil {
+		http.Error(w, "could not read model preferences", http.StatusInternalServerError)
+		return
+	}
+	jsonOut(w, snapshot)
 }
 func (a *App) stop(w http.ResponseWriter, r *http.Request) {
 	if r.Method != "POST" {

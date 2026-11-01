@@ -63,6 +63,9 @@ func (a *App) preferences(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "could not save preferences", 500)
 			return
 		}
+		if patch.ShowUnrecognizedModels != nil {
+			a.updates.notify("models")
+		}
 		jsonOut(w, value)
 	default:
 		http.Error(w, "method", 405)
@@ -77,15 +80,49 @@ func (a *App) initializeSessionSelection(ctx context.Context, id string) (store.
 	effort := ""
 	key := ""
 	catalog := a.modelsSnapshot()
-	model, selected, resolveErr := catalog.Resolve(prefs.ManualModelKey)
+	preferred := visibleModelKey(catalog, prefs.ManualModelKey, prefs.ShowUnrecognizedModels)
+	model, selected, resolveErr := catalog.Resolve(preferred)
 	if resolveErr != nil {
-		model, selected, resolveErr = catalog.Resolve("")
+		preferred = initialVisibleModelKey(catalog, prefs.ShowUnrecognizedModels)
+		if preferred != "" {
+			model, selected, resolveErr = catalog.Resolve(preferred)
+		}
 	}
-	if resolveErr == nil {
+	if resolveErr == nil && preferred != "" {
 		key = selected
 		effort = restoredManualEffort(model, prefs.ReasoningByModelID[model.ID])
 	}
 	return a.store.PatchSessionSelection(ctx, id, store.SessionSelectionPatch{SelectionMode: &prefs.LastMode, SelectionTier: &prefs.LastTier, ManualModelKey: &key, ManualReasoningEffort: &effort})
+}
+
+func initialVisibleModelKey(catalog modelCatalog, showUnrecognized bool) string {
+	first := ""
+	for _, model := range catalog.Models {
+		if !model.Available() || !showUnrecognized && !model.Recognized() {
+			continue
+		}
+		if model.Key == catalog.Default {
+			return model.Key
+		}
+		if first == "" {
+			first = model.Key
+		}
+	}
+	return first
+}
+
+// Hidden choices fall back to a visible model. Preserve errors for keys that
+// are no longer configured rather than silently changing an explicit request.
+func visibleModelKey(catalog modelCatalog, key string, showUnrecognized bool) string {
+	if key == "" {
+		return initialVisibleModelKey(catalog, showUnrecognized)
+	}
+	for _, model := range catalog.Models {
+		if model.Key == key && !showUnrecognized && !model.Recognized() {
+			return initialVisibleModelKey(catalog, showUnrecognized)
+		}
+	}
+	return key
 }
 
 func restoredManualEffort(model modelcfg.Model, effort string) string {
@@ -219,6 +256,10 @@ func (a *App) resolveSelection(ctx context.Context, sessionID string, input sele
 		return modelcfg.Model{}, "", errors.New("invalid selection mode or tier")
 	}
 	catalog := a.modelsSnapshot()
+	prefs, err := a.store.Preferences(ctx)
+	if err != nil {
+		return modelcfg.Model{}, "", err
+	}
 	if mode == "manual" {
 		key := input.ModelKey
 		if key == "" {
@@ -227,6 +268,14 @@ func (a *App) resolveSelection(ctx context.Context, sessionID string, input sele
 		if key == "" && session.SelectionMode == "manual" {
 			key = session.ModelKey
 		}
+		visible := visibleModelKey(catalog, key, prefs.ShowUnrecognizedModels)
+		if visible == "" {
+			return modelcfg.Model{}, "", errors.New("no visible model is available; review model connections")
+		}
+		if visible != key {
+			input.ReasoningEffort = ""
+		}
+		key = visible
 		model, key, err := a.resolveForRun(ctx, key)
 		if err != nil {
 			return model, key, err
@@ -250,6 +299,10 @@ func (a *App) resolveSelection(ctx context.Context, sessionID string, input sele
 		return modelcfg.Model{}, "", err
 	}
 	candidates := []store.SelectionCandidate{}
+	remembered, err := a.store.SessionTierSelection(ctx, sessionID, tier)
+	if err != nil {
+		return modelcfg.Model{}, "", err
+	}
 	cooldowns, err := a.store.ConnectionCooldowns(ctx)
 	if err != nil {
 		return modelcfg.Model{}, "", err
@@ -258,7 +311,7 @@ func (a *App) resolveSelection(ctx context.Context, sessionID string, input sele
 		if !entry.Available() {
 			continue
 		}
-		if entry.Tools != nil && !*entry.Tools {
+		if !prefs.ShowUnrecognizedModels && !entry.Recognized() {
 			continue
 		}
 		if input.HasImages && !slices.Contains(entry.EffectiveInputModalities(), "image") {
@@ -266,6 +319,9 @@ func (a *App) resolveSelection(ctx context.Context, sessionID string, input sele
 		}
 		model, key, err := catalog.Resolve(entry.Key)
 		if err != nil || model.Provider == "" || model.ID == "" {
+			continue
+		}
+		if model.Tools != nil && !*model.Tools {
 			continue
 		}
 		if input.HasImages && !supportsImageInput(model.Provider) {
@@ -285,10 +341,6 @@ func (a *App) resolveSelection(ctx context.Context, sessionID string, input sele
 	}
 	// Each automatic tier retains its own eligible model across tier and mode
 	// switches. Reasoning uses today's maximum without changing that model.
-	remembered, err := a.store.SessionTierSelection(ctx, sessionID, tier)
-	if err != nil {
-		return modelcfg.Model{}, "", err
-	}
 	if remembered != nil {
 		for _, candidate := range candidates {
 			if candidate.ModelKey == remembered.ModelKey {
@@ -304,10 +356,6 @@ func (a *App) resolveSelection(ctx context.Context, sessionID string, input sele
 				return model, key, err
 			}
 		}
-	}
-	prefs, err := a.store.Preferences(ctx)
-	if err != nil {
-		return modelcfg.Model{}, "", err
 	}
 	decision, err := a.store.SelectModel(ctx, prefs.UserID, tier, candidates, inputTokens)
 	if err != nil {

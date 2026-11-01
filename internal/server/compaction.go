@@ -37,7 +37,20 @@ func (a *App) compactSession(w http.ResponseWriter, r *http.Request, sessionID s
 	if input.ModelKey == "" {
 		input.ModelKey = session.ModelKey
 	}
-	model, key, err := a.resolveForRun(r.Context(), input.ModelKey)
+	prefs, err := a.store.Preferences(r.Context())
+	if err != nil {
+		http.Error(w, "could not read model preferences", 500)
+		return
+	}
+	key := visibleModelKey(a.modelsSnapshot(), input.ModelKey, prefs.ShowUnrecognizedModels)
+	if key == "" {
+		http.Error(w, "no visible model is available; review model connections", 400)
+		return
+	}
+	if key != input.ModelKey {
+		input.ReasoningEffort = ""
+	}
+	model, key, err := a.resolveForRun(r.Context(), key)
 	if err != nil {
 		http.Error(w, err.Error(), 400)
 		return

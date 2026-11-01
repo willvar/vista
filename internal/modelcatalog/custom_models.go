@@ -74,19 +74,13 @@ func discoverCustomPages(ctx context.Context, source Configured, endpoint string
 		if err != nil || len(data) > 4<<20 {
 			return nil, errors.New("model list response exceeds 4 MiB or could not be read")
 		}
-		type entry struct {
-			ID        string   `json:"id"`
-			Name      string   `json:"name"`
-			Endpoints []string `json:"endpoints"`
-			Methods   []string `json:"supportedGenerationMethods"`
-		}
 		var page struct {
-			Data                []entry `json:"data"`
-			Models              []entry `json:"models"`
-			HasMore             bool    `json:"has_more"`
-			LastID              string  `json:"last_id"`
-			NextPageToken       string  `json:"nextPageToken"`
-			CohereNextPageToken string  `json:"next_page_token"`
+			Data                []json.RawMessage `json:"data"`
+			Models              []json.RawMessage `json:"models"`
+			HasMore             bool              `json:"has_more"`
+			LastID              string            `json:"last_id"`
+			NextPageToken       string            `json:"nextPageToken"`
+			CohereNextPageToken string            `json:"next_page_token"`
 		}
 		if json.Unmarshal(data, &page) != nil || page.Data == nil && page.Models == nil {
 			return nil, errors.New("model list has an unsupported format")
@@ -95,20 +89,26 @@ func discoverCustomPages(ctx context.Context, source Configured, endpoint string
 		if page.Models != nil {
 			entries = page.Models
 		}
-		for _, row := range entries {
-			id := strings.TrimSpace(row.ID)
+		for _, raw := range entries {
+			row := discoveryObject(raw)
+			id := strings.TrimSpace(row.text("id"))
 			if id == "" && page.Models != nil {
-				id = strings.TrimSpace(row.Name)
+				id = strings.TrimSpace(row.text("name"))
 				if source.Provider == "gemini" {
 					id = strings.TrimPrefix(id, "models/")
 				}
 			}
-			if id == "" || len(id) > 200 || seenIDs[id] || len(row.Methods) > 0 && !slices.Contains(row.Methods, "generateContent") && !slices.Contains(row.Methods, "streamGenerateContent") || source.Provider == "cohere" && len(row.Endpoints) > 0 && !slices.Contains(row.Endpoints, "chat") {
+			methods, endpoints := row.strings("supportedGenerationMethods"), row.strings("endpoints")
+			if id == "" || len(id) > 200 || seenIDs[id] || len(methods) > 0 && !slices.Contains(methods, "generateContent") && !slices.Contains(methods, "streamGenerateContent") || source.Provider == "cohere" && len(endpoints) > 0 && !slices.Contains(endpoints, "chat") {
+				continue
+			}
+			model := source
+			model.ID = id
+			model.applyDiscoveredMetadata(row)
+			if model.inputModalities != nil && !slices.Contains(model.inputModalities, "text") || model.outputModalities != nil && !slices.Contains(model.outputModalities, "text") {
 				continue
 			}
 			seenIDs[id] = true
-			model := source
-			model.ID = id
 			models = append(models, model)
 		}
 		if len(seenIDs) > 4096 || len(seenPages) > 64 {

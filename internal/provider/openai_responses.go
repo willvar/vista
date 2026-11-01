@@ -223,8 +223,7 @@ func openAIResponsesTurnWithReasoning(ctx context.Context, model modelcfg.Model,
 	if !model.ReasoningDisabled {
 		// Visible summaries are opt-in, independently of the effort setting.
 		// Use the catalog or explicit reasoning configuration, not a GPT version.
-		metadata, _ := ompModelForMetadata(model.ProviderID, model.ID)
-		if model.ReasoningEffort != "none" && (metadata.Reasoning || model.ReasoningEffort != "") {
+		if model.ReasoningEffort != "none" && (modelReasoningSupported(model) || model.ReasoningEffort != "") {
 			reasoning["summary"] = "auto"
 		}
 	}

@@ -24,6 +24,7 @@ type Preferences struct {
 	ManualModelKey         string            `json:"manualModelKey"`
 	ReasoningByModelID     map[string]string `json:"reasoningByModelId"`
 	FeedbackInvitationSeen bool              `json:"feedbackInvitationSeen"`
+	ShowUnrecognizedModels bool              `json:"showUnrecognizedModels"`
 }
 
 type PreferencesPatch struct {
@@ -32,6 +33,7 @@ type PreferencesPatch struct {
 	ManualModelKey         *string           `json:"manualModelKey"`
 	ReasoningByModelID     map[string]string `json:"reasoningByModelId"`
 	FeedbackInvitationSeen *bool             `json:"feedbackInvitationSeen"`
+	ShowUnrecognizedModels *bool             `json:"showUnrecognizedModels"`
 }
 
 type preferenceRow struct {
@@ -42,6 +44,7 @@ type preferenceRow struct {
 	ManualModelKey         string
 	ReasoningJSON          string
 	FeedbackInvitationSeen bool
+	ShowUnrecognizedModels bool `gorm:"not null;default:false"`
 }
 
 func (preferenceRow) TableName() string { return "model_selection_preferences" }
@@ -258,7 +261,7 @@ func preferences(tx *gorm.DB) (Preferences, error) {
 	if err := tx.Where("id = ?", "local").Take(&row).Error; err != nil {
 		return Preferences{}, err
 	}
-	result := Preferences{UserID: row.UserID, LastMode: row.LastMode, LastTier: row.LastTier, ManualModelKey: row.ManualModelKey, FeedbackInvitationSeen: row.FeedbackInvitationSeen, ReasoningByModelID: map[string]string{}}
+	result := Preferences{UserID: row.UserID, LastMode: row.LastMode, LastTier: row.LastTier, ManualModelKey: row.ManualModelKey, FeedbackInvitationSeen: row.FeedbackInvitationSeen, ShowUnrecognizedModels: row.ShowUnrecognizedModels, ReasoningByModelID: map[string]string{}}
 	if err := json.Unmarshal([]byte(row.ReasoningJSON), &result.ReasoningByModelID); err != nil {
 		return Preferences{}, err
 	}
@@ -298,6 +301,9 @@ func (s *Store) PatchPreferences(ctx context.Context, patch PreferencesPatch) (P
 		if patch.FeedbackInvitationSeen != nil {
 			result.FeedbackInvitationSeen = result.FeedbackInvitationSeen || *patch.FeedbackInvitationSeen
 		}
+		if patch.ShowUnrecognizedModels != nil {
+			result.ShowUnrecognizedModels = *patch.ShowUnrecognizedModels
+		}
 		for id, value := range patch.ReasoningByModelID {
 			result.ReasoningByModelID[id] = value
 		}
@@ -308,6 +314,7 @@ func (s *Store) PatchPreferences(ctx context.Context, patch PreferencesPatch) (P
 		return tx.Model(&preferenceRow{}).Where("id = ?", "local").Updates(map[string]any{
 			"last_mode": result.LastMode, "last_tier": result.LastTier, "manual_model_key": result.ManualModelKey,
 			"reasoning_json": string(encoded), "feedback_invitation_seen": result.FeedbackInvitationSeen,
+			"show_unrecognized_models": result.ShowUnrecognizedModels,
 		}).Error
 	})
 	return result, err

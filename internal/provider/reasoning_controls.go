@@ -69,6 +69,15 @@ type reasoningControls struct {
 func controlsFor(model modelcfg.Model) reasoningControls {
 	metadata, ok := ompModelForMetadata(model.ProviderID, strings.TrimPrefix(model.ID, "models/"))
 	var controls reasoningControls
+	if live := model.DiscoveredReasoning; live != nil {
+		if !live.Supported {
+			return controls
+		}
+		if live.Options != nil {
+			metadata.Reasoning, metadata.ReasoningOptions, metadata.Thinking = true, live.Options, nil
+			ok = true
+		}
+	}
 	if !ok || !metadata.Reasoning {
 		return controls
 	}
@@ -100,6 +109,14 @@ func controlsFor(model modelcfg.Model) reasoningControls {
 		return cmp.Compare(slices.Index(order, a), slices.Index(order, b))
 	})
 	return controls
+}
+
+func modelReasoningSupported(model modelcfg.Model) bool {
+	if live := model.DiscoveredReasoning; live != nil {
+		return live.Supported
+	}
+	metadata, _ := ompModelForMetadata(model.ProviderID, model.ID)
+	return metadata.Reasoning
 }
 
 func supportsBudgetControl(model modelcfg.Model) bool {

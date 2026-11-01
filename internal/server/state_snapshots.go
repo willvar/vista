@@ -3,22 +3,40 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"strconv"
 )
 
 type publicModelCatalog struct {
-	Default string      `json:"default"`
-	Models  []modelInfo `json:"models"`
+	Default                string      `json:"default"`
+	Models                 []modelInfo `json:"models"`
+	ShowUnrecognizedModels bool        `json:"showUnrecognizedModels"`
+	SettingsRevision       string      `json:"settingsRevision"`
 }
 
-func (a *App) publicModelsSnapshot() publicModelCatalog {
-	models := a.modelsSnapshot()
-	return publicModelCatalog{models.Default, models.Public()}
+// Distinguish persisted connection edits from inventory/preference updates.
+// The server epoch prevents a restarted process from reusing an old version.
+func (a *App) modelSettingsVersion(revision uint64) string {
+	return a.updates.snapshot().Epoch + ":" + strconv.FormatUint(revision, 10)
+}
+
+func (a *App) publicModelsSnapshot(ctx context.Context) (publicModelCatalog, error) {
+	prefs, err := a.store.Preferences(ctx)
+	if err != nil {
+		return publicModelCatalog{}, err
+	}
+	a.modelMu.RLock()
+	models, revision := a.models, a.modelRevision
+	a.modelMu.RUnlock()
+	return publicModelCatalog{Default: initialVisibleModelKey(models, prefs.ShowUnrecognizedModels), Models: models.Public(), ShowUnrecognizedModels: prefs.ShowUnrecognizedModels, SettingsRevision: a.modelSettingsVersion(revision)}, nil
 }
 
 func (a *App) addStateSnapshots(ctx context.Context, point *stateCheckpoint, previous stateCheckpoint) error {
 	changed := func(topic string) bool { return point.Revisions[topic] != previous.Revisions[topic] }
 	if changed("models") {
-		models := a.publicModelsSnapshot()
+		models, err := a.publicModelsSnapshot(ctx)
+		if err != nil {
+			return err
+		}
 		point.Models = &models
 	}
 	if changed("catalog") {

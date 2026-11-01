@@ -65,18 +65,19 @@ type CatalogConfig struct {
 // CatalogMetadata is derived from the selected provider route and model entry.
 // Callers keep it separate from the configuration they persist.
 type CatalogMetadata struct {
-	BaseURLExplicit  bool
-	ResponsesRoute   modelcfg.ResponsesRoute
-	WireID           string
-	InputLimit       int
-	OutputLimit      int
-	Reasoning        bool
-	Resolved         bool
-	Status           string
-	InputModalities  []string
-	OutputModalities []string
-	AzureCatalog     bool
-	AzureNative      bool
+	BaseURLExplicit     bool
+	ResponsesRoute      modelcfg.ResponsesRoute
+	WireID              string
+	InputLimit          int
+	OutputLimit         int
+	Reasoning           bool
+	DiscoveredReasoning *modelcfg.ReasoningCapabilities
+	Resolved            bool
+	Status              string
+	InputModalities     []string
+	OutputModalities    []string
+	AzureCatalog        bool
+	AzureNative         bool
 }
 
 // CatalogResolution is the provider-owned result of preparing a catalog model.

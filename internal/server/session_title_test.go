@@ -288,7 +288,7 @@ func TestSubmitFirstMessageStartsTitleRequestBeforeReply(t *testing.T) {
 				t.Fatal(err)
 			}
 			sink := &imageCommandSink{}
-			app := &App{ctx: ctx, store: db, models: modelCatalog{Default: "selected", Models: []configuredModel{{Key: "selected", Provider: "openai-chat", ID: "model", BaseURL: upstream.URL + "/v1", APIKey: "key"}}}, workers: map[string]*worker{sessionID: {input: sink}}}
+			app := &App{ctx: ctx, store: db, models: modelCatalog{Default: "selected", Models: []configuredModel{{Key: "selected", Provider: "openai-chat", ID: "model", BaseURL: upstream.URL + "/v1", APIKey: "key", InputModalities: []string{"text"}}}}, workers: map[string]*worker{sessionID: {input: sink}}}
 			w := httptest.NewRecorder()
 			request := httptest.NewRequest(http.MethodPost, "/messages", bytes.NewBufferString(`{"content":"Investigate build error","modelKey":"selected"}`))
 			request.Header.Set("X-Vista-Language", tc.code)

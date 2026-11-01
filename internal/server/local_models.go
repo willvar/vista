@@ -98,9 +98,8 @@ func (a *App) rebuildModelsLocked() {
 				if !present {
 					continue
 				}
-				if model.ProviderID == "custom" {
-					remote.Key = model.Key
-					model = remote
+				if model.ProviderID == "custom" || modelcatalog.LocalProvider(model.ProviderID) {
+					model = model.WithDiscoveryMetadata(remote)
 				}
 			}
 		}

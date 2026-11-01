@@ -123,12 +123,7 @@ func (a *App) refreshCustomModels(ctx context.Context) {
 				ProviderID: source.providerID, ID: id, BaseURL: source.baseURL, APIKey: source.apiKey, Authentication: source.authentication, Headers: source.headers,
 			}.WithDiscoverySource("provider")
 			if remote, ok := local[id]; ok {
-				if modelcatalog.LocalProvider(source.providerID) {
-					model.Tools, model.Context = remote.Tools, remote.Context
-				} else {
-					remote.Key = model.Key
-					model = remote.WithDiscoverySource("provider")
-				}
+				model = model.WithDiscoveryMetadata(remote).WithDiscoverySource("provider")
 			}
 			resolved := modelCatalog{Models: []configuredModel{model}}
 			if err := modelcatalog.ResolveCatalog(&resolved); err == nil {

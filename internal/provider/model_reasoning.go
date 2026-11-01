@@ -17,6 +17,19 @@ type ModelLimit struct {
 	Output  int `json:"output,omitempty"`
 }
 
+// ModelMetadataKnownFor uses the same exact identity lookup as capabilities.
+func ModelMetadataKnownFor(providerID, id string) bool {
+	_, ok := ompModelForMetadata(providerID, id)
+	return ok
+}
+
+// ModelToolSupportFor preserves an absent declaration rather than inventing
+// tool support for ID-only custom connections.
+func ModelToolSupportFor(providerID, id string) *bool {
+	model, _ := ompModelForMetadata(providerID, id)
+	return model.SupportsTools
+}
+
 // ModelReasoningOptionsFor returns the active thinking policy for a provider/model
 // pair. Unknown models have no adjustable effort values.
 func ModelReasoningOptionsFor(providerID, id string) []string {

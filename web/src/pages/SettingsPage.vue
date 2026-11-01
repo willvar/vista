@@ -35,7 +35,7 @@ const delegationNodes = [
   { x: 62.5, y: 86, level: 2 }, { x: 87.5, y: 86, level: 2 },
 ]
 const workspace = useWorkspace()
-const { modelCatalog, modelChoices, modelNameById, backToWorkspace, debugMode, serverStatus } = workspace
+const { modelCatalog, defaultModelChoices, modelNameById, backToWorkspace, debugMode, serverStatus } = workspace
 const { lastMode, ready: preferencesReady } = workspace.interactionPreferences
 const { selectionMode, chooseSelectionMode } = workspace.conversation
 const modelSelectionMode = computed({
@@ -91,6 +91,7 @@ const instructionsEditorOpen = ref(false)
 const instructionsEditor = ref<TextAreaRef>()
 const {
   languagePreference, languageChoice, languageOptions, regionOptions, settingsBusy, settingsError,
+  showUnrecognizedModels, visibilityBusy, setShowUnrecognizedModels,
   providerDisconnectTarget, providerDisconnectError, settings,
   agentInstructions, agentInstructionsPath,
   delegationDepth, maxDelegationDepth, canSaveAgentInstructions, canSaveDelegationDepth, automaticTitles, setAutomaticTitles,
@@ -247,7 +248,8 @@ watch(() => route.fullPath, () => {
           </div>
           <a-alert v-if="settingsError && !modelFormOpen" type="error" role="alert" :message="settingsError" />
           <a-alert v-if="importedCount" type="success" role="status" :message="t('providerImportSuccess', { count: importedCount })" />
-          <div v-if="settings.models.length" class="default-model-setting"><label>{{ t('defaultModel') }}<a-select :value="modelCatalog.default" :options="modelChoices" show-search option-filter-prop="searchText" option-label-prop="fullLabel" :disabled="settingsBusy" @update:value="setDefaultModel(String($event))" /></label></div>
+          <div v-if="settings.models.length" class="default-model-setting"><label>{{ t('defaultModel') }}<a-select :value="modelCatalog.default" :options="defaultModelChoices" show-search option-filter-prop="searchText" option-label-prop="fullLabel" :disabled="settingsBusy" @update:value="setDefaultModel(String($event))"><template #optionRender="{ option }"><span>{{ option.label }}</span><small v-if="option.data.unrecognized" class="model-metadata-tag">{{ t('modelMetadataMissing') }}</small></template></a-select></label></div>
+          <div class="model-visibility-setting general-setting"><div><label for="show-unrecognized-models">{{ t('showUnrecognizedModels') }}</label><p id="model-visibility-hint">{{ t('showUnrecognizedModelsHint') }}</p></div><a-switch id="show-unrecognized-models" :checked="showUnrecognizedModels" :loading="visibilityBusy" :aria-label="t('showUnrecognizedModels')" aria-describedby="model-visibility-hint" @update:checked="setShowUnrecognizedModels($event === true)" /></div>
           <div v-if="providerGroups.length" class="configured-providers"><h3>{{ t('connectedProviders') }}</h3>
             <div v-for="group in providerGroups" :key="group.key" class="configured-provider">
               <div class="provider-heading"><div><strong>{{ group.name }}</strong><small class="provider-type">{{ providerTypeLabel(group.kind, group.protocol) }}</small><small v-if="group.baseUrl">{{ group.baseUrl }}</small></div><div v-if="group.models.every(model => model.editable)" class="actions"><a-button size="small" :disabled="settingsBusy" @click="editProvider(group.models[0]!)">{{ t('edit') }}</a-button><confirm-popover :show="providerDisconnectTarget?.key === group.models[0]!.key" :message="t('disconnectProviderConfirm', { name: group.name })" :cancel-text="t('cancel')" :confirm-text="t('disconnectProvider')" :busy="settingsBusy" :error="providerDisconnectError" popover-class="provider-disconnect-popover" @update:show="updateProviderDisconnect($event, group.models[0]!.key, group.name)" @confirm="confirmDisconnectProvider"><template #trigger><a-button size="small" danger :disabled="settingsBusy">{{ t('disconnectProvider') }}</a-button></template></confirm-popover></div></div>

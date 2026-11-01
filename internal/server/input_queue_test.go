@@ -139,7 +139,7 @@ func TestNewMessageAfterFailureDoesNotResumeOldInputs(t *testing.T) {
 		for _, hasPending := range []bool{false, true} {
 			t.Run(fmt.Sprintf("%s/pending=%v", status, hasPending), func(t *testing.T) {
 				app, session := inputQueueFixture(t)
-				app.models = modelCatalog{Default: "test", Models: []configuredModel{{Key: "test", Provider: "openai-chat", ID: "test", BaseURL: "http://127.0.0.1:1/v1", APIKey: "mock"}}}
+				app.models = modelCatalog{Default: "test", Models: []configuredModel{{Key: "test", Provider: "openai-chat", ID: "test", BaseURL: "http://127.0.0.1:1/v1", APIKey: "mock", InputModalities: []string{"text", "image"}}}}
 				sink := &imageCommandSink{}
 				app.workers[session] = &worker{input: sink}
 				if hasPending {

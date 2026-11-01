@@ -55,7 +55,7 @@ func TestNativeApplication(t *testing.T) {
 	var shellEvidence, runtimeEvidence atomic.Bool
 	model := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/v1/models" {
-			io.WriteString(w, `{"data":[{"id":"platform-fixture"}]}`)
+			io.WriteString(w, `{"data":[{"id":"platform-fixture","input_modalities":["text"],"supports_tools":true}]}`)
 			return
 		}
 		var request struct {

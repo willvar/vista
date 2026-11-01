@@ -32,8 +32,11 @@ func TestSelectionPreferencesPersistIdentityAndIndependentMemories(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
+	if initial.ShowUnrecognizedModels {
+		t.Fatal("unknown models must be hidden by default")
+	}
 	seen := true
-	if _, err := s.PatchPreferences(ctx, PreferencesPatch{LastMode: stringValue("auto"), LastTier: stringValue("quality"), ManualModelKey: stringValue("manual-model"), ReasoningByModelID: map[string]string{"model-a": "low"}, FeedbackInvitationSeen: &seen}); err != nil {
+	if _, err := s.PatchPreferences(ctx, PreferencesPatch{LastMode: stringValue("auto"), LastTier: stringValue("quality"), ManualModelKey: stringValue("manual-model"), ReasoningByModelID: map[string]string{"model-a": "low"}, FeedbackInvitationSeen: &seen, ShowUnrecognizedModels: &seen}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := s.PatchPreferences(ctx, PreferencesPatch{ReasoningByModelID: map[string]string{"model-b": "max"}}); err != nil {
@@ -53,6 +56,13 @@ func TestSelectionPreferencesPersistIdentityAndIndependentMemories(t *testing.T)
 	}
 	if prefs.UserID != initial.UserID || prefs.LastMode != "auto" || prefs.LastTier != "quality" || prefs.ManualModelKey != "manual-model" || prefs.ReasoningByModelID["model-a"] != "low" || prefs.ReasoningByModelID["model-b"] != "max" || !prefs.FeedbackInvitationSeen {
 		t.Fatalf("preferences lost: %+v", prefs)
+	}
+	if !prefs.ShowUnrecognizedModels {
+		t.Fatal("visibility preference lost on reopen")
+	}
+	hide := false
+	if prefs, err := s.PatchPreferences(ctx, PreferencesPatch{ShowUnrecognizedModels: &hide}); err != nil || prefs.ShowUnrecognizedModels {
+		t.Fatalf("explicit false ignored: %+v %v", prefs, err)
 	}
 	if _, err := s.Create(ctx, "session", "title"); err != nil {
 		t.Fatal(err)

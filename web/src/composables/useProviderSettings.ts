@@ -2,7 +2,7 @@ import { computed, onScopeDispose, ref, watch, type Ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { VistaAPIError, type VistaClient } from '../client/vista'
 import type { createWorkspaceSync } from '../client/workspaceSync'
-import type { AgentSettings, ModelInfo, ModelSetting, ModelSettings, ProviderSetup } from '../client/types'
+import type { AgentSettings, ModelCatalog, ModelInfo, ModelSetting, ModelSettings, ProviderSetup } from '../client/types'
 import { languages } from '../i18n/languages.ts'
 import { readLanguagePreference, setLanguagePreference, type LanguagePreference } from '../i18n'
 
@@ -10,9 +10,10 @@ type SettingsDependencies = {
   client: VistaClient
   error: Ref<string>
   stateSync: ReturnType<typeof createWorkspaceSync>
+  modelCatalog: Ref<ModelCatalog>
 }
 
-export function useProviderSettings({ client, error, stateSync }: SettingsDependencies) {
+export function useProviderSettings({ client, error, stateSync, modelCatalog }: SettingsDependencies) {
   const { t, locale } = useI18n({ useScope: 'global' })
   function api<T = unknown>(path: string, options?: RequestInit) { return client.request<T>(path, options) }
   const languagePreference = ref<LanguagePreference>(readLanguagePreference())
@@ -45,6 +46,16 @@ export function useProviderSettings({ client, error, stateSync }: SettingsDepend
 
   const settingsBusy = ref(false)
   const settingsError = ref('')
+  const visibilityBusy = ref(false)
+  const showUnrecognizedModels = computed(() => !!modelCatalog.value.showUnrecognizedModels)
+  async function setShowUnrecognizedModels(enabled: boolean) {
+    if (visibilityBusy.value) return
+    visibilityBusy.value = true
+    settingsError.value = ''
+    try { await api('/preferences', { method: 'PATCH', body: JSON.stringify({ showUnrecognizedModels: enabled }) }) }
+    catch (cause) { settingsError.value = String(cause) }
+    finally { visibilityBusy.value = false }
+  }
   const providerDisconnectTarget = ref<{ key: string; name: string } | null>(null)
   const providerDisconnectError = ref('')
   const settings = ref<ModelSettings>({ default: '', models: [] })
@@ -207,12 +218,14 @@ export function useProviderSettings({ client, error, stateSync }: SettingsDepend
     unsubscribeModels = stateSync.subscribe(['models', 'catalog'], async (topics, signal, snapshots) => {
       const catalog = snapshots.catalog
       const nextRevision = catalog ? `${catalog.revision}:${catalog.modelsDevRevision || ''}` : ''
+      const settingsRevision = snapshots.models?.settingsRevision
       try {
         await Promise.all([
-          topics.includes('models') ? readModelSettings(signal) : Promise.resolve(),
+          topics.includes('models') && (!settingsRevision || settingsRevision !== settings.value.settingsRevision) ? readModelSettings(signal) : Promise.resolve(),
           (!providerSetups.value.length || topics.includes('catalog') && !catalog?.updating && (!nextRevision || nextRevision !== catalogRevision))
             ? readProviderSetups(signal) : Promise.resolve(),
         ])
+        if (signal.aborted) return
         if (catalog && !catalog.updating) catalogRevision = nextRevision
       } catch (cause) {
         if (!signal.aborted) { settingsError.value = String(cause); error.value = String(cause) }
@@ -311,6 +324,7 @@ export function useProviderSettings({ client, error, stateSync }: SettingsDepend
 
   return {
     languagePreference, languageChoice, languageOptions, regionOptions, settingsBusy, settingsError,
+    showUnrecognizedModels, visibilityBusy, setShowUnrecognizedModels,
     providerDisconnectTarget, providerDisconnectError, settings,
     agentInstructions, agentInstructionsPath, savedAgentInstructions,
     delegationDepth, maxDelegationDepth, canSaveAgentInstructions, canSaveDelegationDepth, automaticTitles, setAutomaticTitles,

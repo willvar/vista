@@ -89,6 +89,9 @@ type Configured struct {
 	inputModalities     []string
 	outputModalities    []string
 	discoverySource     string
+	metadataKnown       bool
+	discoveredName      string
+	discoveredReasoning *modelcfg.ReasoningCapabilities
 	azureCatalog        bool
 	azureNative         bool
 	codexCredentialPath string
@@ -105,6 +108,7 @@ type Info struct {
 	ConnectionID     string   `json:"connectionId,omitempty"`
 	Name             string   `json:"name,omitempty"`
 	ModelName        string   `json:"modelName,omitempty"`
+	Recognized       bool     `json:"recognized"`
 	Provider         string   `json:"provider"`
 	ProviderID       string   `json:"providerId,omitempty"`
 	ID               string   `json:"id"`
@@ -202,7 +206,7 @@ func resolveWithOMPCatalog(catalog *Catalog, snapshot *provider.OMPCatalogSnapsh
 	return nil
 }
 
-func fillMissingModelLimits(model *Configured) {
+func fillMissingModelMetadata(model *Configured) {
 	limits := provider.ModelLimitsFor(model.ProviderID, model.ID)
 	if model.Context == 0 {
 		model.Context = limits.Context
@@ -212,6 +216,9 @@ func fillMissingModelLimits(model *Configured) {
 	}
 	if model.outputLimit == 0 {
 		model.outputLimit = limits.Output
+	}
+	if model.Tools == nil {
+		model.Tools = provider.ModelToolSupportFor(model.ProviderID, model.ID)
 	}
 }
 
@@ -339,7 +346,7 @@ func (c Catalog) Resolve(key string) (modelcfg.Model, string, error) {
 	for _, item := range c.Models {
 		if item.Key == key {
 			if !item.catalogResolved {
-				fillMissingModelLimits(&item)
+				fillMissingModelMetadata(&item)
 			}
 			model := provider.CatalogModelRequest(item.providerConfig(), item.providerMetadata())
 			model.CodexCredentialPath = item.codexCredentialPath
@@ -364,19 +371,32 @@ func (c Catalog) Public() []Info {
 func (item Configured) Info() Info {
 	options := []string(nil)
 	if !item.catalogResolved {
-		fillMissingModelLimits(&item)
+		fillMissingModelMetadata(&item)
 	}
 	request := provider.CatalogModelRequest(item.providerConfig(), item.providerMetadata())
 	options = provider.SessionReasoningOptions(request)
+	modelName := item.discoveredName
+	if modelName == "" {
+		modelName = provider.ModelDisplayNameFor(item.ProviderID, item.ID)
+	}
+	if item.discoveredReasoning != nil {
+		item.catalogReasoning = item.discoveredReasoning.Supported
+	}
 	baseURL := ""
 	if item.ProviderID == "custom" || (item.Provider == "openai-chat" || item.Provider == "openai-responses") && (item.ProviderID == "" || item.ProviderID == "openai") {
 		baseURL = item.BaseURL
 	}
-	return Info{Key: item.Key, ConnectionID: item.ConnectionID, Name: item.Name, ModelName: provider.ModelDisplayNameFor(item.ProviderID, item.ID), Provider: item.Provider, ProviderID: item.ProviderID, ID: item.ID, BaseURL: baseURL, Tools: item.Tools, Context: item.Context, InputLimit: item.inputLimit, OutputLimit: item.outputLimit, CatalogReasoning: item.catalogReasoning, Status: item.status, InputModalities: provider.SupportedInputModalities(item.Provider, item.EffectiveInputModalities()), OutputModalities: item.outputModalities, DiscoverySource: item.discoverySource, ReasoningOptions: options}
+	return Info{Key: item.Key, ConnectionID: item.ConnectionID, Name: item.Name, ModelName: modelName, Recognized: item.Recognized(), Provider: item.Provider, ProviderID: item.ProviderID, ID: item.ID, BaseURL: baseURL, Tools: item.Tools, Context: item.Context, InputLimit: item.inputLimit, OutputLimit: item.outputLimit, CatalogReasoning: item.catalogReasoning, Status: item.status, InputModalities: provider.SupportedInputModalities(item.Provider, item.EffectiveInputModalities()), OutputModalities: item.outputModalities, DiscoverySource: item.discoverySource, ReasoningOptions: options}
+}
+
+// Recognized reports available catalog or explicit capability metadata, including
+// provider discovery. Text-only and non-reasoning models remain recognized.
+func (m Configured) Recognized() bool {
+	return m.catalogResolved || m.metadataKnown || len(m.InputModalities) > 0 || len(m.inputModalities) > 0 || provider.ModelMetadataKnownFor(m.ProviderID, m.ID)
 }
 
 func (m Configured) EffectiveInputModalities() []string {
-	if len(m.inputModalities) > 0 {
+	if m.inputModalities != nil {
 		return m.inputModalities
 	}
 	if len(m.InputModalities) > 0 {

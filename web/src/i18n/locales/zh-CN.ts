@@ -2,6 +2,12 @@ import type en from './en.ts'
 
 
 export default {
+  "showUnrecognizedModels": "显示未识别模型",
+  "showUnrecognizedModelsHint": "开启后可选用能力未被 Vista 识别的模型，部分功能可能受限。",
+  "modelMetadataMissing": "能力未识别",
+  "unrecognizedModelsHidden": "{count} 个未识别模型已隐藏",
+  "modelVisibilitySettings": "调整模型显示",
+  "noRecognizedModels": "暂无已识别模型",
   "memorySettings": "内存与容量",
   "memorySettingsHint": "按 Vista 主进程和会话进程的实际内存占用检查预算。达到预算时拒绝新的高开销操作；会话进程超过自身上限时中断执行。这是软保护，并非操作系统的内存硬限制。Shell 启动的程序另占内存。",
   "memoryBudget": "内存预算",

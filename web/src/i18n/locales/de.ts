@@ -2,6 +2,12 @@ import type en from './en.ts'
 
 
 export default {
+  "showUnrecognizedModels": "Nicht erkannte Modelle anzeigen",
+  "showUnrecognizedModelsHint": "Ermöglicht die Auswahl von Modellen, deren Fähigkeiten Vista nicht erkannt hat. Einige Funktionen können eingeschränkt sein.",
+  "modelMetadataMissing": "Fähigkeiten unbekannt",
+  "unrecognizedModelsHidden": "{count} nicht erkannte Modelle ausgeblendet",
+  "modelVisibilitySettings": "Modellanzeige einstellen",
+  "noRecognizedModels": "Keine erkannten Modelle verfügbar",
   "memorySettings": "Arbeitsspeicher und Kapazität",
   "memorySettingsHint": "Das Budget prüft den gemessenen Speicher von Vista und Gesprächsprozessen. Bei Erreichen werden neue aufwendige Vorgänge abgelehnt. Ein Gespräch über seinem eigenen Limit wird unterbrochen. Dies sind weiche Schutzgrenzen, keine Betriebssystemgrenzen. Shell-Programme benötigen zusätzlichen Speicher.",
   "memoryBudget": "Speicherbudget",

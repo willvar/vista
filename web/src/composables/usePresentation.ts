@@ -3,6 +3,7 @@ import { computed, type Ref } from 'vue'
 import { reasoningChoiceLabel } from '../ui/reasoning.ts'
 import type { Message, ModelCatalog, ModelInfo, ModelResultView, Session, StreamEvent } from '../client/types'
 import { formatDateTime } from '../ui/datetime.ts'
+import { visibleModels } from '../state/modelVisibility.ts'
 
 export function displayModelName(model: Pick<ModelInfo, 'id' | 'modelName'>) {
   return model.modelName?.trim() || model.id
@@ -57,7 +58,7 @@ export function modelPickerOptions(models: readonly ModelInfo[], locale: string,
       .sort((a, b) => compare(displayModelName(a), displayModelName(b)) || compare(a.key, b.key))
       .map(model => {
         const label = fullLabel(model)
-        return { label: displayModelName(model), fullLabel: label, searchText: modelSearchText(model, label), value: model.key }
+        return { label: displayModelName(model), fullLabel: label, searchText: modelSearchText(model, label), value: model.key, unrecognized: model.recognized === false }
       }),
     }))
 }
@@ -114,7 +115,9 @@ export function usePresentation(catalog: Ref<ModelCatalog>) {
     return model.name || (model.providerId === 'opencode' ? 'OpenCode Zen' : model.providerId === 'opencode-go' ? 'OpenCode Zen Go'
       : model.provider === 'openai-chat' || model.provider === 'openai-responses' ? t('customProvider') : model.providerId || model.provider)
   }
-  const modelChoices = computed(() => modelPickerOptions(catalog.value.models, locale.value, settingProviderName, modelLabel))
+  const modelChoices = computed(() => modelPickerOptions(visibleModels(catalog.value), locale.value, settingProviderName, modelLabel))
+  const defaultModelChoices = modelChoices
+  const hiddenModelCount = computed(() => catalog.value.models.length - visibleModels(catalog.value).length)
   function historicalModelLabel(identity: ModelIdentity) {
     const model = historicalModelInfo(identity, catalog.value.models)
     return model ? model.provider || model.name ? modelLabel(model) : displayModelName(model) : ''
@@ -130,5 +133,5 @@ export function usePresentation(catalog: Ref<ModelCatalog>) {
     if (event.kind === 'context_notice') return t('contextCompacted')
     return ''
   }
-  return { localTime, displaySessionTitle, statusLabel, modelLabel, historicalModelLabel, settingProviderName, messageModel, activityLabel, modelNameById, modelSearchText, modelChoices, formatModelWithReasoning }
+  return { localTime, displaySessionTitle, statusLabel, modelLabel, historicalModelLabel, settingProviderName, messageModel, activityLabel, modelNameById, modelSearchText, modelChoices, defaultModelChoices, hiddenModelCount, formatModelWithReasoning }
 }

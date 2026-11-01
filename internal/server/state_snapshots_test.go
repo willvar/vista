@@ -14,7 +14,7 @@ import (
 
 func TestChangedSettingsPushPublicSnapshotsAndUnchangedTopicsStayEmpty(t *testing.T) {
 	consumer, _ := newResultConsumerTest(t)
-	app := &App{store: consumer.store, configDir: t.TempDir(), models: modelCatalog{Default: "model", Models: []configuredModel{{Key: "model", ID: "fixture", Provider: "openai-chat", APIKey: "model-secret", Headers: map[string]string{"X-Key": "header-secret"}}}},
+	app := &App{store: consumer.store, configDir: t.TempDir(), models: modelCatalog{Default: "model", Models: []configuredModel{{Key: "model", ID: "fixture", Provider: "openai-chat", APIKey: "model-secret", InputModalities: []string{"text"}, Headers: map[string]string{"X-Key": "header-secret"}}}},
 		providerLogins: map[string]*providerLogin{"login": {ID: "login", Status: "connected", UserCode: "device-secret", VerificationURL: "https://auth.test/secret"}},
 		mcpServers:     []workerproto.MCPServer{{ID: "mcp", Name: "Tools", Transport: "http", Endpoint: "https://mcp.test", Token: "mcp-secret", ClientSecret: "client-secret", Headers: map[string]string{"X-Private": "mcp-header-secret"}}},
 		mcpLogins:      map[string]*mcpLogin{"mcp-login": {ID: "mcp-login", Status: "pending", AuthorizationURL: "https://mcp.test/authorization-secret"}},

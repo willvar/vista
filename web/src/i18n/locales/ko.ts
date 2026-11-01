@@ -2,6 +2,12 @@ import type en from './en.ts'
 
 
 export default {
+  "showUnrecognizedModels": "인식되지 않은 모델 표시",
+  "showUnrecognizedModelsHint": "켜면 Vista가 기능을 식별하지 못한 모델을 선택할 수 있지만 일부 기능이 제한될 수 있습니다.",
+  "modelMetadataMissing": "기능 미확인",
+  "unrecognizedModelsHidden": "인식되지 않은 모델 {count}개 숨김",
+  "modelVisibilitySettings": "모델 표시 설정",
+  "noRecognizedModels": "인식된 모델이 없습니다",
   "memorySettings": "메모리 및 용량",
   "memorySettingsHint": "Vista와 대화 프로세스의 실제 메모리를 확인합니다. 예산에 도달하면 새로운 고부하 작업을 거부하고, 대화가 개별 한도를 넘으면 중단합니다. 운영체제의 강제 제한은 아닙니다. 셸 프로그램은 추가 메모리를 사용합니다.",
   "memoryBudget": "메모리 예산",

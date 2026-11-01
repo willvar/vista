@@ -131,7 +131,7 @@ func TestImageSubmissionRejectsUnsupportedModelAndInvalidPayload(t *testing.T) {
 	if _, err := s.Create(context.Background(), session, "image rejection"); err != nil {
 		t.Fatal(err)
 	}
-	models := modelCatalog{Default: "text", Models: []configuredModel{{Key: "text", Provider: "openai-chat", ID: "test", APIKey: "key"}}}
+	models := modelCatalog{Default: "text", Models: []configuredModel{{Key: "text", Provider: "openai-chat", ID: "test", APIKey: "key", InputModalities: []string{"text"}}}}
 	app := &App{dir: stateDir, store: s, models: models, workers: map[string]*worker{session: {input: &imageCommandSink{}}}}
 	image := seedImageRef(t, app, session, testPNG(t))
 	for _, tc := range []struct {

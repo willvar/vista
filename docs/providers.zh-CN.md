@@ -22,6 +22,36 @@ WebUI 连接列表来自[服务商配置](../internal/modelcatalog/provider_setu
 
 元数据补充名称、能力、限制和推理档位，不覆盖自定义连接明确选择的格式。失败时不探测或切换协议。手动模型 ID 是自定义发现失败或返回空列表后才显示的兜底，保留具体发现错误。
 
+模型选择器默认隐藏未识别模型。
+在模型连接中开启「显示未识别模型」可将其纳入选择；未识别的条目会带有标签，筛选后为空时会显示隐藏数量及设置入口。
+精确匹配目录、明确配置输入能力，或从发现结果获得有效能力／容量资料，均视为已识别；只有显示名称不算。
+纯文本模型和不支持推理的模型也可以是已识别模型。
+这个分类反映 Vista 当前取得的资料，不代表模型是否具备某项能力；已识别也不意味着资料完整。
+已有手动选择、默认模型及自动档位绑定也遵循开关设置；被隐藏的选择回退到可见模型，没有可见模型时无法选择。
+更改显示设置不会中断正在进行的执行，后续执行按当前设置选模。
+筛选不删除连接模型清单或会话历史，也不代表已验证服务商兼容性。
+
+自定义 `/models` 发现读取以下可选元数据格式：
+
+| 元数据 | 字段，按优先级排列 |
+| --- | --- |
+| 显示名称 | `display_name`、`displayName`、`name` |
+| 上下文上限 | `max_model_len`、`context_length`、`contextWindow`、`top_provider.context_length`；否则使用有效输入与输出上限之和 |
+| 输入上限 | `limits.max_input_tokens`、`limits.input`、`inputTokenLimit` |
+| 输出上限 | `limits.max_output_tokens`、`limits.output`、`max_output_tokens`、`max_completion_tokens`、`top_provider.max_completion_tokens`、`max_tokens`、`outputTokenLimit` |
+| 工具 | 布尔值 `supports_tools`／`supports_tool_calls`、`capabilities.tools`／`capabilities.tool_calls`，或 `metadata` 下的对应布尔值；否则检查 `supported_parameters` 是否包含 `tools`／`tool_choice` |
+| 输入输出类型 | `input_modalities`／`output_modalities`（也接受驼峰命名）、`architecture.input_modalities`／`architecture.output_modalities`、`modalities.input`／`modalities.output`；未声明列表时，`supports_vision` 或 `capabilities.vision` 提供文本／图片输入能力 |
+| 推理 | 布尔值 `reasoning`、`reasoning.supported` 或 `thinking`，及 `supported_reasoning_levels` 或 `reasoning.effort` 数组；支持顶层、`metadata` 及 `capabilities` 内的声明 |
+
+有效的服务商声明优先于同一模型的目录资料；缺失或格式错误的字段回退目录。
+明确的 false 和空推理档位数组会抑制目录中的推理控件，`reasoning: true` 未附档位时保留目录控件。
+推理档位限定为 Vista 支持的强度值及所选协议能发送的控件；只有能力标记不会凭空生成档位。
+正整数容量会先进行范围检查，各可选字段及模型独立解码。
+明确的输入或输出类型列表不包含文本时，该模型不会进入对话模型清单。
+用户明确配置的限制还可以进一步收窄上下文、工具及输入类型。
+这些派生资料用于输入区、自动选模及会话进程的请求配置，仅保留于内存，不写入连接配置。
+发现结果不能替换接口格式、地址、认证或请求头。
+
 发现周期分别实现：自定义／Zen 每分钟、Copilot 每五分钟、本地服务每 30 秒。临时错误保留上次成功清单；编辑连接后，过时发现响应失效。见[自定义发现](../internal/server/custom_models.go)、[Copilot 发现](../internal/server/copilot_models.go)及[本地发现](../internal/server/local_models.go)。
 
 ## 导入连接

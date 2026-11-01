@@ -10,6 +10,7 @@ import { useInteractionPreferences, type InteractionPreferences, type SelectionM
 import { formatQuotedReply, quoteStoragePrefix, readQuotedText, type QuotedText } from '../state/quotedReply.ts'
 import { reasoningChoiceLabel } from '../ui/reasoning.ts'
 import { jobActive } from '../state/jobs.ts'
+import { initialModelKey, visibleModels } from '../state/modelVisibility.ts'
 
 export type ConversationOptions = {
   client: VistaClient
@@ -97,7 +98,7 @@ export function useConversation({ client, sessions, modelCatalog, error, busy, r
   })
   const reasoningChoices = computed(() => (selectedModelInfo.value?.reasoningOptions || []).map(value => ({ label: reasoningChoiceLabel(value, t), value })))
   const canAttachImage = computed(() => selectionMode.value === 'auto'
-    ? modelCatalog.value.models.some(model => model.inputModalities?.includes('image'))
+    ? visibleModels(modelCatalog.value).some(model => model.inputModalities?.includes('image'))
     : !!selectedModelInfo.value?.inputModalities?.includes('image'))
   const attachedImages = ref<File[]>([])
   const attachedPreviewURLs = ref<string[]>([])
@@ -121,8 +122,7 @@ export function useConversation({ client, sessions, modelCatalog, error, busy, r
     if (selected.value) return
     selectionMode.value = lastMode.value
     selectionTier.value = lastTier.value
-    const candidates = [rememberedModel.value?.key, modelCatalog.value.default]
-    selectedModel.value = candidates.find(key => modelCatalog.value.models.some(model => model.key === key)) || modelCatalog.value.default
+    selectedModel.value = initialModelKey(modelCatalog.value, [rememberedModel.value?.key])
   }
 
   function rememberSelectedModel() {
@@ -130,7 +130,7 @@ export function useConversation({ client, sessions, modelCatalog, error, busy, r
     if (model && selectionMode.value === 'manual') rememberedModel.value = { key: model.key, id: model.id, reasoningEffort: selectedReasoning.value }
   }
   function chooseModel(key: string) {
-    if (!modelCatalog.value.models.some(model => model.key === key)) return
+    if (!visibleModels(modelCatalog.value).some(model => model.key === key)) return
     selectedModel.value = key
     rememberSelectedModel()
     void saveSelection({ manualModelKey: key, manualReasoningEffort: selectedReasoning.value })
@@ -159,8 +159,7 @@ export function useConversation({ client, sessions, modelCatalog, error, busy, r
     selectionMode.value = mode
     lastMode.value = mode
     if (mode === 'manual') {
-      const candidates = [selected.value?.manualModelKey, rememberedModel.value?.key, modelCatalog.value.default]
-      selectedModel.value = candidates.find(key => modelCatalog.value.models.some(model => model.key === key)) || modelCatalog.value.default
+      selectedModel.value = initialModelKey(modelCatalog.value, [selected.value?.manualModelKey, rememberedModel.value?.key])
     } else inviteFeedback()
     void saveSelection({ selectionMode: mode, selectionTier: selectionTier.value,
       ...(mode === 'manual' ? { manualModelKey: selectedModel.value, manualReasoningEffort: selectedReasoning.value } : {}) })
@@ -304,8 +303,9 @@ export function useConversation({ client, sessions, modelCatalog, error, busy, r
         applyCompaction({ ...compaction.value, phase: 'failed', error: event.data?.message?.content || event.data?.reason || t('contextUnavailable') }, event.sequence)
       }
       if (event.kind === 'model_request' && event.data?.runId === activeRunID.value && !event.data?.depth && !event.data?.purpose && selectionMode.value === 'auto') {
-        const matchingID = modelCatalog.value.models.filter(item => item.id === event.data?.id && item.provider === event.data?.provider)
-        const model = event.data?.key ? modelCatalog.value.models.find(item => item.key === event.data.key)
+        const models = visibleModels(modelCatalog.value)
+        const matchingID = models.filter(item => item.id === event.data?.id && item.provider === event.data?.provider)
+        const model = event.data?.key ? models.find(item => item.key === event.data.key)
           : matchingID.length === 1 ? matchingID[0] : undefined
         if (model) selectedModel.value = model.key
       }
@@ -446,7 +446,7 @@ export function useConversation({ client, sessions, modelCatalog, error, busy, r
     if (open && previous === false && synchronization.value.phase === 'stopped') currentScope?.sync?.reconnect('conversation reopened', true)
   }, { flush: 'sync' })
   watch(modelCatalog, catalog => {
-    if (!catalog.models.some(model => model.key === selectedModel.value)) selectedModel.value = catalog.models.some(model => model.key === selected.value?.modelKey) ? selected.value!.modelKey : catalog.default
+    selectedModel.value = initialModelKey(catalog, [selectedModel.value, selected.value?.modelKey])
   }, { flush: 'sync' })
   watch([interactionPreferences.ready, rememberedModel, lastMode, lastTier, modelCatalog], initializeWelcomeSelection, { flush: 'sync', immediate: true })
 
@@ -539,10 +539,10 @@ export function useConversation({ client, sessions, modelCatalog, error, busy, r
     quotedText.value = readQuotedText(session.id)
     selectionMode.value = session.selectionMode || lastMode.value
     selectionTier.value = session.selectionTier || lastTier.value
-    const candidates = selectionMode.value === 'auto' ? [session.modelKey, modelCatalog.value.default]
-      : [session.manualModelKey || session.modelKey || rememberedModel.value?.key, modelCatalog.value.default]
+    const candidates = selectionMode.value === 'auto' ? [session.modelKey]
+      : [session.manualModelKey || session.modelKey || rememberedModel.value?.key]
     inviteFeedback()
-    selectedModel.value = candidates.find(key => modelCatalog.value.models.some(model => model.key === key)) || modelCatalog.value.default
+    selectedModel.value = initialModelKey(modelCatalog.value, candidates)
     await connectStream(scope)
   }
   async function loadAuxiliary(scope: Scope) {
