@@ -37,8 +37,8 @@ Pi@b9ab2a6238d2c91cf0c6ebf836dfd05883f9db51
   Source: https://github.com/badlogic/pi-mono
   LICENSE: 4f6a1985796db5225e3b1e59972bd47e07a27a0748427cb3d3c8fbf39f9311f0
 
-Oh My Pi@overflow rules f1ac114d8d3438bee43010aee559bfe720ba3224; catalog blob 602b6c812fa9ef774f359f1e399a09d30ee2eaca
-  Use: Adapted context-overflow rules and bundled model catalog
+Oh My Pi@overflow rules f1ac114d8d3438bee43010aee559bfe720ba3224; catalog blob 602b6c812fa9ef774f359f1e399a09d30ee2eaca; compact format df9ceaa58e3de5a42ae3c1d3a4c788380aa431f0
+  Use: Adapted context-overflow rules, compact catalog decoding, and bundled model catalog
   Source: https://github.com/can1357/oh-my-pi
   LICENSE: 16c45f9d667442781f03fa198914cc39abcaa48ec5ed8f644643e554ca2fbf63
 

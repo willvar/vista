@@ -125,6 +125,7 @@ def model_row(provider: str, model_id: str, raw: Any) -> dict[str, Any]:
 def build(payload: Any, revision: str) -> dict[str, Any]:
     if not isinstance(payload, dict) or not payload:
         fail("OMP models.json must be a non-empty object")
+    payload = decode_compact(payload)
     if len(payload) > MAX_PROVIDERS:
         fail("OMP models.json contains too many providers")
     providers: dict[str, dict[str, dict[str, Any]]] = {}
@@ -150,6 +151,93 @@ def build(payload: Any, revision: str) -> dict[str, Any]:
         "modelCount": count,
         "providers": providers,
     }
+
+
+def decode_compact(payload: dict[str, Any]) -> dict[str, Any]:
+    """Read OMP's version-1 node table; transport compat deltas are unused.
+
+    Wire format: packages/catalog/src/model-catalog-format.ts, blob
+    df9ceaa58e3de5a42ae3c1d3a4c788380aa431f0 (MIT, licenses/oh-my-pi).
+    """
+    version = payload.get("version")
+    if type(version) is not int or version != 1:
+        fail(f"unsupported OMP catalog version {version!r} (expected 1)")
+    keys, shapes, nodes, providers = (payload.get(key) for key in ("keys", "booleanShapes", "nodes", "providers"))
+    if any(not isinstance(value, list) for value in (keys, shapes, nodes, providers)):
+        fail("invalid compact OMP catalog tables")
+    if not 0 < len(providers) <= MAX_PROVIDERS or any(not isinstance(key, str) for key in keys):
+        fail("invalid compact OMP provider count or keys")
+    cache: dict[int, Any] = {}
+    visiting: set[int] = set()
+
+    def index(value: Any, table: list[Any]) -> int:
+        if type(value) is not int or not 0 <= value < len(table):
+            fail("compact OMP index is out of bounds")
+        return value
+
+    def decode(value: Any, depth: int = 0) -> Any:
+        if not isinstance(value, list):
+            if value is None or isinstance(value, (str, int, float, bool)):
+                return value
+            fail("invalid compact OMP value")
+        if len(value) != 1:
+            fail("invalid compact OMP node reference")
+        if type(value[0]) is int and value[0] == -1:
+            return None
+        node_id = index(value[0], nodes)
+        if depth >= 64 or node_id in visiting:
+            fail("compact OMP nodes are cyclic or nested too deeply")
+        if node_id in cache:
+            return cache[node_id]
+        visiting.add(node_id)
+        node = nodes[node_id]
+        if not isinstance(node, list) or len(node) not in (2, 4) or type(node[0]) is not int or not isinstance(node[1], list):
+            fail("invalid compact OMP node")
+        if node[0] == 1 and len(node) == 2:
+            result = [decode(entry, depth + 1) for entry in node[1]]
+        elif node[0] == 0 and len(node) == 4:
+            properties, shape, masks = node[1], shapes[index(node[2], shapes)], node[3]
+            if len(properties) % 2 or not isinstance(shape, list) or not isinstance(masks, list) or len(masks) != (len(shape) + 31) // 32:
+                fail("invalid compact OMP object shape or masks")
+            if any(type(mask) is not int or not 0 <= mask <= 0xFFFFFFFF for mask in masks):
+                fail("invalid compact OMP boolean mask")
+            result = {keys[index(properties[i], keys)]: decode(properties[i + 1], depth + 1) for i in range(0, len(properties), 2)}
+            for bit, key in enumerate(shape):
+                result[keys[index(key, keys)]] = bool(masks[bit // 32] & (1 << (bit % 32)))
+        else:
+            fail("invalid compact OMP node type")
+        visiting.remove(node_id)
+        cache[node_id] = result
+        return result
+
+    def object_value(value: Any) -> dict[str, Any]:
+        result = decode(value)
+        if not isinstance(result, dict):
+            fail("compact OMP row must reference an object")
+        return result
+
+    result: dict[str, Any] = {}
+    count = 0
+    for provider in providers:
+        if not isinstance(provider, list) or len(provider) != 3:
+            fail("invalid compact OMP provider row")
+        provider_id, constants, rows = provider
+        if not isinstance(provider_id, str) or not provider_id or provider_id in result or not isinstance(rows, list):
+            fail("invalid or duplicate compact OMP provider")
+        count += len(rows)
+        if count > MAX_MODELS:
+            fail("invalid compact OMP model count")
+        constants = object_value(constants)
+        models: dict[str, Any] = {}
+        for row in rows:
+            if not isinstance(row, list) or len(row) not in (2, 3):
+                fail("invalid compact OMP model row")
+            model_id = row[0]
+            if not isinstance(model_id, str) or not model_id or model_id in models:
+                fail("invalid or duplicate compact OMP model ID")
+            models[model_id] = {"id": model_id, **constants, **object_value(row[1])}
+        result[provider_id] = models
+    return result
 
 
 def main() -> int:

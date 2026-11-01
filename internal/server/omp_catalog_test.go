@@ -25,10 +25,22 @@ type catalogTestTransport func(*http.Request) (*http.Response, error)
 
 func (f catalogTestTransport) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
 
-const updatedCatalogSource = `{"openai":{
- "gpt-6-luna":{"id":"gpt-6-luna","provider":"openai","name":"Updated Luna","api":"openai-responses","input":["text","image"],"contextWindow":2000000,"maxTokens":128000,"reasoning":true,"thinking":{"mode":"effort","efforts":["low","max"]}},
- "vista-new-model":{"id":"vista-new-model","provider":"openai","name":"New Model","api":"openai-responses","input":["text"],"contextWindow":100000,"maxTokens":8192}
-}}`
+const updatedCatalogSource = `{
+ "version":1,
+ "keys":["api","provider","contextWindow","input","maxTokens","name","reasoning","thinking","efforts","mode"],
+ "booleanShapes":[[],[6]],
+ "nodes":[
+  [0,[0,"openai-responses",1,"openai"],0,[]],
+  [1,["text","image"]],
+  [1,["low","max"]],
+  [0,[8,[2],9,"effort"],0,[]],
+  [0,[2,2000000,3,[1],4,128000,5,"Updated Luna",7,[3]],1,[1]],
+  [1,["text"]],
+  [0,[2,100000,3,[5],4,8192,5,"New Model"],0,[]]
+ ],
+ "compat":[],
+ "providers":[["openai",[0],[["gpt-6-luna",[4]],["vista-new-model",[6]]]]]
+}`
 
 const updatedModelsDevSource = `{"openai":{"id":"openai","models":{
  "vista-models-dev-model":{"id":"vista-models-dev-model","name":"models.dev model","reasoning":true,"reasoning_options":[{"type":"effort","values":["low","high","max"]}],"tool_call":true,"limit":{"context":200000,"output":32000},"modalities":{"input":["text","image"],"output":["text"]}},
@@ -137,7 +149,7 @@ func TestOMPCatalogAPIUpdatesLiveModelsAndPersistsWithoutChangingConnections(t *
 }
 
 func TestOMPCatalogFailurePreservesActiveDirectoryAndCache(t *testing.T) {
-	for _, failure := range []string{"download", "models-dev-download", "models-dev-compression", "models-dev-metadata", "invalid-metadata", "missing-configured-model", "save"} {
+	for _, failure := range []string{"download", "models-dev-download", "models-dev-compression", "models-dev-metadata", "invalid-metadata", "unsupported-omp-format", "legacy-omp-format", "missing-configured-model", "save"} {
 		t.Run(failure, func(t *testing.T) {
 			app := catalogUpdateTestApp(t)
 			original := provider.CurrentOMPCatalog()
@@ -152,6 +164,10 @@ func TestOMPCatalogFailurePreservesActiveDirectoryAndCache(t *testing.T) {
 				})}
 			case "invalid-metadata":
 				app.ompCatalogClient = catalogTestClient(`{"openai":`)
+			case "unsupported-omp-format":
+				app.ompCatalogClient = catalogTestClient(`{"version":2}`)
+			case "legacy-omp-format":
+				app.ompCatalogClient = catalogTestClient(`{"openai":{}}`)
 			case "models-dev-metadata":
 				app.ompCatalogClient = catalogTestClientWithModelsDev(updatedCatalogSource, `{}`)
 			case "models-dev-download", "models-dev-compression":
@@ -270,7 +286,19 @@ func TestModelsDevZenDiscoverySelectionAndRestart(t *testing.T) {
 		t.Fatal(err)
 	}
 	app.models, app.baseModels = base, base
-	zenSource := fmt.Sprintf(`{"opencode-zen":{%q:{"id":%q,"provider":"opencode-zen","name":"Anchor","api":"openai-completions","input":["text"],"contextWindow":1000000,"maxTokens":128000}},"opencode-go":{%q:{"id":%q,"provider":"opencode-go","name":"Anchor","api":"openai-completions","input":["text"],"contextWindow":1000000,"maxTokens":128000}}}`, anchor, anchor, anchor, anchor)
+	zenSource := fmt.Sprintf(`{
+ "version":1,
+ "keys":["api","contextWindow","maxTokens","name","provider","input"],
+ "booleanShapes":[[]],
+ "nodes":[
+  [0,[0,"openai-completions",1,1000000,2,128000,3,"Anchor",4,"opencode-go"],0,[]],
+  [1,["text"]],
+  [0,[5,[1]],0,[]],
+  [0,[0,"openai-completions",1,1000000,2,128000,3,"Anchor",4,"opencode-zen"],0,[]]
+ ],
+ "compat":[],
+ "providers":[["opencode-go",[0],[[%q,[2]]]],["opencode-zen",[3],[[%q,[2]]]]]
+}`, anchor, anchor)
 	modelsDevSource := strings.ReplaceAll(strings.ReplaceAll(updatedModelsDevSource, `"openai"`, `"opencode"`), "vista-models-dev-model", freeID)
 	app.ompCatalogClient = catalogTestClientWithModelsDev(zenSource, modelsDevSource)
 	response := httptest.NewRecorder()

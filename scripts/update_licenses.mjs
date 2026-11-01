@@ -159,7 +159,7 @@ async function sourceNotices() {
   const catalog = await readJSON(join(root, 'internal/provider/omp_models.json'))
   return Promise.all([
     { name: 'Pi', version: 'b9ab2a6238d2c91cf0c6ebf836dfd05883f9db51', scope: 'Adapted context-overflow rules', directory: 'pi', source: 'https://github.com/badlogic/pi-mono' },
-    { name: 'Oh My Pi', version: `overflow rules f1ac114d8d3438bee43010aee559bfe720ba3224; catalog blob ${catalog.revision}`, scope: 'Adapted context-overflow rules and bundled model catalog', directory: 'oh-my-pi', source: 'https://github.com/can1357/oh-my-pi' },
+    { name: 'Oh My Pi', version: `overflow rules f1ac114d8d3438bee43010aee559bfe720ba3224; catalog blob ${catalog.revision}; compact format df9ceaa58e3de5a42ae3c1d3a4c788380aa431f0`, scope: 'Adapted context-overflow rules, compact catalog decoding, and bundled model catalog', directory: 'oh-my-pi', source: 'https://github.com/can1357/oh-my-pi' },
     { name: 'models.dev', version: 'runtime catalog', scope: 'Model metadata downloaded from models.dev or its mirrors', directory: 'models.dev', source: 'https://github.com/anomalyco/models.dev' },
   ].map(async item => ({ ...item, files: await licenseFiles(join(root, 'licenses', item.directory)) })))
 }

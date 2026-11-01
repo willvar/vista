@@ -75,6 +75,11 @@ WebUI 连接列表来自[服务商配置](../internal/modelcatalog/provider_setu
 
 [快照生成器](../scripts/build_omp_model_catalog.py)接收明确的 OMP checkout，普通构建不通过它联网抓取。运行时检查整体更新 OMP 和 models.dev。合并按精确服务商／模型 ID 匹配，不通过去掉 free 后缀或近似型号复制能力。匹配条目的名称、输入能力、推理支持及显式控制以 models.dev 为准；OMP 补齐未知限制和工具支持，并保留 models.dev 中缺少的模型。已有 OMP API 判别信息仍用于传输提示。协议路由、端点和认证由 Vista 管理，models.dev 的端点和认证不进入路由。
 
+生成器与运行时读取器都支持 OMP 第 1 版压缩目录，包括共享节点、服务商公共字段及布尔位图。
+仅保留 Vista 使用的稳定元数据，不导入 OMP 传输兼容配置的基值和差量。
+不支持的版本或无效引用会使本次更新失败，并保留已安装目录。
+生成器验证命令为 `python3 -m unittest discover -s scripts -p 'build_omp_model_catalog_test.py'`。
+
 [推理选择](../internal/provider/reasoning_controls.go)按服务商／模型确定资料来源。models.dev 收录该模型时，完整采用它的 `effort`、`budget_tokens` 和 `toggle` 定义；缺失的控制保持缺失，不从 OMP 拼入档位或映射。原生档位来自发布的值，包括 `none`；显式「默认」选项不附加推理覆盖参数。预算显示为 token 数值预设，受发布范围及当前适配器的请求限制约束，不伪装成原生档位。适配器已实现相应请求格式时，开关显示为「开启／关闭」。不支持编码的控制不显示。
 
 models.dev 完全没有对应模型时，采用 OMP 的完整 thinking 策略补充档位及其请求参数转换，包括预算或自适应推理映射。这样可保留 Codex 等仅由 OMP 收录模型的手动控制。只有内置快照的安装先使用这些 OMP 策略，成功检查目录并取得 models.dev 的对应定义后再采用后者。旧版已安装 models.dev 的明确档位在完整控制结构刷新前仍可使用。

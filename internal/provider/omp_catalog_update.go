@@ -119,12 +119,8 @@ func ompSourceRevision(data []byte) string {
 func decodeOMPSourceCatalog(data []byte, revision string) (*OMPCatalogSnapshot, error) {
 	// The source includes runtime/pricing fields. Keep exactly the same stable
 	// metadata subset as scripts/build_omp_model_catalog.py.
-	var source map[string]map[string]struct {
-		ID       string `json:"id"`
-		Provider string `json:"provider"`
-		OMPModel
-	}
-	if err := json.Unmarshal(data, &source); err != nil {
+	source, err := decodeOMPSourceModels(data)
+	if err != nil {
 		return nil, fmt.Errorf("decode OMP model data: %w", err)
 	}
 	file := ompCatalogFile{Source: "oh-my-pi", Revision: revision, UpdatedAt: time.Now().UTC().Format(time.RFC3339),

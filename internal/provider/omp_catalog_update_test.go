@@ -15,7 +15,23 @@ type ompTestTransport func(*http.Request) (*http.Response, error)
 
 func (f ompTestTransport) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
 
-const ompTestSource = `{"opencode-zen":{"vista-catalog-fixture":{"id":"vista-catalog-fixture","provider":"opencode-zen","name":"Updated model","api":"openai-responses","input":["text","image"],"contextWindow":100000,"maxTokens":8192,"reasoning":true,"supportsTools":true,"thinking":{"mode":"effort","efforts":["low","max"],"effortMap":{"max":"xhigh"}},"headers":{"discard":"runtime-only-field"},"cost":{"input":10}}}}`
+const ompTestSource = `{
+ "version":1,
+ "keys":["api","contextWindow","maxTokens","name","provider","reasoning","supportsTools","cost","input","headers","discard","thinking","effortMap","max","efforts","mode"],
+ "booleanShapes":[[5,6],[]],
+ "nodes":[
+  [0,[0,"openai-responses",1,100000,2,8192,3,"Updated model",4,"opencode-zen"],0,[3]],
+  [0,[8,10],1,[]],
+  [0,[10,"runtime-only-field"],1,[]],
+  [1,["text","image"]],
+  [0,[13,"xhigh"],1,[]],
+  [1,["low","max"]],
+  [0,[12,[4],14,[5],15,"effort"],1,[]],
+  [0,[7,[1],9,[2],8,[3],11,[6]],1,[]]
+ ],
+ "compat":[],
+ "providers":[["opencode-zen",[0],[["vista-catalog-fixture",[7]]]]]
+}`
 
 func ompDownloadClient(t *testing.T, revision, source string) *http.Client {
 	t.Helper()
@@ -93,10 +109,10 @@ func TestOMPCatalogDownloadRejectsInvalidMetadata(t *testing.T) {
 	for name, source := range map[string]string{
 		"empty":         `{}`,
 		"truncated":     `{"openai":`,
-		"identity":      strings.Replace(ompTestSource, `"id":"vista-catalog-fixture"`, `"id":"another-id"`, 1),
+		"identity":      strings.Replace(ompTestSource, `"opencode-zen"`, `"another-provider"`, 1),
 		"effort":        strings.Replace(ompTestSource, `"low","max"`, `"low","invented"`, 1),
 		"modality":      strings.Replace(ompTestSource, `"text","image"`, `"text","unknown"`, 1),
-		"negativeLimit": strings.Replace(ompTestSource, `"maxTokens":8192`, `"maxTokens":-1`, 1),
+		"negativeLimit": strings.Replace(ompTestSource, `,8192`, `,-1`, 1),
 	} {
 		t.Run(name, func(t *testing.T) {
 			_, err := FetchOMPCatalog(context.Background(), ompDownloadClient(t, ompSourceRevision([]byte(source)), source))

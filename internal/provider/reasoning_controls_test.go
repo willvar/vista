@@ -200,7 +200,23 @@ func TestDefaultReasoningClearsPreviousRequestControls(t *testing.T) {
 }
 
 func TestOMPOnlyModelUsesThinkingPolicy(t *testing.T) {
-	source := `{"fixture":{"legacy":{"id":"legacy","provider":"fixture","name":"Legacy","api":"openai-completions","reasoning":true,"input":["text"],"contextWindow":10000,"maxTokens":4000,"thinking":{"mode":"effort","efforts":["minimal","low","high"]},"reasoningOptions":[{"type":"effort","values":["max"]}]}}}`
+	source := `{
+ "version":1,
+ "keys":["api","contextWindow","maxTokens","name","provider","reasoning","input","reasoningOptions","type","values","thinking","efforts","mode"],
+ "booleanShapes":[[5],[]],
+ "nodes":[
+  [0,[0,"openai-completions",1,10000,2,4000,3,"Legacy",4,"fixture"],0,[1]],
+  [1,["text"]],
+  [1,["max"]],
+  [0,[8,"effort",9,[2]],1,[]],
+  [1,[[3]]],
+  [1,["minimal","low","high"]],
+  [0,[11,[5],12,"effort"],1,[]],
+  [0,[6,[1],7,[4],10,[6]],1,[]]
+ ],
+ "compat":[],
+ "providers":[["fixture",[0],[["legacy",[7]]]]]
+}`
 	catalog, err := decodeOMPSourceCatalog([]byte(source), "fixture")
 	if err != nil {
 		t.Fatal(err)
