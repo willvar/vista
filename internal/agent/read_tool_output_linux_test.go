@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	modelcfg "vista/internal/model"
@@ -41,7 +42,7 @@ func TestTimedOutShellRetainsPartialOutputForModelAndRecovery(t *testing.T) {
 				Complete                               bool
 				NextOffset                             int64
 			}
-			if json.Unmarshal([]byte(last.Content), &result) != nil || result.Preview != "partial evidence" || result.Error == "" || result.ArtifactID == "" || result.Complete || result.OutputPath != "" || result.NextOffset != 16 {
+			if json.Unmarshal([]byte(last.Content), &result) != nil || result.Preview != "partial evidence" || !strings.Contains(result.Error, "command terminated due to timeout") || !strings.Contains(result.Error, "output was captured before termination") || result.ArtifactID == "" || result.Complete || result.OutputPath != "" || result.NextOffset != 16 {
 				t.Errorf("model lost partial shell output: %s", last.Content)
 			}
 			artifactID = result.ArtifactID

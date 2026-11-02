@@ -180,7 +180,11 @@ func RunShellRecorded(ctx context.Context, stateDir, directory, script string, t
 		return result, fmt.Errorf("%w; partial output saved as artifact %s (%d bytes)", writer.failure, result.ArtifactID, result.Bytes)
 	}
 	if err := runCtx.Err(); err != nil {
-		return result, fmt.Errorf("shell stopped: %w; partial output saved as artifact %s (%d bytes)", err, result.ArtifactID, result.Bytes)
+		reason := "cancellation"
+		if errors.Is(err, context.DeadlineExceeded) {
+			reason = "timeout"
+		}
+		return result, fmt.Errorf("shell command terminated due to %s: %w; partial output was captured before termination and saved as artifact %s (%d bytes)", reason, err, result.ArtifactID, result.Bytes)
 	}
 	if waitErr != nil {
 		var exitErr *exec.ExitError

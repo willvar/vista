@@ -64,6 +64,9 @@ func TestRunShellTimeoutKillsDescendantsAndLimitsOutput(t *testing.T) {
 	if err == nil || result.Complete {
 		t.Fatalf("timed-out command reported complete: %+v %v", result, err)
 	}
+	if !errors.Is(err, context.DeadlineExceeded) || !strings.Contains(err.Error(), "command terminated due to timeout") || !strings.Contains(err.Error(), "output was captured before termination") {
+		t.Fatalf("timeout did not explain termination and historical output: %v", err)
+	}
 	pid, parseErr := strconv.Atoi(strings.TrimSpace(result.Preview))
 	if parseErr != nil {
 		t.Fatalf("child PID missing from preview %q: %v", result.Preview, parseErr)
@@ -86,6 +89,18 @@ func TestRunShellTimeoutKillsDescendantsAndLimitsOutput(t *testing.T) {
 	info, err := os.Stat(result.OutputPath)
 	if err != nil || info.Size() != maxShellOutput {
 		t.Fatalf("partial output not saved: %+v %v", info, err)
+	}
+}
+
+func TestRunShellCancellationReportsTermination(t *testing.T) {
+	root := t.TempDir()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	timer := time.AfterFunc(100*time.Millisecond, cancel)
+	defer timer.Stop()
+	result, err := RunShell(ctx, filepath.Join(root, "state"), root, "printf evidence; sleep 30", 5*time.Second)
+	if !errors.Is(err, context.Canceled) || result.Complete || !strings.Contains(err.Error(), "command terminated due to cancellation") || !strings.Contains(err.Error(), "output was captured before termination") {
+		t.Fatalf("cancellation did not explain termination: %+v %v", result, err)
 	}
 }
 

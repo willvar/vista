@@ -48,7 +48,8 @@ func TestToolInputOnlyStoresShellMetadata(t *testing.T) {
 	}{
 		{"shell", `{"directory":"/work","command":"git status"}`, 60},
 		{"shell", `{"directory":"/work","command":"git status","timeoutSeconds":30}`, 30},
-		{"start_background", `{"directory":"/work","command":"npm run dev"}`, 3600},
+		{"start_background", `{"directory":"/work","command":"npm run dev"}`, 0},
+		{"start_background", `{"directory":"/work","command":"npm run dev","timeoutSeconds":172800}`, 172800},
 		{"read_file", `{"path":"/work/file","command":"not displayable"}`, 0},
 		{"mcp_call_tool", `{"arguments":{"password":"private"}}`, 0},
 	} {
@@ -56,7 +57,7 @@ func TestToolInputOnlyStoresShellMetadata(t *testing.T) {
 			var call provider.ToolCall
 			call.Function.Name, call.Function.Arguments = test.name, test.arguments
 			input := toolInput(call, workerproto.Command{})
-			if test.timeout == 0 {
+			if test.name != "shell" && test.name != "start_background" {
 				if input != nil {
 					t.Fatalf("non-shell arguments leaked: %+v", input)
 				}

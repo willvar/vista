@@ -89,7 +89,7 @@ func TestBackgroundJobOutlivesRunAndStopsDescendants(t *testing.T) {
 	})
 	defer manager.Close()
 	runCtx, cancelRun := context.WithCancel(context.Background())
-	job, err := manager.Start(runCtx, filepath.Join(root, "state"), "run", root, "sleep 30 & echo $!; wait", time.Minute, nil)
+	job, err := manager.Start(runCtx, filepath.Join(root, "state"), "run", root, "sleep 30 & echo $!; wait", 0, nil)
 	if err != nil || job.Status != "running" {
 		t.Fatalf("background start: %+v %v", job, err)
 	}
@@ -121,7 +121,7 @@ func TestBackgroundJobOutlivesRunAndStopsDescendants(t *testing.T) {
 			if event.Complete {
 				t.Fatal("stopped job reported complete")
 			}
-			if event.TerminationReason != "stopped" || event.StartedAt == "" || event.ExpiresAt == "" || event.Signal == "" {
+			if event.TerminationReason != "stopped" || event.StartedAt == "" || event.ExpiresAt != "" || event.Signal == "" {
 				t.Fatalf("stop metadata lost: %+v", event)
 			}
 			for i := 0; i < 100; i++ {
@@ -145,10 +145,13 @@ func TestBackgroundTerminalReasons(t *testing.T) {
 		close                                bool
 	}{
 		{"success", "printf done", "succeeded", "", "", time.Minute, false},
+		{"success without deadline", "printf done", "succeeded", "", "", 0, false},
+		{"long deadline", "printf done", "succeeded", "", "", 48 * time.Hour, false},
 		{"nonzero", "printf error; exit 8", "failed", "exit", "", time.Minute, false},
 		{"signal", "kill -TERM $$", "failed", "signal", "SIGTERM", time.Minute, false},
 		{"timeout", "sleep 20", "interrupted", "timeout", "", 100 * time.Millisecond, false},
 		{"worker close", "sleep 20", "interrupted", "worker_closed", "", time.Minute, true},
+		{"worker close without deadline", "sleep 20", "interrupted", "worker_closed", "", 0, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			root := t.TempDir()
@@ -160,9 +163,18 @@ func TestBackgroundTerminalReasons(t *testing.T) {
 				t.Fatal(err)
 			}
 			started, startErr := time.Parse(time.RFC3339Nano, job.StartedAt)
-			expires, expiryErr := time.Parse(time.RFC3339Nano, job.ExpiresAt)
-			if startErr != nil || expiryErr != nil || !expires.After(started) {
-				t.Fatalf("missing lifetime: %+v", job)
+			if startErr != nil {
+				t.Fatalf("missing start time: %+v", job)
+			}
+			if tc.timeout == 0 {
+				if job.ExpiresAt != "" {
+					t.Fatalf("unexpected deadline: %+v", job)
+				}
+			} else {
+				expires, expiryErr := time.Parse(time.RFC3339Nano, job.ExpiresAt)
+				if expiryErr != nil || !expires.After(started) || expires.Sub(started) > tc.timeout {
+					t.Fatalf("wrong deadline: %+v", job)
+				}
 			}
 			if tc.close {
 				manager.Close()

@@ -11,7 +11,7 @@ import (
 	"vista/internal/workerproto"
 )
 
-var shellSchema = map[string]any{"type": "function", "function": map[string]any{"name": "shell", "description": "Run a shell command in an explicit absolute directory. Returns up to 8192 bytes of output plus artifactId, truncated, and nextOffset. Continue truncated output with read_tool_output; do not rerun the command just to see more output. Timeout is at most 300 seconds.", "parameters": map[string]any{"type": "object", "properties": map[string]any{"directory": map[string]any{"type": "string"}, "command": map[string]any{"type": "string"}, "timeoutSeconds": map[string]any{"type": "integer", "minimum": 1, "maximum": 300}}, "required": []string{"directory", "command"}}}}
+var shellSchema = map[string]any{"type": "function", "function": map[string]any{"name": "shell", "description": "Run a foreground shell command in an explicit absolute directory and wait for it to finish. Timeout defaults to 60 seconds and is at most 300 seconds. Timeout or cancellation terminates the command and its managed descendants; remaining descendants are also cleaned up when the command ends. Use start_background for GUI applications, servers, watchers, or other programs that must keep running. Returns up to 8192 bytes of output plus artifactId, truncated, and nextOffset. Continue truncated output with read_tool_output; do not rerun the command just to see more output.", "parameters": map[string]any{"type": "object", "properties": map[string]any{"directory": map[string]any{"type": "string"}, "command": map[string]any{"type": "string"}, "timeoutSeconds": map[string]any{"type": "integer", "minimum": 1, "maximum": 300, "description": "Seconds to wait before terminating the command and its managed descendants; defaults to 60."}}, "required": []string{"directory", "command"}}}}
 
 func (r *toolRuntime) shell(ctx context.Context, call provider.ToolCall) (string, error) {
 	var input struct {
@@ -61,7 +61,7 @@ func (r *toolRuntime) shell(ctx context.Context, call provider.ToolCall) (string
 	return marshalResult(result)
 }
 
-var startBackgroundSchema = map[string]any{"type": "function", "function": map[string]any{"name": "start_background", "description": "Start a Session-owned shell job in an explicit absolute directory. It continues after this reply, up to 24 hours, and writes bounded output to a local file. Return its job ID to the user.", "parameters": map[string]any{"type": "object", "properties": map[string]any{"directory": map[string]any{"type": "string"}, "command": map[string]any{"type": "string"}, "timeoutSeconds": map[string]any{"type": "integer", "minimum": 1, "maximum": 86400}}, "required": []string{"directory", "command"}}}}
+var startBackgroundSchema = map[string]any{"type": "function", "function": map[string]any{"name": "start_background", "description": "Start a Session-owned shell job in an explicit absolute directory. Use for GUI applications, servers, watchers, or other programs that must keep running after this reply or run cancellation. No timeout by default: the job runs until it exits, is stopped, or its Session Worker exits. Closing the conversation or stopping/restarting Vista terminates it. Writes bounded output to a local file. Returns jobId, status, and outputPath, plus expiresAt when a timeout is set. Return its job ID to the user.", "parameters": map[string]any{"type": "object", "properties": map[string]any{"directory": map[string]any{"type": "string"}, "command": map[string]any{"type": "string"}, "timeoutSeconds": map[string]any{"type": "integer", "minimum": 1, "description": "Optional positive number of seconds before terminating the command and its managed descendants; omit for no deadline."}}, "required": []string{"directory", "command"}}}}
 
 func (r *toolRuntime) startBackground(ctx context.Context, call provider.ToolCall) (string, error) {
 	if r.jobs == nil {
@@ -70,13 +70,17 @@ func (r *toolRuntime) startBackground(ctx context.Context, call provider.ToolCal
 	var input struct {
 		Directory      string `json:"directory"`
 		Command        string `json:"command"`
-		TimeoutSeconds int    `json:"timeoutSeconds"`
+		TimeoutSeconds *int64 `json:"timeoutSeconds"`
 	}
 	if err := decodeArguments(call.Function.Arguments, &input); err != nil {
 		return "", err
 	}
-	if input.TimeoutSeconds == 0 {
-		input.TimeoutSeconds = 3600
+	var timeout time.Duration
+	if input.TimeoutSeconds != nil {
+		if *input.TimeoutSeconds <= 0 || *input.TimeoutSeconds > int64(time.Duration(1<<63-1)/time.Second) {
+			return "", errors.New("timeoutSeconds must be positive and fit within a supported duration")
+		}
+		timeout = time.Duration(*input.TimeoutSeconds) * time.Second
 	}
 	stateDir, err := instance.Dir()
 	if err != nil {
@@ -86,11 +90,15 @@ func (r *toolRuntime) startBackground(ctx context.Context, call provider.ToolCal
 	if r.depth > 0 {
 		callID = r.parent.TaskID + "/" + call.ID
 	}
-	job, err := r.jobs.Start(ctx, stateDir, r.parent.RunID, input.Directory, input.Command, time.Duration(input.TimeoutSeconds)*time.Second, commandSecrets(r.parent), callID, r.parent.TaskID, r.parent.ParentTaskID)
+	job, err := r.jobs.Start(ctx, stateDir, r.parent.RunID, input.Directory, input.Command, timeout, commandSecrets(r.parent), callID, r.parent.TaskID, r.parent.ParentTaskID)
 	if err != nil {
 		return "", err
 	}
-	return marshalResult(map[string]any{"jobId": job.ID, "status": job.Status, "outputPath": job.OutputPath})
+	output := map[string]any{"jobId": job.ID, "status": job.Status, "outputPath": job.OutputPath}
+	if job.ExpiresAt != "" {
+		output["expiresAt"] = job.ExpiresAt
+	}
+	return marshalResult(output)
 }
 
 var stopBackgroundSchema = map[string]any{"type": "function", "function": map[string]any{"name": "stop_background", "description": "Stop a running Session-owned background shell job by its ID.", "parameters": map[string]any{"type": "object", "properties": map[string]any{"jobId": map[string]any{"type": "string"}}, "required": []string{"jobId"}}}}

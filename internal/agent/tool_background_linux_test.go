@@ -5,6 +5,7 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -17,6 +18,67 @@ import (
 	"vista/internal/tools"
 	"vista/internal/workerproto"
 )
+
+func TestBackgroundTimeoutIsOptionalAndHasNoDailyLimit(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		timeout *int64
+		invalid bool
+	}{
+		{name: "omitted"},
+		{name: "two days", timeout: new(int64(172800))},
+		{name: "zero", timeout: new(int64(0)), invalid: true},
+		{name: "negative", timeout: new(int64(-1)), invalid: true},
+		{name: "duration overflow", timeout: new(int64(1<<63 - 1)), invalid: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			root, _ := continuationFixture(t)
+			events := make(chan tools.BackgroundJob, 8)
+			manager := tools.NewBackgroundManager(func(_ context.Context, job tools.BackgroundJob) error {
+				events <- job
+				return nil
+			})
+			defer manager.Close()
+			arguments := map[string]any{"directory": root, "command": "printf ready"}
+			if tc.timeout != nil {
+				arguments["timeoutSeconds"] = *tc.timeout
+			}
+			encoded, _ := json.Marshal(arguments)
+			var call provider.ToolCall
+			call.ID, call.Function.Name, call.Function.Arguments = "background", "start_background", string(encoded)
+			runtime := toolRuntime{jobs: manager, parent: workerproto.Command{RunID: "run"}}
+			output, err := runtime.startBackground(context.Background(), call)
+			if tc.invalid {
+				if err == nil || !strings.Contains(err.Error(), "timeoutSeconds") || len(events) != 0 {
+					t.Fatalf("invalid timeout started a job: output=%s err=%v events=%d", output, err, len(events))
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			var result map[string]any
+			if json.Unmarshal([]byte(output), &result) != nil || result["jobId"] == "" || result["status"] != "running" {
+				t.Fatalf("invalid start result: %s", output)
+			}
+			started := <-events
+			if tc.timeout == nil {
+				if _, exists := result["expiresAt"]; exists || started.ExpiresAt != "" {
+					t.Fatalf("omitted timeout acquired an expiry: output=%s job=%+v", output, started)
+				}
+			} else {
+				expires, err := time.Parse(time.RFC3339Nano, started.ExpiresAt)
+				remaining := time.Until(expires)
+				if err != nil || result["expiresAt"] != started.ExpiresAt || remaining < 47*time.Hour || remaining > 48*time.Hour {
+					t.Fatalf("explicit timeout was lost or capped: output=%s job=%+v err=%v", output, started, err)
+				}
+			}
+			if info, err := os.Stat(fmt.Sprint(result["outputPath"])); err != nil || !info.Mode().IsRegular() {
+				t.Fatalf("start result lost output file: %s %v", output, err)
+			}
+		})
+	}
+}
 
 func TestBackgroundCommandRecordsUseDisplayProjection(t *testing.T) {
 	root, _ := continuationFixture(t)

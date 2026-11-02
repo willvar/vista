@@ -183,11 +183,12 @@ export const test = base.extend<{ vista: VistaFixture; configuredProvider: boole
       if (backgroundProcess && !titleRequest) {
         const currentPrompt = input.messages?.[lastUser]?.content
         const results = input.messages?.slice(lastUser + 1).filter(message => message.role === 'tool') || []
-        if (!results.length && ['Start process', 'Fail command'].includes(String(currentPrompt))) {
-          const start = currentPrompt === 'Start process'
+        if (!results.length && ['Start process', 'Start timed process', 'Fail command'].includes(String(currentPrompt))) {
+          const start = currentPrompt !== 'Fail command'
           const functionName = start ? 'start_background' : 'shell'
           const command = start ? "printf 'monitor ready\\n'; while :; do printf 'live tick\\n'; sleep 0.2; done" : "printf 'command evidence'; exit 7"
-          const tool_calls = [{ index: 0, id: 'process-tool', type: 'function', function: { name: functionName, arguments: JSON.stringify({ directory: outputDirectory, command, timeoutSeconds: 60 }) } }]
+          const timeoutSeconds = currentPrompt === 'Start timed process' ? 172800 : start ? undefined : 60
+          const tool_calls = [{ index: 0, id: 'process-tool', type: 'function', function: { name: functionName, arguments: JSON.stringify({ directory: outputDirectory, command, timeoutSeconds }) } }]
           response.end(`data: ${JSON.stringify({ choices: [{ delta: { tool_calls }, finish_reason: 'tool_calls' }] })}\n\ndata: [DONE]\n\n`)
           return
         }

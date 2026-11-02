@@ -29,7 +29,7 @@ const provider = createServer(async (request, response) => {
   calls++
   response.writeHead(200, { 'Content-Type': 'text/event-stream' })
   if (calls === 1) {
-    const args = JSON.stringify({ directory: state, command: `sleep 30 & echo $! > ${childPidFile}; wait`, timeoutSeconds: 60 })
+    const args = JSON.stringify({ directory: state, command: `sleep 30 & echo $! > ${childPidFile}; wait` })
     const chunk = JSON.stringify({ choices: [{ delta: { tool_calls: [{ index: 0, id: 'call_background', type: 'function', function: { name: 'start_background', arguments: args } }] }, finish_reason: 'tool_calls' }] })
     response.end(`data: ${chunk}\n\ndata: [DONE]\n\n`)
   } else if (calls === 2) {
@@ -63,6 +63,7 @@ try {
     await new Promise(resolve => setTimeout(resolve, 25))
   }
   if (!job) throw new Error('job did not remain running after the reply')
+  if (job.expiresAt) throw new Error('background job acquired an implicit deadline')
   childPid = Number(readFileSync(childPidFile, 'utf8').trim())
   const status = await api('/status')
   if (status.sessions.running !== 1 || status.managedBackgroundProcesses !== 1 || calls !== 2) throw new Error(`wrong background state: ${JSON.stringify(status.sessions)}, jobs=${status.managedBackgroundProcesses}, calls=${calls}`)

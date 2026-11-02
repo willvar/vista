@@ -18,6 +18,15 @@ Closing a Vista conversation stops its Worker. Switching pages or closing the br
 
 A confirmed full reset restarts the application runtime inside the Server process. `internal/server/reset.go` blocks new API work, cancels the old runtime context, drains requests and `App.background` work, stops Workers and verifies remaining ownership records before closing SQLite and deleting user data. All asynchronous operations which can write runtime files, credentials, or stored state must join `App.background` or be synchronously joined by a tracked caller. The instance lock stays held. After reopening fresh data, `runtimeListener` replaces the listening socket if the reset port changes; the old accepted reset request survives long enough to return the new address. A failure keeps other APIs unavailable while permitting reset retry and shutdown.
 
+`shell` waits for a foreground command to finish, with a default timeout of 60 seconds and a maximum of 300 seconds.
+Timeout or cancellation terminates the command and its managed descendants; command completion also cleans up remaining descendants.
+Timeout results explicitly report termination and identify saved output as having been captured before termination.
+Use `start_background` for GUI applications, servers, watchers, and other programs that must keep running.
+
+Background shell jobs have no deadline by default and remain owned by their conversation Worker.
+An optional positive `timeoutSeconds` sets a termination deadline; only then do the tool result and process monitor include an expiry time.
+The existing concurrent-job and output limits still apply.
+
 Background shell jobs and `detached` subtasks belong to the Vista conversation and may outlive one foreground execution or its cancellation. `required` subtasks block parent submission; `best_effort` subtasks are canceled during parent finalization. Explicitly stopping a subtask cancels its existing descendants, including detached descendants. Normal parent finalization preserves detached work.
 
 Subtask startup is persisted and acknowledged before returning the task ID or making model requests. Terminal state and reports must also be durably acknowledged before parent collection. Background tasks and their descendants may continue writing model text, tool records, and reports to their original execution trace after the parent ends; they do not create new formal assistant messages. State lives in `agent_tasks`; reports reuse events and model-output chunks. Worker exit, conversation closure, or Vista restart records unfinished tasks as interrupted without automatically resuming side effects.

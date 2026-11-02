@@ -89,7 +89,11 @@ func TestNativeApplication(t *testing.T) {
 						name = "start_background"
 					}
 				}
-				args, _ := json.Marshal(map[string]any{"directory": root, "command": script, "timeoutSeconds": 60})
+				input := map[string]any{"directory": root, "command": script}
+				if name == "shell" {
+					input["timeoutSeconds"] = 60
+				}
+				args, _ := json.Marshal(input)
 				delta = map[string]any{"tool_calls": []any{map[string]any{"index": 0, "id": "call_" + last.Content, "type": "function", "function": map[string]any{"name": name, "arguments": string(args)}}}}
 				finish = "tool_calls"
 			}
@@ -266,6 +270,9 @@ func TestNativeApplication(t *testing.T) {
 		}
 		if active.ID == "" {
 			t.Fatal("background job was lost at the reply boundary")
+		}
+		if active.ExpiresAt != "" {
+			t.Fatalf("background job acquired an implicit deadline: %+v", active)
 		}
 		api("GET", sessionPath+"/jobs/"+active.ID+"/output", nil, new(map[string]any))
 		switch action {

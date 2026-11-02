@@ -62,8 +62,8 @@ func (m *BackgroundManager) Start(ctx context.Context, stateDir, runID, director
 	if strings.TrimSpace(script) == "" || len(script) > 4096 {
 		return BackgroundJob{}, errors.New("background command must be 1–4096 bytes")
 	}
-	if timeout <= 0 || timeout > 24*time.Hour {
-		return BackgroundJob{}, errors.New("background timeout must be within 24 hours")
+	if timeout < 0 {
+		return BackgroundJob{}, errors.New("background timeout must not be negative")
 	}
 	info, err := os.Stat(directory)
 	if err != nil {
@@ -86,8 +86,11 @@ func (m *BackgroundManager) Start(ctx context.Context, stateDir, runID, director
 	// Job is the display/persistence projection. Keep execution input in local
 	// variables so no event, returned metadata, or later status bypasses redaction.
 	job := BackgroundJob{ID: uuid.NewString(), RunID: runID, Directory: DisplayShellCommand(directory, secrets), Command: DisplayShellCommand(script, secrets), OutputPath: file.Name(), Status: "starting", ExitCode: -1}
-	deadline := time.Now().Add(timeout)
-	job.ExpiresAt = deadline.UTC().Format(time.RFC3339Nano)
+	var deadline time.Time
+	if timeout > 0 {
+		deadline = time.Now().Add(timeout)
+		job.ExpiresAt = deadline.UTC().Format(time.RFC3339Nano)
+	}
 	if len(identity) > 0 {
 		job.CallID = identity[0]
 	}
@@ -121,7 +124,13 @@ func (m *BackgroundManager) Start(ctx context.Context, stateDir, runID, director
 		file.Close()
 		return BackgroundJob{}, err
 	}
-	jobCtx, cancel := context.WithDeadline(context.Background(), deadline)
+	var jobCtx context.Context
+	var cancel context.CancelFunc
+	if deadline.IsZero() {
+		jobCtx, cancel = context.WithCancel(context.Background())
+	} else {
+		jobCtx, cancel = context.WithDeadline(context.Background(), deadline)
+	}
 	m.mu.Lock()
 	process.cancel = cancel
 	if process.stopReason != "" {

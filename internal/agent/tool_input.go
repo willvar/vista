@@ -17,11 +17,8 @@ func toolInput(call provider.ToolCall, command workerproto.Command) *workerproto
 	if err := json.Unmarshal([]byte(call.Function.Arguments), &input); err != nil {
 		return nil
 	}
-	if input.TimeoutSeconds == 0 {
+	if call.Function.Name == "shell" && input.TimeoutSeconds == 0 {
 		input.TimeoutSeconds = 60
-		if call.Function.Name == "start_background" {
-			input.TimeoutSeconds = 3600
-		}
 	}
 	secrets := commandSecrets(command)
 	input.Command = toolInputPreview(input.Command, secrets)
