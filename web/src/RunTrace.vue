@@ -20,7 +20,7 @@ type Node = RunTraceNode & ThoughtChainItemType
 const props = defineProps<{
   sessionId: string; runId: string; events: StreamEvent[]; active: boolean; status: string; before: number; first: number
   after?: number; through?: number
-  replyTurns?: number[]; calls: number; startedAt?: string; modelName?: string
+  replyTurns?: number[]; startedAt?: string; modelName?: string
   modelResults?: ModelResultView[]; contextNotices?: ContextNotice[]
   viewState?: RunTraceViewState
 }>()
@@ -83,7 +83,7 @@ watch(segmentActive, (active, wasActive) => {
     }
   })
 }, { flush: 'sync' })
-const { events, loading, failure, load, overview, overviewLoading, overviewFailure, loadOverview, modelCalls, loadNode, nodeLoading, nodeFailure, loadedSequences } = useRunHistory(client, props, expanded, () => view.value.history)
+const { events, loading, failure, load, overview, overviewLoading, overviewFailure, loadOverview, loadNode, nodeLoading, nodeFailure, loadedSequences } = useRunHistory(client, props, expanded, () => view.value.history)
 const trace = computed(() => buildRunTrace(events.value, { ...props, active: segmentActive.value, modelResults: segmentResults.value }))
 const agents = computed(() => buildTraceAgentHierarchy(trace.value.tasks))
 const agentsById = computed(() => new Map(agents.value.map(agent => [agent.task.id, agent])))
@@ -153,13 +153,6 @@ const contextNotices = computed(() => {
   return [...notices.values()].sort((a, b) => a.sequence - b.sequence)
 })
 const hasDetails = computed(() => emptyReply.value || trace.value.nodes.length > 0 || agents.value.some(agent => agent.task.id !== 'main') || contextNotices.value.length > 0)
-const callCount = computed(() => {
-  if (modelCalls.value !== null) return modelCalls.value
-  const calls = new Set(segmentResults.value.map(result => result.sequence))
-  for (const event of events.value) if (event.kind === 'model_result') calls.add(event.sequence)
-  const requests = events.value.filter(event => event.kind === 'model_request' && event.data.purpose !== 'summary').length
-  return Math.max(calls.size, requests, props.calls || 0)
-})
 const rootTask = computed(() => trace.value.tasks.find(task => task.id === 'main'))
 const modelName = computed(() => {
   const task = rootTask.value
@@ -248,7 +241,7 @@ watch(() => [props.sessionId, props.runId, props.after], () => {
       <template #title>
         <div class="trace-summary">
           <div class="trace-overview-heading" role="button" tabindex="0" :aria-expanded="expanded" :aria-label="t('executionProcess')" @keydown.enter.prevent.stop="toggleProcess" @keydown.space.prevent.stop="toggleProcess">
-            <strong role="status">{{ runStatus }}</strong><small v-if="elapsed">{{ t('traceElapsed', { elapsed }) }}</small><span v-if="modelName" class="trace-model-name">{{ modelName }}</span><small>{{ t('modelCalls', { count: callCount }) }}</small><small v-if="checklist.length">{{ t('traceChecklistProgress', { done: completedItems, total: checklist.length }) }}</small>
+            <strong role="status">{{ runStatus }}</strong><small v-if="elapsed">{{ t('traceElapsed', { elapsed }) }}</small><span v-if="modelName" class="trace-model-name">{{ modelName }}</span><small v-if="checklist.length">{{ t('traceChecklistProgress', { done: completedItems, total: checklist.length }) }}</small>
           </div>
           <span v-if="debugMode" class="trace-summary-debug" @click.stop @keydown.stop><Button type="text" size="small" :title="t('traceDebugDetails')" :aria-label="t('traceDebugDetails')" class="trace-debug-trigger" @click="diagnosticsOpen = true"><BugOutlined /></Button></span>
         </div>

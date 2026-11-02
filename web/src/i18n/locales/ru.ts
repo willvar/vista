@@ -243,6 +243,7 @@ export default {
   "feedbackInvitationScope": "Оценки качества относятся только к вашему аккаунту. Оба режима поддерживают оценки. Только статистика скорости общая для пользователей.",
   "feedbackInvitationSkip": "Пока пропустить",
   "feedbackInvitationAccept": "Понятно",
+  "rateReply": "Оценить ответ",
   "helpfulReply": "Полезный ответ",
   "unhelpfulReply": "Бесполезный ответ",
   "pendingPaused": "Ожидающие сообщения приостановлены",

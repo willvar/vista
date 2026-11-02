@@ -243,6 +243,7 @@ export default {
   "feedbackInvitationScope": "质量反馈仅用于你的个人推荐，两种模式都可以评价。仅模型速度统计在系统内共享。",
   "feedbackInvitationSkip": "暂时跳过",
   "feedbackInvitationAccept": "知道了",
+  "rateReply": "评价答复",
   "helpfulReply": "答复有帮助",
   "unhelpfulReply": "答复无帮助",
   "pendingPaused": "待处理消息已暂停",

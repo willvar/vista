@@ -243,6 +243,7 @@ export default {
   "feedbackInvitationScope": "품질 피드백은 내 계정에만 적용되며 두 모드 모두에서 남길 수 있습니다. 사용자 간에는 모델 응답 시간 통계만 공유합니다.",
   "feedbackInvitationSkip": "나중에",
   "feedbackInvitationAccept": "알겠습니다",
+  "rateReply": "답변 평가",
   "helpfulReply": "도움이 되는 답변",
   "unhelpfulReply": "도움이 되지 않는 답변",
   "pendingPaused": "대기 메시지 전송이 일시 중지됨",

@@ -2,7 +2,6 @@
 import { computed, onUnmounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { Popover, Button, Select } from 'antdv-next'
-import { InfoCircleOutlined } from '@antdv-next/icons'
 import type { ModelResultView as Result } from './client/types'
 import { useEscapeDismiss } from './composables/useEscape'
 import { formatTime } from './ui/datetime.ts'
@@ -97,13 +96,16 @@ const averageTPS = computed(() => {
             <div class="usage-pagination"><small>{{ t('usagePage', { start: ordered.length ? page * pageSize + 1 : 0, end: Math.min((page + 1) * pageSize, ordered.length), total: ordered.length }) }}</small><Button size="small" :disabled="page === 0" @click="page--">{{ t('usagePrevious') }}</Button><Button size="small" :disabled="page >= pages - 1" @click="page++">{{ t('usageNext') }}</Button></div>
           </section>
         </template>
-        <Button type="text" size="small" :aria-label="t('usageDetails')" :aria-expanded="open"><InfoCircleOutlined /><span v-if="displayResults.length > 1">{{ t('modelCalls', { count: displayResults.length }) }}</span></Button>
+        <button type="button" class="model-call-count" :aria-label="t('usageDetails')" :aria-expanded="open">· {{ t('modelCalls', { count: displayResults.length }) }}</button>
       </Popover>
     </template>
   </div>
 </template>
 
 <style scoped>
+.model-call-count{border:0;padding:0;background:transparent;font:inherit;line-height:inherit;cursor:pointer;text-align:start}
+.model-call-count:hover{color:var(--accent)}
+.model-call-count:focus-visible{outline:2px solid var(--accent);outline-offset:3px;border-radius:3px}
 .usage-details{display:flex;flex-direction:column;gap:.55rem;width:min(880px,calc(100vw - 3rem));max-width:100%;max-height:min(600px,72dvh);overflow:hidden;color:var(--text-secondary);font-size:calc(.75rem + 2px);min-width:0}
 .usage-summary{flex:none;padding:.5rem .6rem;border:1px solid var(--border);border-radius:8px;background:var(--surface)}
 .usage-summary-heading{display:flex;align-items:baseline;gap:.35rem .7rem;flex-wrap:wrap}.usage-summary-heading strong{font-size:calc(.82rem + 2px)}.usage-summary-heading small{font-size:11.375px;color:var(--muted)}

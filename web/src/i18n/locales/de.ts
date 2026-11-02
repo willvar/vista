@@ -243,6 +243,7 @@ export default {
   "feedbackInvitationScope": "Qualitätsfeedback gilt nur für dein Konto. Beide Modi unterstützen Bewertungen. Nur Geschwindigkeitsstatistiken werden geteilt.",
   "feedbackInvitationSkip": "Vorerst überspringen",
   "feedbackInvitationAccept": "Verstanden",
+  "rateReply": "Antwort bewerten",
   "helpfulReply": "Hilfreiche Antwort",
   "unhelpfulReply": "Nicht hilfreiche Antwort",
   "pendingPaused": "Ausstehende Nachrichten pausiert",

@@ -243,6 +243,7 @@ export default {
   "feedbackInvitationScope": "Las valoraciones son personales. Ambos modos admiten votos. Solo se comparten las estadísticas de velocidad.",
   "feedbackInvitationSkip": "Omitir por ahora",
   "feedbackInvitationAccept": "Entendido",
+  "rateReply": "Valorar respuesta",
   "helpfulReply": "Respuesta útil",
   "unhelpfulReply": "Respuesta poco útil",
   "pendingPaused": "Mensajes pendientes en pausa",

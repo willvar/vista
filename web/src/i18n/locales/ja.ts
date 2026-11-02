@@ -243,6 +243,7 @@ export default {
   "feedbackInvitationScope": "品質評価は自分のアカウントにのみ使われます。どちらのモードでも評価できます。共有されるのは速度の統計だけです。",
   "feedbackInvitationSkip": "今はスキップ",
   "feedbackInvitationAccept": "わかりました",
+  "rateReply": "回答を評価",
   "helpfulReply": "役に立つ回答",
   "unhelpfulReply": "役に立たない回答",
   "pendingPaused": "保留中のメッセージを一時停止しました",

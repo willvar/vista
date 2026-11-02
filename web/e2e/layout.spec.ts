@@ -312,7 +312,7 @@ test('long running tool and completed process keep Stop and Queue reachable', as
   const completedTrace = page.locator(`.run-trace[data-run-id="${completedRun}"]`)
   await expect(activeTrace.locator('.trace-last-activity')).toContainText('Last activity: Use tool · UI geometry only')
   await expect(activeTrace.locator('.antd-thought-chain-node-title')).toBeHidden()
-  await expect(completedTrace.getByText('2 model calls', { exact: true })).toBeVisible()
+  await expect(completedTrace.locator('.trace-overview-heading')).not.toContainText('model calls')
   await completedTrace.locator('.antd-think-status-wrapper').first().click()
   await expect(completedTrace.locator('.antd-thought-chain-node-title')).toHaveText('Use tool · UI geometry only')
   await activeTrace.locator('.antd-think-status-wrapper').first().click()

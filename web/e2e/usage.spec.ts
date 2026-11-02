@@ -17,6 +17,8 @@ test('measured TPS matches persisted model timing and survives refresh', async (
   await send.click()
   const reply = page.locator('.messages article.assistant').filter({ hasText: 'Mock reply: Hi' })
   await expect(reply.locator('.model-tps')).toHaveText(/TPS \d+\.\d/)
+  await expect(reply.locator('.model-call-count')).toHaveText('· 1 model call')
+  await expect(reply.locator('.model-call-count svg')).toHaveCount(0)
   const messages = await vista.api(`/sessions/${session.id}/messages`)
   const result = messages.find((message: { role: string }) => message.role === 'assistant')?.modelResults?.[0]
   expect(result?.durationMs, 'New model results must retain their measured request time').toBeGreaterThan(0)
@@ -63,6 +65,7 @@ test('missing or partial timing remains visible without invented TPS', async ({ 
     await expect(reply.locator('.model-tps')).toHaveAttribute('title', scenario.id === 'measured'
       ? /including time to first token and excluding tool execution/
       : /Request timing or token usage is missing/)
+    await expect(reply.locator('.model-call-count')).toHaveText(`· ${scenario.results.length} model call${scenario.results.length === 1 ? '' : 's'}`)
   }
   const mixed = page.locator('.messages article.assistant').filter({ hasText: 'Partial timing fixture' })
   await mixed.getByRole('button', { name: 'Model usage details', exact: true }).click()

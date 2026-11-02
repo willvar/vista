@@ -242,6 +242,7 @@ export default {
   "feedbackInvitationScope": "質量反饋僅用於你的個人推薦，兩種模式都可以評價。僅模型速度統計在系統內共享。",
   "feedbackInvitationSkip": "暫時跳過",
   "feedbackInvitationAccept": "知道了",
+  "rateReply": "評價答覆",
   "helpfulReply": "答覆有幫助",
   "unhelpfulReply": "答覆無幫助",
   "pendingPaused": "待處理消息已暫停",

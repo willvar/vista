@@ -243,6 +243,7 @@ export default {
   "feedbackInvitationScope": "Les avis de qualité restent personnels à votre compte. Les deux modes acceptent les votes. Seules les statistiques de vitesse sont partagées.",
   "feedbackInvitationSkip": "Passer pour le moment",
   "feedbackInvitationAccept": "Compris",
+  "rateReply": "Évaluer la réponse",
   "helpfulReply": "Réponse utile",
   "unhelpfulReply": "Réponse peu utile",
   "pendingPaused": "Messages en attente suspendus",

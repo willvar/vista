@@ -19,7 +19,7 @@ const test = base.extend<{}, { mockOrigin: string }>({
 async function mockWorkspace(page: Page, origin: string) {
   const session: Session = { id: 'iteration-session', title: 'Plan a small garden', modelKey: 'first', manualModelKey: 'first', manualReasoningEffort: 'high', selectionMode: 'manual', selectionTier: 'speed', selectionReasoningEffort: '', open: true, running: true, executing: true, inputQueuePaused: false, createdAt: '2026-01-01T12:00:00Z' }
   const preferences = { userId: 'test-user', lastMode: 'manual', lastTier: 'speed', manualModelKey: 'first', reasoningByModelId: { 'model-alpha': 'high', 'model-beta': 'low' }, feedbackInvitationSeen: false }
-  const models = [{ key: 'first', name: 'Example', provider: 'openai-chat', id: 'model-alpha', tools: true, reasoningOptions: ['low', 'high'] }, { key: 'second', name: 'Example', provider: 'openai-chat', id: 'model-beta', tools: true, reasoningOptions: ['low', 'high'], inputModalities: ['text', 'image'] }]
+  const models = [{ key: 'first', name: 'Example', provider: 'openai-chat', id: 'model-alpha', recognized: true, tools: true, reasoningOptions: ['low', 'high'] }, { key: 'second', name: 'Example', provider: 'openai-chat', id: 'model-beta', recognized: true, tools: true, reasoningOptions: ['low', 'high'], inputModalities: ['text', 'image'] }]
   let inputs = [{ id: 'pending-1', mode: 'later', status: 'queued', content: 'Add drought-resistant plants and keep the budget under $100.' }, { id: 'pending-2', mode: 'now', status: 'queued', content: 'Use the sunny corner.' }]
   const feedback: Record<string, string> = {}
   const posts: any[] = []
@@ -28,6 +28,35 @@ async function mockWorkspace(page: Page, origin: string) {
   const messages: Message[] = [{ id: 'user-1', runId: 'run-1', role: 'user', sequence: 1, content: 'Help me plan a small garden.', createdAt: '2026-01-01T12:00:00Z' }, { id: 'assistant-1', runId: 'run-1', role: 'assistant', sequence: 3, content: 'Start with herbs and native flowering plants.\n\n- Put sun-loving plants in the bright corner.\n- Leave a narrow path for access.', modelId: 'model-alpha', modelKey: 'first', createdAt: '2026-01-01T12:00:01Z' }]
   const events: StreamEvent[] = [{ sequence: 2, kind: 'model_request', data: { runId: 'run-1', turn: 1, id: 'model-alpha', key: 'first', provider: 'openai-chat' } }]
   await installMockStateStream(page)
+  await page.addInitScript(() => {
+    const original = window.fetch.bind(window)
+    window.fetch = async (input, init) => {
+      const path = new URL(typeof input === 'string' ? input : input instanceof URL ? input : input.url, location.href).pathname
+      if (path !== '/api/sessions/iteration-session/events') return original(input, init)
+      const snapshot = await (await original('/api/sessions/iteration-session/snapshot', { signal: init?.signal })).json()
+      const encoder = new TextEncoder()
+      let timer: ReturnType<typeof setInterval> | undefined
+      let close: () => void
+      const body = new ReadableStream<Uint8Array>({
+        start(sink) {
+          sink.enqueue(encoder.encode(`event: sync\ndata: ${JSON.stringify({ session: snapshot.session, throughSequence: snapshot.throughSequence })}\n\n`))
+          let after = snapshot.throughSequence
+          Object.assign(window, { pushIterationFixture(next: typeof snapshot) {
+            for (const event of next.events) if (event.sequence > after) {
+              sink.enqueue(encoder.encode(`event: record\ndata: ${JSON.stringify({ ...event, afterSequence: after })}\n\n`))
+              after = event.sequence
+            }
+            sink.enqueue(encoder.encode(`event: sync\ndata: ${JSON.stringify({ session: next.session, throughSequence: next.throughSequence })}\n\n`))
+          } })
+          timer = setInterval(() => sink.enqueue(encoder.encode(': heartbeat\n\n')), 15_000)
+          close = () => { clearInterval(timer); try { sink.close() } catch {} }
+          init?.signal?.addEventListener('abort', close, { once: true })
+        },
+        cancel() { close(); init?.signal?.removeEventListener('abort', close) },
+      })
+      return new Response(body, { headers: { 'Content-Type': 'text/event-stream' } })
+    }
+  })
   await page.route('**/api/**', async route => {
     const request = route.request(); const path = new URL(request.url()).pathname.slice(4); const method = request.method()
     const body = method === 'GET' || method === 'DELETE' ? {} : request.postDataJSON() || {}
@@ -41,6 +70,7 @@ async function mockWorkspace(page: Page, origin: string) {
     if (path === '/status') return reply({ state: 'running', sessions: { total: 1, open: 1, closed: 0, running: session.executing ? 1 : 0, workers: 1 }, workerMetrics: [{ sessionId: session.id, memory: { heapBytes: 1000000, rssBytes: 4000000, sampledAt: '2026-01-01T12:00:00Z' } }] })
     if (path === '/sessions') return reply([session])
     if (path.endsWith('/snapshot')) return reply(coreSnapshot(session, messages, events))
+    if (path.endsWith('/overview')) return reply({ modelCalls: 1, throughSequence: events.at(-1)?.sequence || 0, startedAt: session.createdAt, events })
     if (path.endsWith('/selection')) {
       if (body.selectionMode && body.selectionMode !== session.selectionMode || body.selectionTier && body.selectionTier !== session.selectionTier) session.selectionReasoningEffort = ''
       Object.assign(session, body)
@@ -51,8 +81,18 @@ async function mockWorkspace(page: Page, origin: string) {
       return reply({ feedback })
     }
     if (path.endsWith('/context')) return reply(budget)
-    if (path.endsWith('/cancel')) { session.executing = false; session.inputQueuePaused = true; inputs = inputs.map(item => ({ ...item, status: 'paused' })); return reply({}) }
-    if (path.endsWith('/inputs/resume')) { session.inputQueuePaused = false; inputs = inputs.map(item => ({ ...item, status: 'queued' })); return reply({}) }
+    if (path.endsWith('/cancel') || path.endsWith('/inputs/resume')) {
+      const paused = path.endsWith('/cancel')
+      if (paused) session.executing = false
+      session.inputQueuePaused = paused
+      inputs = inputs.map(item => ({ ...item, status: paused ? 'paused' : 'queued' }))
+      for (const input of inputs) events.push({ sequence: ++sequence, kind: 'input_status', data: { id: input.id, status: input.status } })
+      events.push({ sequence: ++sequence, kind: 'input_queue_state', data: { paused } })
+      if (paused) events.push({ sequence: ++sequence, kind: 'run_finished', data: { runId: 'run-1', status: 'canceled' } })
+      await reply({})
+      await page.evaluate(snapshot => (window as any).pushIterationFixture(snapshot), coreSnapshot(session, messages, events))
+      return
+    }
     const inputID = path.match(/\/inputs\/([^/]+)/)?.[1]
     if (inputID) {
       const input = inputs.find(item => item.id === inputID)!
@@ -125,6 +165,7 @@ test('pending deletion requires confirmation and Escape keeps the task running',
 })
 
 test('independent selection, voluntary feedback, pending controls, and context fit the viewport', async ({ page, mockOrigin }, testInfo) => {
+  test.slow()
   const fixture = await mockWorkspace(page, mockOrigin)
   const smallScreen = page.viewportSize()!.width <= 830
   await expect(page.getByRole('dialog')).toContainText('Help Vista learn what works for you')
@@ -152,6 +193,8 @@ test('independent selection, voluntary feedback, pending controls, and context f
   await expect(page.getByRole('slider', { name: 'Reasoning effort', exact: true })).toHaveCount(0)
   await expect(page.locator('.sender-attach')).toBeVisible()
   await choose(page, 'Preference', 'Quality')
+  await expect(page.locator('.message-actions .reply-feedback')).toHaveCount(2)
+  await expect(page.locator('.reply-feedback-trigger')).toHaveCount(0)
   await page.reload()
   await expect(page.getByRole('dialog')).toHaveCount(0)
   await expect(page.locator('.composer-tier')).toContainText('Quality')
@@ -172,10 +215,23 @@ test('independent selection, voluntary feedback, pending controls, and context f
   await expect(page.locator('.composer-reasoning')).toContainText('High')
   await expect.poll(() => fixture.preferences.manualModelKey).toBe('first')
 
+  const rating = page.getByRole('button', { name: 'Rate answer', exact: true })
+  await expect(page.locator('.message-actions .reply-feedback')).toHaveCount(0)
+  await rating.click()
+  await expect(page.getByRole('group', { name: 'Rate answer', exact: true })).toBeVisible()
+  expect(fixture.feedback['assistant-1']).toBeUndefined()
+  await page.keyboard.press('Escape')
+  await expect(rating).toHaveAttribute('aria-expanded', 'false')
+  expect(fixture.session.executing, 'Dismissing feedback must not stop the task').toBe(true)
+  await rating.click()
   await page.getByRole('button', { name: 'Helpful answer', exact: true }).click()
+  await expect.poll(() => fixture.feedback['assistant-1']).toBe('up')
+  await expect(rating).toHaveAttribute('aria-expanded', 'false')
+  await rating.click()
   await expect(page.getByRole('button', { name: 'Helpful answer', exact: true })).toHaveAttribute('aria-pressed', 'true')
   await page.getByRole('button', { name: 'Unhelpful answer', exact: true }).click()
   await expect.poll(() => fixture.feedback['assistant-1']).toBe('down')
+  await rating.click()
   await page.getByRole('button', { name: 'Unhelpful answer', exact: true }).click()
   await expect.poll(() => fixture.feedback['assistant-1']).toBeUndefined()
 
