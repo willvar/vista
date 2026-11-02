@@ -948,6 +948,122 @@ test('a failed first session creation preserves the welcome draft and attachment
   assert.match(error.value, /creation failed/)
 })
 
+test('failure analysis sends once into a new conversation with the current selection and preserves source drafts', async t => {
+  const creating = deferred<Session>()
+  const requested = deferred<void>()
+  const posts: { path: string; body: Record<string, unknown> }[] = []
+  const destinations: string[] = []
+  const f = fixture(t, (path, options) => {
+    if (options?.method !== 'POST') return
+    posts.push({ path, body: JSON.parse(String(options.body)) })
+    if (path === '/sessions') { requested.resolve(); return creating.promise }
+    if (path === '/sessions/analysis/messages') return Promise.resolve({ runId: 'analysis-run', message: message('analysis-user', 1, 'analysis-run') })
+  }, async item => { destinations.push(item.id) })
+  f.conversation.draft.value = 'Unsent home draft'
+  await f.conversation.selectSession(session('a'))
+  f.conversation.draft.value = 'Keep my source draft'
+  f.conversation.quoteSelection({ text: 'Original quote', role: 'assistant' })
+  const attachment = new File(['png'], 'unsent.png', { type: 'image/png' })
+  f.conversation.addImages([attachment])
+  f.conversation.selectedReasoning.value = 'high'
+  const sourceMessages = [message('source-question', 2, 'failed-run'),
+    { ...message('source-error', 3, 'failed-run', 'assistant'), failure: true, content: 'HTTP 400 <|start|>' }]
+  f.conversation.messages.value = sourceMessages
+  const failure = { kind: 'execution' as const, runId: 'failed-run', sequence: 3, error: sourceMessages[1]!.content }
+  const opening = f.conversation.analyzeFailure(failure)
+  await requested.promise
+  await f.conversation.analyzeFailure(failure)
+  assert.equal(posts.length, 1)
+  assert.equal(f.conversation.selected.value?.id, 'a')
+  assert.equal(f.conversation.draft.value, 'Keep my source draft')
+  creating.resolve(session('analysis'))
+  await opening
+  assert.deepEqual(posts.map(item => item.path), ['/sessions', '/sessions/analysis/messages'])
+  assert.deepEqual({ ...posts[1]!.body, content: undefined }, {
+    content: undefined, images: [], mode: 'now', modelKey: 'example', reasoningEffort: 'high', selectionMode: 'manual', selectionTier: 'speed',
+  })
+  assert.ok(String(posts[1]!.body.content).startsWith('failureAnalysisPrompt'))
+  assert.ok(!String(posts[1]!.body.content).includes('<|start|>'))
+  assert.deepEqual(destinations, ['analysis'])
+  assert.equal(f.conversation.selected.value?.id, 'analysis')
+  assert.equal(f.saved.get('vista-session-draft:a'), 'Keep my source draft')
+  assert.equal(f.saved.get(welcomeDraftStorageKey), 'Unsent home draft')
+  assert.equal(JSON.parse(f.saved.get(quoteStoragePrefix + 'a')!).text, 'Original quote')
+  assert.equal(f.refreshes(), 0)
+  assert.equal(f.busy.value, false)
+  assert.equal(f.conversation.analyzingFailure.value, '')
+  assert.equal(f.conversation.attachedImages.value.length, 0)
+  await f.conversation.selectSession(session('a'))
+  assert.equal(f.conversation.draft.value, 'Keep my source draft')
+  assert.equal(f.conversation.attachedImages.value[0], attachment)
+  assert.equal(f.conversation.quotedText.value?.text, 'Original quote')
+})
+
+test('failure analysis preserves automatic model selection without forcing a manual model', async t => {
+  let submitted: Record<string, unknown> = {}
+  const f = fixture(t, (path, options) => {
+    if (options?.method !== 'POST') return
+    if (path === '/sessions') return Promise.resolve(session('analysis'))
+    if (path === '/sessions/analysis/messages') {
+      submitted = JSON.parse(String(options.body))
+      return Promise.resolve({})
+    }
+  })
+  await f.conversation.selectSession(session('a'))
+  f.conversation.chooseSelectionMode('auto')
+  f.conversation.chooseSelectionTier('quality')
+  await f.conversation.analyzeFailure({ kind: 'compaction', runId: 'compact-run', error: 'Failed to compact' })
+  assert.equal(submitted.selectionMode, 'auto')
+  assert.equal(submitted.selectionTier, 'quality')
+  assert.equal(submitted.modelKey, undefined)
+  assert.equal(submitted.reasoningEffort, undefined)
+  assert.equal(f.conversation.selectionMode.value, 'auto')
+  assert.equal(f.conversation.selectionTier.value, 'quality')
+})
+
+test('failed diagnostic creation leaves the source intact and a rejected first send keeps a retry draft', async t => {
+  let creates = 0
+  const f = fixture(t, (path, options) => {
+    if (options?.method !== 'POST') return
+    if (path === '/sessions') return ++creates === 1 ? Promise.reject(new Error('creation failed')) : Promise.resolve(session('analysis'))
+    if (path === '/sessions/analysis/messages') return Promise.reject(new Error('capacity unavailable'))
+  })
+  await f.conversation.selectSession(session('a'))
+  f.conversation.draft.value = 'Keep my source draft'
+  const failure = { kind: 'execution' as const, runId: 'failed-run', error: 'Original error' }
+  await f.conversation.analyzeFailure(failure)
+  assert.equal(f.conversation.selected.value?.id, 'a')
+  assert.equal(f.conversation.draft.value, 'Keep my source draft')
+  assert.match(f.error.value, /creation failed/)
+  await f.conversation.analyzeFailure(failure)
+  assert.equal(f.conversation.selected.value?.id, 'analysis')
+  assert.match(f.conversation.draft.value, /Original error/)
+  assert.match(f.saved.get('vista-session-draft:analysis')!, /Original error/)
+  assert.equal(f.saved.get('vista-session-draft:a'), 'Keep my source draft')
+  assert.match(f.error.value, /capacity unavailable/)
+  assert.equal(f.busy.value, false)
+})
+
+test('navigating away during diagnostic creation prevents a late response from sending or changing the active view', async t => {
+  const creating = deferred<Session>(), requested = deferred<void>()
+  let sends = 0
+  const f = fixture(t, (path, options) => {
+    if (options?.method !== 'POST') return
+    if (path === '/sessions') { requested.resolve(); return creating.promise }
+    if (path.endsWith('/messages')) { sends++; return Promise.resolve({}) }
+  })
+  await f.conversation.selectSession(session('a'))
+  const opening = f.conversation.analyzeFailure({ kind: 'execution', runId: 'failed-run', error: 'Failed' })
+  await requested.promise
+  await f.conversation.selectSession(session('b'))
+  creating.resolve(session('analysis'))
+  await opening
+  assert.equal(sends, 0)
+  assert.equal(f.conversation.selected.value?.id, 'b')
+  assert.equal(f.conversation.draft.value, 'draft B')
+  assert.equal(f.busy.value, false)
+})
+
 test('a failed first message keeps the created session and retry sends without creating another record', async t => {
   let creates = 0
   let sends = 0

@@ -136,6 +136,12 @@ success, Continue is offered in the placeholder only while idle with an empty
 draft and no images. Activating a conversation focuses its enabled composer;
 pressing Tab fills the draft without sending. Shift+Tab and Tab without a suggestion retain normal focus navigation.
 A newer user message dismisses
-the suggestion, including after reload. Failed runs retain a copyable error and
-guidance to investigate in a new conversation; the manual action remains
-available after the failed run has ended.
+the suggestion, including after reload. Execution and compaction failures retain
+a copyable error, a button to analyze the failure in a new conversation, and the
+suggestion to try manual compaction before continuing.
+The button sends a diagnostic question using the current selection mode and UI
+language, with source session/run IDs, the error, and bounded recent message
+excerpts. Diagnostic strings escape markup delimiters instead of replaying the
+original history. The bundled guide describes on-demand evidence reads.
+The original conversation and draft remain intact; a rejected first send leaves
+the diagnostic question available as a draft in its new conversation.

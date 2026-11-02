@@ -177,6 +177,7 @@ test('canceling manual compaction ends maintenance without inserting a reply or 
     await page.reload()
     await page.locator('.context-status').click()
     await expect(page.locator('.context-status-detail')).toContainText('Compaction did not finish')
-    await expect(page.locator('.context-status-detail')).toContainText('Copy this error into a new conversation')
+    await expect(page.locator('.context-status-detail').getByRole('button', { name: 'Analyze this failure in a new conversation', exact: true })).toBeVisible()
+    await expect(page.locator('.context-status-detail')).toContainText('manual context compaction')
   } finally { release() }
 })

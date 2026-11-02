@@ -5,6 +5,7 @@ import { Button, Popover } from 'antdv-next'
 import { LoadingOutlined, CheckCircleOutlined, ExclamationCircleOutlined, UpOutlined, CodeOutlined } from '@antdv-next/icons'
 import { useEscapeDismiss } from './composables/useEscape'
 import MessageActions from './MessageActions.vue'
+import FailureHelp from './FailureHelp.vue'
 import type { CompactionStatus } from './client/types'
 const props = withDefaults(defineProps<{
   status: CompactionStatus | null
@@ -30,7 +31,7 @@ const statusLabel = computed(() => phase.value ? t(phase.value === 'compacting' 
           <p v-if="phase"><strong>{{ statusLabel }}</strong></p>
           <p v-if="compacting">{{ t(manual ? 'manualCompactionProgress' : 'autoCompactionProgress') }}</p>
           <p v-else-if="phase === 'compacted'">{{ t(status?.manual ? 'manualCompactionDone' : 'autoCompactionDone') }}</p>
-          <template v-else-if="status?.error"><pre class="compaction-error">{{ status.error }}</pre><MessageActions :text="status.error" /><p>{{ t('runFailureHelp') }}</p></template>
+          <template v-else-if="status?.error"><pre class="compaction-error">{{ status.error }}</pre><MessageActions :text="status.error" /><FailureHelp :failure="{ kind: 'compaction', runId: status.runId, sequence: status.sequence, error: status.error }" /></template>
         </div>
       </template>
       <button type="button" class="context-status" :aria-label="statusLabel" :aria-expanded="open" :title="t('contextDetails')">

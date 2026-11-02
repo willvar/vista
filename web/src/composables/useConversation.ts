@@ -11,6 +11,7 @@ import { formatQuotedReply, quoteStoragePrefix, readQuotedText, type QuotedText 
 import { reasoningChoiceLabel } from '../ui/reasoning.ts'
 import { jobActive } from '../state/jobs.ts'
 import { initialModelKey, visibleModels } from '../state/modelVisibility.ts'
+import { failureAnalysisPrompt, type FailureContext } from '../state/failureAnalysis.ts'
 
 export type ConversationOptions = {
   client: VistaClient
@@ -106,12 +107,15 @@ export function useConversation({ client, sessions, modelCatalog, error, busy, r
   const quotedText = ref<QuotedText | null>(null)
   const editingMessage = ref<Message | null>(null)
   const rollbackFailure = ref('')
+  const analyzingFailure = ref('')
+  const canAnalyzeFailure = computed(() => interactionPreferences.ready.value && !!selectedModelInfo.value?.provider)
   let editBackup: { draft: string; quote: QuotedText | null; images: File[] } | null = null
   type ImageRef = { hash: string; name: string; mediaType: string; bytes: number }
   type MessageDraft = { message: Message; images: ImageRef[] }
   let draftRevision = 0
   let recallingScope: Scope | null = null
   let welcomeImages: File[] = []
+  const analysisImageDrafts = new Map<string, File[]>()
   let restoringDraft = false
   let firstSendController: AbortController | null = null
 
@@ -527,14 +531,15 @@ export function useConversation({ client, sessions, modelCatalog, error, busy, r
     recentOldestEvent = olderActivityCursor = 0
     recentHasOlderActivity = false
   }
-  onScopeDispose(clearSession)
+  onScopeDispose(() => { clearSession(); analysisImageDrafts.clear() })
 
   async function selectSession(session: Session) {
     clearSession()
     const scope: Scope = { id: session.id, generation, controller: new AbortController() }
     currentScope = scope
     selected.value = session
-    attachedImages.value = []
+    attachedImages.value = analysisImageDrafts.get(session.id) || []
+    analysisImageDrafts.delete(session.id)
     draft.value = readDraft(session.id)
     quotedText.value = readQuotedText(session.id)
     selectionMode.value = session.selectionMode || lastMode.value
@@ -896,6 +901,49 @@ export function useConversation({ client, sessions, modelCatalog, error, busy, r
   }
   function submitMessage() { if (!busy.value && (!attachedImages.value.length || canAttachImage.value)) void send() }
   function submitAlternateMessage() { if (!busy.value && (!attachedImages.value.length || canAttachImage.value)) void send('later') }
+  async function analyzeFailure(failure: FailureContext) {
+    const scope = currentScope
+    const source = selected.value
+    if (!scope || !source || !current(scope) || busy.value || analyzingFailure.value || !canAnalyzeFailure.value) return
+    const content = failureAnalysisPrompt(t('failureAnalysisPrompt'), source, failure, messages.value, state.modelByRun[failure.runId])
+    const choice = { selectionMode: selectionMode.value, selectionTier: selectionTier.value,
+      ...(selectionMode.value === 'manual' ? { modelKey: selectedModel.value, reasoningEffort: selectedReasoning.value } : {}) }
+    const sourceImages = [...attachedImages.value]
+    const owner = startBusy()
+    analyzingFailure.value = failure.runId
+    error.value = ''
+    try {
+      await interactionPreferences.flush()
+      if (!current(scope)) return
+      const response = await request<Session>(scope, '/sessions', { method: 'POST', body: '{}' })
+      if (!current(scope)) return
+      const created: Session = { ...response, selectionMode: choice.selectionMode, selectionTier: choice.selectionTier,
+        ...(choice.selectionMode === 'manual' ? { manualModelKey: choice.modelKey, manualReasoningEffort: choice.reasoningEffort } : {}) }
+      sessions.value = [...sessions.value.filter(item => item.id !== created.id), created]
+      try { localStorage.setItem(draftStoragePrefix + created.id, content) } catch { /* Keep the in-memory retry below. */ }
+      let deliveryFailure: unknown
+      try {
+        // Send before navigating. The destination's normal snapshot/stream
+        // recovers the reply even if it arrives before that view opens.
+        await request<SendMessageResult>(scope, `/sessions/${created.id}/messages`, {
+          method: 'POST', body: JSON.stringify({ content, images: [], mode: 'now', ...choice }),
+        })
+        try { localStorage.removeItem(draftStoragePrefix + created.id) } catch { /* A sent message is still durable. */ }
+      } catch (cause) { deliveryFailure = cause }
+      if (!current(scope)) return
+      endBusy(scope, owner)
+      if (sourceImages.length) analysisImageDrafts.set(source.id, sourceImages)
+      await onSessionStarted?.(created)
+      // The workspace route normally selects it; standalone callers need the
+      // same state transition without opening a second stream for that route.
+      if (current(scope)) await selectSession(created)
+      if (selected.value?.id === created.id && deliveryFailure) {
+        draft.value = content
+        error.value = String(deliveryFailure)
+      }
+    } catch (cause) { report(scope, cause) }
+    finally { endBusy(scope, owner); analyzingFailure.value = '' }
+  }
   async function submitQuestion(runId: string, answers: QuestionAnswer[]): Promise<boolean> {
     const scope = currentScope
     const session = selected.value
@@ -1034,7 +1082,7 @@ export function useConversation({ client, sessions, modelCatalog, error, busy, r
     draft, quotedText, quoteSelection, removeQuote, agentWorking, agentStatus, hasTaskDetails, chooseModel, recallLastUserMessage,
     synchronization, syncDiagnostics, viewRevision, resynchronize, renderFailure,
     selectSession, clearSession, refreshConversation, loadOlderActivity, showRecentActivity, loadOlder, loadNewer, markRead,
-    send, submitMessage, submitAlternateMessage, submitQuestion, cancelExecution, readModelOutput, modelOutputLoading, modelOutputFailure,
+    send, submitMessage, submitAlternateMessage, analyzingFailure, canAnalyzeFailure, analyzeFailure, submitQuestion, cancelExecution, readModelOutput, modelOutputLoading, modelOutputFailure,
     fullMessageText, resultsForMessage, resultsForRun, resultsForTrace, traceSegment, runStartedAt, runReplyTurns, runActivityAnchor, firstRunSequence, liveDrafts,
     hasVisibleRun, chooseImages, addImages, pasteImages, dropImages, removeImage,
   }

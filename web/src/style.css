@@ -1035,6 +1035,15 @@ a {
   line-height: 1.6;
   overflow-wrap: anywhere;
 }
+.run-failure-help .ant-btn {
+  height: auto;
+  padding: 0;
+  font: inherit;
+  line-height: inherit;
+  white-space: normal;
+  text-align: start;
+  vertical-align: baseline;
+}
 .provider-login {
   grid-column: 1/-1;
   display: flex;
