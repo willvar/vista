@@ -1612,9 +1612,6 @@ body {
   flex: none;
   align-self: center;
 }
-.model-metadata-tag { color: var(--muted); }
-.model-metadata-tag { margin-inline-start: 8px; font-size: var(--font-size-small); }
-.model-visibility-link { display: block; padding: 10px 12px; border-top: 1px solid var(--border); color: var(--accent); font-size: var(--font-size-small); white-space: normal; }
 .session-manager-stats>div {
   display: flex;
   flex-direction: column;

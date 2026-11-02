@@ -4,10 +4,6 @@ import type en from './en.ts'
 export default {
   "showUnrecognizedModels": "Afficher les modèles non reconnus",
   "showUnrecognizedModelsHint": "Permet de sélectionner les modèles dont Vista n’a pas identifié les capacités ; certaines fonctions peuvent être limitées.",
-  "modelMetadataMissing": "Capacités non identifiées",
-  "unrecognizedModelsHidden": "{count} modèles non reconnus masqués",
-  "modelVisibilitySettings": "Visibilité des modèles",
-  "noRecognizedModels": "Aucun modèle reconnu disponible",
   "memorySettings": "Mémoire et capacité",
   "memorySettingsHint": "Le budget vérifie la mémoire mesurée de Vista et des conversations. Une fois atteint, les nouvelles opérations lourdes sont refusées. Une conversation dépassant sa propre limite est interrompue. Ce sont des protections souples, pas des limites système. Les programmes shell utilisent de la mémoire supplémentaire.",
   "memoryBudget": "Budget mémoire",

@@ -4,10 +4,6 @@ import type en from './en.ts'
 export default {
   "showUnrecognizedModels": "未認識のモデルを表示",
   "showUnrecognizedModelsHint": "有効にすると、Vista が能力を認識していないモデルを選択できます。一部の機能が制限される場合があります。",
-  "modelMetadataMissing": "能力情報が不明",
-  "unrecognizedModelsHidden": "未認識のモデル {count} 件を非表示",
-  "modelVisibilitySettings": "モデルの表示設定",
-  "noRecognizedModels": "認識済みのモデルがありません",
   "memorySettings": "メモリと容量",
   "memorySettingsHint": "Vista と会話プロセスの実測メモリを確認し、予算に達すると新しい高負荷処理を拒否します。会話が個別の上限を超えると中断します。OS のハード制限ではありません。シェルプログラムは追加のメモリを使用します。",
   "memoryBudget": "メモリ予算",

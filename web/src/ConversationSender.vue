@@ -13,7 +13,7 @@ import { useWorkspace } from './composables/useWorkspace'
 
 const { t } = useI18n({ useScope: 'global' })
 const emit = defineEmits<{ send: []; openProcesses: [] }>()
-const { selected, busy, needsProvider, workerAvailable, modelChoices, hiddenModelCount, interactionPreferences, conversation, route, mobileSessionsOpen, modalQuery } = useWorkspace()
+const { selected, busy, needsProvider, workerAvailable, modelChoices, interactionPreferences, conversation, route, mobileSessionsOpen, modalQuery } = useWorkspace()
 const { draft, quotedText, removeQuote, agentWorking, agentStatus, selectionMode, selectionTier, chooseSelectionTier,
   editingMessage, cancelEditMessage,
   selectedModel, selectedReasoning, reasoningChoices, chooseModel,
@@ -23,7 +23,7 @@ const { draft, quotedText, removeQuote, agentWorking, agentStatus, selectionMode
 const runningJobs = computed(() => jobs.value.filter(jobActive).length)
 const compacting = computed(() => manualCompacting.value || compactionRequestPending.value
   || agentWorking.value && compaction.value?.phase === 'compacting')
-const senderDisabled = computed(() => manualCompacting.value || compactionRequestPending.value || !interactionPreferences.ready.value || needsProvider.value
+const senderDisabled = computed(() => manualCompacting.value || compactionRequestPending.value || !interactionPreferences.ready.value || !modelChoices.value.length
   || !!selected.value && (!selected.value.open || !workerAvailable(selected.value.id)))
 const sender = ref<SenderRef | null>(null)
 const activeInputKey = computed(() => {
@@ -148,8 +148,8 @@ onUnmounted(() => {
 </script>
 
 <template>
-        <router-link v-if="needsProvider || !modelChoices.length" class="composer sender-card sender-setup" :to="{ path: '/settings/models', query: modalQuery() }">
-          <span v-if="needsProvider">{{ t('configureModelToStart') }}</span><span v-else>{{ t('noRecognizedModels') }}<small class="sender-hidden-models">{{ t('unrecognizedModelsHidden', { count: hiddenModelCount }) }} · {{ t('modelVisibilitySettings') }}</small></span><ArrowRightOutlined aria-hidden="true" />
+        <router-link v-if="needsProvider" class="composer sender-card sender-setup" :to="{ path: '/settings/models', query: modalQuery() }">
+          <span>{{ t('configureModelToStart') }}</span><ArrowRightOutlined aria-hidden="true" />
         </router-link>
         <Sender v-else ref="sender" v-model:value="draft" :class="senderClass" :auto-size="senderAutoSize" :disabled="senderDisabled" :loading="busy || agentWorking && !draft.trim() && !attachedImages.length" :placeholder="senderPlaceholder" :aria-label="t('sendMessage')" :suffix="false" :on-key-down="senderKeyDown" @compositionstart.capture="compositionStart" @compositionend.capture="compositionEnd" @submit="sendMessage" @cancel="cancelExecution" @paste="pasteImages" @dragenter="enterImageDrag" @dragover="overImageDrag" @dragleave="leaveImageDrag" @drop="receiveImageDrop">
           <template #header>
@@ -173,10 +173,7 @@ onUnmounted(() => {
           <template #footer="{ components }"><div class="sender-footer">            <div class="sender-options">
               <label for="selection-tier" class="visually-hidden">{{ t('selectionTier') }}</label><label for="selected-model" class="visually-hidden">{{ t('model') }}</label>
               <a-select variant="borderless" id="selection-tier" v-if="selectionMode === 'auto'" :value="selectionTier" class="composer-tier sender-picker" :options="selectionTierOptions" :aria-label="t('selectionTier')" :title="t('autoSelectionHint')" :disabled="senderDisabled" @update:value="chooseSelectionTier($event === 'quality' ? 'quality' : 'speed')" />
-              <a-select variant="borderless" id="selected-model" v-if="selectionMode === 'manual'" :value="selectedModel" class="composer-model sender-picker" :options="modelChoices" show-search option-filter-prop="searchText" option-label-prop="fullLabel" :aria-label="t('model')" :disabled="senderDisabled" @update:value="chooseModel(String($event))">
-                <template #optionRender="{ option }"><span>{{ option.label }}</span><small v-if="option.data.unrecognized" class="model-metadata-tag" :title="t('showUnrecognizedModelsHint')">{{ t('modelMetadataMissing') }}</small></template>
-                <template #popupRender="originNode"><component :is="originNode" /><router-link v-if="hiddenModelCount" class="model-visibility-link" :to="{ path: '/settings/models', query: modalQuery() }" @mousedown.prevent>{{ t('unrecognizedModelsHidden', { count: hiddenModelCount }) }} · {{ t('modelVisibilitySettings') }}</router-link></template>
-              </a-select>
+              <a-select variant="borderless" id="selected-model" v-if="selectionMode === 'manual'" :value="selectedModel" class="composer-model sender-picker" :options="modelChoices" show-search option-filter-prop="searchText" option-label-prop="fullLabel" :aria-label="t('model')" :disabled="senderDisabled" @update:value="chooseModel(String($event))" />
               <ReasoningEffortPicker v-if="selectionMode === 'manual' && reasoningChoices.length" v-model:value="selectedReasoning" class="composer-reasoning" :options="reasoningChoices" :disabled="senderDisabled" />
             </div>
 
@@ -200,7 +197,6 @@ onUnmounted(() => {
 <style scoped>
 .sender-setup{display:flex;align-items:flex-start;gap:20px;min-height:136px;padding:22px 24px;color:var(--muted);font-size:16px;line-height:1.7;text-decoration:none;cursor:pointer;transition:border-color .2s,box-shadow .2s,color .2s}
 .sender-setup>span:first-child{flex:1;min-width:0}
-.sender-hidden-models{display:block;margin-top:6px;font-size:var(--font-size-small)}
 .sender-setup>.anticon{flex:none;margin-top:6px;color:var(--accent)}
 .sender-setup:hover{border-color:var(--accent)!important;color:var(--text)}
 .sender-setup:focus-visible{outline:2px solid var(--accent);outline-offset:3px}

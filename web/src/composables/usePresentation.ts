@@ -58,7 +58,7 @@ export function modelPickerOptions(models: readonly ModelInfo[], locale: string,
       .sort((a, b) => compare(displayModelName(a), displayModelName(b)) || compare(a.key, b.key))
       .map(model => {
         const label = fullLabel(model)
-        return { label: displayModelName(model), fullLabel: label, searchText: modelSearchText(model, label), value: model.key, unrecognized: model.recognized === false }
+        return { label: displayModelName(model), fullLabel: label, searchText: modelSearchText(model, label), value: model.key }
       }),
     }))
 }
@@ -117,7 +117,6 @@ export function usePresentation(catalog: Ref<ModelCatalog>) {
   }
   const modelChoices = computed(() => modelPickerOptions(visibleModels(catalog.value), locale.value, settingProviderName, modelLabel))
   const defaultModelChoices = modelChoices
-  const hiddenModelCount = computed(() => catalog.value.models.length - visibleModels(catalog.value).length)
   function historicalModelLabel(identity: ModelIdentity) {
     const model = historicalModelInfo(identity, catalog.value.models)
     return model ? model.provider || model.name ? modelLabel(model) : displayModelName(model) : ''
@@ -133,5 +132,5 @@ export function usePresentation(catalog: Ref<ModelCatalog>) {
     if (event.kind === 'context_notice') return t('contextCompacted')
     return ''
   }
-  return { localTime, displaySessionTitle, statusLabel, modelLabel, historicalModelLabel, settingProviderName, messageModel, activityLabel, modelNameById, modelSearchText, modelChoices, defaultModelChoices, hiddenModelCount, formatModelWithReasoning }
+  return { localTime, displaySessionTitle, statusLabel, modelLabel, historicalModelLabel, settingProviderName, messageModel, activityLabel, modelNameById, modelSearchText, modelChoices, defaultModelChoices, formatModelWithReasoning }
 }
