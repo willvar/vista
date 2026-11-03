@@ -220,6 +220,7 @@ func (a *App) messageFeedback(w http.ResponseWriter, r *http.Request, sessionID,
 		http.Error(w, "could not save feedback", 500)
 		return
 	}
+	a.updates.notify("selection-stats")
 	jsonOut(w, value)
 }
 

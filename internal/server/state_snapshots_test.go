@@ -30,10 +30,13 @@ func TestChangedSettingsPushPublicSnapshotsAndUnchangedTopicsStayEmpty(t *testin
 	if err != nil {
 		t.Fatal(err)
 	}
-	if point.Models == nil || point.Models.Default != "model" || len(point.Models.Models) != 1 || point.Catalog == nil || point.ProviderLogins == nil || len(*point.ProviderLogins) != 1 || point.MCP == nil || len(point.MCP.Servers) != 1 || len(point.MCP.Logins) != 1 || point.Storage == nil || point.Storage.DeletedCount != 2 || point.Memories == nil || len(point.Memories.Memories) != 1 {
+	if point.Models == nil || point.Models.Default != "model" || len(point.Models.Models) != 1 || point.Catalog == nil || point.ProviderLogins == nil || len(*point.ProviderLogins) != 1 || point.MCP == nil || len(point.MCP.Servers) != 1 || len(point.MCP.Logins) != 1 || point.Storage == nil || point.Storage.DeletedCount != 2 || point.Memories == nil || point.Memories.Total != 1 {
 		t.Fatalf("missing changed state: %+v", point)
 	}
 	data, _ := json.Marshal(point)
+	if strings.Contains(string(data), "Use concise answers.") {
+		t.Fatal("full memory contents leaked into the global stream")
+	}
 	for _, secret := range []string{"model-secret", "header-secret", "device-secret", "https://auth.test/secret", "mcp-secret", "client-secret", "mcp-header-secret", "authorization-secret"} {
 		if strings.Contains(string(data), secret) {
 			t.Fatalf("shared state exposed %q", secret)
@@ -64,7 +67,7 @@ func TestWorkerMemoryChangeNotifiesOnlyAfterCommit(t *testing.T) {
 		t.Fatal(err)
 	}
 	point, err := app.stateUpdate(consumer.ctx, "localhost", stateCheckpoint{Revisions: map[string]uint64{}})
-	if err != nil || point.Memories == nil || point.Memories.Memories[0].Text != change.Text || point.Revisions["memories"] != 1 || point.Sessions != nil || point.Status != nil {
+	if err != nil || point.Memories == nil || point.Memories.Total != 1 || point.Revisions["memories"] != 1 || point.Sessions != nil || point.Status != nil {
 		t.Fatalf("memory commit was not isolated: %+v %v", point, err)
 	}
 	if err := consumer.consume(result); err != nil {

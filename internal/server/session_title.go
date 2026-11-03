@@ -80,6 +80,7 @@ func (a *App) generateSessionTitle(sessionID, messageID string, model modelcfg.M
 	}
 	var title string
 	if len(refs) == 0 {
+		ctx = provider.WithUsageRecorder(ctx, a.recordTokenUsage)
 		title, err = makeSessionTitle(provider.WithCredentialResolver(ctx, a.refreshModelCredentials), model, prompt, nil)
 	} else {
 		if err = a.admitHeavy(); err != nil {

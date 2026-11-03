@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -61,6 +62,106 @@ func TestMemorySettingsCRUDAndConflict(t *testing.T) {
 	app.memories(w, httptest.NewRequest("DELETE", "/api/memories", nil))
 	if w.Code != http.StatusMethodNotAllowed {
 		t.Fatal(w.Code)
+	}
+}
+
+func TestMemorySettingsAtomicUpdates(t *testing.T) {
+	consumer, _ := newResultConsumerTest(t)
+	app := &App{store: consumer.store}
+	first, second := uuid.NewString(), uuid.NewString()
+	for _, change := range []workerproto.MemoryChange{
+		{Action: "add", ID: first, Text: "Use concise answers."},
+		{Action: "add", ID: second, Text: "Prefer short replies."},
+	} {
+		if err := app.store.ChangeMemory(consumer.ctx, change); err != nil {
+			t.Fatal(err)
+		}
+	}
+	change := workerproto.MemoryChange{Action: "update", Changes: []workerproto.MemoryEdit{
+		{Action: "update", ID: first, PreviousText: "Use concise answers.", Text: "Be concise and provide evidence."},
+		{Action: "remove", ID: second, PreviousText: "Prefer short replies."},
+	}}
+	body, _ := json.Marshal(change)
+	w := httptest.NewRecorder()
+	app.memories(w, httptest.NewRequest(http.MethodPost, "/api/memories", strings.NewReader(string(body))))
+	var snapshot memorySnapshot
+	if w.Code != http.StatusOK || json.Unmarshal(w.Body.Bytes(), &snapshot) != nil || len(snapshot.Memories) != 1 || snapshot.Memories[0].ID != first || snapshot.Memories[0].Text != change.Changes[0].Text || app.updates.snapshot().Revisions["memories"] != 1 {
+		t.Fatalf("batch response or notification: %d %s", w.Code, w.Body.String())
+	}
+	w = httptest.NewRecorder()
+	app.memories(w, httptest.NewRequest(http.MethodPost, "/api/memories", strings.NewReader(string(body))))
+	if w.Code != http.StatusConflict || !strings.Contains(w.Body.String(), "memory_changed") || app.updates.snapshot().Revisions["memories"] != 1 {
+		t.Fatalf("stale HTTP batch published a change: %d %s", w.Code, w.Body.String())
+	}
+}
+
+func TestMemoryWorkerBatchACKAndSnapshotFollowFullCommit(t *testing.T) {
+	consumer, sequence := newResultConsumerTest(t)
+	app := &App{store: consumer.store}
+	consumer.changed = app.notifyWorkerState
+	for i := 0; i < store.MaxMemoriesBytes/store.MaxMemoryBytes; i++ {
+		if err := app.store.ChangeMemory(consumer.ctx, workerproto.MemoryChange{Action: "add", ID: uuid.NewString(), Text: strings.Repeat(string(rune('a'+i)), store.MaxMemoryBytes)}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	before, err := app.store.Memories(consumer.ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	change := workerproto.MemoryChange{Action: "update"}
+	for i, item := range before[:len(before)-1] {
+		edit := workerproto.MemoryEdit{Action: "remove", ID: item.ID, PreviousText: item.Text}
+		if i < 2 {
+			edit.Action, edit.Text = "update", strings.Repeat(string(rune('x'+i)), store.MaxMemoryBytes)
+		}
+		change.Changes = append(change.Changes, edit)
+	}
+	notifications := 0
+	consumer.notify = func() { notifications++ }
+	var acks []workerproto.Command
+	consumer.send = func(command workerproto.Command) error {
+		acks = append(acks, command)
+		if command.Error != "" {
+			return nil
+		}
+		items, err := app.store.Memories(consumer.ctx)
+		if err != nil || len(items) != 3 || items[0].Text != change.Changes[0].Text || items[1].Text != change.Changes[1].Text || items[2] != before[len(before)-1] || notifications != 1 || app.updates.snapshot().Revisions["memories"] != 1 {
+			t.Fatalf("ACK preceded full persistence/publication: %+v %v", items, err)
+		}
+		return nil
+	}
+	result := workerproto.Result{RunID: "run", Kind: "memory_change", AckID: "memory-batch", Memory: &change}
+	frame, err := json.Marshal(result)
+	if err != nil || len(frame) > workerproto.MaxResultFrame {
+		t.Fatalf("batch exceeded Worker frame: %d %v", len(frame), err)
+	}
+	if err := consumer.consumeFrame(frame); err != nil {
+		t.Fatal(err)
+	}
+	if len(acks) != 1 || acks[0].Error != "" {
+		t.Fatalf("batch was not acknowledged: %+v", acks)
+	}
+	point, err := app.stateUpdate(consumer.ctx, "localhost", stateCheckpoint{Revisions: map[string]uint64{}})
+	if err != nil || point.Memories == nil || point.Memories.Total != 3 || point.Sessions != nil || point.Status != nil {
+		t.Fatalf("batch pushed incomplete or unrelated state: %+v %v", point, err)
+	}
+	committed, err := app.store.Memories(consumer.ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := consumer.consumeFrame(frame); err != nil {
+		t.Fatalf("stale batch terminated the Worker protocol: %v", err)
+	}
+	if len(acks) != 2 || acks[1].Error == "" || notifications != 1 || app.updates.snapshot().Revisions["memories"] != 1 {
+		t.Fatalf("rejected batch notified or acknowledged success: %+v notifications=%d", acks, notifications)
+	}
+	unchanged, err := app.store.Memories(consumer.ctx)
+	if err != nil || !reflect.DeepEqual(unchanged, committed) {
+		t.Fatalf("stale batch changed synchronized state: %+v %v", unchanged, err)
+	}
+	events, err := app.store.EventsAfter(consumer.ctx, consumer.sessionID, sequence, 100)
+	if err != nil || len(events) != 1 || events[0].Kind != "memory_changed" {
+		t.Fatalf("batch audit was not atomic: %+v %v", events, err)
 	}
 }
 

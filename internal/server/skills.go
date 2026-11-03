@@ -67,6 +67,7 @@ func (a *App) skillSettings(w http.ResponseWriter, r *http.Request) {
 	}
 	a.skillsMu.Lock()
 	defer a.skillsMu.Unlock()
+	version := a.stateVersion("skills")
 	entries := []tools.SkillEntry{}
 	root, err := a.openSkillsRoot()
 	if err == nil {
@@ -78,7 +79,7 @@ func (a *App) skillSettings(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	entries = append(tools.SystemSkills(), entries...)
-	jsonOut(w, map[string]any{"skills": entries, "directory": filepath.Join(a.configDir, "skills")})
+	jsonOut(w, map[string]any{"skills": entries, "directory": filepath.Join(a.configDir, "skills"), "version": version})
 }
 
 func (a *App) skillSetting(w http.ResponseWriter, r *http.Request) {

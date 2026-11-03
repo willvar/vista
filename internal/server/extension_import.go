@@ -182,6 +182,9 @@ func (a *App) importExtensions(w http.ResponseWriter, r *http.Request) {
 		settingsHTTPError(w, err, http.StatusBadRequest)
 		return
 	}
+	if input.Kind == "skills" {
+		a.updates.notify("skills")
+	}
 	jsonOut(w, map[string]int{"imported": len(entries)})
 }
 

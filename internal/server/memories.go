@@ -19,6 +19,21 @@ type memorySnapshot struct {
 	MaxTotalBytes int            `json:"maxTotalBytes"`
 }
 
+type memorySummary struct {
+	Total         int `json:"total"`
+	MaxCount      int `json:"maxCount"`
+	MaxBytes      int `json:"maxBytes"`
+	MaxTotalBytes int `json:"maxTotalBytes"`
+}
+
+type memoryPageSnapshot struct {
+	store.MemoryPage
+	MaxCount      int    `json:"maxCount"`
+	MaxBytes      int    `json:"maxBytes"`
+	MaxTotalBytes int    `json:"maxTotalBytes"`
+	Version       string `json:"version"`
+}
+
 func (a *App) memoriesSnapshot(ctx context.Context) (*memorySnapshot, error) {
 	items, err := a.store.Memories(ctx)
 	if err != nil {
@@ -29,6 +44,11 @@ func (a *App) memoriesSnapshot(ctx context.Context) (*memorySnapshot, error) {
 
 func (a *App) memories(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
+	page, paginated, err := parsePagination(r.URL.Query())
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
 	switch r.Method {
 	case http.MethodGet:
 	case http.MethodPost:
@@ -58,6 +78,16 @@ func (a *App) memories(w http.ResponseWriter, r *http.Request) {
 		a.updates.notify("memories")
 	default:
 		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+	if paginated {
+		version := a.stateVersion("memories")
+		items, err := a.store.MemoryPage(r.Context(), page)
+		if err != nil {
+			memoryHTTPError(w, err)
+			return
+		}
+		jsonOut(w, memoryPageSnapshot{items, store.MaxMemories, store.MaxMemoryBytes, store.MaxMemoriesBytes, version})
 		return
 	}
 	snapshot, err := a.memoriesSnapshot(r.Context())

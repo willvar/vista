@@ -102,6 +102,8 @@ func (c *workerResultConsumer) consumeFrame(frame []byte) error {
 
 func (c *workerResultConsumer) consume(result workerproto.Result) error {
 	switch result.Kind {
+	case "token_usage":
+		return c.tokenUsage(result)
 	case "rpc":
 		if result.RPCID == "" || len(result.RPCID) > 64 || len(result.Content) > 8192 {
 			return errors.New("invalid worker RPC result")

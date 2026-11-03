@@ -109,6 +109,7 @@ func ModelTurnStreamWithReasoning(ctx context.Context, model modelcfg.Model, mes
 	}
 	ctx, capture := modeltrace.Start(ctx, providerID, model.Provider, model.ID, modelSecrets(model))
 	turn, err := adapter.turn(ctx, model, messages, schemas, onText, onReasoning)
+	recordUsage(ctx, turn.Usage)
 	capture.Finish(turn.FinishReason, err)
 	return turn, modelErrorForDisplay(err, model)
 }

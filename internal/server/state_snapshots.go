@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"strconv"
+
+	"vista/internal/store"
 )
 
 type publicModelCatalog struct {
@@ -56,11 +58,13 @@ func (a *App) addStateSnapshots(ctx context.Context, point *stateCheckpoint, pre
 		point.Storage = &storage
 	}
 	if changed("memories") {
-		memories, err := a.memoriesSnapshot(ctx)
+		total, err := a.store.MemoryCount(ctx)
 		if err != nil {
 			return err
 		}
-		point.Memories = memories
+		// Contents belong to the manager's requested page, not every browser
+		// with an application stream open. A revision wakes only active views.
+		point.Memories = &memorySummary{total, store.MaxMemories, store.MaxMemoryBytes, store.MaxMemoriesBytes}
 	}
 	if changed("diagnostics") {
 		point.Diagnostics = a.updates.diagnosticChanges(previous.Revisions["diagnostics"], point.Revisions["diagnostics"])

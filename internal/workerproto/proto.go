@@ -120,6 +120,7 @@ type Result struct {
 	Checkpoint   *ContextCheckpoint `json:"checkpoint,omitempty"`
 	History      *ModelHistory      `json:"history,omitempty"`
 	Observation  *ModelObservation  `json:"observation,omitempty"`
+	TokenUsage   *TokenUsage        `json:"tokenUsage,omitempty"`
 	Reply        *CompletedReply    `json:"reply,omitempty"`
 }
 

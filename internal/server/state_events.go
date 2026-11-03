@@ -21,7 +21,7 @@ type stateHub struct {
 	mu          sync.Mutex
 	epoch       string
 	revisions   map[string]uint64
-	clients     map[chan struct{}]struct{}
+	clients     map[chan struct{}]*stateSubscriber
 	diagnostics []diagnosticRevision
 }
 
@@ -31,9 +31,10 @@ const maxStateEventStreams = maxEventStreams
 // Oversized lists retain revision-driven HTTP snapshot recovery.
 const maxStateSnapshotBytes = 120_000
 
-var stateTopics = []string{"sessions", "status", "models", "catalog", "provider-login", "mcp", "storage", "memories", "diagnostics"}
+var stateTopics = []string{"sessions", "status", "models", "catalog", "provider-login", "mcp", "storage", "memories", "diagnostics", "statistics", "skills", "selection-stats"}
 
 type stateCheckpoint struct {
+	SubscriptionID string                     `json:"subscriptionId,omitempty"`
 	Epoch          string                     `json:"epoch"`
 	Revisions      map[string]uint64          `json:"revisions"`
 	Sessions       *store.SessionListSnapshot `json:"sessions,omitempty"`
@@ -43,11 +44,15 @@ type stateCheckpoint struct {
 	ProviderLogins *[]loginUpdate             `json:"providerLogins,omitempty"`
 	MCP            *mcpStateSnapshot          `json:"mcp,omitempty"`
 	Storage        *resourceStorageStatus     `json:"storage,omitempty"`
-	Memories       *memorySnapshot            `json:"memories,omitempty"`
+	Memories       *memorySummary             `json:"memories,omitempty"`
 	Diagnostics    *diagnosticChanges         `json:"diagnostics,omitempty"`
 }
 
 func (a *App) stateUpdate(ctx context.Context, host string, previous stateCheckpoint) (stateCheckpoint, error) {
+	return a.stateUpdateScoped(ctx, host, previous, nil)
+}
+
+func (a *App) stateUpdateScoped(ctx context.Context, host string, previous stateCheckpoint, topics map[string]bool) (stateCheckpoint, error) {
 	// Capture revisions before the reads. A commit during a read must still
 	// produce a later revision rather than tag older data with its revision.
 	point := a.updates.snapshot()
@@ -67,7 +72,19 @@ func (a *App) stateUpdate(ctx context.Context, host string, previous stateCheckp
 		}
 		point.Status = status
 	}
-	if err := a.addStateSnapshots(ctx, &point, previous); err != nil {
+	// Unsubscribed views retain revision recovery without loading or broadcasting
+	// their snapshots. Core workspace topics are always subscribed.
+	calibration := previous
+	if topics != nil {
+		calibration.Revisions = make(map[string]uint64, len(point.Revisions))
+		for topic, revision := range point.Revisions {
+			calibration.Revisions[topic] = revision
+			if topics[topic] {
+				calibration.Revisions[topic] = previous.Revisions[topic]
+			}
+		}
+	}
+	if err := a.addStateSnapshots(ctx, &point, calibration); err != nil {
 		return stateCheckpoint{}, err
 	}
 	err := point.limitPayload()
@@ -109,17 +126,23 @@ func (h *stateHub) notifyLocked(topics ...string) {
 }
 
 func (h *stateHub) subscribe() (<-chan struct{}, func(), bool) {
+	_, wake, leave, ok := h.subscribeClient()
+	return wake, leave, ok
+}
+
+func (h *stateHub) subscribeClient() (*stateSubscriber, <-chan struct{}, func(), bool) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	if len(h.clients) >= maxStateEventStreams {
-		return nil, nil, false
+		return nil, nil, nil, false
 	}
 	if h.clients == nil {
-		h.clients = make(map[chan struct{}]struct{})
+		h.clients = make(map[chan struct{}]*stateSubscriber)
 	}
 	ch := make(chan struct{}, 1)
-	h.clients[ch] = struct{}{}
-	return ch, func() { h.mu.Lock(); delete(h.clients, ch); h.mu.Unlock() }, true
+	client := &stateSubscriber{id: uuid.NewString(), topics: map[string]bool{"sessions": true, "status": true, "models": true}}
+	h.clients[ch] = client
+	return client, ch, func() { h.mu.Lock(); delete(h.clients, ch); h.mu.Unlock() }, true
 }
 
 func (h *stateHub) count() int { h.mu.Lock(); defer h.mu.Unlock(); return len(h.clients) }
@@ -134,12 +157,12 @@ func (a *App) stateEvents(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "stream unsupported", 500)
 		return
 	}
-	wake, unsubscribe, ok := a.updates.subscribe()
+	client, wake, unsubscribe, ok := a.updates.subscribeClient()
 	if !ok {
 		http.Error(w, "too many state streams", 503)
 		return
 	}
-	defer unsubscribe()
+	defer func() { unsubscribe(); a.cancelUnwatchedStorageScan() }()
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("X-Accel-Buffering", "no")
@@ -157,6 +180,7 @@ func (a *App) stateEvents(w http.ResponseWriter, r *http.Request) {
 		return true
 	}
 	sent := a.updates.snapshot()
+	sent.SubscriptionID = client.id
 	// Initial and reconnect checkpoints use the HTTP snapshot calibration.
 	if !write("state", sent) {
 		return
@@ -164,7 +188,8 @@ func (a *App) stateEvents(w http.ResponseWriter, r *http.Request) {
 	update := func() bool {
 		ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 		defer cancel()
-		point, err := a.stateUpdate(ctx, r.Host, sent)
+		topics, _ := a.updates.clientInterests(client.id)
+		point, err := a.stateUpdateScoped(ctx, r.Host, sent, topics)
 		if err != nil || !write("state", point) {
 			return false
 		}
@@ -183,12 +208,42 @@ func (a *App) stateEvents(w http.ResponseWriter, r *http.Request) {
 	if a.ctx != nil {
 		shutdown = a.ctx.Done()
 	}
+	boundary := time.NewTimer(time.Hour)
+	defer boundary.Stop()
+	var clockZone string
+	var clockDeadline time.Time
 	for {
+		interests, timezone := a.updates.clientInterests(client.id)
+		boundary.Stop()
+		var boundaryC <-chan time.Time
+		if timezone != nil {
+			now := time.Now()
+			if clockZone != timezone.String() {
+				clockZone, clockDeadline = timezone.String(), nextStatisticsBoundary(now, timezone)
+			}
+			// A heartbeat or write wake can win the select at the same instant
+			// as the clock. Check the deadline before rearming, so it is not lost.
+			if !now.Before(clockDeadline) {
+				var topics []string
+				for _, topic := range []string{"statistics", "selection-stats"} {
+					if interests[topic] {
+						topics = append(topics, topic)
+					}
+				}
+				a.updates.notify(topics...)
+				clockDeadline = nextStatisticsBoundary(now, timezone)
+			}
+			boundary.Reset(time.Until(clockDeadline))
+			boundaryC = boundary.C
+		} else {
+			clockZone = ""
+		}
 		select {
 		case <-r.Context().Done():
 			return
 		case <-shutdown:
 			return
+		case <-boundaryC:
 		case <-heartbeat.C:
 			if !update() {
 				return
@@ -261,6 +316,8 @@ func (a *App) stateMutations(next http.Handler) http.Handler {
 			// below have no independent commit notification.
 			switch {
 			case len(parts) == 1 && r.Method == http.MethodDelete:
+				a.invalidateResourceStorage()
+				a.updates.notify("selection-stats")
 				a.updates.notify("sessions", "status")
 			case len(parts) == 1 && r.Method == http.MethodPatch,
 				len(parts) == 2 && parts[1] == "read":
@@ -276,6 +333,8 @@ func (a *App) stateMutations(next http.Handler) http.Handler {
 			a.updates.notify("catalog")
 		case r.URL.Path == "/api/resource-storage":
 			a.updates.notify("storage")
+		case strings.HasPrefix(r.URL.Path, "/api/skills/"):
+			a.updates.notify("skills")
 		}
 	})
 }
@@ -298,6 +357,12 @@ func (a *App) notifyWorkerState(kind string) {
 		a.updates.notify("sessions")
 	case "memory_changed":
 		a.updates.notify("memories")
+	case "token_usage":
+		a.updates.notify("statistics")
+	case "resource_changed":
+		a.invalidateResourceStorage()
+	case "model_observation":
+		a.updates.notify("selection-stats")
 	}
 }
 

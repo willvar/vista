@@ -288,6 +288,9 @@ func TestModelSelectionFeedbackAPIRequiresActualAssistantReply(t *testing.T) {
 	if w := call("not-a-message", `{"value":"up"}`); w.Code != 404 {
 		t.Fatal("missing reply vote accepted")
 	}
+	if a.updates.snapshot().Revisions["selection-stats"] != 2 {
+		t.Fatal("successful feedback commits must notify; rejected feedback must not")
+	}
 }
 
 func TestCatalogModelsRemainAutomaticCandidatesAcrossProviders(t *testing.T) {

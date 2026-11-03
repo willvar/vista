@@ -87,6 +87,7 @@ func (a *App) revertConversation(requestCtx context.Context, sessionID, messageI
 		}
 	}
 	a.notifySession(sessionID)
+	a.updates.notify("selection-stats")
 	item, getErr := a.store.Get(ctx, sessionID)
 	if getErr == nil && item.Open {
 		startErr := a.startWorker(sessionID)

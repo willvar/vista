@@ -66,6 +66,10 @@ type App struct {
 	skillsMu               sync.Mutex
 	agentSettingsMu        sync.Mutex
 	storageStatus          resourceStorageStatus
+	storageGeneration      uint64
+	storageScanned         uint64
+	storageWake            chan struct{}
+	storageScanCancel      context.CancelFunc
 	credentialCache        provider.CredentialCache
 	mu                     sync.Mutex
 	admissionMu            sync.Mutex
@@ -300,6 +304,9 @@ func (a *App) start() error {
 		return err
 	}
 	a.background.Go(a.cleanModelDiagnostics)
+	a.storageWake = make(chan struct{}, 1)
+	a.background.Go(a.syncResourceStorage)
+	a.background.Go(a.watchManagedFiles)
 	a.startMCPHost()
 	a.background.Go(func() { a.pollModelCatalog(a.ctx) })
 	a.refreshLocalModels(a.ctx)
@@ -327,6 +334,7 @@ func (a *App) handler() http.Handler {
 		http.ServeContent(w, r, "THIRD_PARTY_NOTICES", time.Time{}, strings.NewReader(licenses.Text))
 	})
 	mux.HandleFunc("/api/events", a.stateEvents)
+	mux.HandleFunc("/api/events/subscriptions", a.stateInterests)
 	mux.HandleFunc("/api/status", a.status)
 	mux.HandleFunc("/api/memory-config", a.memorySettingsHTTP)
 	mux.HandleFunc("/api/resource-storage", a.resourceStorage)
@@ -350,6 +358,8 @@ func (a *App) handler() http.Handler {
 	mux.HandleFunc("/api/skills", a.skillSettings)
 	mux.HandleFunc("/api/skills/", a.skillSetting)
 	mux.HandleFunc("/api/preferences", a.preferences)
+	mux.HandleFunc("/api/statistics", a.statistics)
+	mux.HandleFunc("/api/activity", a.activity)
 	mux.HandleFunc("/api/model-selection/stats", a.modelSelectionStats)
 	mux.HandleFunc("/api/model-discovery", a.discoverCustomModels)
 	mux.HandleFunc("/api/zen-model-discovery", a.discoverZenModels)
@@ -459,8 +469,14 @@ func (a *App) stop(w http.ResponseWriter, r *http.Request) {
 	go a.cancel()
 }
 func (a *App) sessions(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Cache-Control", "no-store")
 	switch r.Method {
 	case "GET":
+		page, paginated, err := parsePagination(r.URL.Query())
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
 		var filter []bool
 		if value, present := r.URL.Query()["open"]; present {
 			if len(value) != 1 || (value[0] != "true" && value[0] != "false") {
@@ -468,6 +484,24 @@ func (a *App) sessions(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			filter = []bool{value[0] == "true"}
+		}
+		if paginated {
+			query := r.URL.Query()
+			if len(query["search"]) > 1 || len(query.Get("search")) > 1024 || len(query["untitledLabel"]) > 1 || len(query.Get("untitledLabel")) > 200 {
+				http.Error(w, "invalid search", http.StatusBadRequest)
+				return
+			}
+			version := a.stateVersion("sessions")
+			items, err := a.store.SessionPage(r.Context(), page, store.SessionSearch{Text: query.Get("search"), UntitledLabel: query.Get("untitledLabel")}, filter...)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+			jsonOut(w, struct {
+				store.SessionPage
+				Version string `json:"version"`
+			}{items, version})
+			return
 		}
 		items, err := a.store.List(r.Context(), filter...)
 		if err != nil {
@@ -1014,7 +1048,7 @@ func (a *App) outputPage(w http.ResponseWriter, r *http.Request, id, outputPath 
 }
 func (a *App) root(w http.ResponseWriter, r *http.Request) {
 	path := r.URL.Path
-	if (path != "/" && path != "/settings" && path != "/settings/models" && path != "/settings/about" && path != "/settings/general" && path != "/settings/personalization" && path != "/settings/search" && path != "/settings/storage" && path != "/settings/mcp" && path != "/settings/skills" && path != "/sessions" && !strings.HasPrefix(path, "/sessions/")) || r.Method != "GET" {
+	if (path != "/" && path != "/settings" && path != "/settings/models" && path != "/settings/about" && path != "/settings/general" && path != "/settings/personalization" && path != "/settings/search" && path != "/settings/storage" && path != "/settings/mcp" && path != "/settings/skills" && path != "/settings/statistics" && path != "/sessions" && !strings.HasPrefix(path, "/sessions/")) || r.Method != "GET" {
 		http.NotFound(w, r)
 		return
 	}

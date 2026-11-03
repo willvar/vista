@@ -34,5 +34,8 @@ func (c *workerResultConsumer) modelObservation(result workerproto.Result) error
 		Endpoint: o.Endpoint, InputTokens: o.InputTokens, FirstTextMS: o.FirstTextMS, CacheReadTokens: o.CacheReadTokens,
 		Outcome: o.Outcome, Purpose: o.Purpose, ObservedAt: time.Now().UTC(),
 	})
+	if err == nil && c.changed != nil {
+		c.changed("model_observation")
+	}
 	return err
 }

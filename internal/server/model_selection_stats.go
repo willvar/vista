@@ -1,6 +1,7 @@
 package server
 
 import (
+	"fmt"
 	"net/http"
 	"slices"
 
@@ -39,7 +40,10 @@ func (a *App) modelSelectionStats(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "could not reset model statistics", http.StatusInternalServerError)
 			return
 		}
+		a.updates.notify("selection-stats")
 	}
+	point := a.updates.snapshot()
+	version := fmt.Sprintf("%s:%d:%d", point.Epoch, point.Revisions["selection-stats"], point.Revisions["models"])
 	catalog := a.modelsSnapshot()
 	candidates := []store.SelectionCandidate{}
 	providers := map[string][]string{}
@@ -77,5 +81,5 @@ func (a *App) modelSelectionStats(w http.ResponseWriter, r *http.Request) {
 	for _, item := range statistics {
 		models = append(models, modelSelectionStatistics{ModelSelectionStatistics: item, Providers: providers[item.ModelID]})
 	}
-	jsonOut(w, map[string]any{"speedScope": "global", "qualityScope": "user", "speedWindowDays": 30, "qualityWindowSize": 200, "models": models})
+	jsonOut(w, map[string]any{"version": version, "speedScope": "global", "qualityScope": "user", "speedWindowDays": 30, "qualityWindowSize": 200, "models": models})
 }

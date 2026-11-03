@@ -101,6 +101,11 @@ func Run() error {
 	}
 	sessionCtx, cancelSession := context.WithCancel(context.Background())
 	defer cancelSession()
+	sessionCtx = provider.WithUsageRecorder(sessionCtx, func(id string, tokens *int64) {
+		// The IPC reader persists frames in order before processing run completion.
+		// Reporting does not depend on an uncancelled foreground request.
+		_ = emit(workerproto.Result{Kind: "token_usage", TokenUsage: &workerproto.TokenUsage{ID: id, Tokens: tokens}})
+	})
 	sessionCtx = mcphost.WithEndpointResolver(sessionCtx, func(ctx context.Context) (workerproto.MCPHost, error) {
 		ack, err := awaitAck(ctx, workerproto.Result{Kind: "mcp_host"})
 		return ack.MCPHost, err

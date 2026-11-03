@@ -97,6 +97,9 @@ func (c *workerResultConsumer) importResource(result workerproto.Result) error {
 		source = &result
 	}
 	err := c.store.AttachResource(c.ctx, c.sessionID, *result.Resource, source)
+	if err == nil && c.changed != nil {
+		c.changed("resource_changed")
+	}
 	ack := workerproto.Command{Action: "ack", RunID: result.RunID, AckID: result.AckID}
 	if err != nil {
 		ack.Error = err.Error()
