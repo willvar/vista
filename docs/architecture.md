@@ -61,14 +61,25 @@ Execution-detail rendering is isolated, and Markdown failure falls back to escap
 ## Workspace synchronization
 
 Each page owns one fetch-based `GET /api/events` state stream in addition to the selected conversation's durable event stream.
+The initial checkpoint supplies a connection-scoped `subscriptionId`; batched `PUT /api/events/subscriptions` updates its topic interests and viewer timezone without reconnecting the stream.
+Closing a view releases its interests, and disconnecting releases the entire subscription; optional snapshots are read and pushed only for interested clients.
+Skills and model-selection statistics carry revisions only; active views read versioned inventories through HTTP and reuse matching cached results.
+A cross-platform filesystem watcher monitors managed skill/resource roots and immediate folders, including atomic replacement, without following symlinks or watching arbitrary workspaces.
+Resource/reference commits invalidate storage generations; one coalesced scan serves all interested storage views, and changes during a scan schedule another pass.
+Leaving the last storage view cancels its automatic scan; explicit cleanup continues independently.
+Visible model-selection statistics also receive hourly invalidation for their rolling observation window, with at most an hour of cache reuse after reopening.
+Cleanup remains explicit and confirmed; discovering a file or reference change never deletes resources.
 `internal/server/state_events.go` publishes coalesced topic revisions after committed mutations and asynchronous state transitions.
-Changed session lists, runtime status, model inventories, catalog-update status/history, resource-scan status, MCP settings/login outcomes, provider-login outcomes and memories travel as bounded payloads in the same frame.
+Changed session lists, runtime status, model inventories, catalog-update status/history, resource-scan status, MCP settings/login outcomes, provider-login outcomes and memory counts/limits travel as bounded payloads in the same frame.
 The workspace reads `GET /api/sessions?open=true`; global session payloads also contain only open summaries and their event boundaries.
 Closed conversations contribute aggregate counts in status, without their summaries or history.
-The session manager subscribes to session revisions only while mounted and reads `GET /api/sessions` on entry and changes; leaving cancels pending reads and releases that subscription without reconnecting the shared stream.
-It replaces its management list as one snapshot, so concurrent close/reopen commits cannot create temporary omissions by mixing open and closed lists from different times.
+The session manager subscribes to session revisions only while mounted and reads `GET /api/sessions?page=1&pageSize=10` on entry and changes; optional `search` and `open` filters apply before counting and pagination across the entire archive.
+It replaces its current page as one snapshot, so concurrent close/reopen commits cannot create temporary omissions by mixing open and closed lists from different times; leaving cancels pending reads and releases its subscription without reconnecting the shared stream.
+Both management lists default to 10 entries per page, offer 20/50/100, and read only the requested page; page totals and entries share a SQLite transaction, and out-of-range pages clamp after deletion.
+Memory management reads `GET /api/memories?page=1&pageSize=10` only while its secondary dialog is open; global memory events expose counts and limits without memory text.
+Paginated responses carry an epoch/revision `version` captured before the read; matching versions reuse the current page, including a memory mutation response, while changed revisions trigger an active view's page read.
 If the selected conversation disappears from the open list, `GET /api/sessions/<id>/checkpoint` distinguishes closing from deletion without loading archives or conversation history; a closed selected conversation remains readable with its draft preserved.
-The unfiltered sessions endpoint remains available for administrative clients.
+Unpaginated session and memory endpoints retain their existing response shapes for administrative clients; the unpaginated session list is limited to 1,000 summaries.
 Login outcomes are matched by attempt ID; device codes and authorization URLs remain attempt-specific HTTP reads.
 Newly opened views receive the latest payload for its revision; per-subscriber cursors serialize initial reads with arriving updates and avoid duplicate initialization.
 Memory updates preserve unsaved editors and the original text used to detect edit/delete conflicts, including when another client removes the edited entry.
@@ -90,6 +101,22 @@ The frontend no longer periodically queries workspace metadata, catalog progress
 Debug subscriptions receive backend metrics every five seconds on the same stream and stop requesting samples while hidden or when debug mode is disabled.
 Background writes publish throttled byte-count progress through durable job events; the output viewer refreshes bounded visible/tail blocks while retaining its virtualized cache.
 Backend catalog scheduling, model discovery and upstream device-authorization polling retain their own lifecycles.
+
+## Activity and consumption statistics
+
+`internal/store/statistics.go` owns the UTC-minute activity table and a per-request token ledger without conversation foreign keys; withdrawals and conversation deletion cannot refund already consumed usage.
+`provider.WithUsageRecorder` observes API attempts at the common dispatch boundary, including main/child requests, compaction, text/image title generation, and failures with reported partial usage.
+Workers emit bounded `token_usage` frames; the Server validates identities, commits the deduplicated record, then advances the `statistics` revision. Main-process titles use the same store directly.
+Only input plus output totals are saved; cache-read and reasoning subsets are not added again, and missing usage is nullable rather than an estimated zero.
+Initialization imports retained `model_result` usage once and records coverage timestamps; normal restarts do not reimport new dispatch records.
+Retention matches the longest available view of 90 days; initialization and either activity or usage writes clean expired records from both tables.
+The frontend coalesces trusted visible input minutes into bounded `POST /api/activity` reports after 15 seconds or on page exit/hiding; idle pages produce no reports, and overlapping clients deduplicate on the UTC-minute key.
+Reports contain no key values, message text, or navigation paths and accept at most 120 recent minutes.
+`GET /api/statistics?days=30&timezone=Asia%2FHong_Kong` reads bounded 7/30/90-day daily series, weekday/hour activity, totals and coverage in one SQLite read transaction, using IANA timezone data embedded for cross-platform operation.
+The `hours` matrix contains mean active minutes per observed local date/hour slot; its denominator includes inactive slots, excludes time before activity collection and future hours, and counts repeated DST hours once per local date/hour while omitting skipped hours.
+The global stream carries only the statistics revision; chart history is read only while the statistics view is mounted, with versioned cache reuse, cancellation, stale-response rejection and reconnect recovery, without polling or broadcasting chart history to unrelated clients.
+While a statistics view is subscribed, its connection schedules invalidation at the viewer's next local hour boundary, including local midnight and DST transitions; closing the view stops that clock.
+Reopening across an hour boundary invalidates the local chart cache even if no writes occurred while closed.
 
 ## Execution and child tasks
 
@@ -119,6 +146,8 @@ Automatic compaction requires explicit upstream context-overflow evidence. Manua
 
 Global instructions, preferences, current checklist, and available tool information are rebuilt for execution. Project and skill bodies are read on demand. Model/protocol switches strip incompatible provider-owned replay data while keeping portable text, tool pairs, and resource references.
 
+The main agent's `memory` tool supports `list`, `add`, `update`, and `remove` for explicit lasting preferences. `update` accepts either the single-edit fields or a `changes` array of existing-memory `update`/`remove` edits, each with a unique ID and exact `previousText` from `list`. The Server validates all targets, final text uniqueness, and final capacity before committing the edits and one `memory_changed` audit event in the same transaction. Retained IDs and creation times are preserved; conflicts or failed writes leave the entire group unchanged. Worker success and a single shared-state notification follow commit. `list` also reports the existing limits: 128 preferences, 4,096 UTF-8 bytes per preference, and 32 KiB total. Encoded changes leave 4 KiB of the 64 KiB Worker frame for metadata; oversized requests are recoverable tool errors. Consolidation decisions stay with the current main agent; there is no separate memory-analysis request or background consolidation job.
+
 Reply language is request metadata, inherited by child tasks and refreshed when an interjection supplies a new preference. The shared model-request entry point applies the policy from `internal/replylanguage` to a request-local copy before protocol conversion; conversation, title, and compaction prompts do not define separate language policies. Explicit user language requests override the default; absent a valid preference, the default follows the user's message. Token estimates use the same preparation path, and generated language instructions are not saved in model history or checkpoints.
 
 ## Model HTTP diagnostics
@@ -139,7 +168,7 @@ Deleting a conversation or resetting Vista removes its diagnostic records.
 
 `GET /api/sessions/<session>/runs/<run>/diagnostics` lists saved call summaries; appending `/<record>` reads one record.
 Both endpoints check run ownership and disable caching.
-The execution's debug dialog reads them independently of conversation SSE, with refresh, request selection, original response display, and copy controls.
+The execution's debug dialog reads them independently of conversation SSE, with request selection, original response display, and copy controls.
 After an atomic file save, Workers report the record ID; the Server verifies its small summary before publishing an index update on the shared state stream.
 Title requests publish through the same path, and compaction/child requests retain their execution scope.
 The transport retains at most 256 recent summaries; revision coverage detects gaps and falls back to the execution's HTTP index.

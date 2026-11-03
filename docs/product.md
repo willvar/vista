@@ -20,6 +20,7 @@ Use these principles when changing the product:
 - Clear defaults and instructions let users with everyday software skills start independently.
 - Progressive settings let users configure additional models, skills, and MCP tools by following instructions, without complicating everyday use.
 - Explain unfamiliar controls through their purpose, benefits, and costs.
+- Automatically updated views have no routine Refresh button. A manual check remains when automatic checks are infrequent and users need an immediate check, such as model catalog updates.
 - Describe Vista through tasks and collaboration without assuming it runs on the user's own computer.
 - More advanced users retain configuration room. Technical ability and willingness to study configuration are separate; assess desktop and phone use separately.
 
@@ -27,6 +28,7 @@ Use these principles when changing the product:
 
 - First use connects a model provider in Settings. Built-in connections encapsulate provider setup; a custom connection explicitly selects its API format and authentication. Model availability depends on the connected service and account.
 - The first sent message creates a conversation and Worker. Open conversations have resident Workers, subject to admission and health checks. Navigating away or closing the browser leaves work running; closing a conversation stops its Worker and managed work but retains history. Deletion removes its stored conversation data.
+- Closing a session with running tasks or background processes requires confirmation, including when closing a batch. Idle sessions close directly.
 - Main-thread execution is sequential per conversation. Other conversations, child tasks, and tools may run concurrently. Normal sends during execution steer at a decision boundary; explicitly queued sends wait. Cancellation and failure pause undelivered inputs; a fresh send after execution stops can start new work without releasing the old queue.
 - Restart restores Workers for open conversations and records unfinished work as interrupted. It does not resume interrupted model requests or replay tool side effects.
 - Text, execution details, questions, checklists, and usage remain with their originating messages. The sidebar distinguishes foreground execution, background-only activity, unread replies, pending answers, paused input, Worker unavailability, and failure.
@@ -35,6 +37,8 @@ Use these principles when changing the product:
 - Automatic conversation titles are enabled by default and can be disabled in Personalization. When enabled, a separate model request generates the first title without tools or an explicit reasoning effort; it may fail independently. When disabled, new conversations display a localized default name followed by their creation time in `YYYYMMDDHHmmss` form, such as “New Session-20261025174143”. The timestamp uses the client’s local time. Existing and manually assigned titles are preserved.
 
 See [architecture](./architecture.md) and [process lifecycle](./process-lifecycle.md) for runtime ownership.
+
+Manage sessions searches and filters the entire saved session list, loading one page of summaries at a time. It defaults to 10 per page, with 20/50/100 available; bulk selection applies to the current page.
 
 ## Context and resources
 
@@ -49,14 +53,27 @@ Editing and withdrawing sent messages roll back conversation/model history only.
 ## Personalization and extensions
 
 - Global instructions are the user's configuration-root `AGENTS.md`, read at execution start. Filesystem tools automatically check their target paths, and shell tools check their working directory for scoped rules. Operations proceed immediately when no new rules need reading; new or changed rules must be read before the model retries or revises the operation. Nearer rules take precedence within their scope, and explicit current requests take precedence over defaults.
-- Memory stores explicit lasting preferences across conversations. Users manage it in Personalization; only the main agent can call `memory`, while children inherit the preference snapshot. Deleting an individual conversation does not delete memory.
+- Memory stores explicit lasting preferences across conversations. Personalization opens Manage memories in a secondary dialog, with short previews, full-text editing, and confirmed deletion. The dialog loads 10 entries per page by default, with 20/50/100 available. Only the main agent can call `memory`, while children inherit the preference snapshot. Deleting an individual conversation does not delete memory.
 - The maximum delegation depth defaults to 1 and accepts 0–8. Zero disables child delegation. This is a maximum, not a fixed number of levels the model must create. Required tasks are joined before finalization; best-effort and detached tasks have different lifetimes.
-- System skills are embedded in Vista, visible as read-only entries in settings, and updated with Vista without being extracted to the user directory. The bundled `vista-guide` helps configure and troubleshoot Vista. Users place their own skill folders containing `SKILL.md` in the configuration-root `skills/` directory and refresh the settings list. Each execution receives system and enabled user skills' names, descriptions, paths, and sources; full instructions and supporting documents are read on demand. Descriptions follow Agent Skills' limit of 1024 Unicode characters.
+- System skills are embedded in Vista, visible as read-only entries in settings, and updated with Vista without being extracted to the user directory. The bundled `vista-guide` helps configure and troubleshoot Vista. Users place their own skill folders containing `SKILL.md` in the configuration-root `skills/` directory; the settings list updates automatically. Each execution receives system and enabled user skills' names, descriptions, paths, and sources; full instructions and supporting documents are read on demand. Descriptions follow Agent Skills' limit of 1024 Unicode characters.
 - MCP connections supply tools over local stdio or remote Streamable HTTP, with enable/disable controls and connection-scoped credentials. They do not provide MCP resources, prompts, sampling, or elicitation.
 - MCP and skills settings can import OpenCode v1/v2 configuration through an explicit read, selection, and confirmation. Existing entries are kept. Skill imports copy complete folders, including supporting and binary files; MCP imports save compatible configuration; enabled services connect asynchronously after import. Unsupported entries are shown with reasons. See [import contracts](./architecture.md#providers-and-tools).
 - Network Queries configures separate search and page-reading services, order, keys, and initial output lengths. Search returns sources and summaries; page reading retrieves a known public URL through Jina Reader or DeepSeek.
 
 With Debug mode enabled, About Vista offers a confirmed full reset. It stops running tasks, managed background processes and logins, then deletes all conversations, attached resources, connections and credentials, user skills, global instructions, memory and other Vista settings. Embedded system skills remain available. The current browser's Vista preferences and drafts are cleared, the runtime restarts, and the page opens the first-use screen at its new address. External files and services, including files previously changed by tools, are not reverted. The listener uses the default port after reset, or the port specified by the process environment; the previous launch port is discarded. Browser preferences in other clients and settings supplied through the process environment are outside this reset.
+
+## Activity and usage
+
+Settings → Usage uses one 7/30/90-day period for daily activity/consumption trends and a weekday/hour activity heatmap, displayed in the viewer's timezone.
+An open statistics view also updates at local hour/day boundaries without requiring new activity or usage records.
+Each heatmap cell shows mean active minutes for that weekday/hour across observed local dates; inactive occurrences count as zero, while dates before collection and future hours are excluded.
+An active minute contains a click, typing, or scrolling; simultaneous interactions across clients count once, while idle pages and background execution do not count.
+The total uses upstream-reported input plus output tokens, counting cache and reasoning subsets only once, across conversations, child tasks, compaction, and title generation.
+Calls without reported usage are identified and excluded from the total.
+The total is shown as an approximate comparison with familiar texts; hover, tap, or focus it for the original token count and a brief explanation. See [usage statistics](./usage-statistics.md) for the reference sources and conversion rules.
+Existing retained model-result records are imported once; the page identifies when complete collection began, and does not invent historical interaction activity.
+Records are kept for 90 days, matching the longest available view; selecting a shorter period does not shorten retention.
+Conversation deletion or withdrawal does not deduct retained consumption; a full Vista reset removes the statistics.
 
 ## Current boundaries
 

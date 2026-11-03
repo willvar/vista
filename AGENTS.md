@@ -18,6 +18,7 @@ Keep large logs, diagnostic bodies, images, and older history as bounded, on-dem
 Retain revision checks and authoritative snapshot recovery for initial loading, reconnects, missed events, and oversized payloads.
 Do not replace these safeguards with periodic HTTP polling or broadcast credentials and login authorization URLs through shared state.
 Background synchronization must preserve active editors and reject stale responses.
+Automatically updated views have no routine refresh button. Retain a manual check only when automatic checks are infrequent and users have a clear need to force one immediately (for example, model catalog updates). Import reads, explicit cleanup, authorization and error retries remain deliberate actions.
 Verify request counts, payload contents and size as well as visible updates, including cross-client changes and recovery.
 
 ## Documentation

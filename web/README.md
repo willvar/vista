@@ -50,15 +50,21 @@ Recovery only reads persisted data; it does not resend messages or invoke models
 
 The workspace owns one additional fetch-based SSE connection for shared state changes.
 Subscribe through `workspace.stateSync`; components do not open independent state streams or periodically request status.
-Changed sessions/status, models, catalog progress/history, storage status, MCP settings, login outcomes and memories arrive as bounded state-frame payloads.
+Its connection-scoped subscription ID allows batched `PUT /api/events/subscriptions` interest/timezone updates without reopening the stream or reloading workspace metadata.
+`useStateQuery.ts` keeps skill inventories and model-selection statistics on revision-driven, cached, cancellable HTTP reads; list updates never replace skill-editor drafts.
+The server coalesces storage scans for visible storage views and schedules statistics hour/day invalidation in each subscribed viewer's timezone.
+Routine Refresh controls are absent from automatically updated views; catalog checks, import reads, authorization, cleanup and error recovery retain explicit actions.
+Changed sessions/status, models, catalog progress/history, storage status, MCP settings, login outcomes and memory counts/limits arrive as bounded state-frame payloads.
 The workspace session list contains open summaries only; archived counts come from status.
-The manager owns its full summary read and session-revision subscription, cancelling both on unmount; it does not reopen the global stream or refresh unrelated endpoints.
-Replace its list as one snapshot, keeping close/reopen transitions from temporarily dropping selected rows between independently read scopes.
+The manager owns its paginated summary read and session-revision subscription, cancelling both on unmount; search/filter/count run before database pagination, without the unpaginated endpoint's 1,000-summary limit.
+`usePagedList.ts` cancels superseded page reads, deduplicates concurrent requests and compares epoch/revision versions before rereading on a state notification; `ListPagination.vue` provides the shared page and 10/20/50/100 page-size controls.
+Replace the current page as one snapshot, keep active title editors mounted, and scope bulk selection to that page; do not reopen the global stream or refresh unrelated endpoints.
 HTTP initialization and SSE updates must have the same view scope; check response contents and bytes alongside request counts.
 Subscriptions initialize from the latest matching payload and serialize their own reconciliation; components must not add a separate mount-time read for the same subscription.
 Initial/reconnect calibration, missing or oversized payloads and bounded content pages use ordinary HTTP.
 Shared login updates contain outcomes only; authorization links/codes remain attempt-specific reads.
-Memory pushes preserve active drafts and compare-and-swap edit/delete targets.
+Personalization opens memory management in a secondary modal with paginated bounded previews and full-text editing in the same modal. Its component subscribes and reads its requested page only while open; memory state frames carry counts and limits without text. Paginated mutation responses update the list without an extra echo read. Remote updates preserve active drafts and compare-and-swap edit/delete targets.
+`StatisticsSettings.vue` uses `useStatistics.ts` to read/cache bounded 7/30/90-day chart history only while mounted; the shared stream carries statistics revisions rather than chart payloads. Period changes and reconnects reject cancelled/stale reads. `client/activity.ts` batches actual visible input minutes; it never reports idle presence or reads statistics from other views.
 The visible Model HTTP tab consumes saved-record summaries and revision coverage from the same stream; bodies remain on demand and new records preserve the current selection.
 Apply session-list payloads against their saved per-conversation event boundaries so delayed global frames cannot undo newer conversation state or send acknowledgements.
 Unchanged checkpoints initiate no reads or repeated state payloads.
@@ -76,6 +82,8 @@ Message rows and long traces use virtual rendering and measured heights. Full-te
 A stable text selection offers quoted follow-up after 350 ms. Dragging/selection changes, copy, scroll, or Escape dismiss it. Quote drafts are conversation-scoped and sent as Markdown with the question through the normal user-input path, including steering/queueing. The combined message still has the 8 KiB input limit; failure retains the full draft. Editing and withdrawal share the [conversation rollback contract](../docs/message-revert.md).
 
 `src/ui/appearance.ts` stores `vista-appearance` and syncs same-origin tabs. Semantic colors live in `src/ui/tokens.css`; `src/ui/theme.ts` configures components. Startup applies theme before styles. Motion follows `prefers-reduced-motion`, including component motion, CSS transitions/animations, and JavaScript smooth scrolling.
+
+Empty views use `antdv-next`'s `Empty`, with its simple illustration configured once in `AppProvider.vue` and shared spacing and typography in `.vista-empty-state`; narrow sidebars use `.vista-empty-state-compact`. Keep loading and errors separate from empty results, preserve context-specific descriptions, and omit pagination when no results exist.
 
 ## Internationalization
 
