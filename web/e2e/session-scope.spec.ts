@@ -45,13 +45,14 @@ test('archives stay out of homepage HTTP and SSE and synchronize only while the 
       }), { headers: response.headers, status: response.status })
     }
   })
-  const reads: { scope: string; items: Session[]; bytes: number }[] = []
+  const reads: { scope: string; items: Session[]; total?: number; bytes: number }[] = []
   const unrelated: string[] = []
   page.on('response', async response => {
     const url = new URL(response.url())
     if (response.request().method() === 'GET' && url.pathname === '/api/sessions') {
       const body = await response.text()
-      reads.push({ scope: url.search, items: JSON.parse(body), bytes: Buffer.byteLength(body) })
+      const value = JSON.parse(body)
+      reads.push({ scope: url.search, items: Array.isArray(value) ? value : value.items, total: value.total, bytes: Buffer.byteLength(body) })
     }
   })
   await page.goto(vista.origin + '/')
@@ -75,17 +76,23 @@ test('archives stay out of homepage HTTP and SSE and synchronize only while the 
 
   await page.locator('.manage-sessions-link').click()
   const manager = page.locator('.session-manager-page')
-  await expect(manager.locator('.managed-session')).toHaveCount(13)
-  const archiveReads = () => reads.filter(read => read.scope === '')
+  await expect(manager.locator('.managed-session')).toHaveCount(10)
+  const archiveReads = () => reads.filter(read => new URLSearchParams(read.scope).has('page'))
   expect(archiveReads()).toHaveLength(1)
-  expect(archiveReads()[0]!.items).toHaveLength(13)
-  expect(archiveReads()[0]!.items.filter(item => !item.open)).toHaveLength(12)
-  await vista.api(`/sessions/${closed[0]!.id}`, { method: 'PATCH', body: JSON.stringify({ title: 'Archive changed in another client' }) })
+  expect(archiveReads()[0]!.scope).toBe('?page=1&pageSize=10')
+  expect(archiveReads()[0]!.items).toHaveLength(10)
+  expect(archiveReads()[0]!.total).toBe(13)
+  expect(archiveReads()[0]!.bytes).toBeLessThan(20_000)
+  expect(reads.filter(read => !read.scope)).toHaveLength(0)
+  const visibleArchive = archiveReads()[0]!.items.find(item => !item.open)!
+  expect(closed.some(item => item.id === visibleArchive.id)).toBe(true)
+  await vista.api(`/sessions/${visibleArchive.id}`, { method: 'PATCH', body: JSON.stringify({ title: 'Archive changed in another client' }) })
   await expect(manager).toContainText('Archive changed in another client')
+  await expect(page.locator('.state-sync-error')).toHaveCount(0)
   const beforeExit = archiveReads().length
   await manager.getByRole('button', { name: 'Close session manager', exact: true }).click()
   await expect(manager).toHaveCount(0)
-  await vista.api(`/sessions/${closed[0]!.id}`, { method: 'PATCH', body: JSON.stringify({ title: 'Archive changed after leaving' }) })
+  await vista.api(`/sessions/${visibleArchive.id}`, { method: 'PATCH', body: JSON.stringify({ title: 'Archive changed after leaving' }) })
   await vista.api(`/sessions/${live.id}`, { method: 'PATCH', body: JSON.stringify({ title: 'Still synchronized' }) })
   await expect(page.locator('.session-card')).toContainText('Still synchronized')
   await page.waitForTimeout(250)
