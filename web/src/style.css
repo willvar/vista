@@ -537,7 +537,7 @@ a {
   flex: none;
 }
 .confirmation-content {
-  max-height: min(360px,calc(50dvh - 5rem));
+  max-height: min(360px,calc(50dvh - 8rem));
   overflow: auto;
   overflow-wrap: anywhere;
 }
