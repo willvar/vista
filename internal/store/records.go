@@ -24,7 +24,7 @@ func appendEvent(ctx context.Context, tx *sql.Tx, sessionID, kind string, data a
 		return Event{}, err
 	}
 	limit := 32 << 10
-	if kind == "message" || kind == "input_queued" || kind == "job" {
+	if kind == "message" || kind == "input_queued" || kind == "job" || kind == "memory_changed" {
 		limit = 64 << 10
 	}
 	if len(encoded) > limit {
