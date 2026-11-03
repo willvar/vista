@@ -328,6 +328,7 @@ async function mockExecution(page: Page, origin: string, source = replayEvents()
     const url = new URL(request.url())
     const path = url.pathname.slice(4)
     const reply = (json: unknown) => route.fulfill({ json })
+    if (request.method() === 'POST' && path === '/activity') return route.fulfill({ status: 204 })
     if (request.method() === 'POST' && path === `/sessions/${session.id}/read`) {
       session.readSequence = Math.max(session.readSequence || 0, request.postDataJSON().sequence)
       return reply({ readSequence: session.readSequence })
