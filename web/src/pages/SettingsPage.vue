@@ -3,7 +3,7 @@ import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { ArrowLeftOutlined, RightOutlined, SkinOutlined, UserOutlined, ApiOutlined, InfoCircleOutlined, SearchOutlined, LinkOutlined, BookOutlined, SunOutlined, MoonOutlined, DesktopOutlined, HddOutlined, ExclamationCircleOutlined, FullscreenOutlined, FullscreenExitOutlined, PlusOutlined, ImportOutlined, ReloadOutlined, CloseOutlined, RobotOutlined, TeamOutlined, CompassOutlined, ToolOutlined, CommentOutlined, FolderOpenOutlined, FolderOutlined, FileTextOutlined } from '@antdv-next/icons'
-import { Alert as AAlert, Button as AButton, Input as AInput, InputNumber as AInputNumber, InputPassword as AInputPassword, Modal as AModal, TextArea as ATextarea, Select as ASelect, Switch as ASwitch, Tooltip as ATooltip, type TextAreaRef } from 'antdv-next'
+import { Empty as AEmpty, Alert as AAlert, Button as AButton, Input as AInput, InputNumber as AInputNumber, InputPassword as AInputPassword, Modal as AModal, TextArea as ATextarea, Select as ASelect, Switch as ASwitch, Tooltip as ATooltip, type TextAreaRef } from 'antdv-next'
 import WorkspaceModal from '../WorkspaceModal.vue'
 import ConfirmPopover from '../ConfirmPopover.vue'
 import ModelSelectionStats from '../ModelSelectionStats.vue'
@@ -19,6 +19,8 @@ import CapacitySettings from '../CapacitySettings.vue'
 import UserAgentSettings from '../UserAgentSettings.vue'
 import ResetVistaSettings from '../ResetVistaSettings.vue'
 import VistaMark from '../VistaMark.vue'
+import StatisticsSettings from '../StatisticsSettings.vue'
+import { BarChartOutlined } from '@antdv-next/icons'
 import { useWorkspace } from '../composables/useWorkspace'
 import { useProviderSettings } from '../composables/useProviderSettings'
 import { useAppearance } from '../ui/appearance'
@@ -53,6 +55,7 @@ const sections = [
   { name: 'settings-search', label: 'searchSettings', icon: SearchOutlined },
   { name: 'settings-mcp', label: 'mcpSettings', icon: LinkOutlined },
   { name: 'settings-skills', label: 'skillsSettings', icon: BookOutlined },
+  { name: 'settings-statistics', label: 'statisticsSettings', icon: BarChartOutlined },
   { name: 'settings-storage', label: 'storageSettings', icon: HddOutlined },
   { name: 'settings-about', label: 'aboutSettings', icon: InfoCircleOutlined },
 ]
@@ -115,7 +118,7 @@ function onImported(count: number) {
 }
 const headerAction = computed<HeaderAction | undefined>(() => route.name === 'settings'
   ? { label: 'connectProvider', run: startProviderConnection, disabled: settingsBusy.value, loading: false }
-  : ['settings-mcp', 'settings-skills', 'settings-storage', 'settings-about'].includes(String(route.name)) ? sectionActions.value?.headerAction : undefined)
+  : ['settings-mcp', 'settings-about'].includes(String(route.name)) ? sectionActions.value?.headerAction : undefined)
 const loginBusy = ref(false)
 watch(() => modelDraft.value.kind, () => { loginBusy.value = false })
 function providerTypeLabel(kind: string, protocol: string) {
@@ -159,6 +162,7 @@ watch(() => route.fullPath, () => {
           <router-link v-for="section in sections" :key="section.name" :to="{ name: section.name, query: route.query }" :class="{ active: route.name === section.name }" :aria-current="route.name === section.name ? 'page' : undefined"><component :is="section.icon" aria-hidden="true" /><span>{{ t(section.label) }}</span><RightOutlined class="settings-nav-chevron" aria-hidden="true" /></router-link>
         </nav>
         <SearchSettings v-if="route.name === 'settings-search'" @modal-open="searchModalOpen = $event" />
+        <StatisticsSettings v-if="route.name === 'settings-statistics'" />
         <MCPSettings ref="sectionActions" v-if="route.name === 'settings-mcp'" @modal-open="mcpModalOpen = $event" />
         <SkillsSettings ref="sectionActions" v-if="route.name === 'settings-skills'" @modal-open="skillModalOpen = $event" />
         <ResourceStorageSettings ref="sectionActions" v-if="route.name === 'settings-storage'" @modal-open="storageModalOpen = $event" />
@@ -241,11 +245,9 @@ watch(() => route.fullPath, () => {
         </div>
         <div v-if="route.name === 'settings'" class="settings-content">
           <div v-if="settings.models.length" class="settings-toolbar"><p>{{ t('manageProvidersHint') }}</p></div>
-          <div v-else class="provider-empty-state">
-            <span class="provider-empty-icon"><ApiOutlined aria-hidden="true" /></span>
-            <h3>{{ t('chooseProviderHint') }}</h3>
-            <p>{{ t('addProviderHint') }}</p>
-          </div>
+          <a-empty v-else class="vista-empty-state provider-empty-state">
+            <template #description><h3>{{ t('chooseProviderHint') }}</h3><p>{{ t('addProviderHint') }}</p></template>
+          </a-empty>
           <a-alert v-if="settingsError && !modelFormOpen" type="error" role="alert" :message="settingsError" />
           <a-alert v-if="importedCount" type="success" role="status" :message="t('providerImportSuccess', { count: importedCount })" />
           <div v-if="settings.models.length" class="default-model-setting"><label>{{ t('defaultModel') }}<a-select :value="modelCatalog.default" :options="defaultModelChoices" show-search option-filter-prop="searchText" option-label-prop="fullLabel" :disabled="settingsBusy" @update:value="setDefaultModel(String($event))" /></label></div>

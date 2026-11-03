@@ -33,6 +33,24 @@ test.describe('captured model HTTP', () => {
       await expect(modal.locator('.trace-model-record')).toContainText('Keep the diagnostic view live')
       expect(reads).toHaveLength(1)
       await expect(page.locator('.state-sync-error')).toHaveCount(0)
+      const sessionPath = new URL(page.url()).pathname
+      const messages = await vista.api(`${sessionPath}/messages`)
+      const index = `${sessionPath}/runs/${messages[0].runId}/diagnostics`
+      const calls = await vista.api(index) as ModelDiagnosticSummary[]
+      const second = calls.find(call => call.purpose === 'conversation' && call.turn === 2)!
+      let rejectBody = true
+      await page.route(`**/api${index}/${second.id}`, route => {
+        if (rejectBody) { rejectBody = false; return route.fulfill({ status: 503, body: 'Temporary body read failure' }) }
+        return route.continue()
+      })
+      await select.fill('conversation')
+      await page.locator('.ant-select-item-option-content').filter({ hasText: /conversation.*main \/ 2/ }).click()
+      await expect(modal.getByRole('alert')).toContainText('Temporary body read failure')
+      await modal.getByRole('button', { name: 'Retry', exact: true }).click()
+      await expect(modal.locator('.trace-model-record')).toContainText(second.id)
+      expect(reads).toHaveLength(3)
+      expect(reads.filter(path => path.endsWith('/diagnostics'))).toEqual([])
+      await expect(modal.getByRole('button', { name: 'Refresh', exact: true })).toHaveCount(0)
     } finally { release() }
   })
 
@@ -123,9 +141,12 @@ test.describe('captured model HTTP', () => {
       if (rejectOnce) { rejectOnce = false; return route.fulfill({ status: 503, body: 'Temporary diagnostic read failure' }) }
       return route.continue()
     })
-    await modal.getByRole('button', { name: 'Refresh', exact: true }).click()
-    await expect(modal.getByRole('alert')).toContainText('Temporary diagnostic read failure')
-    await modal.getByRole('button', { name: 'Refresh', exact: true }).click()
+    await expect(modal.getByRole('button', { name: 'Refresh', exact: true })).toHaveCount(0)
+    await modal.getByRole('tab', { name: 'Runtime events', exact: true }).click()
+    const failedRead = page.waitForResponse(response => response.url().endsWith(path) && response.status() === 503)
+    await modal.getByRole('tab', { name: 'Model HTTP', exact: true }).click()
+    await failedRead
+    await expect(modal.locator('.trace-model-record')).toContainText(calls.find(item => item.purpose === 'conversation' && item.turn === 2)!.id)
     await expect(modal.getByRole('alert')).toHaveCount(0)
   })
 })
@@ -164,6 +185,6 @@ test('uncaptured requests have an explicit empty state without inventing raw dat
   await page.getByRole('button', { name: 'Debug details', exact: true }).click()
   const modal = page.getByRole('dialog', { name: 'Debug details', exact: true })
   await modal.getByRole('tab', { name: 'Model HTTP', exact: true }).click()
-  await expect(modal.getByRole('status')).toHaveText('No saved records for this execution. Earlier requests cannot be recovered.')
+  await expect(modal.getByRole('status').locator('.ant-empty-description')).toHaveText('No saved records for this execution. Earlier requests cannot be recovered.')
   await expect(modal.locator('.trace-model-record')).toHaveCount(0)
 })

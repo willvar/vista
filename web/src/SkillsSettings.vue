@@ -1,23 +1,24 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
+import { computed, onUnmounted, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { Alert as AAlert, Button as AButton, Input as AInput, Modal as AModal, Switch as ASwitch, TextArea as ATextarea } from 'antdv-next'
+import { Empty as AEmpty, Alert as AAlert, Button as AButton, Input as AInput, Modal as AModal, Switch as ASwitch, TextArea as ATextarea } from 'antdv-next'
 import { DeleteOutlined, EditOutlined, EyeOutlined, FileMarkdownOutlined, SearchOutlined } from '@antdv-next/icons'
 import ConfirmPopover from './ConfirmPopover.vue'
 import { useWorkspace } from './composables/useWorkspace'
+import { useStateQuery } from './composables/useStateQuery'
 
 type Skill = { id: string; name: string; description: string; path: string; source: 'system' | 'user'; disabled: boolean; error?: string }
 type SkillDocument = { content: string; sha256: string; files: string[] }
 const emit = defineEmits<{ 'modal-open': [open: boolean] }>()
 const { t } = useI18n({ useScope: 'global' })
-const { client } = useWorkspace()
+const { client, stateSync } = useWorkspace()
 const lifetime = new AbortController()
-const skills = ref<Skill[]>([])
-const directory = ref('')
+const resource = useStateQuery<{ skills: Skill[]; directory: string; version?: string }>(client, stateSync, '/skills', ['skills'])
+const { loading, error } = resource
+const skills = computed(() => resource.data.value?.skills ?? [])
+const directory = computed(() => resource.data.value?.directory ?? '')
 const query = ref('')
-const loading = ref(true)
 const busy = ref(false)
-const error = ref('')
 const saved = ref(false)
 const visibleSkills = computed(() => skills.value.filter(skill => `${skill.name} ${skill.description} ${skill.id}`.toLowerCase().includes(query.value.trim().toLowerCase())))
 const hasUserSkills = computed(() => skills.value.some(skill => skill.source !== 'system'))
@@ -34,20 +35,6 @@ let editorGeneration = 0
 const canSave = computed(() => !loading.value && !documentLoading.value && !!editing.value && editing.value.source !== 'system' && !!draft.sha256 && !!draft.content.trim())
 const skillURL = (id: string) => `/skills/${encodeURIComponent(id)}`
 
-async function refresh() {
-  const result = await client.request<{ skills: Skill[]; directory: string }>('/skills', { signal: lifetime.signal })
-  if (lifetime.signal.aborted) return
-  skills.value = result.skills
-  directory.value = result.directory
-}
-async function load() {
-  loading.value = true
-  error.value = ''
-  try { await refresh() }
-  catch (cause) { if (!lifetime.signal.aborted) error.value = String(cause) }
-  finally { if (!lifetime.signal.aborted) loading.value = false }
-}
-onMounted(load)
 
 async function edit(skill: Skill) {
   if (busy.value) return
@@ -86,7 +73,6 @@ async function save() {
     if (lifetime.signal.aborted) return
     editorOpen.value = false
     saved.value = true
-    await refresh().catch(cause => { if (!lifetime.signal.aborted) error.value = String(cause) })
   } catch (cause) { if (!lifetime.signal.aborted) formError.value = String(cause) }
   finally { busy.value = false }
 }
@@ -111,7 +97,6 @@ async function remove(skill: Skill) {
   try {
     await client.request(skillURL(skill.id), { method: 'DELETE', signal: lifetime.signal })
     if (lifetime.signal.aborted) return
-    skills.value = skills.value.filter(item => item.id !== skill.id)
     deleting.value = ''
     saved.value = true
   } catch (cause) { if (!lifetime.signal.aborted) deleteError.value = String(cause) }
@@ -123,7 +108,7 @@ onUnmounted(() => {
   editorController?.abort()
   emit('modal-open', false)
 })
-defineExpose({ imported: async () => { await load(); saved.value = true }, headerAction: computed(() => ({ label: 'refresh', run: load, disabled: loading.value || busy.value, loading: loading.value })) })
+defineExpose({ imported: () => { saved.value = true } })
 </script>
 
 <template>
@@ -131,11 +116,11 @@ defineExpose({ imported: async () => { await load(); saved.value = true }, heade
     <div class="skills-toolbar"><p class="skills-hint">{{ t('skillsSettingsHint') }}</p></div>
     <div v-if="directory" class="skills-directory"><p class="skills-hint">{{ t('skillsDirectory') }}</p><code>{{ directory }}</code><p class="skills-hint">{{ t('skillsDirectoryHint') }}</p></div>
     <a-alert v-if="error" type="error" role="alert" :message="error" />
-    <a-button v-if="error" :disabled="busy || loading" @click="load">{{ t('retry') }}</a-button>
+    <a-button v-if="error" :disabled="busy || loading" @click="resource.refresh">{{ t('retry') }}</a-button>
     <a-input v-if="skills.length" v-model:value="query" allow-clear :placeholder="t('skillsSearch')" :aria-label="t('skillsSearch')"><template #prefix><SearchOutlined aria-hidden="true" /></template></a-input>
     <p v-if="loading" class="skills-hint" role="status">{{ t('skillsLoading') }}</p>
-    <p v-else-if="!hasUserSkills && !query && !error" class="skills-empty">{{ t('skillsEmpty') }}</p>
-    <p v-else-if="!visibleSkills.length && !error" class="skills-empty">{{ t('skillsNoMatch') }}</p>
+    <a-empty v-else-if="!hasUserSkills && !query && !error" class="vista-empty-state skills-empty" :description="t('skillsEmpty')" role="status" />
+    <a-empty v-else-if="!visibleSkills.length && !error" class="vista-empty-state skills-empty" :description="t('skillsNoMatch')" role="status" />
     <p v-if="saved" class="skills-saved" role="status">{{ t('skillsSaved') }}</p>
     <article v-for="skill in visibleSkills" :key="skill.id" class="skill-card" :data-skill="skill.id">
       <div class="skill-heading"><div class="skill-name"><FileMarkdownOutlined aria-hidden="true" /><strong>{{ skill.name }}</strong><span class="skill-badge">{{ t(skill.source === 'system' ? 'skillSystem' : 'skillUser') }}</span><span v-if="skill.disabled" class="skill-badge">{{ t('skillDisabled') }}</span></div><a-switch v-if="skill.source !== 'system'" :checked="!skill.disabled" :disabled="busy || !!skill.error" :aria-label="t('skillEnable', { name: skill.name })" @update:checked="toggle(skill, !!$event)" /></div>
@@ -163,7 +148,6 @@ defineExpose({ imported: async () => { await load(); saved.value = true }, heade
 .skills-settings { display: flex; flex-direction: column; gap: 1rem; }
 .skills-toolbar { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; }
 .skills-hint { color: var(--muted); font-size: var(--font-size-body); line-height: 1.6; margin: 0; }
-.skills-empty { color: var(--muted); text-align: center; padding: 2rem 1rem; }
 .skills-saved { color: var(--accent); margin: 0; font-size: var(--font-size-body); }
 .skill-card { min-width: 0; border: 1px solid var(--border); border-radius: 12px; padding: 1rem; }
 .skill-heading, .skill-name { display: flex; align-items: center; gap: .6rem; }

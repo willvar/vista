@@ -1,27 +1,28 @@
 import { streamSSE } from './sse.ts'
-import type { ServerStatus, SessionListSnapshot, ModelCatalog, OMPCatalogInfo, LoginUpdate, MCPState, ResourceStorageStatus, Memories } from './types.ts'
+import type { ServerStatus, SessionListSnapshot, ModelCatalog, OMPCatalogInfo, LoginUpdate, MCPState, ResourceStorageStatus, MemorySummary } from './types.ts'
 import type { ModelDiagnosticSummary } from './modelDiagnostics.ts'
 
-export const stateTopics = ['sessions', 'status', 'models', 'catalog', 'provider-login', 'mcp', 'storage', 'memories', 'diagnostics'] as const
+export const stateTopics = ['sessions', 'status', 'models', 'catalog', 'provider-login', 'mcp', 'storage', 'memories', 'diagnostics', 'statistics', 'skills', 'selection-stats'] as const
 export type StateTopic = typeof stateTopics[number]
 export type StateConnection = { phase: 'connecting' | 'ready' | 'error' | 'stopped'; error?: string }
 export type WorkspaceSnapshots = {
   sessions?: SessionListSnapshot; status?: ServerStatus; models?: ModelCatalog; catalog?: OMPCatalogInfo
-  providerLogins?: LoginUpdate[]; mcp?: MCPState; storage?: ResourceStorageStatus; memories?: Memories
+  providerLogins?: LoginUpdate[]; mcp?: MCPState; storage?: ResourceStorageStatus; memories?: MemorySummary
   diagnostics?: { after: number; through: number; records: ModelDiagnosticSummary[] }
 }
-type Checkpoint = WorkspaceSnapshots & { epoch: string; revisions: Record<StateTopic, number> }
+type Checkpoint = WorkspaceSnapshots & { epoch: string; revisions: Record<StateTopic, number>; subscriptionId?: string }
 type Listener = {
   topics: StateTopic[]
-  receive: (topics: StateTopic[], signal: AbortSignal, snapshots: WorkspaceSnapshots, revisions: Checkpoint['revisions']) => Promise<void>
+  receive: (topics: StateTopic[], signal: AbortSignal, snapshots: Checkpoint, revisions: Checkpoint['revisions']) => Promise<void>
   active: boolean; lifetime: AbortController; seen: Partial<Record<StateTopic, number>>; epoch: string; attempt: number; pending?: Promise<void>
 }
 const snapshotKeys = { sessions: 'sessions', status: 'status', models: 'models', catalog: 'catalog',
-  'provider-login': 'providerLogins', mcp: 'mcp', storage: 'storage', memories: 'memories', diagnostics: 'diagnostics' } as const
+  'provider-login': 'providerLogins', mcp: 'mcp', storage: 'storage', memories: 'memories', diagnostics: 'diagnostics', statistics: undefined, skills: undefined, 'selection-stats': undefined } as const
 type Options = {
   open: (metrics: boolean, signal: AbortSignal) => Promise<Response>
   status: (status: StateConnection) => void
   metrics: (status: ServerStatus) => void
+  interests?: (id: string, topics: StateTopic[], timezone: string, signal: AbortSignal) => Promise<void>
   reconnectDelayMs?: number
   idleTimeoutMs?: number
 }
@@ -37,6 +38,7 @@ export function createWorkspaceSync(options: Options) {
   let stopped = true
   let attempt = 0
   let latest: { point: Checkpoint; signal: AbortSignal; attempt: number } | undefined
+  let interestsChanged: (() => void) | undefined
 
   function deliver(listener: Listener, state: NonNullable<typeof latest>) {
     const run = async () => {
@@ -59,6 +61,7 @@ export function createWorkspaceSync(options: Options) {
   function subscribe(topics: StateTopic[], receive: Listener['receive']) {
     const listener: Listener = { topics, receive, active: true, lifetime: new AbortController(), seen: {}, epoch: '', attempt: -1 }
     listeners.add(listener)
+    interestsChanged?.()
     // A newly opened view receives the latest valid payload, or performs one
     // initial snapshot read. It does not wait for another change/heartbeat.
     if (latest) {
@@ -67,7 +70,7 @@ export function createWorkspaceSync(options: Options) {
         if (listener.active && !stopped && !state.signal.aborted) { options.status({ phase: 'error', error: String(error) }); connect() }
       })
     }
-    return () => { listener.active = false; listener.lifetime.abort(); listeners.delete(listener) }
+    return () => { listener.active = false; listener.lifetime.abort(); listeners.delete(listener); interestsChanged?.() }
   }
 
   function connect() {
@@ -75,12 +78,35 @@ export function createWorkspaceSync(options: Options) {
     const owner = connection = new AbortController()
     const current = () => !owner.signal.aborted && connection === owner
     latest = undefined
+    let subscriptionId = '', sentInterests = '', updatingInterests = false
+    let subscriptionSignal: AbortSignal | undefined
+    const updateInterests = async () => {
+      if (!options.interests || !subscriptionId || !subscriptionSignal || subscriptionSignal.aborted || updatingInterests || !current()) return
+      updatingInterests = true
+      try {
+        while (current()) {
+          const topics = [...new Set([...listeners].flatMap(listener => listener.topics))].sort()
+          const key = JSON.stringify(topics)
+          if (key === sentInterests) break
+          const id = subscriptionId, signal = subscriptionSignal!
+          try {
+            await options.interests(id, topics, Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC', signal)
+          } catch (error) { if (!signal.aborted) throw error }
+          if (!current() || !subscriptionId || subscriptionSignal?.aborted) break
+          if (id === subscriptionId) sentInterests = key
+        }
+      } catch (error) {
+        if (current()) { options.status({ phase: 'error', error: String(error) }); connect() }
+      } finally { updatingInterests = false }
+    }
+    // Batch component mounts/unmounts without reconnecting the shared stream.
+    interestsChanged = () => { queueMicrotask(() => { void updateInterests() }) }
     options.status({ phase: 'connecting' })
     void streamSSE(signal => options.open(metrics, signal), {
       signal: owner.signal,
       reconnectDelayMs: options.reconnectDelayMs,
       idleTimeoutMs: options.idleTimeoutMs,
-      onConnect() { attempt++; latest = undefined },
+      onConnect() { attempt++; latest = undefined; subscriptionId = ''; sentInterests = ''; subscriptionSignal = undefined },
       onDisconnect() { if (current()) options.status({ phase: 'error', error: 'State connection closed' }) },
       onError(error) { if (current()) options.status({ phase: 'error', error: String(error) }) },
       async onFrame(frame, signal) {
@@ -93,6 +119,9 @@ export function createWorkspaceSync(options: Options) {
         if (frame.event !== 'state') return
         const point: Checkpoint = JSON.parse(frame.data)
         if (!point.epoch || !point.revisions || stateTopics.some(topic => !Number.isSafeInteger(point.revisions[topic]) || point.revisions[topic]! < 0)) throw new Error('Invalid state checkpoint')
+        if (point.subscriptionId && point.subscriptionId !== subscriptionId) {
+          subscriptionId = point.subscriptionId; subscriptionSignal = signal; sentInterests = ''; interestsChanged?.()
+        }
         if (point.sessions !== undefined && (!point.sessions || !Array.isArray(point.sessions.items) || !point.sessions.throughSequences
           || point.sessions.items.some(session => !session || typeof session.id !== 'string' || typeof session.title !== 'string'
             || !Number.isSafeInteger(point.sessions!.throughSequences[session.id]) || point.sessions!.throughSequences[session.id]! < 0))) throw new Error('Invalid session list snapshot')
@@ -102,7 +131,7 @@ export function createWorkspaceSync(options: Options) {
         if (point.providerLogins !== undefined && (!Array.isArray(point.providerLogins) || point.providerLogins.some(login => !login?.id || typeof login.status !== 'string'))) throw new Error('Invalid login snapshot')
         if (point.mcp !== undefined && (!point.mcp || !Array.isArray(point.mcp.servers) || !Array.isArray(point.mcp.logins))) throw new Error('Invalid MCP snapshot')
         if (point.storage !== undefined && (!point.storage || typeof point.storage.phase !== 'string')) throw new Error('Invalid storage snapshot')
-        if (point.memories !== undefined && (!point.memories || !Array.isArray(point.memories.memories))) throw new Error('Invalid memories snapshot')
+        if (point.memories !== undefined && (!point.memories || !Number.isSafeInteger(point.memories.total) || point.memories.total < 0)) throw new Error('Invalid memories summary')
         if (point.diagnostics !== undefined && (!point.diagnostics || !Array.isArray(point.diagnostics.records)
           || !Number.isSafeInteger(point.diagnostics.after) || point.diagnostics.after < 0
           || point.diagnostics.through !== point.revisions.diagnostics || point.diagnostics.after > point.diagnostics.through
@@ -112,7 +141,7 @@ export function createWorkspaceSync(options: Options) {
         if (latest?.point.epoch === point.epoch) {
           stateTopics.forEach(topic => {
             const key = snapshotKeys[topic]
-            if (point[key] === undefined && latest!.point.revisions[topic] === point.revisions[topic]) Object.assign(point, { [key]: latest!.point[key] })
+            if (key && point[key] === undefined && latest!.point.revisions[topic] === point.revisions[topic]) Object.assign(point, { [key]: latest!.point[key] })
           })
         }
         latest = { point, signal, attempt }
@@ -128,6 +157,6 @@ export function createWorkspaceSync(options: Options) {
     start(value = false) { metrics = value; stopped = false; connect() },
     setMetrics(value: boolean) { if (metrics === value) return false; metrics = value; if (!stopped) { connect(); return true }; return false },
     reconnect() { if (!stopped) connect() },
-    stop() { stopped = true; connection?.abort(); latest = undefined; options.status({ phase: 'stopped' }) },
+    stop() { stopped = true; connection?.abort(); interestsChanged = undefined; latest = undefined; options.status({ phase: 'stopped' }) },
   }
 }

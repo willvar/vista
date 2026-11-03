@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import { computed, onScopeDispose, ref, useId, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { Alert, Button, Modal, Select, Tabs, TabPane } from 'antdv-next'
-import { CopyOutlined, ReloadOutlined } from '@antdv-next/icons'
+import { Empty as AEmpty, Alert, Button, Modal, Select, Tabs, TabPane } from 'antdv-next'
+import { CopyOutlined } from '@antdv-next/icons'
 import type { StreamEvent } from './client/types'
 import type { TraceAgentHierarchyEntry } from './state/runTrace'
 import type { ModelDiagnosticRecord, ModelDiagnosticSummary } from './client/modelDiagnostics'
@@ -130,11 +130,11 @@ const details = computed(() => open.value ? JSON.stringify({ runId: props.runId,
       <div class="trace-diagnostic-controls">
         <label :for="selectId" class="visually-hidden">{{ t('traceSelectRequest') }}</label>
         <Select :id="selectId" :value="selectedId || undefined" :options="options" :aria-label="t('traceSelectRequest')" :placeholder="t('traceSelectRequest')" show-search option-filter-prop="label" @change="select" />
-        <Button :loading="loading" :title="t('refresh')" :aria-label="t('refresh')" @click="load()"><ReloadOutlined /></Button>
         <Button :disabled="!record || loading" :title="t('traceCopyRecord')" :aria-label="t('traceCopyRecord')" @click="copy"><CopyOutlined /></Button>
       </div>
       <Alert v-if="error" type="error" :message="error" role="alert" />
-      <p v-if="!loading && !records.length && !error" role="status">{{ t('traceNoModelRequests') }}</p>
+      <Button v-if="error" :disabled="loading" @click="selectedId && !record ? readRecord() : load()">{{ t('retry') }}</Button>
+      <a-empty v-if="!loading && !records.length && !error" class="vista-empty-state" :description="t('traceNoModelRequests')" role="status" />
       <div v-if="record" class="trace-model-record" :aria-busy="loading">
         <Alert v-if="record.truncated" type="warning" :message="t('traceCaptureTruncated')" show-icon />
         <Alert v-if="record.error" type="error" :message="record.error" />

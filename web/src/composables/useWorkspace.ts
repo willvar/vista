@@ -10,6 +10,7 @@ import { useInteractionPreferences } from './useInteractionPreferences'
 import { isPlainEscape } from './useEscape'
 import { mergeSessionSnapshot, sessionNeedsAttention } from '../state/workspace'
 import { quoteStoragePrefix } from '../state/quotedReply'
+import { trackActivity } from '../client/activity'
 
 function createWorkspace() {
   const route = useRoute()
@@ -47,6 +48,9 @@ function createWorkspace() {
   const stateConnection = ref<StateConnection>({ phase: 'connecting' })
   const stateSync = createWorkspaceSync({
     open: (metrics, signal) => fetch(`/api/events${metrics ? '?metrics=1' : ''}`, { signal }),
+    interests: async (id, topics, timezone, signal) => {
+      await client.request('/events/subscriptions', { method: 'PUT', body: JSON.stringify({ id, topics, timezone }), signal })
+    },
     status: value => { stateConnection.value = value },
     metrics: value => {
       if (!serverStatus.value || Date.parse(value.sampledAt) >= Date.parse(serverStatus.value.sampledAt)) {
@@ -58,6 +62,7 @@ function createWorkspace() {
   const wantsMetrics = computed(() => debugMode.value || route.name === 'settings-about')
   watch(wantsMetrics, value => stateSync.setMetrics(value && !document.hidden))
   let disposed = false
+  let stopActivity: (() => void) | undefined
   const conversation = useConversation({ client, sessions, modelCatalog, error, busy, refresh: refreshSessions, translate: t, interactionPreferences,
     onSessionStarted: async session => { await router.push(`/sessions/${session.id}`) } })
   const { selected } = conversation
@@ -151,6 +156,23 @@ function createWorkspace() {
   const renamingSessionID = ref('')
   const sessionTitleDraft = ref('')
   const deleteTarget = ref<Session | null>(null)
+  const closeConfirmation = ref<{ count: number; close: () => Promise<void> } | null>(null)
+  async function requestSessionClose(items: Session[], close: () => Promise<void>) {
+    if (busy.value || closeConfirmation.value || !items.length) return
+    const interruptsWork = items.some(item => {
+      const current = selected.value?.id === item.id ? selected.value : sessions.value.find(session => session.id === item.id) ?? item
+      return current.running || current.executing
+    })
+    if (interruptsWork) closeConfirmation.value = { count: items.length, close }
+    else await close()
+  }
+  function cancelSessionClose() { if (!busy.value) closeConfirmation.value = null }
+  async function confirmSessionClose() {
+    const request = closeConfirmation.value
+    if (!request || busy.value) return
+    try { await request.close() }
+    finally { if (closeConfirmation.value === request) closeConfirmation.value = null }
+  }
   function beginRename(item: Session) { renamingSessionID.value = item.id; sessionTitleDraft.value = presentation.displaySessionTitle(item) }
   function cancelRename() { renamingSessionID.value = ''; sessionTitleDraft.value = '' }
   async function rename(item: Session, title: string, done: () => void) {
@@ -164,6 +186,11 @@ function createWorkspace() {
   }
   function saveRename(item: Session) { return rename(item, sessionTitleDraft.value.trim(), cancelRename) }
   async function action(item: Session, kind: 'open' | 'close' | 'delete' | 'retry') {
+    if (busy.value) return
+    if (kind === 'close') return requestSessionClose([item], () => performAction(item, kind))
+    await performAction(item, kind)
+  }
+  async function performAction(item: Session, kind: 'open' | 'close' | 'delete' | 'retry') {
     busy.value = true
     try {
       await client.request(`/sessions/${item.id}${kind === 'delete' ? '' : '/' + kind}`, { method: kind === 'delete' ? 'DELETE' : 'POST' })
@@ -227,9 +254,11 @@ function createWorkspace() {
   watch(() => route.fullPath, () => {
     mobileSessionsOpen.value = false
     deleteTarget.value = null
+    closeConfirmation.value = null
     void syncRoute()
   })
   onMounted(() => {
+    stopActivity = trackActivity(minutes => client.request('/activity', { method: 'POST', body: JSON.stringify({ minutes }), keepalive: true }))
     window.addEventListener('compositionstart', compositionStart, true)
     window.addEventListener('compositionend', compositionEnd, true)
     window.addEventListener('keydown', onEscape)
@@ -241,6 +270,7 @@ function createWorkspace() {
     })
   })
   onUnmounted(() => {
+    stopActivity?.()
     window.removeEventListener('compositionstart', compositionStart, true)
     window.removeEventListener('compositionend', compositionEnd, true)
     window.removeEventListener('keydown', onEscape)
@@ -258,6 +288,7 @@ function createWorkspace() {
     settingsOpen, sessionManagerOpen, needsProvider, conversation, selected, modalQuery, backToWorkspace, openSessionManager,
     openSettings, create, action, renamingSessionID, sessionTitleDraft, beginRename, cancelRename, saveRename,
     deleteTarget, updateSessionDelete, confirmDelete,
+    closeConfirmation, requestSessionClose, cancelSessionClose, confirmSessionClose,
     workerMemory, workerAvailable, mib, interactionPreferences, ...presentation,
   }
 }

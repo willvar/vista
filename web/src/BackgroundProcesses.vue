@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onUnmounted, ref, watch } from 'vue'
-import { Button, Modal, Select } from 'antdv-next'
+import { Empty as AEmpty, Button, Modal, Select } from 'antdv-next'
 import { CodeOutlined, StopOutlined } from '@antdv-next/icons'
 import { useI18n } from 'vue-i18n'
 import { useWorkspace } from './composables/useWorkspace'
@@ -136,7 +136,8 @@ onUnmounted(() => { cancelRequests(); clearInterval(clock); for (const action of
         </div>
         <BackgroundProcessOutput :key="job.id" :session-id="sessionId" :job="job" />
       </template>
-      <p v-else class="process-empty">{{ t(loading ? 'outputLoading' : 'noBackgroundProcesses') }}</p>
+      <p v-else-if="loading" role="status">{{ t('outputLoading') }}</p>
+      <a-empty v-else-if="!error" class="vista-empty-state" :description="t('noBackgroundProcesses')" role="status" />
     </div>
   </Modal>
 </template>
@@ -154,7 +155,6 @@ onUnmounted(() => { cancelRequests(); clearInterval(clock); for (const action of
 .process-details dt{color:var(--muted);flex:none}.process-details dd{margin:0;min-width:0;overflow-wrap:anywhere;font-variant-numeric:tabular-nums}
 .process-directory{grid-column:1/-1}
 .process-error{margin:0;color:var(--danger);font-size:12px;white-space:pre-wrap;overflow-wrap:anywhere;max-height:4.5rem;overflow:auto;flex:none}
-.process-empty{color:var(--muted)}
 @media(max-width:600px){.background-process-monitor{height:calc(100dvh - 8rem);gap:.5rem}.process-details{grid-template-columns:1fr;gap:.2rem;max-height:11rem}.process-command{max-height:4rem}.process-heading .ant-btn{min-height:36px}}
 @media(max-height:520px){.background-process-monitor{height:calc(100dvh - 6rem);gap:.35rem}.process-info{min-height:1rem;max-height:5rem;gap:.35rem}.process-details{grid-template-columns:repeat(2,minmax(0,1fr));max-height:none;gap:0 .75rem}.process-command{max-height:2.5rem;padding:.2rem .5rem}.process-heading .ant-btn{height:28px;min-height:28px}}
 </style>

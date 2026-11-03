@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, shallowRef, watch, type ComponentPublicInstance } from 'vue'
 import { useVirtualizer } from '@tanstack/vue-virtual'
-import { Button } from 'antdv-next'
+import { Empty as AEmpty, Button } from 'antdv-next'
 import { VerticalAlignBottomOutlined } from '@antdv-next/icons'
 import { useI18n } from 'vue-i18n'
 import { useWorkspace } from './composables/useWorkspace'
@@ -152,7 +152,7 @@ onUnmounted(() => {
       <div class="process-output-space" :style="{ height: `${virtualizer.getTotalSize()}px` }">
         <div v-for="row in rows" :key="row.key.toString()" :ref="measure" :data-index="row.index" class="process-output-block" :style="{ transform: `translateY(${row.start}px)`, minHeight: pages.has(row.index) ? undefined : '800px' }">
           <PlainTextOutput v-if="pages.get(row.index)?.content" :content="pages.get(row.index)!.content" />
-          <p v-else-if="pages.has(row.index)" class="process-output-placeholder">{{ size ? '' : t('processNoOutput') }}</p>
+          <template v-else-if="pages.has(row.index)"><a-empty v-if="!size" class="vista-empty-state" :description="t('processNoOutput')" role="status" /></template>
           <p v-else class="process-output-placeholder">{{ failures.has(row.index) ? t('outputLoadFailed') : t('outputLoading') }}</p>
         </div>
       </div>

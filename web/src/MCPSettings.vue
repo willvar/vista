@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onUnmounted, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { Alert as AAlert, Button as AButton, Input as AInput, InputPassword as AInputPassword, Modal as AModal, Select as ASelect, Switch as ASwitch, TextArea as ATextarea } from 'antdv-next'
+import { Empty as AEmpty, Alert as AAlert, Button as AButton, Input as AInput, InputPassword as AInputPassword, Modal as AModal, Select as ASelect, Switch as ASwitch, TextArea as ATextarea } from 'antdv-next'
 import { EditOutlined, LinkOutlined, ReloadOutlined, DeleteOutlined } from '@antdv-next/icons'
 import ConfirmPopover from './ConfirmPopover.vue'
 import { VistaAPIError } from './client/vista'
@@ -284,7 +284,7 @@ defineExpose({ imported: () => { saved.value = true }, headerAction: computed(()
     <a-alert v-if="error" type="error" role="alert" :message="error" />
     <a-button v-if="error" :disabled="busy || loading" @click="load">{{ t('retry') }}</a-button>
     <p v-if="loading" role="status">{{ t('mcpLoading') }}</p>
-    <p v-else-if="!servers.length && !error" class="mcp-empty">{{ t('mcpEmpty') }}</p>
+    <a-empty v-else-if="!servers.length && !error" class="vista-empty-state mcp-empty" :description="t('mcpEmpty')" role="status" />
     <p v-if="saved" class="mcp-saved" role="status">{{ t('mcpSaved') }}</p>
     <article v-for="server in servers" :key="server.id" class="mcp-server" :data-mcp="server.name" :data-mcp-id="server.id">
       <div class="mcp-server-heading"><div class="mcp-name"><strong>{{ server.name }}</strong><span class="mcp-badge">{{ server.transport === 'stdio' ? 'stdio' : 'HTTP' }}</span></div><a-switch :checked="!server.disabled" :disabled="busy" :aria-label="t('mcpEnable', { name: server.name })" @update:checked="toggle(server, !!$event)" /></div>
@@ -347,9 +347,9 @@ defineExpose({ imported: () => { saved.value = true }, headerAction: computed(()
       <a-alert v-if="toolsError" type="error" role="alert" :message="toolsError" />
       <div class="mcp-actions"><a-button :loading="toolsLoading" @click="inspect(toolsServer)"><ReloadOutlined aria-hidden="true" />{{ t('mcpCheckAgain') }}</a-button><a-button v-if="toolsServer.oauth" @click="authorize(toolsServer)">{{ t('mcpAuthorize') }}</a-button></div>
       <template v-if="!toolsLoading && !toolsError">
-        <p role="status">{{ t('mcpToolCount', { count: tools.length }) }}</p>
+        <p v-if="tools.length" role="status">{{ t('mcpToolCount', { count: tools.length }) }}</p>
         <a-input v-if="tools.length" v-model:value="toolQuery" :placeholder="t('mcpSearchTools')" :aria-label="t('mcpSearchTools')" allow-clear />
-        <p v-if="tools.length && !visibleTools.length" class="mcp-hint">{{ t('mcpNoMatchingTools') }}</p>
+        <a-empty v-if="!visibleTools.length" class="vista-empty-state" :description="t(tools.length ? 'mcpNoMatchingTools' : 'mcpToolCount', { count: 0 })" role="status" />
         <article v-for="tool in visibleTools" :key="tool.name" class="mcp-tool"><h3>{{ tool.name }}</h3><p>{{ tool.description }}</p><details><summary>{{ t('mcpInputSchema') }}</summary><pre>{{ JSON.stringify(tool.inputSchema, null, 2) }}</pre></details></article>
       </template>
     </section>
@@ -372,7 +372,6 @@ defineExpose({ imported: () => { saved.value = true }, headerAction: computed(()
 .mcp-toolbar { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; }
 .mcp-toolbar a { white-space: nowrap; }
 .mcp-hint { color: var(--muted); font-size: var(--font-size-body); line-height: 1.6; margin: 0; }
-.mcp-empty { color: var(--muted); text-align: center; padding: 2rem 1rem; }
 .mcp-saved { color: var(--accent); margin: 0; font-size: var(--font-size-body); }
 .mcp-server { min-width: 0; border: 1px solid var(--border); border-radius: 12px; padding: 1rem; }
 .mcp-server-heading, .mcp-name { display: flex; align-items: center; gap: .6rem; }

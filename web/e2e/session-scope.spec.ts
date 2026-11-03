@@ -99,7 +99,7 @@ test('a homepage with only closed conversations shows the retained-conversation 
   const item = await vista.api('/sessions', { method: 'POST', body: JSON.stringify({ title: 'Retained conversation' }) })
   await vista.api(`/sessions/${item.id}/close`, { method: 'POST' })
   await page.goto(vista.origin + '/')
-  await expect(page.locator('.sidebar-empty')).toHaveText('No open sessions. Find closed sessions in Manage sessions.')
+  await expect(page.locator('.sidebar-empty .ant-empty-description')).toHaveText('No open sessions. Find closed sessions in Manage sessions.')
   await page.goto(vista.origin + '/sessions')
   await expect(page.locator('.managed-session')).toHaveCount(1)
   await expect(page.locator('.session-manager-stats').first()).toContainText('1')

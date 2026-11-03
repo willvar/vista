@@ -108,11 +108,11 @@ test.describe('first launch without a provider', () => {
     await page.locator('.ant-select-dropdown:visible').getByText('Automatic', { exact: true }).click()
     const stats = page.locator('.model-selection-stats')
     await expect(stats.locator('.selection-stats-summary')).toContainText('0 models · 0 samples')
-    await expect(stats.locator('.selection-stats-empty')).toHaveText('Connect a provider to start learning.')
+    await expect(stats.locator('.selection-stats-empty .ant-empty-description')).toHaveText('Connect a provider to start learning.')
     await expect(stats.locator('.selection-stats-model')).toHaveCount(0)
     await page.reload()
     await expect(stats.locator('.selection-stats-summary')).toContainText('0 models · 0 samples')
-    await expect(stats.locator('.selection-stats-empty')).toHaveText('Connect a provider to start learning.')
+    await expect(stats.locator('.selection-stats-empty .ant-empty-description')).toHaveText('Connect a provider to start learning.')
   })
   test('connect a provider and create the first session only when sending Hi', async ({ page, vista }, testInfo) => {
     let creationRequests = 0

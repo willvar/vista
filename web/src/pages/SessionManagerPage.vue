@@ -3,47 +3,56 @@ import { computed, onUnmounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { ArrowLeftOutlined } from '@antdv-next/icons'
-import { Alert as AAlert, Button as AButton, Checkbox as ACheckbox, Input as AInput, Modal as AModal, Select as ASelect } from 'antdv-next'
+import { Empty as AEmpty, Alert as AAlert, Button as AButton, Checkbox as ACheckbox, Input as AInput, Modal as AModal, Select as ASelect } from 'antdv-next'
 import WorkspaceModal from '../WorkspaceModal.vue'
 import ConfirmPopover from '../ConfirmPopover.vue'
 import SessionIndicators from '../SessionIndicators.vue'
+import ListPagination from '../ListPagination.vue'
 import { useWorkspace } from '../composables/useWorkspace'
+import { usePagedList } from '../composables/usePagedList'
 import { formatDateTime } from '../ui/datetime.ts'
-import type { Session } from '../client/types'
+import type { Session, SessionPage } from '../client/types'
 
 const router = useRouter()
 const { t, locale } = useI18n({ useScope: 'global' })
 const {
   openSessions, closedSessions, totalSessions, serverStatus, busy, debugMode, stateSync,
-  backToWorkspace, action, beginRename, cancelRename, saveRename,
+  backToWorkspace, action, beginRename, cancelRename, saveRename, closeConfirmation, requestSessionClose,
   renamingSessionID, sessionTitleDraft, deleteTarget, updateSessionDelete, confirmDelete,
   workerAvailable, displaySessionTitle,
   client, route, selected, conversation,
 } = useWorkspace()
-const sessionItems = ref<Session[]>([])
-const archiveLoading = ref(true)
-const archiveError = ref('')
-const unsubscribe = stateSync.subscribe(['sessions'], async (_, signal) => {
-  try {
-    // A single management snapshot keeps close/reopen transitions in one
-    // list, including changes committed after the triggering SSE frame.
-    const items = await client.request<Session[]>('/sessions', { signal })
-    if (signal.aborted) return
-    sessionItems.value = items
-    archiveError.value = ''
-  } catch (cause) {
-    if (!signal.aborted) archiveError.value = String(cause)
-    throw cause
-  } finally { if (!signal.aborted) archiveLoading.value = false }
-})
-onUnmounted(unsubscribe)
-const allSessions = computed(() => [...sessionItems.value]
-  .sort((a, b) => b.createdAt.localeCompare(a.createdAt) || b.id.localeCompare(a.id)))
 const sessionSearch = ref('')
+const searchQuery = ref('')
 const sessionFilter = ref<'all' | 'open' | 'closed'>('all')
-const managedSessions = computed(() => allSessions.value.filter(session =>
-  (sessionFilter.value === 'all' || session.open === (sessionFilter.value === 'open'))
-  && displaySessionTitle(session).toLocaleLowerCase().includes(sessionSearch.value.trim().toLocaleLowerCase())))
+const page = ref(1)
+const pageSize = ref(10)
+const { data: sessionPage, loading: archiveLoading, error: archiveError, ready } = usePagedList<SessionPage>({
+  client, sync: stateSync, topic: 'sessions', page,
+  path: current => {
+    const query = new URLSearchParams({ page: String(current), pageSize: String(pageSize.value) })
+    if (sessionFilter.value !== 'all') query.set('open', String(sessionFilter.value === 'open'))
+    if (searchQuery.value) { query.set('search', searchQuery.value); query.set('untitledLabel', t('untitledSession')) }
+    return `/sessions?${query}`
+  },
+})
+let searchTimer: ReturnType<typeof setTimeout> | undefined
+watch(sessionSearch, value => {
+  clearTimeout(searchTimer)
+  selectedIDs.value = new Set()
+  searchTimer = setTimeout(() => { searchQuery.value = value.trim() }, 250)
+})
+watch([searchQuery, sessionFilter, pageSize], () => { page.value = 1 }, { flush: 'sync' })
+onUnmounted(() => clearTimeout(searchTimer))
+// Keep the active title editor mounted while remote updates replace the page.
+const editingRows = ref<Session[] | null>(null)
+const managedSessions = computed(() => editingRows.value ?? (ready.value ? sessionPage.value?.items ?? [] : []))
+watch(renamingSessionID, id => { editingRows.value = id ? managedSessions.value.slice() : null }, { flush: 'sync' })
+function changePage(current: number, size: number) {
+  selectedIDs.value = new Set()
+  pageSize.value = size
+  page.value = current
+}
 const selectedIDs = ref(new Set<string>())
 const selectedSessions = computed(() => managedSessions.value.filter(item => selectedIDs.value.has(item.id)))
 const selectedOpen = computed(() => selectedSessions.value.filter(item => item.open))
@@ -70,9 +79,12 @@ function selectAllVisible(checked: boolean) {
 function cancelBatchDelete() {
   if (!busy.value) batchDeleteOpen.value = false
 }
-async function batchAction(kind: 'open' | 'close' | 'delete') {
+function closeSelected() {
+  const targets = selectedOpen.value.slice()
+  return requestSessionClose(targets, () => batchAction('close', targets))
+}
+async function batchAction(kind: 'open' | 'close' | 'delete', targets = (kind === 'open' ? selectedClosed.value : kind === 'close' ? selectedOpen.value : selectedSessions.value).slice()) {
   if (busy.value) return
-  const targets = (kind === 'open' ? selectedClosed.value : kind === 'close' ? selectedOpen.value : selectedSessions.value).slice()
   if (!targets.length) return
   busy.value = true
   batchFailures.value = []
@@ -109,13 +121,12 @@ function localTime(utc: string) {
 </script>
 
 <template>
-<WorkspaceModal :open="true" :width="{ xs: 'calc(100vw - 2rem)', sm: 760, xl: 960 }" :keyboard="!deleteTarget && !batchDeleteOpen && !busy" @cancel="!busy && !batchDeleteOpen && backToWorkspace()"><section class="workspace session-manager-page modal-page">
+<WorkspaceModal :open="true" :width="{ xs: 'calc(100vw - 2rem)', sm: 760, xl: 960 }" :keyboard="!deleteTarget && !batchDeleteOpen && !closeConfirmation && !busy" @cancel="!busy && !batchDeleteOpen && !closeConfirmation && backToWorkspace()"><section class="workspace session-manager-page modal-page">
         <div class="conversation-header"><a-button type="text" class="page-back" :aria-label="t('backToConversation')" :disabled="busy" @click="backToWorkspace"><ArrowLeftOutlined /></a-button><div class="page-heading"><small>{{ t('sessionManagerHeading') }}</small><h2>{{ t('manageSessions') }}</h2></div><a-button type="text" class="modal-close icon-close" :aria-label="t('closeSessionManager')" :disabled="busy" @click="backToWorkspace">×</a-button></div>
         <div class="session-manager-content">
           <p>{{ t('sessionManagerHint') }}</p>
           <div class="session-manager-stats" :class="{ 'debug-mode': debugMode }"><div><strong>{{ totalSessions }}</strong><small>{{ t('allSessions') }}</small></div><div><strong>{{ serverStatus?.sessions.open ?? openSessions.length }}</strong><small>{{ t('openSessions') }}</small></div><div><strong>{{ closedSessions }}</strong><small>{{ t('closedSessions') }}</small></div><div v-if="debugMode"><strong>{{ serverStatus?.sessions?.workers ?? 0 }}</strong><small>{{ t('workers') }}</small></div></div>
-          <div class="session-manager-controls"><a-input v-model:value="sessionSearch" :placeholder="t('searchSessions')" :aria-label="t('searchSessions')" :disabled="busy" allow-clear /><a-select v-model:value="sessionFilter" :options="[{ label: t('allSessions'), value: 'all' }, { label: t('openSessions'), value: 'open' }, { label: t('closedSessions'), value: 'closed' }]" :aria-label="t('sessionFilter')" :disabled="busy" /></div>
-          <p class="session-manager-count">{{ t('sessionManagerCount', { shown: managedSessions.length, total: totalSessions }) }}</p>
+          <div class="session-manager-controls"><a-input v-model:value="sessionSearch" :placeholder="t('searchSessions')" :aria-label="t('searchSessions')" :disabled="busy || !!renamingSessionID" allow-clear /><a-select v-model:value="sessionFilter" :options="[{ label: t('allSessions'), value: 'all' }, { label: t('openSessions'), value: 'open' }, { label: t('closedSessions'), value: 'closed' }]" :aria-label="t('sessionFilter')" :disabled="busy || !!renamingSessionID" /></div>
           <a-alert v-if="archiveError" type="error" show-icon :message="archiveError" />
           <p v-else-if="archiveLoading" role="status">{{ t('loadingSessions') }}</p>
           <div v-if="managedSessions.length" class="session-bulk-actions">
@@ -123,15 +134,16 @@ function localTime(utc: string) {
             <span role="status">{{ t('selectedSessionCount', { count: selectedSessions.length }) }}</span>
             <a-button v-if="selectedSessions.length" type="text" size="small" :disabled="busy" @click="selectAllVisible(false)">{{ t('clearSelection') }}</a-button>
             <a-button size="small" :disabled="busy || !selectedClosed.length" @click="batchAction('open')">{{ t('openSelected') }} ({{ selectedClosed.length }})</a-button>
-            <a-button size="small" :disabled="busy || !selectedOpen.length" @click="batchAction('close')">{{ t('closeSelected') }} ({{ selectedOpen.length }})</a-button>
+            <a-button size="small" :disabled="busy || !selectedOpen.length" @click="closeSelected">{{ t('closeSelected') }} ({{ selectedOpen.length }})</a-button>
             <a-button size="small" danger :disabled="busy || !selectedSessions.length" @click="batchDeleteOpen = true">{{ t('deleteSelected') }}</a-button>
           </div>
           <a-alert v-if="batchFailures.length" type="error" show-icon :message="t('batchSessionFailures', { count: batchFailures.length })" class="session-batch-error">
             <template #description><ul><li v-for="failure in batchFailures" :key="failure.id">{{ failure.title }}: {{ failure.message }}</li></ul></template>
           </a-alert>
-          <p v-if="!managedSessions.length && !archiveLoading && !archiveError" class="session-manager-empty">{{ t(totalSessions ? 'noMatchingSessions' : 'noSessionsYet') }}</p>
+          <a-empty v-if="!managedSessions.length && !archiveLoading && !archiveError" class="vista-empty-state session-manager-empty" :description="t(totalSessions ? 'noMatchingSessions' : 'noSessionsYet')" role="status" />
           <div v-for="item in managedSessions" :key="item.id" class="managed-session" :class="{ 'managed-session-selected': selectedIDs.has(item.id) }"><div class="managed-session-main"><a-checkbox class="managed-session-selection" :checked="selectedIDs.has(item.id)" :aria-label="t('selectSession', { title: displaySessionTitle(item) })" :disabled="busy" @update:checked="selectSession(item.id, $event)" /><div class="managed-session-info"><form v-if="renamingSessionID === item.id" class="session-rename" @submit.prevent="saveRename(item)"><a-input v-model:value="sessionTitleDraft" :maxlength="200" :aria-label="t('sessionTitle')" /><a-button html-type="submit" size="small" type="primary" :disabled="busy || !sessionTitleDraft.trim()">{{ t('saveChanges') }}</a-button><a-button size="small" @click="cancelRename">{{ t('cancel') }}</a-button></form><template v-else><a-button v-if="item.open" type="text" class="session-name" :disabled="busy" @click="router.push(`/sessions/${item.id}`)">{{ displaySessionTitle(item) }}</a-button><strong v-else>{{ displaySessionTitle(item) }}</strong></template><small>{{ item.open ? t('open') : t('closed') }} · {{ localTime(item.createdAt) }}</small><SessionIndicators :session="item" :worker-available="serverStatus ? workerAvailable(item.id) : undefined" /></div></div><div class="actions"><a-button size="small" :disabled="busy" @click="beginRename(item)">{{ t('editTitle') }}</a-button><a-button v-if="item.open" size="small" :disabled="busy" @click="action(item,'close')">{{ t('close') }}</a-button><a-button v-else size="small" type="primary" :disabled="busy" @click="action(item,'open')">{{ t('open') }}</a-button><a-button v-if="item.open && !workerAvailable(item.id)" size="small" :disabled="busy" @click="action(item,'retry')">{{ t('retryWorker') }}</a-button><confirm-popover :show="deleteTarget?.id === item.id" :message="t('deleteSessionConfirm', { title: displaySessionTitle(item) })" :cancel-text="t('cancel')" :confirm-text="t('delete')" :busy="busy" popover-class="session-delete-popover" @update:show="updateSessionDelete($event, item)" @confirm="confirmDelete"><template #trigger><a-button size="small" danger :disabled="busy">{{ t('delete') }}</a-button></template></confirm-popover></div></div>
         </div>
+        <ListPagination :page="page" :page-size="pageSize" :total="sessionPage?.total ?? 0" :disabled="busy || !!renamingSessionID" @change="changePage" />
       </section></WorkspaceModal>
 <a-modal :open="batchDeleteOpen" centered :z-index="1200" width="min(420px, calc(100vw - 2rem))"
   :title="t('deleteSelected')" :ok-text="t('delete')" :cancel-text="t('cancel')"
@@ -149,4 +161,6 @@ function localTime(utc: string) {
 .session-batch-error { margin: .75rem 0; overflow-wrap: anywhere; }
 .session-batch-error ul { margin: .35rem 0 0; padding-left: 1.25rem; }
 .batch-delete-confirmation { margin: 0; overflow-wrap: anywhere; }
+.session-manager-page>.list-pagination { padding: .75rem 28px; }
+@media(max-width:830px){.session-manager-page>.list-pagination{padding:.6rem 1rem}}
 </style>

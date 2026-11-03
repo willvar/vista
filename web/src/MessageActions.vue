@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { Popover, TypographyText } from 'antdv-next'
+import { Popover, Tooltip, TypographyText } from 'antdv-next'
 import { CommentOutlined, LikeOutlined, LikeFilled, DislikeOutlined, DislikeFilled, EditOutlined, UndoOutlined } from '@antdv-next/icons'
 import Actions from '@antdv-next/x/dist/actions/Actions'
 import ActionsCopy from '@antdv-next/x/dist/actions/ActionsCopy'
@@ -37,7 +37,9 @@ function rate(value: 'up' | 'down') {
   <Actions class="message-actions" :items="items">
     <template #actionRender="{ item }">
       <template v-if="item.key === 'copy'"><TypographyText v-if="fullText" class="reply-action reply-copy" :copyable="{ text: fullText, tooltips: [t('copyReply'), t('copiedReply')] }" /><ActionsCopy v-else class="reply-action reply-copy" :text="props.text" :aria-label="t('copyReply')" /></template>
-      <button v-else-if="item.key === 'edit' || item.key === 'withdraw'" type="button" class="reply-action" :aria-label="item.label" :title="item.label" :disabled="busy || mutationDisabled" @click="item.key === 'edit' ? emit('edit') : emit('withdraw')"><EditOutlined v-if="item.key === 'edit'" /><UndoOutlined v-else /></button>
+      <Tooltip v-else-if="item.key === 'edit' || item.key === 'withdraw'" :title="item.label">
+        <button type="button" class="reply-action" :aria-label="item.label" :disabled="busy || mutationDisabled" @click="item.key === 'edit' ? emit('edit') : emit('withdraw')"><EditOutlined v-if="item.key === 'edit'" /><UndoOutlined v-else /></button>
+      </Tooltip>
       <button v-else-if="item.key === 'up' || item.key === 'down'" type="button" class="reply-action reply-feedback" :class="{ selected: feedback === item.key }" :aria-label="item.label" :title="item.label" :aria-pressed="feedback === item.key" :disabled="busy" @click="rate(item.key)"><component :is="item.key === 'up' ? feedback === 'up' ? LikeFilled : LikeOutlined : feedback === 'down' ? DislikeFilled : DislikeOutlined" /></button>
       <Popover v-else v-model:open="feedbackOpen" placement="top" trigger="click">
         <template #content>

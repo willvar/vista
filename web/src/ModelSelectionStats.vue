@@ -1,17 +1,17 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { Alert as AAlert, Button as AButton, Input as AInput, Pagination as APagination, Select as ASelect, Tabs as ATabs, TabPane as ATabPane } from 'antdv-next'
+import { Empty as AEmpty, Alert as AAlert, Button as AButton, Input as AInput, Pagination as APagination, Select as ASelect, Tabs as ATabs, TabPane as ATabPane } from 'antdv-next'
 import type { ModelSelectionStats } from './client/types'
 import { useWorkspace } from './composables/useWorkspace'
 import ConfirmPopover from './ConfirmPopover.vue'
+import { useStateQuery } from './composables/useStateQuery'
 
 const { t, locale } = useI18n({ useScope: 'global' })
 const workspace = useWorkspace()
-const stats = ref<ModelSelectionStats | null>(null)
-const loading = ref(false)
+const resource = useStateQuery<ModelSelectionStats>(workspace.client, workspace.stateSync, '/model-selection/stats', ['selection-stats', 'models'], 60 * 60_000)
+const { data: stats, loading, error } = resource
 const resetting = ref(false)
-const error = ref('')
 const resetOpen = ref(false)
 const tab = ref<'speed' | 'quality'>('speed')
 const search = ref('')
@@ -41,33 +41,25 @@ function duration(ms: number | null) {
   return ms === null ? '—' : t('statsSeconds', { seconds: new Intl.NumberFormat(locale.value, { maximumFractionDigits: 2 }).format(ms / 1000) })
 }
 function score(value: number) { return new Intl.NumberFormat(locale.value, { maximumFractionDigits: 1 }).format(value * 100) }
-async function load() {
-  if (loading.value || resetting.value) return
-  loading.value = true
-  error.value = ''
-  try { stats.value = await workspace.client.request<ModelSelectionStats>('/model-selection/stats') }
-  catch (cause) { error.value = String(cause) }
-  finally { loading.value = false }
-}
 async function reset() {
   if (resetting.value) return
   const scope = tab.value
   resetting.value = true
+  resource.cancel()
   error.value = ''
   try {
-    stats.value = await workspace.client.request<ModelSelectionStats>('/model-selection/stats', { method: 'DELETE', body: JSON.stringify({ scope }) })
+    resource.apply(await workspace.client.request<ModelSelectionStats>('/model-selection/stats', { method: 'DELETE', body: JSON.stringify({ scope }) }))
     resetOpen.value = false
     page.value = 1
     if (scope === 'quality') workspace.conversation.feedback.value = {}
   } catch (cause) { error.value = String(cause) }
   finally { resetting.value = false }
 }
-onMounted(load)
 </script>
 
 <template>
   <section class="model-selection-stats" :aria-label="t('selectionStats')">
-    <div class="selection-stats-heading"><h3>{{ t('selectionStats') }}</h3><a-button size="small" :loading="loading" :disabled="resetting" @click="load">{{ t('refresh') }}</a-button></div>
+    <div class="selection-stats-heading"><h3>{{ t('selectionStats') }}</h3></div>
     <p class="selection-stats-hint">{{ t('statsReasoningHint') }}</p>
     <a-tabs v-model:active-key="tab">
       <a-tab-pane key="speed" :tab="t('speedStats')" />
@@ -75,6 +67,7 @@ onMounted(load)
     </a-tabs>
     <p class="selection-stats-scope">{{ tab === 'speed' ? t('speedStatsScope', { days: stats?.speedWindowDays ?? 30 }) : t('qualityStatsScope', { count: stats?.qualityWindowSize ?? 200 }) }}</p>
     <a-alert v-if="error" type="error" role="alert" :message="error" />
+    <a-button v-if="error" :disabled="loading || resetting" @click="resource.refresh()">{{ t('retry') }}</a-button>
     <div class="selection-stats-controls">
       <a-input v-model:value="search" :placeholder="t('searchStatsModels')" :aria-label="t('searchStatsModels')" allow-clear />
       <label v-if="tab === 'speed'" for="selection-stats-input-length" class="visually-hidden">{{ t('statsInputLength') }}</label>
@@ -85,8 +78,9 @@ onMounted(load)
         <template #trigger><a-button size="small" danger :disabled="!stats || loading || resetting">{{ resetLabel }}</a-button></template>
       </confirm-popover>
     </div>
-    <p v-if="!visibleModels.length" class="selection-stats-empty" role="status">{{ loading ? t('statsLoading') : t(search ? 'statsNoMatches' : 'statsNoModels') }}</p>
-    <ul v-else class="selection-stats-list" :aria-busy="loading || resetting">
+    <p v-if="loading && !visibleModels.length" role="status">{{ t('statsLoading') }}</p>
+    <a-empty v-else-if="!visibleModels.length && !error" class="vista-empty-state selection-stats-empty" :description="t(search ? 'statsNoMatches' : 'statsNoModels')" role="status" />
+    <ul v-if="visibleModels.length" class="selection-stats-list" :aria-busy="loading || resetting">
       <li v-for="model in visibleModels" :key="model.modelId" :data-model-id="model.modelId" class="selection-stats-model">
         <div class="selection-stats-model-name"><strong>{{ workspace.modelNameById(model.modelId) }}</strong><small>{{ model.providers.join(' · ') }}</small></div>
         <dl v-if="tab === 'speed'" class="selection-stats-metrics">

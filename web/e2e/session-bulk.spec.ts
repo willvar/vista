@@ -18,7 +18,7 @@ test('bulk session actions respect visible selection, keep the manager open and 
   page.on('request', request => {
     const path = new URL(request.url()).pathname
     if (request.method() === 'GET' && ['/api/models', '/api/sessions', '/api/status'].includes(path)
-      && !(path === '/api/sessions' && new URL(request.url()).search === '')) redundantReads.push(path)
+      && !(path === '/api/sessions' && new URL(request.url()).searchParams.has('page'))) redundantReads.push(path)
   })
   await manager.getByRole('textbox', { name: 'Search sessions', exact: true }).fill('Bulk visible')
   await expect(rows).toHaveCount(2)
@@ -43,7 +43,7 @@ test('bulk session actions respect visible selection, keep the manager open and 
   let failSecondClose = true
   // Delayed management reads can include later close/reopen commits. They
   // must preserve row identity and the current selection throughout.
-  await page.route('**/api/sessions', async route => {
+  await page.route('**/api/sessions?*', async route => {
     await new Promise(resolve => setTimeout(resolve, 250))
     await route.continue()
   })

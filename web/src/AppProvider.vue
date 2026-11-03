@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
+import { Empty } from 'antdv-next'
 import { useI18n } from 'vue-i18n'
 import enUS from 'antdv-next/locale/en_US'
 import enGB from 'antdv-next/locale/en_GB'
@@ -18,6 +19,7 @@ import XProvider from '@antdv-next/x/dist/x-provider/index'
 import { languageInfo, type Catalog } from './i18n/languages.ts'
 import { vistaTheme } from './ui/theme'
 
+const emptyConfig = { image: Empty.PRESENTED_IMAGE_SIMPLE }
 const { locale, t } = useI18n({ useScope: 'global' })
 const componentLocales = {
   en: enUS, 'en-GB': enGB, 'zh-CN': zhCN, 'zh-TW': zhTW, 'zh-HK': zhHK, 'zh-MO': zhHK, 'zh-SG': zhCN, 'zh-MY': zhCN,
@@ -42,5 +44,5 @@ const componentLocale = computed(() => ({
 </script>
 
 <template>
-  <XProvider :theme="vistaTheme" :locale="componentLocale"><slot /></XProvider>
+  <XProvider :theme="vistaTheme" :locale="componentLocale" :empty="emptyConfig"><slot /></XProvider>
 </template>

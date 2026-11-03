@@ -37,6 +37,8 @@ test('OMP and models.dev updates live in About while Models manages connections'
     await catalog.getByRole('button', { name: 'Update history', exact: true }).click()
     const history = page.getByRole('dialog', { name: 'Update history', exact: true })
     await expect(history).toContainText('No checks in the last 7 days.')
+    await expect(page.locator('.ant-modal.ant-zoom-enter, .ant-modal.ant-zoom-appear')).toHaveCount(0)
+    await page.screenshot({ path: testInfo.outputPath('model-catalog-history-empty.png'), animations: 'disabled' })
     await page.keyboard.press('Escape')
     await expect(history).not.toBeVisible()
     await expect(settings).toBeVisible()

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { Alert as AAlert, Button as AButton, Checkbox as ACheckbox, Input as AInput, Modal as AModal, Select as ASelect, Spin as ASpin } from 'antdv-next'
+import { Empty as AEmpty, Alert as AAlert, Button as AButton, Checkbox as ACheckbox, Input as AInput, Modal as AModal, Select as ASelect, Spin as ASpin } from 'antdv-next'
 import { ReloadOutlined } from '@antdv-next/icons'
 import { useWorkspace } from './composables/useWorkspace'
 
@@ -119,7 +119,7 @@ defineExpose({ show })
       <div v-if="reading" class="provider-import-loading" role="status"><a-spin size="small" />{{ t('providerImportReading') }}</div>
       <template v-else-if="preview">
         <p v-if="preview.connections.some(entry => entry.credentialGroup && !entry.reason)" class="provider-import-hint">{{ t('providerImportCredentialConflict') }}</p>
-        <p v-if="!preview.connections.length" class="provider-import-hint" role="status">{{ t(props.kind === 'providers' ? 'providerImportEmpty' : 'extensionImportEmpty') }}</p>
+        <a-empty v-if="!preview.connections.length" class="vista-empty-state" :description="t(props.kind === 'providers' ? 'providerImportEmpty' : 'extensionImportEmpty')" role="status" />
         <div v-else class="provider-import-list" :aria-label="t(props.kind === 'providers' ? 'providerImportConnections' : titleKey)">
           <a-checkbox v-for="entry in preview.connections" :key="entry.id" :checked="selected.includes(entry.id)" :disabled="!!entry.reason || busy" @change="toggle(entry.id, $event.target.checked)">
             <span class="provider-import-entry"><strong>{{ entry.name }}</strong><small>{{ entry.baseUrl || entry.location || entry.providerId || entry.credentialGroup || entry.id }}</small><small v-if="entry.credentialSource">{{ t('providerImportCredentialSource', { source: entry.credentialSource }) }}</small><small v-if="entry.description">{{ entry.description }}</small><small v-if="entry.fileCount">{{ t('extensionImportFileCount', { count: entry.fileCount }) }}</small><small v-if="entry.disabled">{{ t('skillDisabled') }}</small><small v-if="entry.warning">{{ t(entry.warning === 'oauth' ? 'extensionImportOAuth' : 'extensionImportAuth') }}</small><small v-if="entry.reason" class="provider-import-reason">{{ t(reasonKey(entry.reason)) }}</small></span>

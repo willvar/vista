@@ -1,4 +1,4 @@
-import { installMockStateStream } from './state-stream-fixture'
+import { installMockStateStream, notifyState } from './state-stream-fixture'
 import { coreSnapshot } from './conversation-fixture'
 import { test as base, expect, type Page } from '@playwright/test'
 import { createServer } from 'vite'
@@ -216,7 +216,8 @@ test('automatic mode exposes scoped learning statistics and resets without distu
   await expect(page.locator('.model-selection-setting')).toContainText('Automatic')
   await expect(stats).toBeVisible()
   await expect.poll(() => fixture.statsReads()).toBe(2)
-  await stats.getByRole('button', { name: 'Refresh', exact: true }).click()
+  await expect(stats.getByRole('button', { name: 'Refresh', exact: true })).toHaveCount(0)
+  await notifyState(page, ['selection-stats'])
   await expect.poll(() => fixture.statsReads()).toBe(3)
 
   await stats.getByRole('tab', { name: 'Quality', exact: true }).click()

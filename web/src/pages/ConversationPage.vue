@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch, type ComponentPublicInstance } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { Alert as AAlert, Button as AButton, Input as AInput, Modal as AModal } from 'antdv-next'
+import { Empty as AEmpty, Alert as AAlert, Button as AButton, Input as AInput, Modal as AModal } from 'antdv-next'
 import { MenuOutlined, VerticalAlignBottomOutlined, EditOutlined } from '@antdv-next/icons'
 import Bubble from '@antdv-next/x/dist/bubble/Bubble'
 import ConversationSender from '../ConversationSender.vue'
@@ -289,7 +289,7 @@ onUnmounted(() => {
         <div class="conversation-column">
         <div class="conversation-history">
         <a-button v-if="hasOlder" :disabled="paging" @click="showOlderMessages">{{ t('loadOlderMessages') }}</a-button>
-        <div ref="messageList" class="messages" :class="{ empty: !messages.length }" @scroll="updateMessageScroll" @wheel.passive="manualScrollIntent" @touchmove.passive="manualScrollIntent" @pointerdown.capture="preserveTraceScroll" @keydown.enter.capture="preserveTraceScroll" @keydown.space.capture="preserveTraceScroll"><p v-if="!messages.length" class="conversation-empty">{{ t('conversationEmpty') }}</p><div class="message-space" :data-count="messages.length" :class="{ virtualized: virtualizedMessages }" :style="virtualizedMessages ? { height: `${messageVirtualizer.getTotalSize()}px` } : undefined"><div v-for="row in visibleMessages" :key="String(row.key)" :ref="measureMessage" :data-index="row.index" :data-display-key="row.message.displayKey" :data-progress="row.message.progress || undefined" class="message-row" :class="row.message.role" :style="virtualizedMessages ? { transform: `translateY(${row.start}px)` } : undefined"><RenderGuard v-if="runActivityAnchor(row.message)" :reset-key="traceSegment(row.message).key" @failure="renderFailure"><RunTrace
+        <div ref="messageList" class="messages" :class="{ empty: !messages.length }" @scroll="updateMessageScroll" @wheel.passive="manualScrollIntent" @touchmove.passive="manualScrollIntent" @pointerdown.capture="preserveTraceScroll" @keydown.enter.capture="preserveTraceScroll" @keydown.space.capture="preserveTraceScroll"><a-empty v-if="!messages.length" class="vista-empty-state conversation-empty" :description="t('conversationEmpty')" /><div class="message-space" :data-count="messages.length" :class="{ virtualized: virtualizedMessages }" :style="virtualizedMessages ? { height: `${messageVirtualizer.getTotalSize()}px` } : undefined"><div v-for="row in visibleMessages" :key="String(row.key)" :ref="measureMessage" :data-index="row.index" :data-display-key="row.message.displayKey" :data-progress="row.message.progress || undefined" class="message-row" :class="row.message.role" :style="virtualizedMessages ? { transform: `translateY(${row.start}px)` } : undefined"><RenderGuard v-if="runActivityAnchor(row.message)" :reset-key="traceSegment(row.message).key" @failure="renderFailure"><RunTrace
             :session-id="selected.id"
             :run-id="row.message.runId"
             :view-state="traceView(row.message)"

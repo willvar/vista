@@ -4,7 +4,7 @@ import { createWorkspaceSync, stateTopics, type StateConnection, type WorkspaceS
 import type { ServerStatus } from './types.ts'
 
 const encoder = new TextEncoder()
-function fixture() {
+function fixture(interests?: Parameters<typeof createWorkspaceSync>[0]['interests']) {
   const sinks: ReadableStreamDefaultController<Uint8Array>[] = []
   const connections: StateConnection[] = []
   const metrics: ServerStatus[] = []
@@ -16,13 +16,57 @@ function fixture() {
       return new Response(body, { headers: { 'Content-Type': 'text/event-stream' } })
     },
     status: value => connections.push(value), metrics: value => metrics.push(value), reconnectDelayMs: 1,
+    interests,
   })
-  const point = (changes: Record<string, number> = {}, epoch = 'server-a', index = sinks.length - 1, snapshots: WorkspaceSnapshots = {}) => {
+  const point = (changes: Record<string, number> = {}, epoch = 'server-a', index = sinks.length - 1, snapshots: WorkspaceSnapshots & { subscriptionId?: string } = {}) => {
     const revisions = Object.fromEntries(stateTopics.map(topic => [topic, changes[topic] ?? 0]))
     sinks[index]!.enqueue(encoder.encode(`event: state\ndata: ${JSON.stringify({ epoch, revisions, ...snapshots })}\n\n`))
   }
   return { sync, sinks, connections, metrics, flags, point }
 }
+
+test('view interests are batched and released without reconnecting or rereading workspace state', async t => {
+  const sent: string[][] = [], ids: string[] = []
+  const f = fixture(async (id, topics, timezone) => { ids.push(id); sent.push(topics); assert.ok(timezone) })
+  t.after(() => f.sync.stop())
+  let coreReads = 0
+  f.sync.subscribe(['sessions', 'models', 'status'], async () => { coreReads++ })
+  f.sync.start(); await until(() => f.sinks.length === 1)
+  f.point({}, 'server-a', 0, { subscriptionId: 'first' })
+  await until(() => sent.length === 1 && coreReads === 1)
+  const closeStorage = f.sync.subscribe(['storage'], async () => {})
+  const closeStatistics = f.sync.subscribe(['statistics'], async () => {})
+  await until(() => sent.length === 2)
+  assert.deepEqual(sent[1], ['models', 'sessions', 'statistics', 'status', 'storage'])
+  closeStorage(); closeStatistics()
+  await until(() => sent.length === 3)
+  assert.deepEqual(sent[2], ['models', 'sessions', 'status'])
+  assert.equal(f.sinks.length, 1); assert.equal(coreReads, 1)
+  f.sync.reconnect(); await until(() => f.sinks.length === 2)
+  f.point({}, 'server-a', 1, { subscriptionId: 'second' })
+  await until(() => sent.length === 4)
+  assert.deepEqual(ids, ['first', 'first', 'first', 'second'])
+})
+
+test('interest updates are serialized so a delayed open cannot undo a later close', async t => {
+  const sent: string[][] = []
+  let release!: () => void
+  const f = fixture(async (_, topics) => {
+    sent.push(topics)
+    if (topics.includes('storage')) await new Promise<void>(resolve => { release = resolve })
+  })
+  t.after(() => f.sync.stop())
+  f.sync.start(); await until(() => f.sinks.length === 1)
+  f.point({}, 'server-a', 0, { subscriptionId: 'first' })
+  await until(() => sent.length === 1)
+  const close = f.sync.subscribe(['storage'], async () => {})
+  await until(() => sent.length === 2)
+  close(); await new Promise(resolve => setImmediate(resolve))
+  assert.equal(sent.length, 2)
+  release(); await until(() => sent.length === 3)
+  assert.deepEqual(sent[2], [])
+  assert.equal(f.sinks.length, 1)
+})
 async function until(condition: () => boolean) {
   const deadline = Date.now() + 1000
   while (!condition()) { if (Date.now() > deadline) assert.fail('condition timed out'); await new Promise(resolve => setTimeout(resolve, 1)) }
@@ -159,7 +203,7 @@ test('all small settings payloads are delivered directly and replayed to a newly
     providerLogins: [{ id: 'login', status: 'connected' }],
     mcp: { servers: [], maxServers: 4, defaultDirectory: '/workspace', logins: [] },
     storage: { phase: 'idle', deletedBytes: 2, deletedCount: 1 },
-    memories: { memories: [], maxCount: 128, maxBytes: 4096, maxTotalBytes: 32768 },
+    memories: { total: 0, maxCount: 128, maxBytes: 4096, maxTotalBytes: 32768 },
   }
   const revisions = Object.fromEntries(['models', 'catalog', 'provider-login', 'mcp', 'storage', 'memories'].map(topic => [topic, 1]))
   f.point(revisions, 'server-a', 0, snapshots)

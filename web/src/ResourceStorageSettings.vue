@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { Alert as AAlert, Button as AButton, Spin as ASpin } from 'antdv-next'
 import { DeleteOutlined } from '@antdv-next/icons'
@@ -45,10 +45,8 @@ async function readStorage(signal = controller.signal, propagate = false) {
     if (propagate) throw failure
   }
 }
-let initialScan: Promise<void> | undefined
 const unsubscribe = stateSync.subscribe(['storage'], async (_, signal, snapshots) => {
   if (snapshots.storage) { revision++; accept(snapshots.storage) }
-  else if (initialScan) await initialScan
   else await readStorage(signal, true)
 })
 
@@ -66,7 +64,6 @@ async function start(action: 'scan' | 'clean') {
   catch (failure) { if (!disposed) error.value = String(failure) }
   finally { submitting.value = false }
 }
-onMounted(() => { initialScan = start('scan').finally(() => { initialScan = undefined }) })
 watch(cleanOpen, value => emit('modal-open', value), { flush: 'sync' })
 onBeforeUnmount(() => { disposed = true; controller.abort(); unsubscribe(); emit('modal-open', false) })
 const cards = computed(() => [
@@ -74,7 +71,6 @@ const cards = computed(() => [
   { label: 'resourceStorageReferenced', bytes: status.value.stats?.referencedBytes, count: status.value.stats?.referencedCount },
   { label: 'resourceStorageCleanable', bytes: status.value.stats?.cleanableBytes, count: status.value.stats?.cleanableCount },
 ])
-defineExpose({ headerAction: computed(() => ({ label: 'resourceStorageRefresh', run: () => start('scan'), disabled: busy.value, loading: busy.value && status.value.action === 'scan' })) })
 </script>
 
 <template>
@@ -93,11 +89,12 @@ defineExpose({ headerAction: computed(() => ({ label: 'resourceStorageRefresh', 
       </ConfirmPopover>
     </div>
     <div class="storage-progress" role="status" aria-live="polite">
-      <template v-if="busy"><a-spin size="small" /><span>{{ t(status.action === 'clean' ? 'resourceStorageCleaning' : 'resourceStorageScanning') }}<template v-if="status.deletedCount"> {{ t('resourceStorageFreed', { count: status.deletedCount, size: size(status.deletedBytes) }) }}</template></span></template>
-      <span v-else-if="status.action === 'clean' && !error">{{ t('resourceStorageFreed', { count: status.deletedCount, size: size(status.deletedBytes) }) }}</span>
+      <template v-if="busy"><a-spin size="small" /><span>{{ t(status.action === 'clean' ? 'resourceStorageCleaning' : 'resourceStorageScanning') }}<template v-if="status.action === 'clean' && status.deletedCount"> {{ t('resourceStorageFreed', { count: status.deletedCount, size: size(status.deletedBytes) }) }}</template></span></template>
+      <span v-else-if="(status.action === 'clean' || status.deletedCount) && !error">{{ t('resourceStorageFreed', { count: status.deletedCount, size: size(status.deletedBytes) }) }}</span>
     </div>
     <small v-if="status.stats" class="storage-description">{{ t('resourceStorageScannedAt', { time: formatDateTime(status.stats.scannedAt, locale) }) }}</small>
     <a-alert v-if="error && !cleanOpen" type="error" show-icon :title="error" />
+    <a-button v-if="error && !cleanOpen" :disabled="busy" @click="start('scan')">{{ t('retry') }}</a-button>
   </div>
 </template>
 

@@ -1,9 +1,41 @@
 import { openSettingsSection } from './settings-navigation'
-import { mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs'
+import { mkdirSync, readFileSync, readdirSync, writeFileSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { test, expect } from './fixtures'
 
 const review = '---\nname: Code review\ndescription: Check changes and tests\n---\n\nRead references/checklist.md before reviewing.\n'
+
+test('external skill edits update the list, preserve drafts and stop reads when the view closes', async ({page,vista})=>{
+  const {directory}=await vista.api('/skills')
+  mkdirSync(join(directory,'external'))
+  writeFileSync(join(directory,'external','SKILL.md'),review)
+  await page.goto(`${vista.origin}/settings/skills`)
+  const card=page.locator('[data-skill="external"]')
+  await expect(card).toContainText('Code review')
+  await card.getByRole('button',{name:'Edit Code review',exact:true}).click()
+  const editor=page.getByRole('dialog',{name:'Edit skill',exact:true})
+  const draft=review+'My unsaved instructions'
+  await editor.getByLabel('SKILL.md',{exact:true}).fill(draft)
+  writeFileSync(join(directory,'external','SKILL.md'),review.replace('Code review','Changed externally'))
+  await expect(card).toContainText('Changed externally')
+  await expect(editor.getByLabel('SKILL.md',{exact:true})).toHaveValue(draft)
+  await editor.getByRole('button',{name:'Save changes',exact:true}).click()
+  await expect(editor.getByRole('alert')).toContainText('SKILL.md changed since it was opened')
+  await expect(editor.getByLabel('SKILL.md',{exact:true})).toHaveValue(draft)
+  await editor.getByRole('button',{name:'Cancel',exact:true}).click()
+  rmSync(join(directory,'external'),{recursive:true})
+  await expect(card).toHaveCount(0)
+  await openSettingsSection(page,'general')
+  let reads=0
+  page.on('request',request=>{if(new URL(request.url()).pathname==='/api/skills'&&request.method()==='GET')reads++})
+  mkdirSync(join(directory,'new'))
+  writeFileSync(join(directory,'new','SKILL.md'),review)
+  await page.waitForTimeout(400)
+  expect(reads).toBe(0)
+  await openSettingsSection(page,'skills')
+  await expect(page.locator('[data-skill="new"]')).toContainText('Code review')
+  expect(reads).toBe(1)
+})
 
 test('multiple system skills use their own metadata and can only be viewed', async ({ page, vista }) => {
   const catalog = await vista.api('/skills')
@@ -28,18 +60,19 @@ test('multiple system skills use their own metadata and can only be viewed', asy
   expect(readdirSync(catalog.directory)).toEqual([])
 })
 
-test('local skills can be refreshed, edited, searched, disabled and deleted in settings', async ({ page, vista }, testInfo) => {
+test('local skills update automatically and can be edited, searched, disabled and deleted', async ({ page, vista }, testInfo) => {
   await vista.api('/preferences', { method: 'PATCH', body: JSON.stringify({ feedbackInvitationSeen: true }) })
   await page.goto(`${vista.origin}/settings/general`)
   await openSettingsSection(page, 'skills')
   await expect(page.locator('.skills-empty')).toContainText('No user skills yet')
-  await expect(page.locator('.skills-directory')).toContainText('Place skill folders containing SKILL.md in this directory, then click Refresh.')
+  await page.screenshot({ path: testInfo.outputPath('skills-empty.png'), animations: 'disabled' })
+  await expect(page.locator('.skills-directory')).toContainText('Place skill folders containing SKILL.md in this directory. Changes appear automatically.')
   await expect(page.getByRole('button', { name: 'Add skill', exact: true })).toHaveCount(0)
   await expect(page.locator('.skills-settings input[type="file"]')).toHaveCount(0)
   const { directory } = await vista.api('/skills')
   mkdirSync(join(directory, 'review'))
   writeFileSync(join(directory, 'review', 'SKILL.md'), review)
-  await page.getByRole('button', { name: 'Refresh', exact: true }).click()
+  await expect(page.getByRole('button', { name: 'Refresh', exact: true })).toHaveCount(0)
   const card = page.locator('[data-skill="review"]')
   await expect(card).toContainText('Code review')
   await expect(card).toContainText('Check changes and tests')
@@ -54,7 +87,8 @@ test('local skills can be refreshed, edited, searched, disabled and deleted in s
   await expect(card).toContainText('Review carefully')
   await page.getByRole('textbox', { name: 'Search skills', exact: true }).fill('not present')
   await expect(card).toHaveCount(0)
-  await expect(page.locator('.skills-empty')).toHaveText('No matching skills.')
+  await expect(page.locator('.skills-empty .ant-empty-description')).toHaveText('No matching skills.')
+  await page.screenshot({ path: testInfo.outputPath('skills-no-matches.png'), animations: 'disabled' })
   await page.getByRole('textbox', { name: 'Search skills', exact: true }).fill('tests')
   await expect(card).toBeVisible()
   await card.getByRole('switch', { name: 'Enable Review carefully', exact: true }).click()
@@ -134,9 +168,9 @@ test('failed requests and late document responses keep the current editor and sa
     await route.fulfill({ status: 503, body: 'Temporary skill read failure' })
     await page.unroute('**/api/skills')
   })
+  const failedRead = page.waitForResponse(response => new URL(response.url()).pathname === '/api/skills' && response.status() === 503)
   await page.goto(`${vista.origin}/settings/skills`)
-  await expect(page.getByRole('alert')).toContainText('Temporary skill read failure')
-  await page.getByRole('button', { name: 'Retry', exact: true }).click()
+  await failedRead
   const first = page.locator('[data-skill="first"]')
   const second = page.locator('[data-skill="second"]')
   await expect(second).toBeVisible()

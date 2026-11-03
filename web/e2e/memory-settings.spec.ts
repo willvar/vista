@@ -1,17 +1,71 @@
 import type { VistaFixture } from './fixtures'
 import type { Memories, Session } from '../src/client/types'
 import { test, expect } from './fixtures'
+import type { Page } from '@playwright/test'
+
+async function openMemoryManager(page: Page) {
+  const section = page.getByRole('region', { name: 'Memory', exact: true })
+  await section.scrollIntoViewIfNeeded()
+  await section.getByRole('button', { name: 'Manage memories', exact: true }).click()
+  const manager = page.getByRole('dialog', { name: /^Manage memories/ })
+  await expect(manager).toBeVisible()
+  return manager
+}
 
 async function run(vista: VistaFixture, sessionID: string, content: string) {
   await vista.api(`/sessions/${sessionID}/messages`, { method: 'POST', body: JSON.stringify({ content, modelKey: 'test' }) })
   await expect.poll(async () => (await vista.api('/sessions') as Session[]).find(session => session.id === sessionID)?.latestRunStatus).toBe('succeeded')
 }
 
+test('memory manager keeps long text out of settings and previews, with independent dismissal', async ({ page, vista }, testInfo) => {
+  const text = 'Use concise explanations, include concrete examples, and preserve important details. '.repeat(30) + '\nEnd of the full preference.'
+  await vista.api('/memories', { method: 'POST', body: JSON.stringify({ action: 'add', text }) })
+  let reads = 0
+  page.on('request', request => { if (request.method() === 'GET' && new URL(request.url()).pathname === '/api/memories') reads++ })
+  await page.goto(`${vista.origin}/settings/personalization`)
+  const settings = page.getByRole('region', { name: 'Memory', exact: true })
+  await expect(settings.getByRole('button', { name: 'Manage memories', exact: true })).toBeVisible()
+  await expect(settings.locator('.memory-text,textarea')).toHaveCount(0)
+  expect(reads).toBe(0)
+
+  const manager = await openMemoryManager(page)
+  const preview = manager.locator('.memory-text')
+  await expect(preview).toHaveText(text.slice(0, 120) + '…')
+  const dimensions = await preview.evaluate(element => ({ height: element.getBoundingClientRect().height, lineHeight: parseFloat(getComputedStyle(element).lineHeight), fontSize: parseFloat(getComputedStyle(element).fontSize) }))
+  expect(dimensions.height).toBeLessThanOrEqual(dimensions.lineHeight * 2 + 1)
+  expect(dimensions.fontSize).toBe(16)
+  await preview.click()
+  const editor = manager.getByRole('textbox', { name: 'Preference', exact: true })
+  await expect(editor).toHaveValue(text)
+  await expect(editor).toBeFocused()
+  const edited = text + ' Keep this final detail.'
+  await editor.fill(edited)
+  await expect(manager.getByRole('button', { name: 'Save changes', exact: true })).toBeInViewport()
+  await page.screenshot({ path: testInfo.outputPath('memory-long-editor.png'), animations: 'disabled' })
+  await manager.getByRole('button', { name: 'Save changes', exact: true }).click()
+  await expect(editor).toHaveCount(0)
+  expect((await vista.api('/memories')).memories[0].text).toBe(edited)
+
+  await page.locator('.ant-modal-wrap:visible').last().click({ position: { x: 1, y: 1 } })
+  await expect(manager).toBeHidden()
+  await expect(settings).toBeVisible()
+  await expect(page).toHaveURL(`${vista.origin}/settings/personalization`)
+  await openMemoryManager(page)
+  await manager.getByRole('button', { name: 'Close', exact: true }).click()
+  await expect(manager).toBeHidden()
+  await openMemoryManager(page)
+  await page.keyboard.press('Escape')
+  await expect(manager).toBeHidden()
+  await expect(settings).toBeVisible()
+  await expect(settings.locator('.memory-text,textarea')).toHaveCount(0)
+})
+
 test('memories in Personalization support editing, conflicts and deletion in light and dark themes', async ({ page, vista }, testInfo) => {
   await page.goto(`${vista.origin}/settings/personalization`)
-  const section = page.getByRole('region', { name: 'Memory', exact: true })
-  await section.scrollIntoViewIfNeeded()
+  const section = await openMemoryManager(page)
   await expect(section.getByText('No saved preferences yet.', { exact: false })).toBeVisible()
+  await expect(section.locator('.ant-modal-footer')).toHaveCount(0)
+  await page.screenshot({ path: testInfo.outputPath('memory-empty-light.png'), animations: 'disabled' })
   await section.getByRole('button', { name: 'Add memory', exact: true }).click()
   const editor = section.getByRole('textbox', { name: 'Preference', exact: true })
   await expect(editor).toBeFocused()
@@ -19,7 +73,7 @@ test('memories in Personalization support editing, conflicts and deletion in lig
   await section.getByRole('button', { name: 'Save changes', exact: true }).click()
   await expect(section.locator('.memory-text')).toHaveText('回答简明。')
   await page.reload()
-  await section.scrollIntoViewIfNeeded()
+  await openMemoryManager(page)
   await expect(section.locator('.memory-text')).toHaveText('回答简明。')
   await section.getByRole('button', { name: 'Edit memory: 回答简明。', exact: true }).click()
   await expect(editor).toBeFocused()
@@ -31,7 +85,7 @@ test('memories in Personalization support editing, conflicts and deletion in lig
     await page.evaluate(value => localStorage.setItem('vista-appearance', value), theme)
     await page.reload()
     await expect(page.locator('html')).toHaveAttribute('data-theme', theme)
-    await section.scrollIntoViewIfNeeded()
+    await openMemoryManager(page)
     await expect(section.locator('.memory-text')).toBeVisible()
     const layout = await section.evaluate(element => {
       const box = element.getBoundingClientRect()
@@ -53,7 +107,7 @@ test('memories in Personalization support editing, conflicts and deletion in lig
   await expect(editor).toHaveValue('stale UI draft')
   expect((await vista.api('/memories')).memories[0].text).toBe('Changed by another session.')
   await section.getByRole('button', { name: 'Cancel', exact: true }).click()
-  await section.getByRole('button', { name: 'Refresh memories', exact: true }).click()
+  await expect(section.getByRole('button', { name: 'Refresh memories', exact: true })).toHaveCount(0)
   await expect(section.locator('.memory-text')).toHaveText('Changed by another session.')
   const remove = section.getByRole('button', { name: 'Delete memory: Changed by another session.', exact: true })
   const confirmation = page.locator('.memory-delete-popover')
@@ -78,13 +132,15 @@ test('memories in Personalization support editing, conflicts and deletion in lig
   await expect(confirmation.getByRole('alert')).toContainText('This memory was changed or deleted')
   expect((await vista.api('/memories')).memories[0].text).toBe('Updated while confirming.')
   await confirmation.getByRole('button', { name: 'Cancel', exact: true }).click()
-  await section.getByRole('button', { name: 'Refresh memories', exact: true }).click()
+  await expect(section.getByRole('button', { name: 'Refresh memories', exact: true })).toHaveCount(0)
   await expect(section.locator('.memory-text')).toHaveText('Updated while confirming.')
   await section.getByRole('button', { name: 'Delete memory: Updated while confirming.', exact: true }).click()
   await expect(confirmation).toBeVisible()
   await confirmation.getByRole('button', { name: 'Delete', exact: true }).click()
   await expect(confirmation).toBeHidden()
   await expect(section.locator('.memory-text')).toHaveCount(0)
+  await expect(section.locator('.ant-modal-footer')).toHaveCount(0)
+  await page.screenshot({ path: testInfo.outputPath('memory-empty-dark.png'), animations: 'disabled' })
   expect((await vista.api('/memories')).memories).toEqual([])
 })
 
@@ -107,8 +163,7 @@ test.describe('model-managed preferences', () => {
     await expect(trace.locator('.trace-step-content')).toContainText('Keep answers concise.')
 
     await page.goto(`${vista.origin}/settings/personalization`)
-    const section = page.getByRole('region', { name: 'Memory', exact: true })
-    await section.scrollIntoViewIfNeeded()
+    const section = await openMemoryManager(page)
     await expect(section.locator('.memory-text')).toHaveText('Keep answers concise.')
     const second: Session = await vista.api('/sessions', { method: 'POST', body: '{}' })
     await run(vista, second.id, 'An independent question')
@@ -129,11 +184,11 @@ test.describe('model-managed preferences', () => {
   })
 })
 
-test('cross-client memory pushes preserve drafts through external updates and deletion without rereads', async ({ page, vista }) => {
+test('cross-client memory revisions refresh only the active page and preserve drafts through external updates and deletion', async ({ page, vista }) => {
   const initial: Memories = await vista.api('/memories', { method: 'POST', body: JSON.stringify({ action: 'add', text: 'Original preference.' }) })
   const memory = initial.memories[0]!
   await page.goto(`${vista.origin}/settings/personalization`)
-  const section = page.getByRole('region', { name: 'Memory', exact: true })
+  const section = await openMemoryManager(page)
   await expect(section.locator('.memory-text')).toHaveText(memory.text)
   let reads = 0
   page.on('request', request => { if (request.method() === 'GET' && new URL(request.url()).pathname === '/api/memories') reads++ })
@@ -142,10 +197,10 @@ test('cross-client memory pushes preserve drafts through external updates and de
   await editor.fill('My unsaved preference.')
   await vista.api('/memories', { method: 'POST', body: JSON.stringify({ action: 'update', id: memory.id, previousText: memory.text, text: 'Changed remotely.' }) })
   await vista.api('/memories', { method: 'POST', body: JSON.stringify({ action: 'add', text: 'A second preference.' }) })
-  await expect(section.locator('.memory-text')).toHaveText('A second preference.')
+  await expect(section.locator('.memory-count')).toHaveText('2')
   await expect(editor).toHaveValue('My unsaved preference.')
   await vista.api('/memories', { method: 'POST', body: JSON.stringify({ action: 'remove', id: memory.id, previousText: 'Changed remotely.' }) })
-  await expect(section.locator('h3 small')).toHaveText('1')
+  await expect(section.locator('.memory-count')).toHaveText('1')
   await expect(editor).toHaveValue('My unsaved preference.')
   await section.getByRole('button', { name: 'Save changes', exact: true }).click()
   await expect(section.getByRole('alert')).toContainText('This memory was changed or deleted')
@@ -153,6 +208,13 @@ test('cross-client memory pushes preserve drafts through external updates and de
   await section.getByRole('button', { name: 'Cancel', exact: true }).click()
   await expect(editor).toHaveCount(0)
   await expect(section.locator('.memory-text')).toHaveText('A second preference.')
-  expect(reads).toBe(0)
+  expect(reads).toBeGreaterThan(0)
+  expect(reads).toBeLessThanOrEqual(3)
+  await section.getByRole('button', { name: 'Close', exact: true }).click()
+  await expect(section).toBeHidden()
+  const settledReads = reads
+  await vista.api('/memories', { method: 'POST', body: JSON.stringify({ action: 'add', text: 'Saved while manager is closed.' }) })
+  await page.waitForTimeout(300)
+  expect(reads).toBe(settledReads)
   await expect(page.locator('.state-sync-error')).toHaveCount(0)
 })

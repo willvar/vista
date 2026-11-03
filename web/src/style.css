@@ -119,11 +119,36 @@ a {
   align-self: center;
   margin: .4rem;
 }
-.conversation-empty {
-  margin: auto;
-  padding: 2rem;
+.vista-empty-state.ant-empty {
+  margin: 0;
+  padding: clamp(1rem, 4dvh, 2rem) 1rem;
+  min-width: 0;
   color: var(--muted);
-  text-align: center;
+  font-size: var(--font-size-body);
+}
+.vista-empty-state .ant-empty-description {
+  max-width: 30rem;
+  margin-inline: auto;
+  color: var(--muted);
+  line-height: 1.7;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.vista-empty-state .ant-empty-description h3 {
+  margin: 0 0 .5rem;
+  color: var(--text);
+  font-size: 18px;
+  font-weight: 600;
+  line-height: 1.6;
+}
+.vista-empty-state .ant-empty-description p {
+  margin: 0;
+}
+.vista-empty-state-compact.ant-empty {
+  padding: 1rem .5rem;
+}
+.conversation-empty.ant-empty {
+  margin: auto;
 }
 .message-space {
   width: 100%;
@@ -510,10 +535,6 @@ a {
 .managed-session .actions {
   justify-content: flex-end;
   flex: none;
-}
-.session-manager-empty {
-  padding: 2rem;
-  text-align: center;
 }
 .confirmation-content {
   max-height: min(360px,calc(50dvh - 5rem));
@@ -924,11 +945,6 @@ a {
   font-size: calc(.65rem + 2px);
   color: var(--muted);
 }
-.selection-stats-empty {
-  color: var(--muted);
-  font-size: calc(.82rem + 2px);
-  padding: 1rem 0;
-}
 .model-selection-stats .ant-pagination {
   margin-top: .8rem;
 }
@@ -1119,12 +1135,6 @@ body {
   padding: 16px 12px 12px;
   border-right: 1px solid var(--border-subtle);
   background: var(--sidebar);
-}
-.sidebar-empty {
-  padding: 8px 12px;
-  color: var(--muted);
-  font-size: calc(.85rem + 2px);
-  line-height: 1.7;
 }
 .sessions-panel-footer {
   flex: none;
@@ -1402,41 +1412,6 @@ body {
 }
 .configured-providers {
   margin-top: 32px;
-}
-.provider-empty-state {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 12px;
-  min-height: clamp(160px,30vh,280px);
-  padding: 32px 16px;
-  text-align: center;
-}
-.provider-empty-icon {
-  display: grid;
-  place-items: center;
-  width: 56px;
-  height: 56px;
-  margin-bottom: 4px;
-  border-radius: 16px;
-  background: var(--accent-soft);
-  color: var(--accent);
-  font-size: 26px;
-}
-.provider-empty-state h3 {
-  margin: 0;
-  color: var(--text);
-  font-size: 18px;
-  font-weight: 600;
-  line-height: 1.6;
-}
-.provider-empty-state p {
-  max-width: 30rem;
-  margin: 0;
-  color: var(--muted);
-  font-size: var(--font-size-body);
-  line-height: 1.7;
 }
 .default-model-setting label,.model-form label,.provider-kind-field {
   display: flex;
@@ -2358,9 +2333,6 @@ body {
   }
   .messages {
     padding: .25rem;
-  }
-  .conversation-empty {
-    padding: .5rem;
   }
   .sender-footer {
     gap: .35rem;

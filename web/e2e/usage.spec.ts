@@ -90,4 +90,17 @@ test('missing or partial timing remains visible without invented TPS', async ({ 
   if (geometry.width < 800) expect(geometry.tableScrollWidth).toBeGreaterThan(geometry.tableWidth)
   await testInfo.attach('usage-table-layout', { body: await page.screenshot(), contentType: 'image/png' })
   await expect(page.locator('.messages')).not.toContainText(/TPS (?:NaN|Infinity)/)
+  await details.getByLabel('Filter model calls', { exact: true }).click()
+  await page.locator('.ant-select-dropdown:visible').getByText('Failures', { exact: true }).click()
+  const empty = details.locator('.ant-empty-description')
+  await expect(empty).toHaveText('No matching model calls')
+  await expect(details.locator('.usage-pagination')).toHaveCount(0)
+  const emptyLayout = await details.evaluate(element => {
+    const panel = element.getBoundingClientRect()
+    const description = element.querySelector('.ant-empty-description')!.getBoundingClientRect()
+    return { clipped: description.bottom - panel.bottom, overflow: element.scrollHeight - element.clientHeight }
+  })
+  expect(emptyLayout.clipped, 'Empty description must fit inside the usage panel').toBeLessThanOrEqual(2)
+  expect(emptyLayout.overflow, 'Empty usage panel must not hide overflowing content').toBeLessThanOrEqual(2)
+  await page.screenshot({ path: testInfo.outputPath('usage-empty.png') })
 })

@@ -9,10 +9,10 @@ function seedOpenCode(vista: VistaFixture, config: object) {
   return root
 }
 
-test('MCP import reads only on request and saves without starting commands', async ({ page, vista }, testInfo) => {
+test('MCP import reads only on request and keeps disabled commands stopped', async ({ page, vista }, testInfo) => {
   const marker = join(vista.workspacePath, 'must-not-run')
   seedOpenCode(vista, { mcp: { servers: {
-    imported: { type: 'local', command: [process.execPath, '-e', `require('node:fs').writeFileSync(${JSON.stringify(marker)}, 'ran')`], cwd: vista.workspacePath },
+    imported: { type: 'local', command: [process.execPath, '-e', `require('node:fs').writeFileSync(${JSON.stringify(marker)}, 'ran')`], cwd: vista.workspacePath, disabled: true },
     unsupported: { type: 'local', command: [process.execPath], environment: { KEY: 'source-secret' } },
   } } })
   let reads = 0
@@ -38,7 +38,7 @@ test('MCP import reads only on request and saves without starting commands', asy
   await modal.getByRole('button', { name: 'Import (1)', exact: true }).click()
   await expect(modal).toBeHidden()
   await expect(page.locator('[data-mcp="imported"]')).toBeVisible()
-  expect((await vista.api('/mcp-config')).servers[0]).toMatchObject({ name: 'imported', transport: 'stdio', command: process.execPath, directory: vista.workspacePath })
+  expect((await vista.api('/mcp-config')).servers[0]).toMatchObject({ name: 'imported', transport: 'stdio', command: process.execPath, directory: vista.workspacePath, disabled: true })
   expect(existsSync(marker)).toBe(false)
   await open.click()
   await modal.getByRole('button', { name: 'Read configuration', exact: true }).click()

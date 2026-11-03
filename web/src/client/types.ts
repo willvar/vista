@@ -13,6 +13,10 @@ export type ProviderSetup = { id: string; name: string; aliases?: string; baseUr
 export type AgentSettings = { instructions: string; instructionsPath: string; delegationDepth: number; maxDelegationDepth: number; automaticTitles: boolean }
 export type Memory = { id: string; text: string; createdAt: string; updatedAt: string }
 export type Memories = { memories: Memory[]; maxCount: number; maxBytes: number; maxTotalBytes: number }
+export type PageInfo = { page: number; pageSize: number; total: number; version: string }
+export type SessionPage = PageInfo & { items: Session[] }
+export type MemoryPage = PageInfo & Memories
+export type MemorySummary = Omit<Memories, 'memories'> & { total: number }
 export type LoginUpdate = { id: string; status: string; error?: string }
 export type MCPCheck = { status: string; checkedAt?: string; toolCount: number; error?: string }
 export type MCPServer = {
@@ -100,6 +104,7 @@ export type SendMessageInput = { content?: string; images?: Array<{ mediaType: s
 export type SendMessageResult = { runId?: string; message?: Message; input?: QueuedInput; event: StreamEvent }
 export type ModelSpeedStats = { count: number; failures: number; medianMs: number | null; p90Ms: number | null; lowConfidence: boolean }
 export type ModelSelectionStats = {
+  version?: string
   speedScope: 'global'; qualityScope: 'user'; speedWindowDays: number; qualityWindowSize: number
   models: Array<{
     modelId: string; reasoningEffort: string; providers: string[]

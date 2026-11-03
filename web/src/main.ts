@@ -15,6 +15,7 @@ const router = createRouter({ history: createWebHistory(), routes: [
   { path: '/settings/models', name: 'settings', components: { default: ConversationPage, overlay: SettingsPage } },
   { path: '/settings/about', name: 'settings-about', components: { default: ConversationPage, overlay: SettingsPage } },
   { path: '/settings/storage', name: 'settings-storage', components: { default: ConversationPage, overlay: SettingsPage } },
+  { path: '/settings/statistics', name: 'settings-statistics', components: { default: ConversationPage, overlay: SettingsPage } },
   { path: '/settings/search', name: 'settings-search', components: { default: ConversationPage, overlay: SettingsPage } },
   { path: '/settings/mcp', name: 'settings-mcp', components: { default: ConversationPage, overlay: SettingsPage } },
   { path: '/settings/skills', name: 'settings-skills', components: { default: ConversationPage, overlay: SettingsPage } },

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onUnmounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { Alert as AAlert, Button as AButton, Modal as AModal } from 'antdv-next'
+import { Empty as AEmpty, Alert as AAlert, Button as AButton, Modal as AModal } from 'antdv-next'
 import { HistoryOutlined } from '@antdv-next/icons'
 import { useWorkspace } from './composables/useWorkspace'
 import type { VistaClient } from './client/vista'
@@ -101,7 +101,7 @@ defineExpose({ headerAction: computed(() => ({ label: checking.value ? 'modelCat
           <p v-if="record.error" class="omp-catalog-history-error">{{ record.error }}</p>
         </li>
       </ol>
-      <p v-else class="omp-catalog-history-empty">{{ t('modelCatalogHistoryEmpty') }}</p>
+      <a-empty v-else class="vista-empty-state" :description="t('modelCatalogHistoryEmpty')" role="status" />
     </div>
   </a-modal>
 </template>
@@ -129,6 +129,5 @@ defineExpose({ headerAction: computed(() => ({ label: checking.value ? 'modelCat
 .omp-catalog-outcome.is-changed { color: var(--accent); }
 .omp-catalog-outcome.is-failed, .omp-catalog-history-error { color: var(--danger); }
 .omp-catalog-history-error { margin: .25rem 0 0; white-space: pre-wrap; overflow-wrap: anywhere; font-size: var(--font-size-body); line-height: 1.6; }
-.omp-catalog-history-empty { margin: 0; padding: 1.5rem 0; border-top: 1px solid var(--border); color: var(--muted); text-align: center; font-size: var(--font-size-body); }
 @media (max-width: 420px) { .omp-catalog-heading { align-items: flex-start; } }
 </style>

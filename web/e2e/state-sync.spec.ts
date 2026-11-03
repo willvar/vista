@@ -1,5 +1,75 @@
 import type { Page } from '@playwright/test'
 import { test, expect } from './fixtures'
+import { openSettingsSection } from './settings-navigation'
+
+test('worker speed observations and remote feedback update model statistics without inventory rereads',async({page,vista},info)=>{
+  test.skip(info.project.name!=='desktop','Synchronization is independent of viewport')
+  await vista.api('/preferences',{method:'PATCH',body:JSON.stringify({lastMode:'auto',feedbackInvitationSeen:true})})
+  await page.goto(`${vista.origin}/settings/general`)
+  const stats=page.locator('.model-selection-stats')
+  const row=stats.locator(`[data-model-id="${vista.modelId}"]`)
+  await expect(row).toContainText('Not measured')
+  let inventoryReads=0,statsReads=0
+  page.on('request',request=>{
+    if(request.method()!=='GET')return
+    const path=new URL(request.url()).pathname
+    if(path==='/api/models')inventoryReads++
+    if(path==='/api/model-selection/stats')statsReads++
+  })
+  const session=await vista.api('/sessions',{method:'POST',body:'{}'})
+  await vista.api(`/sessions/${session.id}/messages`,{method:'POST',body:JSON.stringify({content:'Statistics observation',selectionMode:'auto',selectionTier:'speed'})})
+  await expect(row).not.toContainText('Not measured')
+  await expect.poll(async()=>(await vista.api(`/sessions/${session.id}/checkpoint`)).session.executing).toBe(false)
+  const messages=await vista.api(`/sessions/${session.id}/messages`)
+  const reply=messages.find((message:{role:string})=>message.role==='assistant')
+  await stats.getByRole('tab',{name:'Quality',exact:true}).click()
+  await expect(row).toContainText('Not rated')
+  await vista.api(`/sessions/${session.id}/messages/${reply.id}/feedback`,{method:'PUT',body:JSON.stringify({value:'up'})})
+  const upvotes=row.locator('dl > div').filter({hasText:'Thumbs up'}).locator('dd')
+  await expect(upvotes).toHaveText('1')
+  await vista.api('/model-selection/stats',{method:'DELETE',body:JSON.stringify({scope:'quality'})})
+  await expect(row).toContainText('Not rated')
+  expect(inventoryReads).toBe(0)
+  await openSettingsSection(page,'skills')
+  const settled=statsReads
+  await vista.api('/model-selection/stats',{method:'DELETE',body:JSON.stringify({scope:'all'})})
+  await page.waitForTimeout(250)
+  expect(statsReads).toBe(settled)
+})
+
+test('view interests share one connection and release server work without reloading core snapshots', async ({page,vista},info)=>{
+  test.skip(info.project.name!=='desktop','Transport behavior is independent of viewport')
+  const interests:string[][]=[],reads:string[]=[],streams:string[]=[]
+  page.on('request',request=>{
+    const path=new URL(request.url()).pathname
+    if(path==='/api/events')streams.push(request.url())
+    if(path==='/api/events/subscriptions')interests.push(request.postDataJSON().topics)
+    if(request.method()==='GET'&&['/api/status','/api/sessions','/api/models'].includes(path))reads.push(path)
+  })
+  await page.goto(`${vista.origin}/settings/skills`)
+  await expect(page.locator('[data-skill="system:vista-guide"]')).toBeVisible()
+  await expect.poll(()=>interests.at(-1)).toContain('skills')
+  const initialReads=reads.length,initialStreams=streams.length
+  await openSettingsSection(page,'storage')
+  await expect(page.locator('.storage-card').first()).toContainText('0 files')
+  await expect.poll(()=>interests.at(-1)).toContain('storage')
+  expect(interests.at(-1)).not.toContain('skills')
+  const scannedAt=(await vista.api('/resource-storage')).stats.scannedAt
+  await openSettingsSection(page,'statistics')
+  await expect(page.locator('.statistics-totals')).toBeVisible()
+  await expect.poll(()=>interests.at(-1)).toContain('statistics')
+  expect(interests.at(-1)).not.toContain('storage')
+  await openSettingsSection(page,'storage')
+  await expect(page.locator('.storage-card').first()).toContainText('0 files')
+  await expect.poll(()=>interests.at(-1)).toContain('storage')
+  await page.waitForTimeout(300)
+  expect((await vista.api('/resource-storage')).stats.scannedAt).toBe(scannedAt)
+  await openSettingsSection(page,'general')
+  await expect.poll(()=>interests.at(-1)?.includes('statistics')).toBe(false)
+  expect(reads.length).toBe(initialReads)
+  expect(streams.length).toBe(initialStreams)
+  await expect(page.locator('.state-sync-error')).toHaveCount(0)
+})
 
 test('workspace initializes each snapshot once and keeps one stream without periodic requests', async ({ page, vista }, info) => {
   test.skip(info.project.name !== 'desktop', 'Transport behavior is independent of viewport')
