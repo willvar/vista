@@ -4,7 +4,7 @@ import { closeSettings } from './settings-navigation'
 const sections = [
   ['general', 'Appearance'], ['personalization', 'Personalization'],
   ['models', 'Model connections'], ['search', 'Web queries'], ['mcp', 'MCP'],
-  ['skills', 'Skill library'], ['storage', 'Storage'], ['about', 'About Vista'],
+  ['skills', 'Skill library'], ['statistics', 'Usage'], ['storage', 'Storage'], ['about', 'About Vista'],
 ] as const
 
 test.beforeEach(async ({ vista }) => {
@@ -23,7 +23,7 @@ test('settings entry and category returns preserve the conversation and draft', 
   const settings = page.locator('.settings-page')
   const nav = settings.locator('.settings-nav')
   await expect(nav).toBeVisible()
-  await expect(nav.getByRole('link')).toHaveCount(8)
+  await expect(nav.getByRole('link')).toHaveCount(sections.length)
   if (mobile) {
     await expect(settings.locator('.page-heading h2')).toHaveText('Settings')
     await expect(settings.locator('.settings-content')).toHaveCount(0)
