@@ -108,7 +108,7 @@ func probe(dir string) (instance.Info, bool) {
 	defer cancel()
 	// Readiness needs only the static UI. Detailed status can involve slower
 	// native memory sampling and must not decide whether the service is alive.
-	req, err := http.NewRequestWithContext(ctx, http.MethodHead, x.Address+"/", nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, x.Address+"/", nil)
 	if err != nil {
 		return x, false
 	}
