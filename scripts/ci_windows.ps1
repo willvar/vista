@@ -63,7 +63,7 @@ Write-Output 'Launching native Windows checks through Explorer.'
 # must not prevent the startup deadline from being enforced.
 $bootstrapLog = Join-Path $output 'bootstrap.log'
 $bootstrapError = Join-Path $output 'bootstrap-error.log'
-$bootstrap = Start-Process -FilePath $powershell -ArgumentList (
+$bootstrapProcess = Start-Process -FilePath $powershell -ArgumentList (
     '-NoProfile -ExecutionPolicy Bypass -File "' + $PSCommandPath + '" -Bootstrap') -PassThru `
     -RedirectStandardOutput $bootstrapLog -RedirectStandardError $bootstrapError
 
@@ -76,7 +76,7 @@ try {
             $lines = @(Get-Content -LiteralPath $logPath)
             $lines | Select-Object -Skip $linesRead
             $linesRead = $lines.Count
-        } elseif ($bootstrap.HasExited -and $bootstrap.ExitCode -ne 0) {
+        } elseif ($bootstrapProcess.HasExited -and $bootstrapProcess.ExitCode -ne 0) {
             throw 'Explorer bootstrap failed; see bootstrap-error.log.'
         } elseif ([DateTime]::UtcNow -gt $startDeadline) {
             throw 'Explorer did not start the native Windows validation process within 45 seconds.'
@@ -85,7 +85,7 @@ try {
         Start-Sleep -Seconds 1
     }
 } finally {
-    if (-not $bootstrap.HasExited) { Stop-Process -Id $bootstrap.Id -Force }
+    if (-not $bootstrapProcess.HasExited) { Stop-Process -Id $bootstrapProcess.Id -Force }
     Get-Content -LiteralPath $bootstrapLog, $bootstrapError -ErrorAction SilentlyContinue
 }
 Get-Content -LiteralPath $logPath | Select-Object -Skip $linesRead
