@@ -116,7 +116,8 @@ onUnmounted(() => { cancelRequests(); clearInterval(clock); for (const action of
 </script>
 
 <template>
-  <Modal v-model:open="visible" centered width="min(960px, calc(100vw - 2rem))" :footer="null" :title="t('backgroundProcesses')" root-class="background-process-modal" :destroy-on-hidden="true">
+  <Modal v-model:open="visible" centered width="min(960px, calc(100vw - 2rem))" :footer="null" :title="t('backgroundProcesses')" root-class="background-process-modal" :destroy-on-hidden="true"
+    :styles="{ container: { display: 'flex', flexDirection: 'column', maxHeight: 'calc(100dvh - 2rem)' }, body: { display: 'flex', flexDirection: 'column', minHeight: 0, overflowY: 'auto' } }">
     <div v-if="visible" class="background-process-monitor">
       <Select v-if="ordered.length > 1" v-model:value="selectedId" class="process-select" :options="options" :aria-label="t('selectProcess')" :show-search="true" option-filter-prop="label" />
       <p v-if="error" class="process-error" role="alert">{{ error }} <Button variant="link" @click="refresh">{{ t('retry') }}</Button></p>
