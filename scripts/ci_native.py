@@ -92,6 +92,8 @@ def native_tests(binary, output, env):
         "TestNativeFileLock", "TestNativeMemory", "TestNativeOwnedSession", "TestNativeShell", "TestNativeShellErrorsRemainText")}
     if sys.platform == "win32":
         required |= {("vista/cmd/vista", name) for name in ("TestNativeWindowsDesktopLauncher", "TestNativeWindowsTrayLongStatus")}
+    elif sys.platform == "darwin":
+        required.add(("vista/internal/platform", "TestNativeReapedOwnedSession"))
     if missing := required - passed:
         raise ValueError("mandatory native tests did not pass: " + ", ".join("/".join(key) for key in sorted(missing)))
     return {"passed": len(passed), "skipped": skipped, "required_passed": ["/".join(key) for key in sorted(required)]}

@@ -58,6 +58,11 @@ func ProcessSignal(state *os.ProcessState) string {
 func procIdentity(pid int) (sessionID int, startTime uint64, err error) {
 	info, err := unix.SysctlKinfoProc("kern.proc.pid", pid)
 	if err != nil {
+		// x/sys reports EIO when sysctl returns no process record. Confirm
+		// that the PID is gone before treating it as an exited Worker.
+		if errors.Is(err, unix.EIO) && errors.Is(unix.Kill(pid, 0), unix.ESRCH) {
+			return 0, 0, unix.ESRCH
+		}
 		return 0, 0, err
 	}
 	sid, err := unix.Getsid(pid)
