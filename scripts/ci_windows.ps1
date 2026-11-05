@@ -13,9 +13,13 @@ if ($Desktop) {
         Set-Content -LiteralPath $logPath
     try {
         $state = Get-Content -LiteralPath $statePath -Raw | ConvertFrom-Json
+        "WMI profile before restoration: USERPROFILE=$env:USERPROFILE; APPDATA=$env:APPDATA; LOCALAPPDATA=$env:LOCALAPPDATA" |
+            Add-Content -LiteralPath $logPath
         foreach ($entry in $state.environment.PSObject.Properties) {
             [Environment]::SetEnvironmentVariable($entry.Name, $entry.Value, 'Process')
         }
+        "Desktop profile: USERPROFILE=$env:USERPROFILE; APPDATA=$env:APPDATA; LOCALAPPDATA=$env:LOCALAPPDATA" |
+            Add-Content -LiteralPath $logPath
         if ($state.start_explorer) {
             Add-Type -TypeDefinition @'
 using System;
@@ -24,6 +28,27 @@ public static class VistaCITaskbar {
     public static string LastProbe;
     [DllImport("user32.dll", CharSet = CharSet.Unicode)]
     public static extern IntPtr FindWindow(string className, string title);
+    [DllImport("user32.dll")] static extern IntPtr GetProcessWindowStation();
+    [DllImport("kernel32.dll")] static extern uint GetCurrentThreadId();
+    [DllImport("user32.dll")] static extern IntPtr GetThreadDesktop(uint thread);
+    [DllImport("user32.dll")] static extern IntPtr OpenInputDesktop(uint flags, bool inherit, uint access);
+    [DllImport("user32.dll")] static extern bool CloseDesktop(IntPtr desktop);
+    [DllImport("user32.dll")] static extern IntPtr GetShellWindow();
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    static extern bool GetUserObjectInformation(IntPtr obj, int index, System.Text.StringBuilder text, uint size, out uint needed);
+    static string ObjectName(IntPtr obj) {
+        var name = new System.Text.StringBuilder(256);
+        uint needed;
+        return obj != IntPtr.Zero && GetUserObjectInformation(obj, 2, name, 512, out needed) ? name.ToString() : "unavailable";
+    }
+    public static string Context() {
+        var input = OpenInputDesktop(0, false, 1);
+        try {
+            return String.Format("Desktop context: interactive={0}, station={1}, desktop={2}, input={3}, shell={4}",
+                Environment.UserInteractive, ObjectName(GetProcessWindowStation()),
+                ObjectName(GetThreadDesktop(GetCurrentThreadId())), ObjectName(input), GetShellWindow());
+        } finally { if (input != IntPtr.Zero) CloseDesktop(input); }
+    }
     [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
     public struct NotifyData {
         public uint Size;
@@ -55,18 +80,23 @@ public static class VistaCITaskbar {
             Flags = 1 | 2 | 4, Callback = 0x8001,
             Icon = LoadIcon(IntPtr.Zero, new IntPtr(32512)), Tip = "Vista CI probe"
         };
+        if (data.Icon == IntPtr.Zero) {
+            DestroyWindow(window);
+            throw new Exception("Could not load the native system icon for the taskbar probe.");
+        }
         try {
             bool result = Shell_NotifyIcon(0, ref data);
-            LastProbe = String.Format("Native system-icon probe: registered={0}, data_size={1}, last_error={2}",
-                result, data.Size, Marshal.GetLastWin32Error());
+            LastProbe = String.Format("Native system-icon probe: registered={0}, data_size={1}, window={2}, icon={3}, last_error={4}",
+                result, data.Size, window, data.Icon, Marshal.GetLastWin32Error());
             if (result) Shell_NotifyIcon(2, ref data);
             return result;
         } finally { DestroyWindow(window); }
     }
 }
 '@
+            [VistaCITaskbar]::Context() | Add-Content -LiteralPath $logPath
             if ([VistaCITaskbar]::FindWindow('Shell_TrayWnd', $null) -eq [IntPtr]::Zero) {
-                Start-Process -FilePath (Join-Path $env:WINDIR 'explorer.exe')
+                Start-Process -FilePath (Join-Path $env:WINDIR 'explorer.exe') -WindowStyle Normal
                 $shellDeadline = [DateTime]::UtcNow.AddSeconds(30)
                 while ([VistaCITaskbar]::FindWindow('Shell_TrayWnd', $null) -eq [IntPtr]::Zero) {
                     if ([DateTime]::UtcNow -gt $shellDeadline) { throw 'Explorer did not create an interactive taskbar within 30 seconds.' }
@@ -76,18 +106,11 @@ public static class VistaCITaskbar {
             # Shell_TrayWnd appears before the notification area can accept
             # icons. Wait for the real API rather than treating window creation
             # as a completed Explorer startup.
-            if (-not [VistaCITaskbar]::Probe()) {
-                # A disconnected remote desktop can leave shell windows alive
-                # without a usable notification area. Keep this recovery inside
-                # the disposable runner's desktop validation process.
-                & (Join-Path $env:WINDIR 'System32/query.exe') session *>> $logPath
-                & (Join-Path $env:WINDIR 'System32/tscon.exe') (Get-Process -Id $PID).SessionId /dest:console *>> $logPath
-                "Console session transfer exit code: $LASTEXITCODE" | Add-Content -LiteralPath $logPath
-            }
             $trayDeadline = [DateTime]::UtcNow.AddSeconds(45)
             while (-not [VistaCITaskbar]::Probe()) {
                 if ([DateTime]::UtcNow -gt $trayDeadline) {
                     [VistaCITaskbar]::LastProbe | Add-Content -LiteralPath $logPath
+                    [VistaCITaskbar]::Context() | Add-Content -LiteralPath $logPath
                     Get-Process -Name explorer, ShellExperienceHost, ShellHost -IncludeUserName -ErrorAction SilentlyContinue |
                         Select-Object Id, SessionId, UserName, Path | Format-List | Out-String |
                         Add-Content -LiteralPath $logPath
@@ -149,7 +172,8 @@ Remove-Item -LiteralPath $resultPath, $logPath -Force -ErrorAction SilentlyConti
 $environment = @{}
 foreach ($name in @('PATH', 'GOPATH', 'GOCACHE', 'GOTOOLCHAIN', 'GOWORK', 'CGO_ENABLED',
         'GITHUB_ACTIONS', 'GITHUB_SHA', 'GITHUB_STEP_SUMMARY', 'RUNNER_OS', 'RUNNER_ARCH',
-        'TEMP', 'TMP')) {
+        'TEMP', 'TMP', 'USERPROFILE', 'APPDATA', 'LOCALAPPDATA', 'USERNAME', 'USERDOMAIN',
+        'HOMEDRIVE', 'HOMEPATH')) {
     $value = [Environment]::GetEnvironmentVariable($name)
     if ($null -ne $value) { $environment[$name] = $value }
 }
