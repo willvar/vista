@@ -106,7 +106,7 @@ test('catalog failure retains its version and allows another check', async ({ pa
   })
   await page.goto(vista.origin + '/settings/about')
   const catalog = page.getByRole('region', { name: 'Model catalog', exact: true })
-  const check = page.locator('.settings-header-action')
+  const check = page.getByRole('button', { name: 'Check for updates', exact: true })
   await check.click()
   await expect(catalog.getByRole('alert')).toHaveText('models.dev catalog returned HTTP 503')
   await expect(catalog).toContainText('aaaaaaa')
