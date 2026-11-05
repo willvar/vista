@@ -1,4 +1,4 @@
-param([switch]$Desktop, [switch]$Bootstrap, [string]$Target = 'windows/amd64', [string]$Version = 'dev')
+param([switch]$Desktop, [switch]$Bootstrap, [switch]$FormsProbe, [string]$Target = 'windows/amd64', [string]$Version = 'dev')
 
 $ErrorActionPreference = 'Stop'
 $root = Split-Path $PSScriptRoot -Parent
@@ -22,6 +22,7 @@ public static class VistaCITaskbar {
     [DllImport("user32.dll")] static extern bool CloseDesktop(IntPtr desktop);
     [DllImport("user32.dll")] static extern IntPtr GetShellWindow();
     [DllImport("kernel32.dll")] static extern IntPtr GetCurrentProcess();
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode)] static extern IntPtr GetModuleHandle(string name);
     [DllImport("kernel32.dll")] static extern bool CloseHandle(IntPtr handle);
     [DllImport("kernel32.dll")] static extern bool IsProcessInJob(IntPtr process, IntPtr job, out bool contained);
     [DllImport("kernel32.dll")] static extern bool QueryInformationJobObject(IntPtr job, int kind, IntPtr data, uint size, out uint needed);
@@ -37,7 +38,7 @@ public static class VistaCITaskbar {
             string elevation = GetTokenInformation(token, 18, buffer, 256, out needed) ? Marshal.ReadInt32(buffer).ToString() : "unavailable";
             bool contained;
             IsProcessInJob(GetCurrentProcess(), IntPtr.Zero, out contained);
-            string ui = contained && QueryInformationJobObject(IntPtr.Zero, 4, buffer, 256, out needed) ? Marshal.ReadInt32(buffer).ToString("x") : "none";
+            string ui = !contained ? "none" : QueryInformationJobObject(IntPtr.Zero, 4, buffer, 4, out needed) ? Marshal.ReadInt32(buffer).ToString("x") : "unavailable";
             return "logon=" + logon + ", elevation=" + elevation + ", job=" + contained + ", job_ui=" + ui;
         } finally { Marshal.FreeHGlobal(buffer); CloseHandle(token); }
     }
@@ -78,9 +79,22 @@ public static class VistaCITaskbar {
     [DllImport("user32.dll")] static extern IntPtr LoadIcon(IntPtr instance, IntPtr name);
     [DllImport("shell32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
     static extern bool Shell_NotifyIcon(uint message, ref NotifyData data);
-    public static bool Probe() {
-        var window = CreateWindowEx(0, "STATIC", "Vista CI taskbar probe", 0,
-            0, 0, 0, 0, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
+    [StructLayout(LayoutKind.Sequential)]
+    struct IconIdentifier { public uint Size; public IntPtr Window; public uint ID; public Guid GUID; }
+    [StructLayout(LayoutKind.Sequential)]
+    struct Rect { public int Left, Top, Right, Bottom; }
+    [DllImport("shell32.dll")] static extern int Shell_NotifyIconGetRect(ref IconIdentifier identifier, out Rect rect);
+    public static string IconRect(IntPtr window, uint id) {
+        var identifier = new IconIdentifier { Size = (uint)Marshal.SizeOf<IconIdentifier>(), Window = window, ID = id };
+        Rect rect;
+        int result = Shell_NotifyIconGetRect(ref identifier, out rect);
+        return String.Format("WinForms native icon rectangle: result=0x{0:x8}, window={1}, id={2}, bounds={3},{4},{5},{6}",
+            result, window, id, rect.Left, rect.Top, rect.Right, rect.Bottom);
+    }
+    public static bool Probe() { return Probe(0, false); }
+    public static bool Probe(uint windowStyle, bool ownModule) {
+        var window = CreateWindowEx(0, "STATIC", "Vista CI taskbar probe", windowStyle,
+            0, 0, 0, 0, IntPtr.Zero, IntPtr.Zero, ownModule ? GetModuleHandle(null) : IntPtr.Zero, IntPtr.Zero);
         if (window == IntPtr.Zero) throw new Exception("Could not create the native taskbar probe window.");
         var data = new NotifyData {
             Size = (uint)Marshal.SizeOf<NotifyData>(), Window = window, ID = 1,
@@ -93,14 +107,33 @@ public static class VistaCITaskbar {
         }
         try {
             bool result = Shell_NotifyIcon(0, ref data);
-            LastProbe = String.Format("Native system-icon probe: registered={0}, data_size={1}, window={2}, icon={3}, last_error={4}",
-                result, data.Size, window, data.Icon, Marshal.GetLastWin32Error());
+            LastProbe = String.Format("Native system-icon probe: registered={0}, data_size={1}, window={2}, icon={3}, last_error={4}, style={5:x}, own_module={6}",
+                result, data.Size, window, data.Icon, Marshal.GetLastWin32Error(), windowStyle, ownModule);
             if (result) Shell_NotifyIcon(2, ref data);
             return result;
         } finally { DestroyWindow(window); }
     }
 }
 '@
+}
+
+if ($FormsProbe) {
+    Add-Type -AssemblyName System.Windows.Forms, System.Drawing
+    Initialize-TaskbarProbe
+    $tray = New-Object System.Windows.Forms.NotifyIcon
+    try {
+        $tray.Icon = [System.Drawing.SystemIcons]::Application
+        $tray.Text = 'Vista CI standard control'
+        $tray.Visible = $true
+        [System.Windows.Forms.Application]::DoEvents()
+        $fields = $tray.GetType().GetFields([Reflection.BindingFlags]'Instance,NonPublic')
+        $windowField = $fields | Where-Object Name -In 'window', '_window'
+        $idField = $fields | Where-Object Name -In 'id', '_id'
+        $window = $windowField.GetValue($tray)
+        $id = $idField.GetValue($tray)
+        [VistaCITaskbar]::IconRect($window.Handle, $id) | Write-Output
+    } finally { $tray.Dispose() }
+    exit 0
 }
 
 if ($Desktop) {
@@ -174,6 +207,24 @@ if ($Bootstrap) {
         Write-Output ("Runner launch " + [VistaCITaskbar]::Context())
         $runnerTrayReady = [VistaCITaskbar]::Probe()
         [VistaCITaskbar]::LastProbe | Write-Output
+        if (-not $runnerTrayReady) {
+            [void][VistaCITaskbar]::Probe(0, $true)
+            [VistaCITaskbar]::LastProbe | Write-Output
+            [void][VistaCITaskbar]::Probe([uint32]2147483648, $true)
+            [VistaCITaskbar]::LastProbe | Write-Output
+            foreach ($policy in @('HKCU:\Software\Microsoft\Windows\CurrentVersion\Policies\Explorer',
+                    'HKLM:\Software\Microsoft\Windows\CurrentVersion\Policies\Explorer',
+                    'HKCU:\Software\Policies\Microsoft\Windows\Explorer',
+                    'HKLM:\Software\Policies\Microsoft\Windows\Explorer')) {
+                if (Test-Path -LiteralPath $policy) {
+                    Write-Output $policy
+                    Get-ItemProperty -LiteralPath $policy |
+                        Select-Object NoTrayItemsDisplay, DisableNotificationCenter, NoSetTaskbar | Format-List
+                }
+            }
+            $frameworkShell = Join-Path $env:WINDIR 'System32/WindowsPowerShell/v1.0/powershell.exe'
+            & $frameworkShell -NoProfile -NonInteractive -STA -ExecutionPolicy Bypass -File $PSCommandPath -FormsProbe
+        }
         $state = Get-Content -LiteralPath $statePath -Raw | ConvertFrom-Json
         $state | Add-Member -NotePropertyName start_explorer -NotePropertyValue $true
         $state | ConvertTo-Json | Set-Content -LiteralPath $statePath
