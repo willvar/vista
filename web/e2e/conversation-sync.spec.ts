@@ -2,8 +2,9 @@ import type { Page } from '@playwright/test'
 import { test, expect, type VistaFixture } from './fixtures'
 
 test.use({ replyWithPrompt: true })
-test.beforeEach(async ({ vista }) => {
+test.beforeEach(async ({ page, vista }) => {
   await vista.api('/preferences', { method: 'PATCH', body: JSON.stringify({ feedbackInvitationSeen: true }) })
+  await deliveryFault(page)
 })
 
 // Faults affect only browser delivery. The isolated Vista service continues to
@@ -11,7 +12,7 @@ test.beforeEach(async ({ vista }) => {
 async function deliveryFault(page: Page) {
   await page.addInitScript(() => {
     const original = window.fetch.bind(window)
-    const audit = { streams: 0, drop: '', dropped: 0, checkpoints: 0 }
+    const audit = { streams: 0, drop: '', dropped: 0, checkpoints: 0, completedReply: 0 }
     Object.assign(window, { __conversationDelivery: audit })
     window.fetch = async (input, options) => {
       const raw = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url
@@ -27,7 +28,11 @@ async function deliveryFault(page: Page) {
           let end: number
           while ((end = buffer.indexOf('\n\n')) >= 0) {
             const frame = buffer.slice(0, end + 2); buffer = buffer.slice(end + 2)
-            if (frame.includes('event: sync')) audit.checkpoints++
+            if (frame.includes('event: sync')) {
+              audit.checkpoints++
+              const point = JSON.parse(frame.split('\n').find(line => line.startsWith('data: '))!.slice(6))
+              if (!point.session.executing) audit.completedReply = point.session.latestReplySequence || 0
+            }
             if (audit.drop === 'silent' || audit.drop === 'records' && frame.includes('event: record')) { audit.dropped++; continue }
             sink.enqueue(encoder.encode(frame))
           }
@@ -45,14 +50,17 @@ async function send(page: Page, vista: VistaFixture, id: string, round: number) 
 async function start(page: Page, vista: VistaFixture) {
   const session = await vista.api('/sessions', { method: 'POST', body: '{}' })
   await page.goto(`${vista.origin}/sessions/${session.id}`)
+  await expect.poll(() => page.evaluate(() => (window as any).__conversationDelivery.checkpoints)).toBeGreaterThan(0)
   await send(page, vista, session.id, 1)
   await expect(page.locator('.messages article.assistant .markdown')).toHaveText('Mock reply: Recovery round 1')
+  // Start the fault only after the healthy reply's completion checkpoint,
+  // including any initial replay repair, has reached the browser.
+  await expect.poll(() => page.evaluate(() => (window as any).__conversationDelivery.completedReply)).toBeGreaterThan(0)
   await expect(page.locator('.conversation-sync-notice')).toHaveCount(0)
   return session.id as string
 }
 
 test('four saved replies recover from a connected silent stream without reload or repeated model requests', async ({ page, vista }) => {
-  await deliveryFault(page)
   await page.clock.install()
   const id = await start(page, vista)
   await page.evaluate(() => { (window as any).__conversationDelivery.drop = 'silent' })
@@ -71,7 +79,6 @@ test('four saved replies recover from a connected silent stream without reload o
 })
 
 test('reopening a conversation closed by another client restores delivery and preserves its draft', async ({ page, vista }) => {
-  await deliveryFault(page)
   const id = await start(page, vista)
   await page.locator('.sender-card textarea').fill('Keep this draft while closed')
   await vista.api(`/sessions/${id}/close`, { method: 'POST' })
@@ -89,7 +96,6 @@ test('reopening a conversation closed by another client restores delivery and pr
 })
 
 test('a valid checkpoint detects withheld records and replay failure falls back to a snapshot', async ({ page, vista }) => {
-  await deliveryFault(page)
   let snapshotReads = 0, failedReplay = 0
   page.on('request', request => { if (new URL(request.url()).pathname.endsWith('/snapshot')) snapshotReads++ })
   await page.route('**/api/sessions/*/event-page?after=*', route => { failedReplay++; return route.fulfill({ status: 503, body: 'Injected replay failure' }) })
@@ -120,7 +126,6 @@ for (const failing of ['snapshot', 'context']) {
 }
 
 test('an unrecoverable view read stays visible after a successful send and manual retry repairs it', async ({ page, vista }) => {
-  await deliveryFault(page)
   await page.clock.install()
   const id = await start(page, vista)
   let failing = true
@@ -141,7 +146,6 @@ test('an unrecoverable view read stays visible after a successful send and manua
 })
 
 test('restored connectivity reconciles saved replies immediately without waiting for inactivity', async ({ page, vista }) => {
-  await deliveryFault(page)
   const id = await start(page, vista)
   await page.evaluate(() => { (window as any).__conversationDelivery.drop = 'silent' })
   await send(page, vista, id, 2)
@@ -154,7 +158,6 @@ test('restored connectivity reconciles saved replies immediately without waiting
 test('real server checkpoints keep a silent model healthy across two heartbeat intervals', async ({ page, vista }, info) => {
   test.skip(info.project.name !== 'desktop', 'One real-time transport control suffices; recovery UI is tested at every viewport')
   test.setTimeout(50_000)
-  await deliveryFault(page)
   const session = await vista.api('/sessions', { method: 'POST', body: '{}' })
   await page.goto(`${vista.origin}/sessions/${session.id}`)
   await expect.poll(() => page.evaluate(() => (window as any).__conversationDelivery.checkpoints)).toBe(1)
