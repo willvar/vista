@@ -21,8 +21,48 @@ if ($Desktop) {
 using System;
 using System.Runtime.InteropServices;
 public static class VistaCITaskbar {
+    public static string LastProbe;
     [DllImport("user32.dll", CharSet = CharSet.Unicode)]
     public static extern IntPtr FindWindow(string className, string title);
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+    public struct NotifyData {
+        public uint Size;
+        public IntPtr Window;
+        public uint ID, Flags, Callback;
+        public IntPtr Icon;
+        [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 128)] public string Tip;
+        public uint State, StateMask;
+        [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 256)] public string Info;
+        public uint Version;
+        [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 64)] public string InfoTitle;
+        public uint InfoFlags;
+        public Guid GUID;
+        public IntPtr BalloonIcon;
+    }
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    static extern IntPtr CreateWindowEx(uint style, string className, string title, uint windowStyle,
+        int x, int y, int width, int height, IntPtr parent, IntPtr menu, IntPtr instance, IntPtr parameter);
+    [DllImport("user32.dll")] static extern bool DestroyWindow(IntPtr window);
+    [DllImport("user32.dll")] static extern IntPtr LoadIcon(IntPtr instance, IntPtr name);
+    [DllImport("shell32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    static extern bool Shell_NotifyIcon(uint message, ref NotifyData data);
+    public static bool Probe() {
+        var window = CreateWindowEx(0, "STATIC", "Vista CI taskbar probe", 0,
+            0, 0, 0, 0, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
+        if (window == IntPtr.Zero) throw new Exception("Could not create the native taskbar probe window.");
+        var data = new NotifyData {
+            Size = (uint)Marshal.SizeOf<NotifyData>(), Window = window, ID = 1,
+            Flags = 1 | 2 | 4, Callback = 0x8001,
+            Icon = LoadIcon(IntPtr.Zero, new IntPtr(32512)), Tip = "Vista CI probe"
+        };
+        try {
+            bool result = Shell_NotifyIcon(0, ref data);
+            LastProbe = String.Format("Native system-icon probe: registered={0}, data_size={1}, last_error={2}",
+                result, data.Size, Marshal.GetLastWin32Error());
+            if (result) Shell_NotifyIcon(2, ref data);
+            return result;
+        } finally { DestroyWindow(window); }
+    }
 }
 '@
             if ([VistaCITaskbar]::FindWindow('Shell_TrayWnd', $null) -eq [IntPtr]::Zero) {
@@ -33,6 +73,9 @@ public static class VistaCITaskbar {
                     Start-Sleep -Milliseconds 250
                 }
             }
+            $taskbarReady = [VistaCITaskbar]::Probe()
+            [VistaCITaskbar]::LastProbe | Add-Content -LiteralPath $logPath
+            if (-not $taskbarReady) { throw 'The runner taskbar rejected an independent native system-icon probe.' }
         }
         Set-Location -LiteralPath $root
         & $state.python -u scripts/ci_native.py --target $state.target --version $state.version *>> $logPath
