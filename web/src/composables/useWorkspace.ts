@@ -153,9 +153,6 @@ function createWorkspace() {
     document.querySelector<HTMLTextAreaElement>('.sender-card textarea')?.focus()
   }
 
-  const renamingSessionID = ref('')
-  const sessionTitleDraft = ref('')
-  const deleteTarget = ref<Session | null>(null)
   const closeConfirmation = ref<{ count: number; stopsWork: boolean; close: () => Promise<void> } | null>(null)
   async function requestSessionClose(items: Session[], close: () => Promise<void>, confirm?: () => void, alwaysConfirm = false) {
     if (busy.value || closeConfirmation.value || !items.length) return
@@ -176,8 +173,6 @@ function createWorkspace() {
     try { await request.close() }
     finally { if (closeConfirmation.value === request) closeConfirmation.value = null }
   }
-  function beginRename(item: Session) { renamingSessionID.value = item.id; sessionTitleDraft.value = presentation.displaySessionTitle(item) }
-  function cancelRename() { renamingSessionID.value = ''; sessionTitleDraft.value = '' }
   async function renameTitle(item: Session, title: string) {
     error.value = ''
     try {
@@ -185,15 +180,6 @@ function createWorkspace() {
       return true
     } catch (cause) { error.value = String(cause); return false }
   }
-  async function rename(item: Session, title: string, done: () => void) {
-    if (!title || title.length > 200) return
-    busy.value = true
-    try {
-      if (await renameTitle(item, title)) done()
-    }
-    finally { busy.value = false }
-  }
-  function saveRename(item: Session) { return rename(item, sessionTitleDraft.value.trim(), cancelRename) }
   async function action(item: Session, kind: 'open' | 'close' | 'delete' | 'retry', confirmClose = false) {
     if (busy.value) return
     if (kind === 'close') return requestSessionClose([item], () => performAction(item, kind), undefined, confirmClose)
@@ -216,16 +202,6 @@ function createWorkspace() {
     } catch (cause) { error.value = String(cause) }
     finally { busy.value = false }
   }
-  function updateSessionDelete(show: boolean, item: Session) {
-    if (show) deleteTarget.value = item
-    else if (deleteTarget.value?.id === item.id) deleteTarget.value = null
-  }
-  async function confirmDelete() {
-    const item = deleteTarget.value
-    if (!item) return
-    deleteTarget.value = null
-    await action(item, 'delete')
-  }
 
   async function syncRoute() {
     const id = route.name === 'session' ? String(route.params.id || '')
@@ -241,12 +217,6 @@ function createWorkspace() {
   function editingWithIME(event: KeyboardEvent) {
     return !isPlainEscape(event) || composing || performance.now() - compositionEndedAt < 200
   }
-  function dismissRename(event: KeyboardEvent) {
-    if (editingWithIME(event) || !renamingSessionID.value) return
-    event.preventDefault()
-    event.stopPropagation()
-    cancelRename()
-  }
   function onEscape(event: KeyboardEvent) {
     if (editingWithIME(event)) return
     // Components own Escape while a layer is open, including its closing animation.
@@ -254,7 +224,6 @@ function createWorkspace() {
     if (settingsOpen.value || sessionManagerOpen.value || [...document.querySelectorAll<HTMLElement>(
       '[role="dialog"], [role="alertdialog"], .ui-select-dropdown, .ui-popover, .ui-menu',
     )].some(element => element.getClientRects().length && getComputedStyle(element).visibility !== 'hidden')) return
-    if (renamingSessionID.value) { dismissRename(event); return }
     if (mobileSessionsOpen.value) { event.preventDefault(); mobileSessionsOpen.value = false; return }
     if (!selected.value?.open || !conversation.agentWorking.value || busy.value) return
     event.preventDefault()
@@ -262,7 +231,6 @@ function createWorkspace() {
   }
   watch(() => route.fullPath, () => {
     mobileSessionsOpen.value = false
-    deleteTarget.value = null
     closeConfirmation.value = null
     void syncRoute()
   })
@@ -295,8 +263,7 @@ function createWorkspace() {
   return {
     client, stateSync, stateConnection, router, route, error, busy, debugMode, sessions, openSessions, closedSessions, totalSessions, attentionCount, modelCatalog, serverStatus, mobileSessionsOpen,
     settingsOpen, sessionManagerOpen, needsProvider, conversation, selected, modalQuery, backToWorkspace, openSessionManager,
-    openSettings, create, action, renamingSessionID, sessionTitleDraft, beginRename, cancelRename, saveRename, renameTitle,
-    deleteTarget, updateSessionDelete, confirmDelete,
+    openSettings, create, action, renameTitle,
     closeConfirmation, requestSessionClose, cancelSessionClose, confirmSessionClose,
     workerMemory, workerAvailable, mib, interactionPreferences, ...presentation,
   }

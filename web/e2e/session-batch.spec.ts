@@ -1,9 +1,9 @@
 import type { Page } from '@playwright/test'
 import { test, expect } from './fixtures'
+import { selectSessions } from './session-manager-actions'
 
 async function filterSessions(page: Page, name: string) {
-  await page.getByRole('combobox', { name: 'Filter sessions', exact: true }).click()
-  await page.getByRole('option', { name, exact: true }).click()
+  await page.getByRole('radio', { name, exact: true }).check()
 }
 
 for (const kind of ['open', 'close', 'delete'] as const) {
@@ -18,8 +18,9 @@ for (const kind of ['open', 'close', 'delete'] as const) {
     if (kind !== 'delete') await filterSessions(page, kind === 'open' ? 'Closed sessions' : 'Open sessions')
     const rows = manager.locator('.managed-session')
     await expect(rows).toHaveCount(3)
+    await selectSessions(manager)
     const initialRows = await rows.allTextContents()
-    const stats = manager.locator('.session-manager-stats')
+    const stats = manager.locator('.session-manager-filters')
     const initialStats = await stats.textContent()
     const range = manager.locator('.list-pagination [role="status"]')
     await expect(range).toHaveText('1–3 of 3')
@@ -70,7 +71,7 @@ for (const kind of ['open', 'close', 'delete'] as const) {
         await page.keyboard.press('Escape')
         await expect(confirmation).toBeHidden()
         await expect(manager).toBeVisible()
-        await expect(manager.locator('.session-bulk-actions [role="status"]')).toHaveText('3 selected')
+        await expect(manager.locator('.session-selection-toolbar [role="status"]')).toHaveText('3 selected')
         await manager.getByRole('button', { name: 'Delete selected', exact: true }).click()
         await confirmation.evaluate(element => { element.setAttribute('data-confirmation-dialog', 'true') })
         await confirmation.getByRole('button', { name: 'Delete', exact: true }).click()
@@ -100,7 +101,7 @@ for (const kind of ['open', 'close', 'delete'] as const) {
         await expect(rows).toHaveText(initialRows)
         await expect(stats).toHaveText(initialStats!)
         await expect(range).toHaveText('1–3 of 3')
-        await expect(manager.locator('.session-bulk-actions [role="status"]')).toHaveText('3 selected')
+        await expect(manager.locator('.session-selection-toolbar [role="status"]')).toHaveText('3 selected')
         await expect(manager.getByText('Loading conversations…', { exact: true })).toHaveCount(0)
         if (i === 1) await page.screenshot({ path: info.outputPath(`batch-${kind}-progress.png`), animations: 'disabled' })
         releases[i]!()
@@ -129,6 +130,7 @@ test('batch progress respects reduced motion and responds to preference changes'
   await page.goto(vista.origin + '/sessions')
   const manager = page.locator('.session-manager-page')
   await expect(manager.locator('.managed-session')).toHaveCount(2)
+  await selectSessions(manager)
   const releases: (() => void)[] = []
   await page.route(/\/api\/sessions\/[^/]+\/close$/, async route => {
     const response = await route.fetch()
@@ -159,6 +161,7 @@ test('batch failure details remain scrollable inside the secondary modal', async
   await page.goto(vista.origin + '/sessions')
   const manager = page.locator('.session-manager-page')
   await expect(manager.locator('.managed-session')).toHaveCount(1)
+  await selectSessions(manager)
   await page.route(/\/api\/sessions\/[^/]+\/close$/, route => route.fulfill({ status: 409, body: 'Deliberate batch failure. '.repeat(100) }))
   await manager.getByRole('checkbox', { name: 'Select all shown', exact: true }).check()
   await manager.getByRole('button', { name: /^Close selected/ }).click()
@@ -200,10 +203,11 @@ test('bulk failures and SSE reconnect preserve the frozen view and reveal remote
   await filterSessions(page, 'Open sessions')
   const rows = manager.locator('.managed-session')
   await expect(rows).toHaveCount(3)
+  await selectSessions(manager)
   const titles = await rows.locator('.session-name').allTextContents()
   const failed = items.find(item => item.title === titles[1])!
   const initialRows = await rows.allTextContents()
-  const initialStats = await manager.locator('.session-manager-stats').textContent()
+  const initialStats = await manager.locator('.session-manager-filters').textContent()
   const releases: (() => void)[] = []
   let requests = 0
   let streams = 0
@@ -230,7 +234,7 @@ test('bulk failures and SSE reconnect preserve the frozen view and reveal remote
     await expect(page.locator('.session-card')).toHaveCount(2)
     await expect(page.locator('.session-card').filter({ hasText: 'Renamed by another client' })).toHaveCount(1)
     await expect(rows).toHaveText(initialRows)
-    await expect(manager.locator('.session-manager-stats')).toHaveText(initialStats!)
+    await expect(manager.locator('.session-manager-filters')).toHaveText(initialStats!)
     await expect(manager.locator('.list-pagination [role="status"]')).toHaveText('1–3 of 3')
     await expect(page.locator('.batch-operation-failures')).toHaveCount(0)
     releases[1]!()
@@ -244,7 +248,7 @@ test('bulk failures and SSE reconnect preserve the frozen view and reveal remote
     await expect(manager.locator('.batch-operation-failures')).toHaveCount(0)
     await dialog.getByRole('button', { name: 'Close', exact: true }).last().click()
     await expect(dialog).toBeHidden()
-    await expect(manager.locator('.session-bulk-actions [role="status"]')).toHaveText('1 selected')
+    await expect(manager.locator('.session-selection-toolbar [role="status"]')).toHaveText('1 selected')
     await expect(manager.getByRole('button', { name: /^Close selected/ })).toBeEnabled()
     await expect(manager.getByRole('checkbox', { name: 'Select Renamed by another client', exact: true })).toBeChecked()
     await vista.api(`/sessions/${failed.id}`, { method: 'PATCH', body: JSON.stringify({ title: 'Still synchronizing after batch' }) })
@@ -264,6 +268,7 @@ test('batch completion replaces an older in-flight page read before releasing th
   const manager = page.locator('.session-manager-page')
   const rows = manager.locator('.managed-session')
   await expect(rows).toHaveCount(2)
+  await selectSessions(manager)
   const mutations: (() => void)[] = []
   let releaseOldPage: (() => void) | undefined
   let releaseFinalPage: (() => void) | undefined
@@ -297,7 +302,7 @@ test('batch completion replaces an older in-flight page read before releasing th
     mutations[1]!()
     await expect.poll(() => !!releaseFinalPage).toBe(true)
     await expect(page.locator('.batch-operation-progress')).toHaveText('Processed 2 / 2')
-    await expect(manager.locator('.session-bulk-actions [role="status"]')).toHaveText('2 selected')
+    await expect(manager.locator('.session-selection-toolbar [role="status"]')).toHaveText('2 selected')
     await expect(rows).toHaveCount(2)
     releaseFinalPage!()
     await expect(page.getByRole('dialog', { name: 'Close selected', exact: true })).toBeHidden()

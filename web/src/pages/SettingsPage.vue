@@ -2,7 +2,7 @@
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
-import { ArrowLeftOutlined, RightOutlined, SkinOutlined, UserOutlined, ApiOutlined, InfoCircleOutlined, SearchOutlined, LinkOutlined, BookOutlined, SunOutlined, MoonOutlined, DesktopOutlined, HddOutlined, ExclamationCircleOutlined, FullscreenOutlined, FullscreenExitOutlined, PlusOutlined, ImportOutlined, ReloadOutlined, CloseOutlined, RobotOutlined, TeamOutlined, CompassOutlined, ToolOutlined, CommentOutlined, FolderOpenOutlined, FolderOutlined, FileTextOutlined } from '@antdv-next/icons'
+import { RightOutlined, SkinOutlined, UserOutlined, ApiOutlined, InfoCircleOutlined, SearchOutlined, LinkOutlined, BookOutlined, SunOutlined, MoonOutlined, DesktopOutlined, HddOutlined, ExclamationCircleOutlined, FullscreenOutlined, FullscreenExitOutlined, PlusOutlined, ImportOutlined, ReloadOutlined, RobotOutlined, TeamOutlined, CompassOutlined, ToolOutlined, CommentOutlined, FolderOpenOutlined, FolderOutlined, FileTextOutlined } from '@antdv-next/icons'
 import { Empty as VEmpty, Alert as VAlert, Button as VButton, Input as VInput, InputNumber as VInputNumber, InputPassword as VInputPassword, Modal as VModal, TextArea as VTextarea, Select as VSelect, Switch as VSwitch, Tooltip as VTooltip, type TextAreaRef } from '../ui'
 import WorkspaceModal from '../WorkspaceModal.vue'
 import ConfirmPopover from '../ConfirmPopover.vue'
@@ -63,7 +63,7 @@ const settingsIndex = computed(() => route.name === 'settings-index')
 const settingsTitle = computed(() => t(sections.find(section => section.name === route.name)?.label || 'settings'))
 const mobileViewport = window.matchMedia('(max-width: 830px)')
 const mobile = ref(mobileViewport.matches)
-const pageHeading = ref<HTMLElement>()
+const modal = ref<InstanceType<typeof WorkspaceModal>>()
 function updateViewport() { mobile.value = mobileViewport.matches }
 onMounted(() => mobileViewport.addEventListener('change', updateViewport))
 onUnmounted(() => mobileViewport.removeEventListener('change', updateViewport))
@@ -73,7 +73,7 @@ watch([settingsIndex, mobile], ([index, small]) => {
 watch(() => route.name, async () => {
   if (!mobile.value) return
   await nextTick()
-  pageHeading.value?.focus({ preventScroll: true })
+  modal.value?.focusTitle()
 }, { flush: 'post' })
 function back() {
   if (!mobile.value || settingsIndex.value) return backToWorkspace()
@@ -140,20 +140,15 @@ watch(() => route.fullPath, () => {
 </script>
 
 <template>
-<WorkspaceModal :open="true" width="max-content" :keyboard="!providerDisconnectTarget && !modelFormOpen && !providerImportOpen && !mcpModalOpen && !skillModalOpen && !memoryModalOpen && !searchModalOpen && !storageModalOpen && !resetModalOpen && !statisticsModalOpen && !instructionsEditorOpen" @cancel="backToWorkspace"><section class="workspace settings-page modal-page" :class="{ 'settings-index': settingsIndex }">
-        <div class="conversation-header">
-          <v-button variant="text" class="icon-button page-back" :aria-label="t(settingsIndex ? 'backToConversation' : 'backToSettings')" @click="back"><ArrowLeftOutlined /></v-button>
-          <div class="page-heading"><small v-if="!settingsIndex">{{ t('settingsHeading') }}</small><h2 ref="pageHeading" tabindex="-1">{{ settingsTitle }}</h2></div>
-          <div class="settings-header-actions">
-            <v-button v-if="canImport" variant="text" class="icon-button settings-header-action settings-header-button" :aria-label="t(importTitleKey)" :title="t(importTitleKey)" :disabled="importKind === 'providers' ? settingsBusy : headerAction?.disabled" @click="importedCount = 0; providerImport?.show()"><template #icon><ImportOutlined aria-hidden="true" /></template></v-button>
-            <v-button v-if="headerAction" variant="text" class="icon-button settings-header-action settings-header-button" :aria-label="t(headerAction.label)" :title="t(headerAction.label)" :disabled="headerAction.disabled" :loading="headerAction.loading" @click="headerAction.run()">
+<WorkspaceModal ref="modal" :open="true" width="max-content" :title="settingsTitle" :page-class="settingsIndex ? 'settings-page settings-index' : 'settings-page'"
+  :close-label="t('closeSettings')" :back-label="t(settingsIndex ? 'backToConversation' : 'backToSettings')"
+  :keyboard="!providerDisconnectTarget && !modelFormOpen && !providerImportOpen && !mcpModalOpen && !skillModalOpen && !memoryModalOpen && !searchModalOpen && !storageModalOpen && !resetModalOpen && !statisticsModalOpen && !instructionsEditorOpen" @cancel="backToWorkspace" @back="back">
+        <template #header-actions>
+            <v-button v-if="canImport" variant="text" class="icon-button" :aria-label="t(importTitleKey)" :title="t(importTitleKey)" :disabled="importKind === 'providers' ? settingsBusy : headerAction?.disabled" @click="importedCount = 0; providerImport?.show()"><template #icon><ImportOutlined aria-hidden="true" /></template></v-button>
+            <v-button v-if="headerAction" variant="text" class="icon-button" :aria-label="t(headerAction.label)" :title="t(headerAction.label)" :disabled="headerAction.disabled" :loading="headerAction.loading" @click="headerAction.run()">
               <template #icon><PlusOutlined v-if="route.name === 'settings' || route.name === 'settings-mcp'" aria-hidden="true" /><ClearOutlined v-else-if="route.name === 'settings-statistics'" aria-hidden="true" /><ReloadOutlined v-else aria-hidden="true" /></template>
             </v-button>
-            <v-button variant="text" class="icon-button modal-close settings-header-button" :aria-label="t('closeSettings')" :title="t('closeSettings')" @click="backToWorkspace">
-              <template #icon><CloseOutlined aria-hidden="true" /></template>
-            </v-button>
-          </div>
-        </div>
+        </template>
         <div class="settings-body">
         <nav class="settings-nav" :aria-label="t('settings')">
           <router-link v-for="section in sections" :key="section.name" :to="{ name: section.name, query: route.query }" :class="{ active: route.name === section.name }" :aria-current="route.name === section.name ? 'page' : undefined"><component :is="section.icon" aria-hidden="true" /><span>{{ t(section.label) }}</span><RightOutlined class="settings-nav-chevron" aria-hidden="true" /></router-link>
@@ -282,11 +277,11 @@ watch(() => route.fullPath, () => {
           </dl>
         </div>
         </div>
-      </section></WorkspaceModal>
+      </WorkspaceModal>
   <v-modal :open="instructionsEditorOpen" :title="t('globalInstructions')" :footer="null" :closable="false" :z-index="1200" width="100%"
     class="instructions-editor-modal" wrap-class-name="instructions-editor-wrap" destroy-on-hidden :initial-focus-el="() => instructionsEditor?.input || null"
     @cancel="instructionsEditorOpen = false">
-    <template #title><div class="instructions-editor-heading"><span>{{ t('globalInstructions') }}</span><v-button @click="instructionsEditorOpen = false"><FullscreenExitOutlined aria-hidden="true" />{{ t('exitFullscreenEdit') }}</v-button></div></template>
+    <template #header-actions><v-button @click="instructionsEditorOpen = false"><FullscreenExitOutlined aria-hidden="true" />{{ t('exitFullscreenEdit') }}</v-button></template>
     <v-textarea ref="instructionsEditor" id="fullscreen-agent-instructions" v-model:value="agentInstructions" class="instructions-editor-input"
       :disabled="agentSettingsLoading || agentSettingsBusy" :auto-size="false" :aria-label="t('globalInstructions')"
       :placeholder="t('globalInstructionsPlaceholder')" />

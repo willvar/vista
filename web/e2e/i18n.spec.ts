@@ -136,7 +136,7 @@ for (const { browser, locale, reply } of cases) {
       await expect(page.locator('.welcome-toolbar')).not.toContainText(text.newConversation)
       await expect(page.locator('.welcome-intro > p')).toHaveCount(0)
       await page.goto(vista.origin + '/settings/general')
-      await expect(page.locator('.page-heading h2')).toHaveText(text.appearance)
+      await expect(page.locator('.ui-modal-title')).toHaveText(text.appearance)
       const picker = page.locator('.language-setting .ui-select')
       const region = page.locator('.region-setting .ui-select')
       await expect(page.locator('.region-setting')).toHaveCount(0)
@@ -213,14 +213,14 @@ for (const { browser, locale, reply } of cases) {
         ['about', text.aboutSettings, text.modelCatalogCheck],
       ]) {
         await openSettingsSection(page, path!)
-        await expect(page.locator('.page-heading h2')).toHaveText(label!)
+        await expect(page.locator('.ui-modal-title')).toHaveText(label!)
         if (action) {
           const button = page.getByRole('button', { name: action, exact: true })
           await expect(button).toHaveAttribute('aria-label', action)
           await expect(button).toBeEnabled()
           await expect(page.locator('.settings-content').getByRole('button', { name: action, exact: true })).toHaveCount(0)
           const bounds = await button.boundingBox()
-          const close = await page.locator('.modal-close').boundingBox()
+          const close = await page.locator('.ui-modal-close').boundingBox()
           if (close) {
             expect(close.x - (bounds!.x + bounds!.width)).toBeGreaterThanOrEqual(0)
             expect(close.x - (bounds!.x + bounds!.width)).toBeLessThanOrEqual(16)

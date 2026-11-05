@@ -109,7 +109,7 @@ test('a homepage with only closed conversations shows the retained-conversation 
   await expect(page.locator('.sidebar-empty .ui-empty-description')).toHaveText('No open sessions. Find closed sessions in Manage sessions.')
   await page.goto(vista.origin + '/sessions')
   await expect(page.locator('.managed-session')).toHaveCount(1)
-  await expect(page.locator('.session-manager-stats').first()).toContainText('1')
+  await expect(page.locator('.session-manager-filters .session-filter-count')).toHaveText(['1', '0', '1'])
 })
 
 test('external closing preserves the current draft and confirmed deletion returns home without loading archives', async ({ page, vista }) => {

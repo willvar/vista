@@ -1,4 +1,5 @@
 import { test, expect } from './fixtures'
+import { selectSessions } from './session-manager-actions'
 
 test('bulk session actions respect visible selection, keep the manager open and isolate delete confirmation', async ({ page, vista }, testInfo) => {
   await vista.api('/preferences', { method: 'PATCH', body: JSON.stringify({ feedbackInvitationSeen: true }) })
@@ -11,9 +12,10 @@ test('bulk session actions respect visible selection, keep the manager open and 
   const all = manager.getByRole('checkbox', { name: 'Select all shown', exact: true })
   const firstCheckbox = manager.getByRole('checkbox', { name: 'Select Bulk visible A', exact: true })
   const secondCheckbox = manager.getByRole('checkbox', { name: 'Select Bulk visible B', exact: true })
-  const selectedCount = manager.locator('.session-bulk-actions [role="status"]')
+  const selectedCount = manager.locator('.session-selection-toolbar [role="status"]')
   const rows = manager.locator('.managed-session')
   await expect(rows).toHaveCount(3)
+  await selectSessions(manager)
   const redundantReads: string[] = []
   page.on('request', request => {
     const path = new URL(request.url()).pathname
@@ -52,7 +54,10 @@ test('bulk session actions respect visible selection, keep the manager open and 
     return route.continue()
   })
   await manager.getByRole('button', { name: 'Close selected (2)', exact: true }).click()
-  await expect(manager.locator('.session-batch-error')).toContainText('Controlled close failure')
+  const failure = page.getByRole('dialog', { name: 'Close selected', exact: true })
+  await expect(failure.locator('.batch-operation-failures')).toContainText('Controlled close failure')
+  await failure.getByRole('button', { name: 'Close', exact: true }).last().click()
+  await expect(failure).toBeHidden()
   await expect(selectedCount).toHaveText('1 selected')
   await expect(firstCheckbox).not.toBeChecked()
   await expect(secondCheckbox).toBeChecked()
@@ -62,7 +67,7 @@ test('bulk session actions respect visible selection, keep the manager open and 
   failSecondClose = false
   await manager.getByRole('button', { name: 'Close selected (1)', exact: true }).click()
   await expect(selectedCount).toHaveText('0 selected')
-  await expect(manager.locator('.session-batch-error')).toHaveCount(0)
+  await expect(failure).toBeHidden()
   await expect.poll(async () => (await vista.api('/sessions')).filter((session: { id: string; open: boolean }) =>
     [first.id, second.id].includes(session.id) && session.open).length).toBe(0)
   await expect(manager).toBeVisible()
@@ -76,7 +81,8 @@ test('bulk session actions respect visible selection, keep the manager open and 
   await expect(manager).toBeVisible()
   // Wait for the delayed management snapshot to render the reopened rows
   // before comparing layout with and without the confirmation overlay.
-  await expect(manager.getByRole('button', { name: 'Close', exact: true })).toHaveCount(2)
+  await expect(rows.locator('.managed-session-meta > time')).toHaveCount(2)
+  await expect(rows.locator('.managed-session-meta > span')).toHaveCount(0)
 
   await firstCheckbox.check()
   const deleteSelected = manager.getByRole('button', { name: 'Delete selected', exact: true })

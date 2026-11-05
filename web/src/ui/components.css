@@ -102,10 +102,10 @@ a.ui-btn { text-decoration: none; }
 .ui-modal { position: relative; flex: none; max-width: calc(100vw - 32px); margin: auto; }
 .ui-modal-container { position: relative; width: 100%; padding: 20px 24px; border: 1px solid var(--border); border-radius: 16px; background: var(--surface); color: var(--text); box-shadow: var(--modal-shadow); outline: none; font-size: var(--font-size-body); }
 .ui-modal-container:focus-visible { outline: none; }
-.ui-modal-header { margin-bottom: 16px; }
-.ui-modal-title { margin: 0; font: inherit; font-size: 18px; font-weight: 600; line-height: 1.5; }
-.ui-modal-container:has(>.ui-modal-close) > .ui-modal-header { padding-inline-end: 36px; }
-.ui-modal-close { position: absolute; top: 12px; inset-inline-end: 12px; color: var(--muted); }
+.ui-modal-header { display: flex; flex: none; align-items: center; gap: 12px; margin-bottom: 16px; }
+.ui-modal-title { flex: 1; min-width: 0; margin: 0; outline: none; overflow-wrap: anywhere; font: inherit; font-size: 18px; font-weight: 600; line-height: 1.5; }
+.ui-modal-header-actions { display: flex; flex: none; align-items: center; gap: 4px; }
+.ui-modal-header .icon-button:not(:disabled) { color: var(--muted); }
 .ui-modal-body { min-width: 0; line-height: 1.6; }
 .ui-modal-footer { display: flex; align-items: center; justify-content: flex-end; gap: 8px; margin-top: 20px; }
 .ui-modal-container[data-state=open] { animation: ui-dialog-in .18s ease both; }
@@ -113,10 +113,6 @@ a.ui-btn { text-decoration: none; }
 .ui-modal-mask[data-state=open] { animation: ui-fade-in .18s ease both; }
 .ui-modal-mask[data-state=closed] { animation: ui-fade-out .14s ease both; }
 .ui-modal-wrap:has(>.instructions-editor-modal) { padding: 0; }
-.workspace-modal-wrap > .ui-modal > .ui-modal-container > .ui-modal-body > .visually-hidden { display: none; }
-.workspace-modal .ui-modal-container > .visually-hidden { margin: 0; }
-.ui-modal-wrap.workspace-modal-wrap > .workspace-modal > .ui-modal-container > .ui-modal-header { display: none; }
-.ui-modal-wrap.workspace-modal-wrap > .workspace-modal > .ui-modal-container > .ui-modal-body { padding: 0; }
 .ui-popover, .ui-tooltip { max-width: calc(100vw - 24px); border: 1px solid var(--border); border-radius: var(--control-radius); background: var(--surface); color: var(--text); box-shadow: var(--modal-shadow); outline: none; font-size: var(--font-size-body); line-height: 1.5; }
 .ui-popover-inner { padding: 12px; }
 .ui-tooltip { max-width: min(360px, calc(100vw - 24px)); padding: 6px 10px; border-color: transparent; background: var(--tooltip-surface); color: var(--tooltip-text); font-size: 14px; }

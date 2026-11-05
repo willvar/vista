@@ -4,7 +4,6 @@ import { useI18n } from 'vue-i18n'
 import { Input as VInput } from './ui'
 import type { Session } from './client/types'
 import { useWorkspace } from './composables/useWorkspace'
-import { isPlainEscape } from './composables/useEscape'
 
 const props = defineProps<{ session: Session }>()
 const editing = defineModel<boolean>('editing', { default: false })
@@ -38,7 +37,11 @@ async function save() {
 function keydown(event: KeyboardEvent) {
   event.stopPropagation()
   if (composing || event.isComposing || event.keyCode === 229 || performance.now() - compositionEndedAt < 200) return
-  if (isPlainEscape(event)) { event.preventDefault(); if (!saving.value) editing.value = false }
+  // A dialog can prevent Escape during capture. The editor still owns cancellation.
+  if (event.key === 'Escape' && !event.repeat && !event.ctrlKey && !event.metaKey && !event.altKey && !event.shiftKey) {
+    event.preventDefault()
+    if (!saving.value) editing.value = false
+  }
   else if (event.key === 'Enter') { event.preventDefault(); (event.target as HTMLInputElement).blur() }
 }
 function compositionStart() { composing = true }

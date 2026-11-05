@@ -2,8 +2,8 @@
 import { Dialog } from '@ark-ui/vue/dialog'
 import { ref } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { CloseOutlined } from '@antdv-next/icons'
 import Button from './Button.vue'
+import ModalHeader from './ModalHeader.vue'
 import type { ModalProps } from './types'
 defineOptions({ inheritAttrs: false })
 const props = withDefaults(defineProps<ModalProps>(), { closable: true, keyboard: true, maskClosable: true, width: 520, zIndex: 1000 })
@@ -30,9 +30,11 @@ function exitComplete() { props.afterClose?.() }
       <Dialog.Positioner class="ui-modal-wrap" :class="[wrapClassName, rootClass]" :style="{ zIndex }">
         <div v-bind="$attrs" class="ui-modal" :style="[{ width: typeof width === 'number' ? `${width}px` : width }, $attrs.style]">
           <Dialog.Content ref="content" class="ui-modal-container" :style="styles?.container">
-            <div v-if="title || $slots.title" class="ui-modal-header"><Dialog.Title class="ui-modal-title"><slot name="title">{{ title }}</slot></Dialog.Title></div>
-            <Dialog.Title v-else class="visually-hidden">Vista</Dialog.Title>
-            <Dialog.CloseTrigger v-if="closable" as-child><Button variant="text" class="icon-button ui-modal-close" :aria-label="t('close')"><CloseOutlined /></Button></Dialog.CloseTrigger>
+            <slot v-if="$slots.header" name="header" />
+            <ModalHeader v-else :title="title" :closable="closable" :close-label="closeLabel" :close-disabled="closeDisabled">
+              <template v-if="$slots.title" #title><slot name="title" /></template>
+              <template v-if="$slots['header-actions']" #actions><slot name="header-actions" /></template>
+            </ModalHeader>
             <div class="ui-modal-body" :style="styles?.body"><slot /></div>
             <div v-if="footer !== null" class="ui-modal-footer"><slot name="footer">
               <Button :disabled="cancelButtonProps?.disabled" @click="close">{{ cancelText || t('cancel') }}</Button>

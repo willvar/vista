@@ -2,7 +2,7 @@
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { Empty as VEmpty, Alert as VAlert, Button as VButton, Modal as VModal, TextArea as VTextarea, type TextAreaRef } from './ui'
-import { CloseOutlined, DeleteOutlined, EditOutlined, PlusOutlined, CommentOutlined, BookOutlined, RobotOutlined } from '@antdv-next/icons'
+import { DeleteOutlined, EditOutlined, PlusOutlined, CommentOutlined, BookOutlined, RobotOutlined } from '@antdv-next/icons'
 import ConfirmPopover from './ConfirmPopover.vue'
 import ListPagination from './ListPagination.vue'
 import { useWorkspace } from './composables/useWorkspace'
@@ -134,18 +134,13 @@ onBeforeUnmount(() => { disposed = true; emit('modal-open', false) })
   </section>
 
   <v-modal :open="managerOpen" centered :z-index="1200" width="min(760px, calc(100vw - 2rem))"
-    :footer="editing || !snapshot.total ? null : undefined" :closable="false" :keyboard="!busy && !deleting" :mask-closable="!busy && !deleting"
+    :footer="editing || !snapshot.total ? null : undefined" :close-disabled="busy" :keyboard="!busy && !deleting" :mask-closable="!busy && !deleting"
     destroy-on-hidden :after-close="resetManager" :styles="{ body: { maxHeight: editing || !snapshot.total ? 'calc(100dvh - 10rem)' : 'calc(100dvh - 15rem)', overflowY: 'auto', overscrollBehavior: 'contain' } }" @cancel="closeManager">
     <template #title>
-      <div class="memory-modal-header">
-        <span class="memory-modal-heading">{{ t('manageMemories') }}<small v-if="ready" class="memory-count">{{ snapshot.total }}</small></span>
-        <div class="settings-header-actions">
-          <template v-if="!editing">
-            <v-button variant="text" class="icon-button settings-header-button" :aria-label="t('addMemory')" :title="t('addMemory')" :disabled="!ready || busy || snapshot.total >= snapshot.maxCount" @click="startEdit('new')"><template #icon><PlusOutlined aria-hidden="true" /></template></v-button>
-          </template>
-          <v-button variant="text" class="icon-button settings-header-button" :aria-label="t('close')" :title="t('close')" :disabled="busy" @click="closeManager"><template #icon><CloseOutlined aria-hidden="true" /></template></v-button>
-        </div>
-      </div>
+      <span class="memory-modal-heading">{{ t('manageMemories') }}<small v-if="ready" class="memory-count">{{ snapshot.total }}</small></span>
+    </template>
+    <template #header-actions>
+      <v-button v-if="!editing" variant="text" class="icon-button" :aria-label="t('addMemory')" :title="t('addMemory')" :disabled="!ready || busy || snapshot.total >= snapshot.maxCount" @click="startEdit('new')"><template #icon><PlusOutlined aria-hidden="true" /></template></v-button>
     </template>
     <template #footer><ListPagination v-if="!editing" :page="page" :page-size="pageSize" :total="snapshot.total" :disabled="busy" @change="changePage" /></template>
     <div class="memory-manager" :aria-busy="loading || busy">
@@ -175,5 +170,5 @@ onBeforeUnmount(() => { disposed = true; emit('modal-open', false) })
 </template>
 
 <style scoped>
-.memory-settings,.memory-manager{min-width:0}.memory-heading,.memory-row-actions,.memory-editor-actions,.memory-modal-heading,.memory-modal-header{display:flex;align-items:center;gap:.5rem}.memory-heading{justify-content:space-between;flex-wrap:wrap}.memory-heading h3{font-size:16px;margin:0}.memory-count{font-weight:400;color:var(--text-secondary)}.memory-modal-header{justify-content:space-between}.memory-modal-heading{min-width:0}.memory-list{list-style:none;margin:.5rem 0 0;padding:0}.memory-list li{display:flex;align-items:flex-start;gap:.75rem;padding:.8rem 0;border-bottom:1px solid var(--border)}.memory-list li:last-child{border-bottom:0}.memory-preview{flex:1;min-width:0;text-align:start;border:0;background:transparent;color:var(--text);font:inherit;padding:.3rem;border-radius:6px;cursor:pointer}.memory-preview:disabled{cursor:default}.memory-preview:hover:not(:disabled){background:var(--surface-subtle)}.memory-preview:focus-visible{outline:var(--focus-outline, 2px solid var(--accent));outline-offset:2px}.memory-text{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden;overflow-wrap:anywhere;line-height:1.6}.memory-row-actions{flex:none}.memory-editor{width:100%;min-width:0;margin-top:.75rem}.memory-editor-input{height:clamp(80px,40dvh,420px);max-height:calc(100dvh - 15rem);min-height:80px;resize:vertical;line-height:1.65}.memory-editor-actions{justify-content:flex-end;flex-wrap:wrap;margin-top:.6rem}.memory-editor-actions small{margin-right:auto;color:var(--text-secondary)}.memory-manager>.ui-alert{margin-top:.75rem}
+.memory-settings,.memory-manager{min-width:0}.memory-heading,.memory-row-actions,.memory-editor-actions,.memory-modal-heading{display:flex;align-items:center;gap:.5rem}.memory-heading{justify-content:space-between;flex-wrap:wrap}.memory-heading h3{font-size:16px;margin:0}.memory-count{font-weight:400;color:var(--text-secondary)}.memory-modal-heading{min-width:0}.memory-list{list-style:none;margin:.5rem 0 0;padding:0}.memory-list li{display:flex;align-items:flex-start;gap:.75rem;padding:.8rem 0;border-bottom:1px solid var(--border)}.memory-list li:last-child{border-bottom:0}.memory-preview{flex:1;min-width:0;text-align:start;border:0;background:transparent;color:var(--text);font:inherit;padding:.3rem;border-radius:6px;cursor:pointer}.memory-preview:disabled{cursor:default}.memory-preview:hover:not(:disabled){background:var(--surface-subtle)}.memory-preview:focus-visible{outline:var(--focus-outline, 2px solid var(--accent));outline-offset:2px}.memory-text{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden;overflow-wrap:anywhere;line-height:1.6}.memory-row-actions{flex:none}.memory-editor{width:100%;min-width:0;margin-top:.75rem}.memory-editor-input{height:clamp(80px,40dvh,420px);max-height:calc(100dvh - 15rem);min-height:80px;resize:vertical;line-height:1.65}.memory-editor-actions{justify-content:flex-end;flex-wrap:wrap;margin-top:.6rem}.memory-editor-actions small{margin-right:auto;color:var(--text-secondary)}.memory-manager>.ui-alert{margin-top:.75rem}
 </style>

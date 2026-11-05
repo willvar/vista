@@ -25,7 +25,7 @@ test('settings entry and category returns preserve the conversation and draft', 
   await expect(nav).toBeVisible()
   await expect(nav.getByRole('link')).toHaveCount(sections.length)
   if (mobile) {
-    await expect(settings.locator('.page-heading h2')).toHaveText('Settings')
+    await expect(settings.locator('.ui-modal-title')).toHaveText('Settings')
     await expect(settings.locator('.settings-content')).toHaveCount(0)
     await page.screenshot({ path: testInfo.outputPath('settings-directory.png'), animations: 'disabled' })
   }
@@ -34,11 +34,11 @@ test('settings entry and category returns preserve the conversation and draft', 
     if (mobile) expect((await link.boundingBox())!.height).toBeGreaterThanOrEqual(44)
     await link.click()
     await expect(page).toHaveURL(url => url.pathname === `/settings/${path}` && url.searchParams.get('session') === session.id)
-    await expect(settings.locator('.page-heading h2')).toHaveText(label)
+    await expect(settings.locator('.ui-modal-title')).toHaveText(label)
     await expect(settings.locator('.settings-content')).toBeVisible()
     if (mobile) {
       await expect(nav).toBeHidden()
-      await expect(settings.locator('.page-heading h2')).toBeFocused()
+      await expect(settings.locator('.ui-modal-title')).toBeFocused()
     } else await expect(nav).toBeVisible()
     if (path === 'models') {
       await settings.getByRole('button', { name: 'Connect provider', exact: true }).click()
@@ -67,7 +67,7 @@ test('direct settings links, reload, browser history and viewport changes keep n
   const query = `?session=${session.id}`
   await page.goto(`${vista.origin}/settings/models${query}`)
   await page.reload()
-  await expect(page.locator('.settings-page .page-heading h2')).toHaveText('Model connections')
+  await expect(page.locator('.settings-page .ui-modal-title')).toHaveText('Model connections')
   if (page.viewportSize()!.width > 830) await page.setViewportSize({ width: 390, height: 844 })
   await page.getByRole('button', { name: 'Back to settings', exact: true }).click()
   await expect(page).toHaveURL(`${vista.origin}/settings${query}`)

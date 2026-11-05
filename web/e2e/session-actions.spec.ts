@@ -255,7 +255,7 @@ test('closed pinned sessions reach the first manager page and keep their pin whe
   await expect(row).toHaveAttribute('data-session-id', oldest.id)
   await expect(row.getByRole('button', { name: 'Unpin session', exact: true })).toHaveAttribute('aria-pressed', 'true')
   await expect(page.locator('.list-pagination [role="status"]')).toHaveText('1–10 of 12')
-  await row.getByRole('button', { name: 'Open', exact: true }).click()
+  await row.locator('.managed-session-entry').click()
   await expect(page).toHaveURL(url => url.pathname === `/sessions/${oldest.id}`)
   await showSidebar(page)
   await expect(sidebarRow(page, oldest.id).locator('.session-pin')).toHaveAttribute('aria-pressed', 'true')

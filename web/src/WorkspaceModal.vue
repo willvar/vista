@@ -1,10 +1,21 @@
 <script setup lang="ts">
 import { onUnmounted, ref, watch } from 'vue'
 import { onBeforeRouteLeave } from 'vue-router'
-import { Modal, type ModalProps } from './ui'
+import { Modal, ModalHeader, type ModalProps } from './ui'
 
-const props = withDefaults(defineProps<{ open: boolean; keyboard?: boolean; width: NonNullable<ModalProps['width']> }>(), { keyboard: true })
-const emit = defineEmits<{ cancel: [] }>()
+const props = withDefaults(defineProps<{
+  open: boolean
+  title: string
+  pageClass: string
+  closeLabel?: string
+  closeDisabled?: boolean
+  backLabel: string
+  keyboard?: boolean
+  width: NonNullable<ModalProps['width']>
+}>(), { keyboard: true })
+const emit = defineEmits<{ cancel: []; back: [] }>()
+const header = ref<InstanceType<typeof ModalHeader>>()
+defineExpose({ focusTitle: () => header.value?.focusTitle() })
 const visible = ref(props.open)
 watch(() => props.open, open => { visible.value = open })
 let closing: Promise<void> | undefined
@@ -37,8 +48,16 @@ const styles = {
 </script>
 
 <template>
-  <Modal :open="visible" centered :width="width" :footer="null" :closable="false" :keyboard="keyboard" :after-close="afterClose"
-    :styles="styles" class="workspace-modal" wrap-class-name="workspace-modal-wrap" @cancel="emit('cancel')"><slot /></Modal>
+  <Modal :open="visible" centered :width="width" :footer="null" :keyboard="keyboard" :after-close="afterClose"
+    :styles="styles" class="workspace-modal" wrap-class-name="workspace-modal-wrap" @cancel="emit('cancel')">
+    <template #header />
+    <section class="workspace modal-page" :class="pageClass">
+      <ModalHeader ref="header" class="workspace-modal-header" :title="title" :close-label="closeLabel" :close-disabled="closeDisabled" :back-label="backLabel" @back="emit('back')">
+        <template v-if="$slots['header-actions']" #actions><slot name="header-actions" /></template>
+      </ModalHeader>
+      <slot />
+    </section>
+  </Modal>
 </template>
 
 <style>
@@ -58,7 +77,8 @@ const styles = {
   width: 626px;
   flex: 0 0 626px;
 }
-.workspace-modal .page-back { display: none; }
+.workspace-modal .workspace-modal-header { min-height: 72px; margin: 0; padding: 20px 24px; border-bottom: 1px solid var(--border-subtle); }
+.workspace-modal .workspace-modal-header > .ui-modal-back { display: none; }
 @media (max-width: 830px) {
   .workspace-modal-wrap { overflow: hidden; }
   .workspace-modal-wrap::before { display: none; }
@@ -80,12 +100,13 @@ const styles = {
     height: 100dvh;
     max-height: none;
   }
-  .workspace-modal .modal-page > .conversation-header { padding: .4rem .6rem; gap: .5rem; }
-  .workspace-modal .page-back { display: inline-flex; }
-  .workspace-modal .modal-close.ui-btn { display: none; }
-  .workspace-modal .page-heading { flex: 1; min-width: 0; }
-  .workspace-modal .page-heading > small { display: none; }
+  .workspace-modal .workspace-modal-header { padding: .4rem .6rem; gap: .5rem; }
+  .workspace-modal .workspace-modal-header > .ui-modal-back { display: inline-flex; }
+  .workspace-modal .workspace-modal-header > .ui-modal-header-actions > .ui-modal-close { display: none; }
   .workspace-modal .settings-content, .workspace-modal .session-manager-content { overscroll-behavior: contain; }
   .workspace-modal .settings-page .settings-content { width: auto; flex: 1 1 auto; }
+}
+@media (max-height: 520px) {
+  .workspace-modal .workspace-modal-header { min-height: 0; }
 }
 </style>

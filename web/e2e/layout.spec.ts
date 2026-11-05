@@ -2,6 +2,7 @@ import { coreSnapshot } from './conversation-fixture'
 import type { Locator, Page } from '@playwright/test'
 import { test, expect } from './fixtures'
 import { closeSettings } from './settings-navigation'
+import { sessionManagerAction } from './session-manager-actions'
 
 test.beforeEach(async ({ vista }) => {
   await vista.api('/preferences', { method: 'PATCH', body: JSON.stringify({ feedbackInvitationSeen: true }) })
@@ -103,8 +104,8 @@ async function expectModalLayout(page: Page, desktopWidth?: number) {
     expect(container.height).toBe(geometry.viewportHeight)
     expect(border).toBe(0)
     expect(geometry.radius).toBe('0px')
-    await expect(page.locator('.modal-page .modal-close')).toBeHidden()
-    await expectControlReachable(page.locator('.modal-page .page-back'))
+    await expect(page.locator('.modal-page .ui-modal-close')).toBeHidden()
+    await expectControlReachable(page.locator('.modal-page .ui-modal-back'))
   }
   if (geometry.viewportWidth > 830 && geometry.navigationWidth) {
     expect(geometry.settingsWidth, 'The settings pane keeps its width as the navigation changes').toBe(626)
@@ -153,7 +154,7 @@ for (const modal of [
     await testInfo.attach('modal-layout', { path: screenshot, contentType: 'image/png' })
 
     const content = page.locator('.modal-page:visible .settings-content, .modal-page:visible .session-manager-content')
-    const header = page.locator('.modal-page:visible > .conversation-header')
+    const header = page.locator('.modal-page:visible > .ui-modal-header')
     const headerBefore = await header.boundingBox()
     await content.evaluate(element => { element.scrollTop = element.scrollHeight })
     expect(await header.boundingBox(), 'Header remains fixed while page content scrolls').toEqual(headerBefore)
@@ -200,15 +201,15 @@ for (const modal of [
     if (modal.route === '/sessions') {
       const section = page.locator('.modal-page:visible')
       const before = await section.boundingBox()
-      await page.locator('.managed-session').getByRole('button', { name: 'Delete', exact: true }).click()
-      const popup = page.locator('.session-delete-popover:visible')
+      await sessionManagerAction(page, page.locator('.managed-session'), 'Delete')
+      const popup = page.locator('.session-delete-modal .ui-modal-container:visible')
       await expect(popup).toBeVisible()
       await settleLayout(page)
       const layer = await popup.evaluate(element => {
         const rect = element.getBoundingClientRect()
         return {
-          insideModal: !!element.closest('.ui-modal'),
-          zIndex: Number(getComputedStyle(element.closest('[data-part="positioner"]') || element).zIndex),
+          insideModal: !!element.closest('.session-manager-page'),
+          zIndex: Number(getComputedStyle(element.closest('.ui-modal-wrap')!).zIndex),
           x: rect.x, y: rect.y, right: rect.right, bottom: rect.bottom,
           viewportWidth: innerWidth, viewportHeight: innerHeight,
         }
@@ -227,7 +228,7 @@ for (const modal of [
       }
       await popup.getByRole('button', { name: 'Cancel', exact: true }).click()
       await expect(popup).toBeHidden()
-      await page.locator('.managed-session').getByRole('button', { name: 'Delete', exact: true }).click()
+      await sessionManagerAction(page, page.locator('.managed-session'), 'Delete')
       await expect(popup).toBeVisible()
       await page.keyboard.press('Escape')
       await expect(popup).toBeHidden()

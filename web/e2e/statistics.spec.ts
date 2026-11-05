@@ -84,7 +84,7 @@ test('usage header reset requires confirmation and synchronizes all periods and 
   await vista.api('/activity',{method:'POST',body:JSON.stringify({minutes:[minute-10]})})
   await page.goto(vista.origin+'/settings/statistics')
   const stats=page.locator('.statistics-settings')
-  const resetButton=page.locator('.settings-header-actions').getByRole('button',{name:'Reset statistics',exact:true})
+  const resetButton=page.locator('.ui-modal-header-actions').getByRole('button',{name:'Reset statistics',exact:true})
   await expect(resetButton).toBeVisible()
   await expect(resetButton.locator('svg')).toHaveCount(1)
   await expect(stats.locator('.statistics-token-value')).toHaveAttribute('aria-label','Token usage details: 50 tokens')

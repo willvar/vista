@@ -1938,9 +1938,9 @@ test('debug mode defaults off and settings persist both diagnostic entrances acr
   const checkManager = async (enabled: boolean) => {
     await openAction('Manage sessions')
     const manager = page.locator('.session-manager-page:visible')
-    const stats = manager.locator('.session-manager-stats')
-    await expect(stats.locator(':scope > div')).toHaveCount(enabled ? 4 : 3)
-    await expect(stats.getByText('Workers', { exact: true })).toHaveCount(enabled ? 1 : 0)
+    const stats = manager.locator('.session-manager-controls')
+    await expect(stats.getByRole('radio')).toHaveCount(3)
+    await expect(stats.locator('.session-manager-workers')).toHaveCount(enabled ? 1 : 0)
     await stats.scrollIntoViewIfNeeded()
     await checkLayout(stats)
     await manager.getByRole('button', { name: /^(?:Close session manager|Back to conversation)$/, exact: true }).click()

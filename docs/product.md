@@ -28,8 +28,8 @@ Use these principles when changing the product:
 
 - First use connects a model provider in Settings. Built-in connections encapsulate provider setup; a custom connection explicitly selects its API format and authentication. Model availability depends on the connected service and account.
 - The first sent message creates a conversation and Worker. Open conversations have resident Workers, subject to admission and health checks. Navigating away or closing the browser leaves work running; closing a conversation stops its Worker and managed work but retains history. Deletion removes its stored conversation data.
-- The sidebar session menu offers renaming, confirmed closing, and confirmed deletion. Sidebar and conversation-header titles save inline when the editor loses focus.
-- Pinned sessions appear first in the sidebar and session manager. Pinned and unpinned groups each retain the existing descending creation-time order, with descending IDs breaking ties.
+- The sidebar session menu offers renaming, confirmed closing, and confirmed deletion. Sidebar, conversation-header, and session-manager titles save inline when the editor loses focus.
+- Pinned sessions appear first in the sidebar and session manager. The sidebar orders each group by descending creation time, with descending IDs breaking ties; the session manager applies its selected sort within each group.
 - The session manager requires confirmation before closing sessions with running tasks or background processes, including batches. Idle sessions close directly from the manager.
 - Main-thread execution is sequential per conversation. Other conversations, child tasks, and tools may run concurrently. Normal sends during execution steer at a decision boundary; explicitly queued sends wait. Cancellation and failure pause undelivered inputs; a fresh send after execution stops can start new work without releasing the old queue.
 - Restart restores Workers for open conversations and records unfinished work as interrupted. It does not resume interrupted model requests or replay tool side effects.
@@ -42,6 +42,12 @@ Use these principles when changing the product:
 See [architecture](./architecture.md) and [process lifecycle](./process-lifecycle.md) for runtime ownership.
 
 Manage sessions searches and filters the entire saved session list, loading one page of summaries at a time. It defaults to 10 per page, with 20/50/100 available; bulk selection applies to the current page.
+Status filters include the total, open, and closed counts; search, filters, and pagination stay visible while the list scrolls.
+Click a row’s title or information area to enter the conversation; closed sessions reopen before navigation. Pinning and the row menu remain separate actions; the menu offers renaming, closing, retrying an unavailable Worker, or confirmed deletion.
+The list toolbar offers Select and sorting by creation time or recent update, in either direction; newest creation first is the default. Sorting applies to all matching sessions before pagination, with pinned sessions first.
+Recent update uses the latest persisted conversation event, including messages, execution records and title changes, or creation time for an empty session; reading, pinning, opening and closing do not change it. Row timestamps show the selected time field.
+Select enters bulk selection mode, where clicking a row selects it and the action bar shows operations applicable to the selected sessions.
+Changing the search, status filter, sort, page, or page size clears the selection; Done exits selection mode.
 
 ## Context and resources
 

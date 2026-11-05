@@ -12,6 +12,8 @@ export interface ModalProps {
   footer?: null
   centered?: boolean
   closable?: boolean
+  closeLabel?: string
+  closeDisabled?: boolean
   keyboard?: boolean
   maskClosable?: boolean
   destroyOnHidden?: boolean

@@ -1,4 +1,5 @@
 import { test, expect } from './fixtures'
+import { selectSessions, sessionManagerAction } from './session-manager-actions'
 import type { Page } from '@playwright/test'
 
 test.beforeEach(async ({ vista }) => {
@@ -36,7 +37,7 @@ test('idle sidebar sessions require confirmation and manager sessions retain the
 
   await page.goto(`${vista.origin}/sessions`)
   const row = page.locator('.managed-session').filter({ hasText: 'Idle manager' })
-  await row.getByRole('button', { name: 'Close', exact: true }).click()
+  await sessionManagerAction(page, row, 'Close')
   await expect.poll(async () => (await vista.api('/sessions')).find((item: { id: string }) => item.id === managerSession.id)?.open).toBe(false)
   await expect(page.getByRole('dialog', { name: 'Close session?', exact: true })).toBeHidden()
   await expect(page.locator('.session-manager-page')).toBeVisible()
@@ -71,7 +72,7 @@ test('closing an executing session waits for confirmation and Escape leaves the 
     await page.goto(`${vista.origin}/sessions?session=${session.id}`)
     const manager = page.locator('.session-manager-page')
     const row = manager.locator('.managed-session').filter({ hasText: 'Executing task' })
-    await row.getByRole('button', { name: 'Close', exact: true }).click()
+    await sessionManagerAction(page, row, 'Close')
     await expect(confirmation).toBeVisible()
     await page.keyboard.press('Escape')
     await expect(confirmation).toBeHidden()
@@ -80,7 +81,7 @@ test('closing an executing session waits for confirmation and Escape leaves the 
     expect(stops).toEqual([])
     expect((await vista.api('/sessions')).find((item: { id: string }) => item.id === session.id)?.executing).toBe(true)
 
-    await row.getByRole('button', { name: 'Close', exact: true }).click()
+    await sessionManagerAction(page, row, 'Close')
     await confirmation.getByRole('button', { name: 'Close and stop', exact: true }).click()
     await expect(confirmation).toBeHidden()
     await expect.poll(async () => (await vista.api('/sessions')).find((item: { id: string }) => item.id === session.id)?.open).toBe(false)
@@ -116,13 +117,14 @@ test.describe('background work', () => {
     await page.goto(`${vista.origin}/sessions?session=${active.id}`)
     const manager = page.locator('.session-manager-page')
     const row = manager.locator('.managed-session').filter({ hasText: 'Background worker' })
-    await row.getByRole('button', { name: 'Close', exact: true }).click()
+    await sessionManagerAction(page, row, 'Close')
     const singleConfirmation = page.getByRole('dialog', { name: 'Close session?', exact: true })
     await expect(singleConfirmation).toBeVisible()
     expect(closeRequests).toEqual([])
     await singleConfirmation.getByRole('button', { name: 'Cancel', exact: true }).click()
     expect((await readJob()).status).toBe('running')
 
+    await selectSessions(manager)
     const activeCheckbox = manager.getByRole('checkbox', { name: 'Select Background worker', exact: true })
     const idleCheckbox = manager.getByRole('checkbox', { name: 'Select Idle selected', exact: true })
     await activeCheckbox.check()
@@ -152,7 +154,8 @@ test.describe('background work', () => {
     await expect(manager).toBeVisible()
 
     const modelCalls = vista.modelRequests.length
-    await row.getByRole('button', { name: 'Open', exact: true }).click()
+    await manager.getByRole('button', { name: 'Done', exact: true }).click()
+    await row.locator('.managed-session-entry').click()
     await expect(page.locator('article.assistant').last()).toContainText('Process started.')
     expect(['starting', 'running']).not.toContain((await readJob()).status)
     expect(vista.modelRequests).toHaveLength(modelCalls)

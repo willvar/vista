@@ -432,9 +432,6 @@ a {
   white-space: nowrap;
   font-size: calc(.77rem + 2px);
 }
-.modal-page>.conversation-header {
-  background: var(--surface);
-}
 .settings-content .ui-select,.model-form .ui-select {
   width: 100%;
 }
@@ -463,14 +460,14 @@ a {
   gap: 1rem;
 }
 .agent-instructions-footer>.ui-btn { margin-left: auto; }
-.agent-instructions-heading, .instructions-editor-heading {
+.agent-instructions-heading {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: .75rem;
 }
 .agent-instructions-heading label { margin: 0; }
-.agent-instructions-heading .ui-btn, .instructions-editor-heading .ui-btn { flex: none; }
+.agent-instructions-heading .ui-btn { flex: none; }
 .instructions-editor-wrap { overflow: hidden; }
 .instructions-editor-modal.ui-modal {
   top: 0;
@@ -513,45 +510,6 @@ a {
     padding: max(.75rem, env(safe-area-inset-top)) max(1rem, env(safe-area-inset-right)) max(.75rem, env(safe-area-inset-bottom)) max(1rem, env(safe-area-inset-left));
   }
   .instructions-editor-input.ui-input { padding: .75rem; }
-}
-.session-manager-stats {
-  display: grid;
-  grid-template-columns: repeat(3,minmax(0,1fr));
-  gap: .6rem;
-  margin-bottom: 1rem;
-}
-.session-manager-stats.debug-mode {
-  grid-template-columns: repeat(4,minmax(0,1fr));
-}
-.session-manager-controls {
-  display: flex;
-  gap: .7rem;
-}
-.session-manager-controls>.ui-input,.session-manager-controls>.ui-input-affix-wrapper {
-  flex: 1;
-}
-.session-manager-controls .ui-select {
-  width: 12rem;
-}
-.session-manager-count {
-  margin: .8rem 0;
-}
-.managed-session-info {
-  min-width: 0;
-  max-width: 100%;
-  overflow-wrap: anywhere;
-}
-.managed-session-info small,.managed-session-info strong {
-  display: block;
-}
-.managed-session-info .session-name {
-  display: block;
-  max-width: 100%;
-  padding: 0;
-}
-.managed-session .actions {
-  justify-content: flex-end;
-  flex: none;
 }
 .confirmation-content {
   max-height: min(360px,calc(50dvh - 8rem));
@@ -971,19 +929,6 @@ a {
   max-height: calc(100dvh - 2rem);
   overflow: auto;
 }
-.session-bulk-actions {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: .5rem;
-  margin: .7rem 0;
-}
-.session-bulk-actions .ui-checkbox-wrapper {
-  margin-inline-end: auto;
-}
-.managed-session-selection {
-  flex: none;
-}
 .message-output-loading,.message-output-error {
   margin-top: .5rem;
   font-size: calc(.75rem + 2px);
@@ -1160,7 +1105,6 @@ body {
 .session-indicator.failed,.session-indicator.unavailable { color: var(--danger); }
 .session-indicator .session-status-dot { background: currentColor; }
 .session-indicator.running .session-status-dot { background: var(--success); }
-.managed-session-info .session-state { display: flex; margin-top: 4px; }
 .mobile-sessions-trigger { position: relative; }
 .session-attention-dot { position: absolute; top: 4px; right: 3px; width: 7px; height: 7px; border-radius: 50%; background: var(--accent); }
 .conversation-header {
@@ -1337,14 +1281,11 @@ body {
 .settings-nav a>.settings-nav-chevron {
   display: none;
 }
-.settings-page .page-heading h2:focus {
-  outline: none;
-}
 .settings-nav a.active,.settings-nav a:hover {
   color: var(--accent);
   background: var(--selected);
 }
-.settings-content,.session-manager-content {
+.settings-content {
   flex: 1;
   min-width: 0;
   min-height: 0;
@@ -1574,30 +1515,6 @@ body {
 .debug-mode-setting>.ui-switch, .automatic-title-setting>.ui-switch, .model-visibility-setting>.ui-switch {
   flex: none;
   align-self: center;
-}
-.session-manager-stats>div {
-  display: flex;
-  flex-direction: column;
-  padding: 14px 16px;
-  border: 1px solid var(--border-subtle);
-  border-radius: 10px;
-  background: var(--surface-subtle);
-}
-.session-manager-stats strong {
-  font-size: 24px;
-  font-weight: 500;
-}
-.managed-session {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  padding: 16px;
-  margin: 0;
-  border: 0;
-  border-bottom: 1px solid var(--border-subtle);
-  border-radius: 0;
-  background: transparent;
 }
 .icon-close.ui-btn {
   color: var(--muted);
@@ -1883,35 +1800,6 @@ body {
   min-width: 0;
   min-height: 0;
   overflow: hidden;
-}
-.modal-page>.conversation-header {
-  padding: 20px 24px;
-  min-height: 72px;
-}
-.settings-page>.conversation-header>.page-heading {
-  flex: 1;
-  min-width: 0;
-}
-.settings-header-actions {
-  display: flex;
-  flex: none;
-  align-items: center;
-  gap: 4px;
-}
-.settings-header-button.ui-btn {
-  color: var(--muted);
-}
-.settings-header-button.ui-btn:not(:disabled):hover {
-  color: var(--text);
-  background: var(--hover);
-}
-.modal-page .page-heading>small {
-  display: none;
-}
-.modal-page .page-heading h2 {
-  font-size: 18px;
-  font-weight: 550;
-  letter-spacing: -.02em;
 }
 .settings-content h3 {
   font-weight: 600;
@@ -2217,7 +2105,7 @@ body {
     width: 100%;
     font-size: calc(.7rem + 2px);
   }
-  .settings-content,.session-manager-content {
+  .settings-content {
     padding: .7rem;
   }
   .settings-toolbar {
@@ -2229,19 +2117,6 @@ body {
   }
   .model-form {
     grid-template-columns: 1fr;
-  }
-  .session-manager-controls,.managed-session {
-    flex-direction: column;
-    align-items: stretch;
-  }
-  .session-manager-controls .ui-select {
-    width: 100%;
-  }
-  .managed-session .actions {
-    justify-content: flex-start;
-  }
-  .session-manager-stats,.session-manager-stats.debug-mode {
-    grid-template-columns: repeat(2,minmax(0,1fr));
   }
   .session-rename {
     flex-wrap: wrap;
@@ -2435,7 +2310,7 @@ body {
     color: var(--muted);
     font-size: 12px;
   }
-  .settings-content,.session-manager-content {
+  .settings-content {
     padding: 20px 18px 28px;
   }
   .welcome-toolbar {
@@ -2489,9 +2364,6 @@ body {
   }
   .appearance-preview {
     height: 60px;
-  }
-  .session-manager-controls {
-    gap: 10px;
   }
 }
 @media(max-height:520px) {
