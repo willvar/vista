@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onScopeDispose, ref, useId, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { Empty as AEmpty, Alert, Button, Modal, Select, Tabs, TabPane } from 'antdv-next'
+import { Empty as VEmpty, Alert, Button, Modal, Select, Tabs } from './ui'
 import { CopyOutlined } from '@antdv-next/icons'
 import type { StreamEvent } from './client/types'
 import type { TraceAgentHierarchyEntry } from './state/runTrace'
@@ -120,21 +120,18 @@ const details = computed(() => open.value ? JSON.stringify({ runId: props.runId,
 
 <template>
   <Modal :open="open" :title="t('traceDebugDetails')" centered :footer="null" :width="840" :style="{ maxWidth: 'calc(100vw - 32px)' }" destroy-on-hidden @cancel="open = false">
-    <Tabs v-model:active-key="tab">
-      <TabPane key="events" :tab="t('traceDebugEvents')" />
-      <TabPane key="http" :tab="t('traceModelRequests')" />
-    </Tabs>
+    <Tabs v-model:active-key="tab" :items="[{ value: 'events', label: t('traceDebugEvents') }, { value: 'http', label: t('traceModelRequests') }]" />
     <pre v-if="tab === 'events'" class="trace-debug-body">{{ details }}</pre>
     <div v-else class="trace-model-diagnostics">
       <p class="trace-diagnostic-hint">{{ t('traceModelRequestsHint') }}</p>
       <div class="trace-diagnostic-controls">
         <label :for="selectId" class="visually-hidden">{{ t('traceSelectRequest') }}</label>
         <Select :id="selectId" :value="selectedId || undefined" :options="options" :aria-label="t('traceSelectRequest')" :placeholder="t('traceSelectRequest')" show-search option-filter-prop="label" @change="select" />
-        <Button :disabled="!record || loading" :title="t('traceCopyRecord')" :aria-label="t('traceCopyRecord')" @click="copy"><CopyOutlined /></Button>
+        <Button class="icon-button" :disabled="!record || loading" :title="t('traceCopyRecord')" :aria-label="t('traceCopyRecord')" @click="copy"><CopyOutlined /></Button>
       </div>
       <Alert v-if="error" type="error" :message="error" role="alert" />
       <Button v-if="error" :disabled="loading" @click="selectedId && !record ? readRecord() : load()">{{ t('retry') }}</Button>
-      <a-empty v-if="!loading && !records.length && !error" class="vista-empty-state" :description="t('traceNoModelRequests')" role="status" />
+      <v-empty v-if="!loading && !records.length && !error" class="vista-empty-state" :description="t('traceNoModelRequests')" role="status" />
       <div v-if="record" class="trace-model-record" :aria-busy="loading">
         <Alert v-if="record.truncated" type="warning" :message="t('traceCaptureTruncated')" show-icon />
         <Alert v-if="record.error" type="error" :message="record.error" />
@@ -160,5 +157,5 @@ const details = computed(() => open.value ? JSON.stringify({ runId: props.runId,
 </template>
 
 <style scoped>
-.trace-debug-body,.trace-model-body{margin:0;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere;font-size:15px;line-height:1.6;color:var(--text-secondary)}.trace-debug-body,.trace-model-diagnostics{max-height:65dvh;overflow:auto}.trace-diagnostic-hint{color:var(--muted);margin:0 0 12px}.trace-diagnostic-controls{display:flex;gap:8px;margin-bottom:12px}.trace-diagnostic-controls :deep(.ant-select){flex:1;min-width:0}.trace-model-record h4{margin:16px 0 8px}.trace-model-body{padding:12px;background:var(--surface-subtle);border:1px solid var(--border);border-radius:8px;max-height:45dvh}.trace-http-timings{margin-top:12px}.trace-http-timings summary{cursor:pointer;color:var(--text-secondary);padding:4px 0}.trace-model-record :deep(.ant-alert){margin-top:12px}
+.trace-debug-body,.trace-model-body{margin:0;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere;font-size:15px;line-height:1.6;color:var(--text-secondary)}.trace-debug-body,.trace-model-diagnostics{max-height:65dvh;overflow:auto}.trace-diagnostic-hint{color:var(--muted);margin:0 0 12px}.trace-diagnostic-controls{display:flex;gap:8px;margin-bottom:12px}.trace-diagnostic-controls :deep(.ui-select){flex:1;min-width:0}.trace-model-record h4{margin:16px 0 8px}.trace-model-body{padding:12px;background:var(--surface-subtle);border:1px solid var(--border);border-radius:8px;max-height:45dvh}.trace-http-timings{margin-top:12px}.trace-http-timings summary{cursor:pointer;color:var(--text-secondary);padding:4px 0}.trace-model-record :deep(.ui-alert){margin-top:12px}
 </style>

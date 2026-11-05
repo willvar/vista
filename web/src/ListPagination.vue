@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Pagination, Select } from 'antdv-next'
+import { Pagination, Select } from './ui'
 import { useId } from 'vue'
 import { useI18n } from 'vue-i18n'
 
@@ -21,6 +21,6 @@ const sizes = [10, 20, 50, 100].map(value => ({ label: String(value), value }))
 </template>
 
 <style scoped>
-.list-pagination{display:flex;align-items:center;justify-content:flex-end;flex-wrap:wrap;gap:.5rem .75rem;min-width:0;padding:.75rem 0;background:var(--surface);flex:none}.list-pagination>small{margin-inline-end:auto;color:var(--text-secondary)}.list-pagination :deep(.ant-pagination){margin:0;display:flex;flex-wrap:wrap;row-gap:.25rem}.list-page-size{display:flex;align-items:center;gap:.5rem;flex:none;font-size:var(--font-size-body)}.list-page-size :deep(.ant-select){width:76px}
-@media(max-width:480px){.list-pagination>small{flex-basis:100%}.list-pagination{justify-content:space-between;gap:.4rem}.list-page-size{gap:.3rem}.list-page-size :deep(.ant-select){width:66px}}
+.list-pagination{display:flex;align-items:center;justify-content:flex-end;flex-wrap:wrap;gap:.5rem .75rem;min-width:0;padding:.75rem 0;background:var(--surface);flex:none}.list-pagination>small{margin-inline-end:auto;color:var(--text-secondary)}.list-pagination :deep(.ui-pagination){margin:0;display:flex;flex-wrap:wrap;row-gap:.25rem}.list-page-size{display:flex;align-items:center;gap:.5rem;flex:none;font-size:var(--font-size-body)}.list-page-size :deep(.ui-select){width:76px}
+@media(max-width:480px){.list-pagination>small{flex-basis:100%}.list-pagination{justify-content:space-between;gap:.4rem}.list-page-size{gap:.3rem}.list-page-size :deep(.ui-select){width:66px}}
 </style>

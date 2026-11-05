@@ -2,6 +2,18 @@ import type en from './en.ts'
 
 
 export default {
+  "uiShowValue": "内容を表示",
+  "uiHideValue": "内容を非表示",
+  "uiIncrease": "値を増やす",
+  "uiDecrease": "値を減らす",
+  "uiToggleOptions": "選択肢を開閉",
+  "uiClear": "選択をクリア",
+  "uiResultsCount": "検索結果：{count} 件",
+  "uiLoading": "読み込み中…",
+  "uiPagination": "ページ切り替え",
+  "uiPreviousPage": "前のページ",
+  "uiNextPage": "次のページ",
+  "uiPage": "{page} ページ",
   "statisticsSettings": "利用状況",
   "statisticsIntro": "利用する時間帯と消費量の変化を確認できます。",
   "statisticsPeriod": "集計期間",

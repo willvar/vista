@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { Alert as AAlert, Button as AButton, Spin as ASpin } from 'antdv-next'
+import { Alert as VAlert, Button as VButton, Spin as VSpin } from './ui'
 import { DeleteOutlined } from '@antdv-next/icons'
 import { useWorkspace } from './composables/useWorkspace'
 import { formatDateTime } from './ui/datetime.ts'
@@ -85,16 +85,16 @@ const cards = computed(() => [
     <p class="storage-description">{{ t('resourceStorageRetention') }}</p>
     <div class="storage-actions">
       <ConfirmPopover :show="cleanOpen" :message="cleanMessage" :cancel-text="t('cancel')" :confirm-text="t('delete')" :busy="busy" :error="error" popover-class="resource-clean-popover" @update:show="cleanOpen = $event; error = ''" @confirm="start('clean')">
-        <template #trigger><a-button :disabled="busy || !status.stats?.cleanableCount"><template #icon><DeleteOutlined aria-hidden="true" /></template>{{ t('resourceStorageClean') }}</a-button></template>
+        <template #trigger><v-button :disabled="busy || !status.stats?.cleanableCount"><template #icon><DeleteOutlined aria-hidden="true" /></template>{{ t('resourceStorageClean') }}</v-button></template>
       </ConfirmPopover>
     </div>
     <div class="storage-progress" role="status" aria-live="polite">
-      <template v-if="busy"><a-spin size="small" /><span>{{ t(status.action === 'clean' ? 'resourceStorageCleaning' : 'resourceStorageScanning') }}<template v-if="status.action === 'clean' && status.deletedCount"> {{ t('resourceStorageFreed', { count: status.deletedCount, size: size(status.deletedBytes) }) }}</template></span></template>
+      <template v-if="busy"><v-spin /><span>{{ t(status.action === 'clean' ? 'resourceStorageCleaning' : 'resourceStorageScanning') }}<template v-if="status.action === 'clean' && status.deletedCount"> {{ t('resourceStorageFreed', { count: status.deletedCount, size: size(status.deletedBytes) }) }}</template></span></template>
       <span v-else-if="(status.action === 'clean' || status.deletedCount) && !error">{{ t('resourceStorageFreed', { count: status.deletedCount, size: size(status.deletedBytes) }) }}</span>
     </div>
     <small v-if="status.stats" class="storage-description">{{ t('resourceStorageScannedAt', { time: formatDateTime(status.stats.scannedAt, locale) }) }}</small>
-    <a-alert v-if="error && !cleanOpen" type="error" show-icon :title="error" />
-    <a-button v-if="error && !cleanOpen" :disabled="busy" @click="start('scan')">{{ t('retry') }}</a-button>
+    <v-alert v-if="error && !cleanOpen" type="error" show-icon :message="error" />
+    <v-button v-if="error && !cleanOpen" :disabled="busy" @click="start('scan')">{{ t('retry') }}</v-button>
   </div>
 </template>
 

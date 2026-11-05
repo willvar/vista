@@ -98,7 +98,7 @@ async function mockSettings(page: Page, origin: string) {
 
 async function chooseMode(page: Page, option: string) {
   await page.getByRole('combobox', { name: 'Model selection', exact: true }).click()
-  await page.locator('.ant-select-dropdown:visible').getByText(option, { exact: true }).click()
+  await page.locator('.ui-select-dropdown:visible').getByText(option, { exact: true }).click()
 }
 
 async function settleLayout(page: Page) {
@@ -108,7 +108,7 @@ async function settleLayout(page: Page) {
 
 async function expectSettingsLayout(page: Page) {
   const layout = await page.locator('.settings-page:visible').evaluate(section => {
-    const modal = section.closest('.ant-modal-container')!
+    const modal = section.closest('.ui-modal-container')!
     const bounds = modal.getBoundingClientRect()
     const content = section.querySelector('.settings-content')!
     return {
@@ -146,8 +146,8 @@ async function expectConfirmationLayer(page: Page, selector: string) {
   const layer = await popup.evaluate(element => {
     const box = element.getBoundingClientRect()
     return {
-      insideModal: !!element.closest('.ant-modal'),
-      zIndex: Number(getComputedStyle(element).zIndex),
+      insideModal: !!element.closest('.ui-modal'),
+      zIndex: Number(getComputedStyle(element.closest('[data-scope="popover"][data-part="positioner"]')!).zIndex),
       x: box.x, y: box.y, right: box.right, bottom: box.bottom,
       viewportWidth: innerWidth, viewportHeight: innerHeight,
       horizontalOverflow: element.scrollWidth - element.clientWidth,
@@ -182,6 +182,7 @@ test('automatic mode exposes scoped learning statistics and resets without distu
   await chooseMode(page, 'Automatic')
   await expect.poll(() => fixture.preferences.lastMode).toBe('auto')
   await expect(stats).toBeVisible()
+  await expect(stats.getByRole('tabpanel', { name: 'Speed', exact: true })).toBeVisible()
   await expect(stats).toContainText('Shared across users · last 30 days')
   await expect.poll(() => fixture.statsReads()).toBe(1)
   await expect(stats.locator('.selection-stats-model')).toHaveCount(3)
@@ -202,11 +203,11 @@ test('automatic mode exposes scoped learning statistics and resets without distu
   await expect(stats).toContainText('No matching models.')
   await search.fill('')
   await page.getByRole('combobox', { name: 'Input length', exact: true }).click()
-  await page.locator('.ant-select-dropdown:visible').getByText('Up to 4K tokens', { exact: true }).click()
+  await page.locator('.ui-select-dropdown:visible').getByText('Up to 4K tokens', { exact: true }).click()
   await expect(metric('Median first text')).toHaveText('1.25 s')
   await expect(stats.locator('[data-model-id^="a-model"]')).toContainText('Not measured')
   await page.getByRole('combobox', { name: 'Input length', exact: true }).click()
-  await page.locator('.ant-select-dropdown:visible').getByText('All input lengths', { exact: true }).click()
+  await page.locator('.ui-select-dropdown:visible').getByText('All input lengths', { exact: true }).click()
   await settleLayout(page)
   await expectSettingsLayout(page)
   await stats.getByRole('heading', { name: 'Learning data', exact: true }).scrollIntoViewIfNeeded()
@@ -221,7 +222,7 @@ test('automatic mode exposes scoped learning statistics and resets without distu
   await expect.poll(() => fixture.statsReads()).toBe(3)
 
   await stats.getByRole('tab', { name: 'Quality', exact: true }).click()
-  await expect(stats).toContainText('Only your feedback · latest 200 ratings')
+  await expect(stats.getByRole('tabpanel', { name: 'Quality', exact: true })).toContainText('Only your feedback · latest 200 ratings')
   await expect(page.getByRole('combobox', { name: 'Input length', exact: true })).toHaveCount(0)
   await expect(metric('Score / 100')).toHaveText('46.8')
   await expect(metric('Thumbs up')).toHaveText('9')

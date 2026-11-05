@@ -2,6 +2,18 @@ import type en from './en.ts'
 
 
 export default {
+  "uiShowValue": "显示内容",
+  "uiHideValue": "隐藏内容",
+  "uiIncrease": "增加数值",
+  "uiDecrease": "减少数值",
+  "uiToggleOptions": "展开或收起选项",
+  "uiClear": "清除选择",
+  "uiResultsCount": "共 {count} 个结果",
+  "uiLoading": "正在加载…",
+  "uiPagination": "分页",
+  "uiPreviousPage": "上一页",
+  "uiNextPage": "下一页",
+  "uiPage": "第 {page} 页",
   "statisticsSettings": "使用情况",
   "statisticsIntro": "了解使用时段与消耗变化。",
   "statisticsPeriod": "统计周期",

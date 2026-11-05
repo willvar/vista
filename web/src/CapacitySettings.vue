@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { Alert as AAlert, Button as AButton, InputNumber as AInputNumber, Select as ASelect } from 'antdv-next'
+import { Alert as VAlert, Button as VButton, InputNumber as VInputNumber, Select as VSelect } from './ui'
 import type { VistaClient } from './client/vista'
 import type { MemoryConfig, ServerStatus } from './client/types'
 
@@ -56,15 +56,15 @@ async function save() {
     <div v-if="status?.capacity" class="memory-usage" role="status">{{ t('memoryUsage', { used: Math.ceil(status.capacity.residentBytes / 1048576), limit: status.capacity.config.budgetMiB }) }}</div>
     <form @submit.prevent="save">
       <label for="memory-preset">{{ t('memoryBudget') }}</label>
-      <a-select id="memory-preset" :value="preset" :options="options" :disabled="busy || !saved" :aria-label="t('memoryBudget')" @update:value="choose($event as number | string)" />
+      <v-select id="memory-preset" :value="preset" :options="options" :disabled="busy || !saved" :aria-label="t('memoryBudget')" @update:value="choose($event as number | string)" />
       <div v-if="preset === 'custom'" class="memory-custom">
-        <label>{{ t('memoryBudget') }} (MiB)<a-input-number v-model:value="draft.budgetMiB" :min="256" :max="1048576" :precision="0" :disabled="busy" :aria-label="t('memoryBudget')" /></label>
-        <label>{{ t('memoryWorkerLimit') }} (MiB)<a-input-number v-model:value="draft.workerMiB" :min="128" :max="draft.budgetMiB" :precision="0" :disabled="busy" :aria-label="t('memoryWorkerLimit')" /></label>
-        <label>{{ t('memoryConcurrentRuns') }}<a-input-number v-model:value="draft.concurrentRuns" :min="1" :max="128" :precision="0" :disabled="busy" :aria-label="t('memoryConcurrentRuns')" /></label>
+        <label>{{ t('memoryBudget') }} (MiB)<v-input-number v-model:value="draft.budgetMiB" :min="256" :max="1048576" :precision="0" :disabled="busy" :aria-label="t('memoryBudget')" /></label>
+        <label>{{ t('memoryWorkerLimit') }} (MiB)<v-input-number v-model:value="draft.workerMiB" :min="128" :max="draft.budgetMiB" :precision="0" :disabled="busy" :aria-label="t('memoryWorkerLimit')" /></label>
+        <label>{{ t('memoryConcurrentRuns') }}<v-input-number v-model:value="draft.concurrentRuns" :min="1" :max="128" :precision="0" :disabled="busy" :aria-label="t('memoryConcurrentRuns')" /></label>
       </div>
       <p v-else class="memory-limits">{{ t('memoryWorkerLimit') }}: {{ draft.workerMiB }} MiB · {{ t('memoryConcurrentRuns') }}: {{ draft.concurrentRuns }}</p>
-      <a-alert v-if="error" type="error" :message="error" role="alert" />
-      <a-button html-type="submit" :disabled="!dirty || !valid" :loading="busy">{{ t('saveChanges') }}</a-button>
+      <v-alert v-if="error" type="error" :message="error" role="alert" />
+      <v-button type="submit" :disabled="!dirty || !valid" :loading="busy">{{ t('saveChanges') }}</v-button>
     </form>
   </section>
 </template>
@@ -74,6 +74,6 @@ async function save() {
 .memory-settings p { color: var(--muted); line-height: 1.6; margin: .5rem 0 .75rem; }
 .memory-settings form, .memory-custom, .memory-custom label { display: flex; flex-direction: column; gap: .5rem; }
 .memory-usage { margin: .75rem 0; font-variant-numeric: tabular-nums; }
-.memory-settings .ant-input-number { width: 100%; }
-.memory-settings .ant-btn { align-self: flex-start; }
+.memory-settings .ui-input-number { width: 100%; }
+.memory-settings .ui-btn { align-self: flex-start; }
 </style>

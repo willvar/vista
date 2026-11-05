@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { Popover } from 'antdv-next'
+import { Popover } from './ui'
 import { useEscapeDismiss } from './composables/useEscape'
 import type { ContextUsage } from './client/types'
 
@@ -23,7 +23,7 @@ const tokens = computed(() => `${number.format(props.usage.tokens / 1000)}K`)
 <style scoped>
 .context-usage{flex:none;padding:6px 4px;border:0;border-radius:6px;background:transparent;color:var(--muted);font:inherit;font-size:12px;font-variant-numeric:tabular-nums;white-space:nowrap;cursor:pointer}
 .context-usage:hover{background:var(--hover);color:var(--text)}
-.context-usage:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.context-usage:focus-visible{outline:var(--focus-outline, 2px solid var(--accent));outline-offset:2px}
 .context-usage-hint{max-width:min(20rem,calc(100vw - 3rem));margin:0;line-height:1.6;overflow-wrap:anywhere}
 @media(pointer:coarse){.context-usage{min-height:44px}}
 </style>

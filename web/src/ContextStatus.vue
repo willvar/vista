@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { Button, Popover } from 'antdv-next'
+import { Button, Popover } from './ui'
 import { LoadingOutlined, CheckCircleOutlined, ExclamationCircleOutlined, UpOutlined, CodeOutlined } from '@antdv-next/icons'
 import { useEscapeDismiss } from './composables/useEscape'
 import MessageActions from './MessageActions.vue'
@@ -55,8 +55,8 @@ const statusLabel = computed(() => phase.value ? t(phase.value === 'compacting' 
 .context-status:hover{background:var(--hover)}
 .background-processes-trigger{display:flex;align-items:center;gap:.4rem;flex:none;padding:.4rem;border:0;border-radius:8px;background:transparent;color:var(--muted);font:inherit;font-size:12px;cursor:pointer}
 .background-processes-trigger:hover{background:var(--hover);color:var(--text)}
-.background-processes-trigger:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
-.context-status:focus-visible,.compaction-cancel.ant-btn:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.background-processes-trigger:focus-visible{outline:var(--focus-outline, 2px solid var(--accent));outline-offset:2px}
+.context-status:focus-visible,.compaction-cancel.ui-btn:focus-visible{outline:var(--focus-outline, 2px solid var(--accent));outline-offset:2px}
 .context-icon{display:grid;place-items:center;flex:none;width:20px;height:20px;font-size:16px}
 .compacting .context-icon{width:34px;height:34px;border-radius:10px;background:var(--accent-soft);color:var(--accent);font-size:18px}
 .compacted .context-icon{color:var(--success)}
@@ -67,17 +67,17 @@ const statusLabel = computed(() => phase.value ? t(phase.value === 'compacting' 
 .compacting .context-title{font-size:14px;font-weight:600}
 .context-description{display:block;margin-top:.2rem;font-size:13px}
 .context-disclosure{flex:none;font-size:10px;opacity:.7}
-.compaction-cancel.ant-btn{flex:none;height:32px;padding-inline:.75rem;border-color:var(--border-strong);border-radius:8px;background:transparent;color:var(--text-secondary);box-shadow:none}
-.compaction-cancel.ant-btn:not(:disabled):hover{border-color:var(--border-strong);background:var(--hover);color:var(--text)}
-.compaction-cancel.ant-btn:disabled{opacity:.45}
+.compaction-cancel.ui-btn{flex:none;border-color:var(--border-strong);border-radius:8px;background:transparent;color:var(--text-secondary);box-shadow:none}
+.compaction-cancel.ui-btn:not(:disabled):hover{border-color:var(--border-strong);background:var(--hover);color:var(--text)}
+.compaction-cancel.ui-btn:disabled{opacity:.45}
 .context-status-detail{max-width:22rem;overflow-wrap:anywhere;font-size:14px;line-height:1.6}
 .context-status-detail p{margin:.4rem 0 0}
 .compaction-error{white-space:pre-wrap;overflow-wrap:anywhere;font-size:13px;max-width:28rem}
 @media(max-width:600px){.context-status-panel{gap:.4rem;padding:.35rem .45rem;flex-wrap:wrap}.context-status{gap:.5rem}.background-processes-trigger{margin-inline-start:auto}}
-@media(pointer:coarse){.context-status,.background-processes-trigger{min-height:44px}.compaction-cancel.ant-btn{min-height:44px}}
+@media(pointer:coarse){.context-status,.background-processes-trigger{min-height:44px}.compaction-cancel.ui-btn{min-height:44px}}
 @media(prefers-reduced-motion:reduce){.context-icon :deep(svg){animation:none!important}}
 @media(max-height:520px){.context-status-panel{padding-block:.2rem}.compacting .context-icon{width:28px;height:28px;border-radius:8px;font-size:16px}.context-description{margin-top:.1rem;font-size:12px}}
 </style>
 <style>
-.context-status-popover .ant-popover-inner{max-height:calc(100dvh - 2rem);overflow:auto;overscroll-behavior:contain}
+.context-status-popover .ui-popover-inner{max-height:calc(100dvh - 2rem);overflow:auto;overscroll-behavior:contain}
 </style>

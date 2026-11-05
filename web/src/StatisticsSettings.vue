@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { Alert as AAlert, Button as AButton, Empty as AEmpty, Popover, Select as ASelect } from 'antdv-next'
+import { Alert as VAlert, Button as VButton, Empty as VEmpty, Popover, Select as VSelect } from './ui'
 import { useWorkspace } from './composables/useWorkspace'
 import { useStatistics } from './composables/useStatistics'
 import { useEscapeDismiss } from './composables/useEscape'
@@ -82,10 +82,10 @@ const legacyPeriod = computed(() => data.value && calendarDate(data.value.days[0
     <div class="statistics-toolbar">
       <p>{{ t('statisticsIntro') }}</p>
       <label for="statistics-period" class="visually-hidden">{{ t('statisticsPeriod') }}</label>
-      <a-select id="statistics-period" v-model:value="period" :options="periodOptions" :aria-label="t('statisticsPeriod')" />
+      <v-select id="statistics-period" v-model:value="period" :options="periodOptions" :aria-label="t('statisticsPeriod')" />
     </div>
-    <a-alert v-if="error" type="error" role="alert" :message="error" />
-    <a-button v-if="error" @click="refresh">{{ t('retry') }}</a-button>
+    <v-alert v-if="error" type="error" role="alert" :message="error" />
+    <v-button v-if="error" @click="refresh">{{ t('retry') }}</v-button>
     <p v-if="loading && !data" role="status">{{ t('statisticsLoading') }}</p>
     <template v-if="data">
       <dl class="statistics-totals">
@@ -112,7 +112,7 @@ const legacyPeriod = computed(() => data.value && calendarDate(data.value.days[0
           </dd>
         </div>
       </dl>
-      <a-empty v-if="!hasData" class="vista-empty-state statistics-empty" :description="t('statisticsEmpty')" role="status" />
+      <v-empty v-if="!hasData" class="vista-empty-state statistics-empty" :description="t('statisticsEmpty')" role="status" />
       <template v-else>
         <figure class="statistics-figure statistics-trend" :aria-label="t('statisticsTrend')">
           <div class="statistics-chart-heading"><h3>{{ t('statisticsTrend') }}</h3><div class="statistics-legend"><span><i class="token-key"></i>{{ t('statisticsTokenTotal') }}</span><span><i class="activity-key"></i>{{ t('statisticsActiveMinutes') }}</span></div></div>
@@ -155,7 +155,7 @@ const legacyPeriod = computed(() => data.value && calendarDate(data.value.days[0
 .statistics-settings > * { flex-shrink:0; }
 .statistics-toolbar { display:flex; align-items:center; justify-content:space-between; gap:1rem; }
 .statistics-toolbar p { margin:0; color:var(--text-secondary); flex:1; }
-.statistics-toolbar :deep(.ant-select) { width:10rem; min-width:9rem; max-width:100%; flex:0 0 auto; }
+.statistics-toolbar :deep(.ui-select) { width:10rem; min-width:9rem; max-width:100%; flex:0 0 auto; }
 .statistics-totals { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:1rem; margin:0; }
 .statistics-totals > div { min-width:0; padding:1rem; border-radius:var(--radius-lg,12px); background:var(--surface-subtle); }
 .statistics-totals dt { color:var(--text-secondary); font-size:.875rem; }
@@ -164,7 +164,7 @@ const legacyPeriod = computed(() => data.value && calendarDate(data.value.days[0
 .statistics-token-value { display:block; width:100%; border:0; padding:0; background:transparent; color:inherit; font:inherit; font-size:.9rem; font-weight:400; line-height:1.5; text-align:start; word-break:keep-all; overflow-wrap:anywhere; cursor:pointer; border-radius:4px; }
 .statistics-token-value strong { font-size:1.65rem; font-weight:600; }
 .statistics-token-value:hover { color:var(--accent); }
-.statistics-token-value:focus-visible { outline:2px solid var(--accent); outline-offset:4px; }
+.statistics-token-value:focus-visible { outline:var(--focus-outline, 2px solid var(--accent)); outline-offset:4px; }
 .statistics-token-details { display:grid; gap:.5rem; max-width:24rem; color:var(--text-secondary); line-height:1.6; overflow-wrap:anywhere; }
 .statistics-token-details p { margin:0; }
 .statistics-exact-tokens { color:var(--text); font-size:1rem; font-weight:600; font-variant-numeric:tabular-nums; }
@@ -194,7 +194,7 @@ const legacyPeriod = computed(() => data.value && calendarDate(data.value.days[0
 .statistics-heat-cell,.statistics-heat-legend i { background:var(--surface-subtle); border:0; border-radius:3px; }
 .statistics-heat-cell { aspect-ratio:1; padding:0; cursor:crosshair; min-width:0; transition:filter .15s ease; }
 .statistics-heat-cell:hover { filter:brightness(1.15); }
-.statistics-heat-cell:focus-visible { outline:2px solid var(--accent); outline-offset:1px; }
+.statistics-heat-cell:focus-visible { outline:var(--focus-outline, 2px solid var(--accent)); outline-offset:1px; }
 .statistics-settings [data-level="1"] { background:color-mix(in srgb,var(--accent) 24%,var(--surface-subtle)); }
 .statistics-settings [data-level="2"] { background:color-mix(in srgb,var(--accent) 46%,var(--surface-subtle)); }
 .statistics-settings [data-level="3"] { background:color-mix(in srgb,var(--accent) 72%,var(--surface-subtle)); }

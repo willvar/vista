@@ -3,7 +3,7 @@ import { computed, onUnmounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { ArrowLeftOutlined } from '@antdv-next/icons'
-import { Empty as AEmpty, Alert as AAlert, Button as AButton, Checkbox as ACheckbox, Input as AInput, Modal as AModal, Select as ASelect } from 'antdv-next'
+import { Empty as VEmpty, Alert as VAlert, Button as VButton, Checkbox as VCheckbox, Input as VInput, Modal as VModal, Select as VSelect } from '../ui'
 import WorkspaceModal from '../WorkspaceModal.vue'
 import ConfirmPopover from '../ConfirmPopover.vue'
 import SessionIndicators from '../SessionIndicators.vue'
@@ -121,37 +121,37 @@ function localTime(utc: string) {
 </script>
 
 <template>
-<WorkspaceModal :open="true" :width="{ xs: 'calc(100vw - 2rem)', sm: 760, xl: 960 }" :keyboard="!deleteTarget && !batchDeleteOpen && !closeConfirmation && !busy" @cancel="!busy && !batchDeleteOpen && !closeConfirmation && backToWorkspace()"><section class="workspace session-manager-page modal-page">
-        <div class="conversation-header"><a-button type="text" class="page-back" :aria-label="t('backToConversation')" :disabled="busy" @click="backToWorkspace"><ArrowLeftOutlined /></a-button><div class="page-heading"><small>{{ t('sessionManagerHeading') }}</small><h2>{{ t('manageSessions') }}</h2></div><a-button type="text" class="modal-close icon-close" :aria-label="t('closeSessionManager')" :disabled="busy" @click="backToWorkspace">×</a-button></div>
+<WorkspaceModal :open="true" width="min(960px, calc(100vw - 2rem))" :keyboard="!deleteTarget && !batchDeleteOpen && !closeConfirmation && !busy" @cancel="!busy && !batchDeleteOpen && !closeConfirmation && backToWorkspace()"><section class="workspace session-manager-page modal-page">
+        <div class="conversation-header"><v-button variant="text" class="page-back" :aria-label="t('backToConversation')" :disabled="busy" @click="backToWorkspace"><ArrowLeftOutlined /></v-button><div class="page-heading"><small>{{ t('sessionManagerHeading') }}</small><h2>{{ t('manageSessions') }}</h2></div><v-button variant="text" class="modal-close icon-close" :aria-label="t('closeSessionManager')" :disabled="busy" @click="backToWorkspace">×</v-button></div>
         <div class="session-manager-content">
           <p>{{ t('sessionManagerHint') }}</p>
           <div class="session-manager-stats" :class="{ 'debug-mode': debugMode }"><div><strong>{{ totalSessions }}</strong><small>{{ t('allSessions') }}</small></div><div><strong>{{ serverStatus?.sessions.open ?? openSessions.length }}</strong><small>{{ t('openSessions') }}</small></div><div><strong>{{ closedSessions }}</strong><small>{{ t('closedSessions') }}</small></div><div v-if="debugMode"><strong>{{ serverStatus?.sessions?.workers ?? 0 }}</strong><small>{{ t('workers') }}</small></div></div>
-          <div class="session-manager-controls"><a-input v-model:value="sessionSearch" :placeholder="t('searchSessions')" :aria-label="t('searchSessions')" :disabled="busy || !!renamingSessionID" allow-clear /><a-select v-model:value="sessionFilter" :options="[{ label: t('allSessions'), value: 'all' }, { label: t('openSessions'), value: 'open' }, { label: t('closedSessions'), value: 'closed' }]" :aria-label="t('sessionFilter')" :disabled="busy || !!renamingSessionID" /></div>
-          <a-alert v-if="archiveError" type="error" show-icon :message="archiveError" />
+          <div class="session-manager-controls"><v-input v-model:value="sessionSearch" :placeholder="t('searchSessions')" :aria-label="t('searchSessions')" :disabled="busy || !!renamingSessionID" allow-clear /><v-select v-model:value="sessionFilter" :options="[{ label: t('allSessions'), value: 'all' }, { label: t('openSessions'), value: 'open' }, { label: t('closedSessions'), value: 'closed' }]" :aria-label="t('sessionFilter')" :disabled="busy || !!renamingSessionID" /></div>
+          <v-alert v-if="archiveError" type="error" show-icon :message="archiveError" />
           <p v-else-if="archiveLoading" role="status">{{ t('loadingSessions') }}</p>
           <div v-if="managedSessions.length" class="session-bulk-actions">
-            <a-checkbox :checked="allVisibleSelected" :indeterminate="selectedSessions.length > 0 && !allVisibleSelected" :disabled="busy" @update:checked="selectAllVisible">{{ t('selectAllVisible') }}</a-checkbox>
+            <v-checkbox :checked="allVisibleSelected" :indeterminate="selectedSessions.length > 0 && !allVisibleSelected" :disabled="busy" @update:checked="selectAllVisible">{{ t('selectAllVisible') }}</v-checkbox>
             <span role="status">{{ t('selectedSessionCount', { count: selectedSessions.length }) }}</span>
-            <a-button v-if="selectedSessions.length" type="text" size="small" :disabled="busy" @click="selectAllVisible(false)">{{ t('clearSelection') }}</a-button>
-            <a-button size="small" :disabled="busy || !selectedClosed.length" @click="batchAction('open')">{{ t('openSelected') }} ({{ selectedClosed.length }})</a-button>
-            <a-button size="small" :disabled="busy || !selectedOpen.length" @click="closeSelected">{{ t('closeSelected') }} ({{ selectedOpen.length }})</a-button>
-            <a-button size="small" danger :disabled="busy || !selectedSessions.length" @click="batchDeleteOpen = true">{{ t('deleteSelected') }}</a-button>
+            <v-button v-if="selectedSessions.length" variant="text" :disabled="busy" @click="selectAllVisible(false)">{{ t('clearSelection') }}</v-button>
+            <v-button :disabled="busy || !selectedClosed.length" @click="batchAction('open')">{{ t('openSelected') }} ({{ selectedClosed.length }})</v-button>
+            <v-button :disabled="busy || !selectedOpen.length" @click="closeSelected">{{ t('closeSelected') }} ({{ selectedOpen.length }})</v-button>
+            <v-button danger :disabled="busy || !selectedSessions.length" @click="batchDeleteOpen = true">{{ t('deleteSelected') }}</v-button>
           </div>
-          <a-alert v-if="batchFailures.length" type="error" show-icon :message="t('batchSessionFailures', { count: batchFailures.length })" class="session-batch-error">
+          <v-alert v-if="batchFailures.length" type="error" show-icon :message="t('batchSessionFailures', { count: batchFailures.length })" class="session-batch-error">
             <template #description><ul><li v-for="failure in batchFailures" :key="failure.id">{{ failure.title }}: {{ failure.message }}</li></ul></template>
-          </a-alert>
-          <a-empty v-if="!managedSessions.length && !archiveLoading && !archiveError" class="vista-empty-state session-manager-empty" :description="t(totalSessions ? 'noMatchingSessions' : 'noSessionsYet')" role="status" />
-          <div v-for="item in managedSessions" :key="item.id" class="managed-session" :class="{ 'managed-session-selected': selectedIDs.has(item.id) }"><div class="managed-session-main"><a-checkbox class="managed-session-selection" :checked="selectedIDs.has(item.id)" :aria-label="t('selectSession', { title: displaySessionTitle(item) })" :disabled="busy" @update:checked="selectSession(item.id, $event)" /><div class="managed-session-info"><form v-if="renamingSessionID === item.id" class="session-rename" @submit.prevent="saveRename(item)"><a-input v-model:value="sessionTitleDraft" :maxlength="200" :aria-label="t('sessionTitle')" /><a-button html-type="submit" size="small" type="primary" :disabled="busy || !sessionTitleDraft.trim()">{{ t('saveChanges') }}</a-button><a-button size="small" @click="cancelRename">{{ t('cancel') }}</a-button></form><template v-else><a-button v-if="item.open" type="text" class="session-name" :disabled="busy" @click="router.push(`/sessions/${item.id}`)">{{ displaySessionTitle(item) }}</a-button><strong v-else>{{ displaySessionTitle(item) }}</strong></template><small>{{ item.open ? t('open') : t('closed') }} · {{ localTime(item.createdAt) }}</small><SessionIndicators :session="item" :worker-available="serverStatus ? workerAvailable(item.id) : undefined" /></div></div><div class="actions"><a-button size="small" :disabled="busy" @click="beginRename(item)">{{ t('editTitle') }}</a-button><a-button v-if="item.open" size="small" :disabled="busy" @click="action(item,'close')">{{ t('close') }}</a-button><a-button v-else size="small" type="primary" :disabled="busy" @click="action(item,'open')">{{ t('open') }}</a-button><a-button v-if="item.open && !workerAvailable(item.id)" size="small" :disabled="busy" @click="action(item,'retry')">{{ t('retryWorker') }}</a-button><confirm-popover :show="deleteTarget?.id === item.id" :message="t('deleteSessionConfirm', { title: displaySessionTitle(item) })" :cancel-text="t('cancel')" :confirm-text="t('delete')" :busy="busy" popover-class="session-delete-popover" @update:show="updateSessionDelete($event, item)" @confirm="confirmDelete"><template #trigger><a-button size="small" danger :disabled="busy">{{ t('delete') }}</a-button></template></confirm-popover></div></div>
+          </v-alert>
+          <v-empty v-if="!managedSessions.length && !archiveLoading && !archiveError" class="vista-empty-state session-manager-empty" :description="t(totalSessions ? 'noMatchingSessions' : 'noSessionsYet')" role="status" />
+          <div v-for="item in managedSessions" :key="item.id" class="managed-session" :class="{ 'managed-session-selected': selectedIDs.has(item.id) }"><div class="managed-session-main"><v-checkbox class="managed-session-selection" :checked="selectedIDs.has(item.id)" :aria-label="t('selectSession', { title: displaySessionTitle(item) })" :disabled="busy" @update:checked="selectSession(item.id, $event)" /><div class="managed-session-info"><form v-if="renamingSessionID === item.id" class="session-rename" @submit.prevent="saveRename(item)"><v-input v-model:value="sessionTitleDraft" :maxlength="200" :aria-label="t('sessionTitle')" /><v-button type="submit" variant="primary" :disabled="busy || !sessionTitleDraft.trim()">{{ t('saveChanges') }}</v-button><v-button @click="cancelRename">{{ t('cancel') }}</v-button></form><template v-else><v-button v-if="item.open" variant="text" class="session-name" :disabled="busy" @click="router.push(`/sessions/${item.id}`)">{{ displaySessionTitle(item) }}</v-button><strong v-else>{{ displaySessionTitle(item) }}</strong></template><small>{{ item.open ? t('open') : t('closed') }} · {{ localTime(item.createdAt) }}</small><SessionIndicators :session="item" :worker-available="serverStatus ? workerAvailable(item.id) : undefined" /></div></div><div class="actions"><v-button :disabled="busy" @click="beginRename(item)">{{ t('editTitle') }}</v-button><v-button v-if="item.open" :disabled="busy" @click="action(item,'close')">{{ t('close') }}</v-button><v-button v-else variant="primary" :disabled="busy" @click="action(item,'open')">{{ t('open') }}</v-button><v-button v-if="item.open && !workerAvailable(item.id)" :disabled="busy" @click="action(item,'retry')">{{ t('retryWorker') }}</v-button><confirm-popover :show="deleteTarget?.id === item.id" :message="t('deleteSessionConfirm', { title: displaySessionTitle(item) })" :cancel-text="t('cancel')" :confirm-text="t('delete')" :busy="busy" popover-class="session-delete-popover" @update:show="updateSessionDelete($event, item)" @confirm="confirmDelete"><template #trigger><v-button danger :disabled="busy">{{ t('delete') }}</v-button></template></confirm-popover></div></div>
         </div>
         <ListPagination :page="page" :page-size="pageSize" :total="sessionPage?.total ?? 0" :disabled="busy || !!renamingSessionID" @change="changePage" />
       </section></WorkspaceModal>
-<a-modal :open="batchDeleteOpen" centered :z-index="1200" width="min(420px, calc(100vw - 2rem))"
+<v-modal :open="batchDeleteOpen" centered :z-index="1200" width="min(420px, calc(100vw - 2rem))"
   :title="t('deleteSelected')" :ok-text="t('delete')" :cancel-text="t('cancel')"
   :confirm-loading="busy" :ok-button-props="{ danger: true, disabled: busy || !selectedSessions.length }"
   :cancel-button-props="{ disabled: busy }" :closable="!busy" :keyboard="!busy" :mask-closable="!busy"
   @cancel="cancelBatchDelete" @ok="batchAction('delete')">
   <p class="batch-delete-confirmation">{{ t('deleteSelectedSessionsConfirm', { count: selectedSessions.length }) }}</p>
-</a-modal>
+</v-modal>
 </template>
 
 <style scoped>

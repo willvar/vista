@@ -1,4 +1,5 @@
 @import "./ui/tokens.css" ;
+@import "./ui/components.css";
 * {
   box-sizing: border-box;
 }
@@ -51,6 +52,18 @@ a {
   flex-wrap: wrap;
   gap: .4rem;
 }
+.icon-button.ui-btn {
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: var(--button-icon-size);
+  min-width: var(--button-icon-size);
+  height: var(--button-icon-size);
+  padding: 0;
+  border-radius: 8px;
+  font-size: 18px;
+  line-height: 1;
+}
 .conversation-header small,.welcome-intro>small {
   color: var(--muted);
   font-size: calc(.65rem + 2px);
@@ -61,17 +74,13 @@ a {
   display: grid;
   gap: .2rem;
 }
-.sidebar-navigation .ant-btn {
+.sidebar-navigation .ui-btn {
   justify-content: flex-start;
   width: 100%;
   min-width: 0;
 }
 .sessions-panel li:focus-visible {
-  outline: 2px solid var(--accent);
-}
-.session-close {
-  grid-column: 2;
-  grid-row: 1;
+  outline: var(--focus-outline, 2px solid var(--accent));
 }
 .session-retry {
   grid-column: 1/-1;
@@ -92,10 +101,6 @@ a {
   min-width: 0;
 }
 .conversation-header .mobile-sessions-trigger {
-  flex: none;
-  width: 32px;
-  height: 32px;
-  padding: 0;
   align-self: center;
 }
 .session-heading-title,.session-rename {
@@ -104,7 +109,7 @@ a {
   gap: .4rem;
   min-width: 0;
 }
-.session-rename .ant-input {
+.session-rename .ui-input {
   min-width: 0;
 }
 .session-setup-notice {
@@ -119,14 +124,14 @@ a {
   align-self: center;
   margin: .4rem;
 }
-.vista-empty-state.ant-empty {
+.vista-empty-state.ui-empty {
   margin: 0;
   padding: clamp(1rem, 4dvh, 2rem) 1rem;
   min-width: 0;
   color: var(--muted);
   font-size: var(--font-size-body);
 }
-.vista-empty-state .ant-empty-description {
+.vista-empty-state .ui-empty-description {
   max-width: 30rem;
   margin-inline: auto;
   color: var(--muted);
@@ -134,20 +139,20 @@ a {
   white-space: normal;
   overflow-wrap: anywhere;
 }
-.vista-empty-state .ant-empty-description h3 {
+.vista-empty-state .ui-empty-description h3 {
   margin: 0 0 .5rem;
   color: var(--text);
   font-size: 18px;
   font-weight: 600;
   line-height: 1.6;
 }
-.vista-empty-state .ant-empty-description p {
+.vista-empty-state .ui-empty-description p {
   margin: 0;
 }
-.vista-empty-state-compact.ant-empty {
+.vista-empty-state-compact.ui-empty {
   padding: 1rem .5rem;
 }
-.conversation-empty.ant-empty {
+.conversation-empty.ui-empty {
   margin: auto;
 }
 .message-space {
@@ -177,17 +182,17 @@ a {
 .live-response {
   order: 3;
 }
-.messages .antd-bubble-content {
+.messages .ui-bubble-content {
   min-width: 0;
   overflow-wrap: anywhere;
   font-size: inherit;
   line-height: inherit;
 }
-.messages .antd-bubble-body {
+.messages .ui-bubble-body {
   min-width: 0;
   max-width: 100%;
 }
-.messages .antd-bubble-content-borderless {
+.messages .ui-bubble-content-borderless {
   padding: 0;
 }
 .markdown {
@@ -216,7 +221,10 @@ a {
   max-width: 100%;
 }
 .message-actions {
+  display: inline-flex;
+  align-items: center;
   flex: none;
+  gap: 8px;
 }
 .message-model-results {
   display: flex;
@@ -234,10 +242,10 @@ a {
   color: var(--muted);
   font-size: calc(.73rem + 2px);
 }
-.run-trace>.antd-think {
+.run-trace>.ui-think {
   width: 100%;
 }
-.run-trace .antd-thought-chain {
+.run-trace .ui-thought-chain {
   padding: .5rem 0;
 }
 .trace-output {
@@ -301,32 +309,25 @@ a {
 .checklist li.blocked {
   color: var(--danger);
 }
-.jump-latest.ant-btn {
+.jump-latest.ui-btn {
   position: absolute;
   z-index: 4;
   left: 50%;
   bottom: 10px;
   transform: translateX(-50%);
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 32px;
-  height: 28px;
-  padding: 0;
   border: 1px solid var(--border);
-  border-radius: 9px;
   background: var(--surface);
   box-shadow: 0 4px 14px var(--shadow-color);
   color: var(--muted);
   backdrop-filter: blur(5px);
 }
-.jump-latest.ant-btn:hover {
+.jump-latest.ui-btn:hover {
   border-color: var(--accent);
   background: var(--hover);
   color: var(--accent);
 }
-.jump-latest.ant-btn:focus-visible {
-  outline: 2px solid var(--accent);
+.jump-latest.ui-btn:focus-visible {
+  outline: var(--focus-outline, 2px solid var(--accent));
   outline-offset: 2px;
 }
 .jump-latest-enter-active,.jump-latest-leave-active {
@@ -336,7 +337,7 @@ a {
   opacity: 0;
   transform: translateX(-50%) translateY(6px) scale(.88);
 }
-.sender-card .ant-input,.sender-card textarea {
+.sender-card .ui-input,.sender-card textarea {
   box-shadow: none!important;
   border: 0!important;
   outline: none!important;
@@ -354,20 +355,8 @@ a {
 }
 .sender-attach {
   position: relative;
-  display: grid;
-  place-items: center;
-  width: 32px;
-  height: 32px;
-  border-radius: 8px;
-  color: var(--text-secondary);
-  cursor: pointer;
-}
-.sender-attach:hover {
-  background: var(--hover);
-}
-.sender-attach svg {
-  width: 18px;
-  height: 18px;
+  display: inline-flex;
+  flex: none;
 }
 .sender-attach input {
   position: absolute;
@@ -408,7 +397,7 @@ a {
   object-fit: cover;
   border-radius: 7px;
 }
-.sender-attachment span {
+.sender-attachment > span {
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -419,7 +408,7 @@ a {
 .modal-page>.conversation-header {
   background: var(--surface);
 }
-.settings-content .ant-select,.model-form .ant-select {
+.settings-content .ui-select,.model-form .ui-select {
   width: 100%;
 }
 .configured-provider:last-child {
@@ -429,7 +418,7 @@ a {
   flex: 1;
   min-width: 0;
 }
-.model-form>.ant-alert,.model-form>small,.model-form>.actions,.provider-help,.model-list-field {
+.model-form>.ui-alert,.model-form>small,.model-form>.actions,.provider-help,.model-list-field {
   grid-column: 1/-1;
 }
 .model-form>small { font-size: var(--font-size-small); }
@@ -446,7 +435,7 @@ a {
   justify-content: space-between;
   gap: 1rem;
 }
-.agent-instructions-footer>.ant-btn { margin-left: auto; }
+.agent-instructions-footer>.ui-btn { margin-left: auto; }
 .agent-instructions-heading, .instructions-editor-heading {
   display: flex;
   align-items: center;
@@ -454,9 +443,9 @@ a {
   gap: .75rem;
 }
 .agent-instructions-heading label { margin: 0; }
-.agent-instructions-heading .ant-btn, .instructions-editor-heading .ant-btn { flex: none; }
+.agent-instructions-heading .ui-btn, .instructions-editor-heading .ui-btn { flex: none; }
 .instructions-editor-wrap { overflow: hidden; }
-.instructions-editor-modal.ant-modal {
+.instructions-editor-modal.ui-modal {
   top: 0;
   width: 100% !important;
   max-width: 100%;
@@ -464,7 +453,7 @@ a {
   margin: 0;
   padding: 0;
 }
-.instructions-editor-modal .ant-modal-container {
+.instructions-editor-modal .ui-modal-container {
   display: flex;
   flex-direction: column;
   height: 100%;
@@ -473,8 +462,8 @@ a {
   border-radius: 0;
   background: var(--surface);
 }
-.instructions-editor-modal .ant-modal-header { flex: none; }
-.instructions-editor-modal .ant-modal-body {
+.instructions-editor-modal .ui-modal-header { flex: none; }
+.instructions-editor-modal .ui-modal-body {
   display: flex;
   flex: 1;
   min-height: 0;
@@ -483,7 +472,7 @@ a {
 }
 .instructions-file-location { margin: 0; color: var(--muted); font-size: var(--font-size-body); line-height: 1.6; }
 .instructions-file-location code { display: block; font: var(--font-size-small)/1.6 var(--font-mono, monospace); overflow-wrap: anywhere; }
-.instructions-editor-input.ant-input {
+.instructions-editor-input.ui-input {
   flex: 1;
   min-height: 0;
   padding: 1rem 1.25rem;
@@ -493,10 +482,10 @@ a {
   overscroll-behavior: contain;
 }
 @media (max-width: 600px), (max-height: 520px) {
-  .instructions-editor-modal .ant-modal-container {
+  .instructions-editor-modal .ui-modal-container {
     padding: max(.75rem, env(safe-area-inset-top)) max(1rem, env(safe-area-inset-right)) max(.75rem, env(safe-area-inset-bottom)) max(1rem, env(safe-area-inset-left));
   }
-  .instructions-editor-input.ant-input { padding: .75rem; }
+  .instructions-editor-input.ui-input { padding: .75rem; }
 }
 .session-manager-stats {
   display: grid;
@@ -511,10 +500,10 @@ a {
   display: flex;
   gap: .7rem;
 }
-.session-manager-controls>.ant-input,.session-manager-controls>.ant-input-affix-wrapper {
+.session-manager-controls>.ui-input,.session-manager-controls>.ui-input-affix-wrapper {
   flex: 1;
 }
-.session-manager-controls .ant-select {
+.session-manager-controls .ui-select {
   width: 12rem;
 }
 .session-manager-count {
@@ -529,6 +518,7 @@ a {
   display: block;
 }
 .managed-session-info .session-name {
+  display: block;
   max-width: 100%;
   padding: 0;
 }
@@ -545,18 +535,12 @@ a {
   margin: 0;
   line-height: 1.5;
 }
-.confirmation-popover .ant-popconfirm-buttons {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: flex-end;
-  gap: 4px;
-}
-.confirmation-popover .ant-popconfirm-buttons button {
+.confirmation-buttons button {
   white-space: normal;
   height: auto;
-  min-height: 24px;
+  min-height: var(--control-height, 36px);
 }
-.confirmation-popover .ant-alert {
+.confirmation-popover .ui-alert {
   margin-top: .6rem;
 }
 .mobile-sessions-trigger,.mobile-sessions-close {
@@ -565,14 +549,14 @@ a {
 .welcome p {
   color: var(--muted);
 }
-.workspace-splitter.ant-splitter {
+.workspace-splitter.ui-splitter {
   min-width: 0;
   min-height: 0;
   flex: 1;
   font: inherit;
   color: inherit;
 }
-.workspace-splitter.ant-splitter>.ant-splitter-panel {
+.workspace-splitter.ui-splitter>.ui-splitter-panel {
   display: flex;
   min-width: 0;
   min-height: 0;
@@ -586,11 +570,11 @@ a {
 .conversation-split-panel>.workspace {
   flex: 1;
 }
-.run-trace .antd-think-status-wrapper {
+.run-trace .ui-think-status-wrapper {
   max-width: 100%;
   min-width: 0;
 }
-.run-trace .antd-think-status-text {
+.run-trace .ui-think-status-text {
   display: inline-flex;
   align-items: center;
   flex-wrap: wrap;
@@ -598,20 +582,20 @@ a {
   gap: .7rem;
   overflow-wrap: anywhere;
 }
-.run-trace .antd-think-status-text>span {
+.run-trace .ui-think-status-text>span {
   min-width: 0;
   max-width: 100%;
 }
-.run-trace .antd-think-status-icon,.run-trace .antd-think-status-down-icon {
+.run-trace .ui-think-status-icon,.run-trace .ui-think-status-down-icon {
   flex: none;
 }
-.run-trace .antd-think-status-text small {
+.run-trace .ui-think-status-text small {
   font-weight: 400;
 }
-.messages .antd-bubble-footer {
+.messages .ui-bubble-footer {
   margin-top: .5rem;
 }
-.messages article.user .antd-bubble-footer {
+.messages article.user .ui-bubble-footer {
   margin-top: .2rem;
 }
 .user .message-actions {
@@ -621,25 +605,25 @@ a {
 .user:hover .message-actions,.user:focus-within .message-actions {
   opacity: 1;
 }
-.run-trace .antd-thought-chain-node-box {
+.run-trace .ui-thought-chain-node-box {
   min-width: 0;
   flex: 1;
 }
-.run-trace .antd-thought-chain-node-icon {
+.run-trace .ui-thought-chain-node-icon {
   flex: none;
 }
-.run-trace .antd-thought-chain-node-description {
+.run-trace .ui-thought-chain-node-description {
   overflow-wrap: anywhere;
 }
-.run-trace .antd-thought-chain-node-title {
+.run-trace .ui-thought-chain-node-title {
   min-width: 0;
   overflow-wrap: anywhere;
 }
-.run-trace .antd-thought-chain-node-title>span {
+.run-trace .ui-thought-chain-node-title>span {
   min-width: 0;
   overflow-wrap: anywhere;
 }
-.run-trace .antd-thought-chain-node-collapse-icon {
+.run-trace .ui-thought-chain-node-collapse-icon {
   flex: none;
   align-self: flex-start;
   display: inline-flex;
@@ -652,17 +636,14 @@ a {
 .provider-heading>div:first-child {
   flex: 1 1 12rem;
 }
-.confirmation-popover .ant-popconfirm-message-text {
-  min-width: 0;
-}
 .messages.empty {
   display: flex;
   flex-direction: column;
 }
-.general-setting>.ant-select {
+.general-setting>.ui-select {
   max-width: 24rem;
 }
-.general-setting>.ant-switch {
+.general-setting>.ui-switch {
   align-self: flex-start;
 }
 .sender-options {
@@ -735,10 +716,7 @@ a {
   align-items: flex-start;
   gap: 1px;
 }
-.pending-input-actions .ant-btn {
-  width: 26px;
-  height: 26px;
-  padding: 0;
+.pending-input-actions .ui-btn {
   color: var(--muted);
 }
 .pending-input-edit {
@@ -748,16 +726,6 @@ a {
 .pending-input-edit .actions {
   margin-top: .4rem;
   justify-content: flex-end;
-}
-.reply-feedback.ant-btn {
-  width: 24px;
-  height: 24px;
-  padding: 0;
-  color: var(--muted);
-}
-.reply-feedback.selected.ant-btn {
-  color: var(--accent);
-  background: var(--accent-soft);
 }
 .feedback-invitation p {
   line-height: 1.7;
@@ -793,7 +761,7 @@ a {
   background: var(--hover);
 }
 :is(.message-actions,.message-feedback-choices) .reply-action:focus-visible {
-  outline: 2px solid var(--accent);
+  outline: var(--focus-outline, 2px solid var(--accent));
   outline-offset: 2px;
 }
 :is(.message-actions,.message-feedback-choices) .reply-action:disabled {
@@ -810,34 +778,6 @@ a {
 .message-feedback-choices .reply-action {
   width: 32px;
   height: 32px;
-}
-.message-actions .reply-copy .antd-actions-copy-actions,.message-actions .reply-copy .ant-typography-actions {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 100%;
-  height: 100%;
-}
-.message-actions .reply-copy .antd-actions-copy-copy,.message-actions .reply-copy .ant-typography-copy {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  flex: none;
-  width: 24px;
-  height: 24px;
-  margin: 0;
-  padding: 0;
-  border: 0;
-  border-radius: 6px;
-  background: transparent;
-  color: inherit;
-  font-size: inherit;
-  line-height: 1;
-}
-.message-actions .reply-copy .antd-actions-copy-copy:hover,.message-actions .reply-copy .ant-typography-copy:hover {
-  background: transparent;
-  color: inherit;
-  text-decoration: none;
 }
 .conversation-history {
   position: relative;
@@ -884,11 +824,11 @@ a {
   gap: .5rem;
   margin: .8rem 0;
 }
-.selection-stats-controls>.ant-input-affix-wrapper {
+.selection-stats-controls>.ui-input-affix-wrapper {
   flex: 1 1 12rem;
   min-width: 0;
 }
-.selection-stats-controls>.ant-select {
+.selection-stats-controls>.ui-select {
   flex: 1 1 10rem;
   width: auto;
   min-width: 0;
@@ -945,7 +885,7 @@ a {
   font-size: calc(.65rem + 2px);
   color: var(--muted);
 }
-.model-selection-stats .ant-pagination {
+.model-selection-stats .ui-pagination {
   margin-top: .8rem;
 }
 .workspace:not(.modal-page)>.conversation-header .session-heading-title h2 {
@@ -955,7 +895,7 @@ a {
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.session-heading-title>.ant-btn,.session-rename>.ant-btn {
+.session-heading-title>.ui-btn,.session-rename>.ui-btn {
   flex: none;
 }
 .welcome-intro {
@@ -981,22 +921,14 @@ a {
   gap: .3rem;
   min-width: 0;
 }
-.header-status-trigger.ant-btn {
-  display: grid;
-  place-items: center;
-  flex: none;
-  width: 32px;
-  height: 32px;
-  padding: 0;
-  border-radius: 8px;
+.header-status-trigger.ui-btn {
   color: var(--muted);
-  font-size: 20px;
 }
-.header-status-trigger.ant-btn:hover {
+.header-status-trigger.ui-btn:hover {
   background: var(--hover);
 }
-.header-status-trigger.ant-btn:focus-visible {
-  outline: 2px solid var(--accent);
+.header-status-trigger.ui-btn:focus-visible {
+  outline: var(--focus-outline, 2px solid var(--accent));
   outline-offset: 2px;
 }
 .header-status-detail {
@@ -1008,7 +940,7 @@ a {
 .header-status-detail p {
   margin: .4rem 0 0;
 }
-.header-status-popover .ant-popover-inner {
+.header-status-popover .ui-popover-inner {
   max-height: calc(100dvh - 2rem);
   overflow: auto;
 }
@@ -1019,7 +951,7 @@ a {
   gap: .5rem;
   margin: .7rem 0;
 }
-.session-bulk-actions .ant-checkbox-wrapper {
+.session-bulk-actions .ui-checkbox-wrapper {
   margin-inline-end: auto;
 }
 .managed-session-selection {
@@ -1070,9 +1002,12 @@ a {
   line-height: 1.6;
   overflow-wrap: anywhere;
 }
-.run-failure-help .ant-btn {
+.run-failure-help .ui-btn {
+  display: inline;
   height: auto;
+  min-height: 0;
   padding: 0;
+  border: 0;
   font: inherit;
   line-height: inherit;
   white-space: normal;
@@ -1090,7 +1025,7 @@ a {
   border-radius: 10px;
   background: var(--surface);
 }
-.provider-login .ant-alert {
+.provider-login .ui-alert {
   width: 100%;
 }
 .provider-device-code {
@@ -1169,7 +1104,7 @@ body {
   border-color: transparent;
   color: var(--accent);
 }
-.sessions-panel li:hover {
+.sessions-panel li:hover,.sessions-panel li:has(.session-menu[aria-expanded=true]) {
   background: var(--hover);
 }
 .session-name {
@@ -1242,7 +1177,7 @@ body {
   font-size: var(--font-size-body);
   color: var(--text);
 }
-.messages .antd-bubble-content-filled {
+.messages .ui-bubble-content-filled {
   background: var(--surface-subtle);
   border: 1px solid var(--border-subtle);
   border-radius: 16px;
@@ -1323,6 +1258,7 @@ body {
   padding: 0;
 }
 .sender-options .composer-model {
+  flex: 0 1 auto;
   width: max-content;
   min-width: 0;
   max-width: min(32rem,100%);
@@ -1474,9 +1410,6 @@ body {
   align-items: center;
   gap: 4px 8px;
 }
-.model-discovery-fallback .ant-btn-link {
-  padding: 0;
-}
 .appearance-settings-content,.personalization-settings-content {
   display: flex;
   flex-direction: column;
@@ -1599,7 +1532,7 @@ body {
   gap: 10px;
   min-width: 0;
 }
-.locale-settings .ant-select {
+.locale-settings .ui-select {
   width: 100%;
 }
 .debug-mode-setting, .automatic-title-setting, .model-visibility-setting {
@@ -1611,7 +1544,7 @@ body {
   flex: 1;
   min-width: 0;
 }
-.debug-mode-setting>.ant-switch, .automatic-title-setting>.ant-switch, .model-visibility-setting>.ant-switch {
+.debug-mode-setting>.ui-switch, .automatic-title-setting>.ui-switch, .model-visibility-setting>.ui-switch {
   flex: none;
   align-self: center;
 }
@@ -1639,17 +1572,7 @@ body {
   border-radius: 0;
   background: transparent;
 }
-.icon-close.ant-btn {
-  display: inline-flex;
-  flex: none;
-  align-items: center;
-  justify-content: center;
-  width: 30px;
-  height: 30px;
-  padding: 0;
-  font-size: 18px;
-  line-height: 1;
-  border-radius: 7px;
+.icon-close.ui-btn {
   color: var(--muted);
 }
 .welcome {
@@ -1660,12 +1583,6 @@ body {
   padding: 64px 28px 28px;
   text-align: center;
   background: var(--canvas);
-}
-.welcome .mobile-sessions-trigger {
-  position: static;
-  width: 40px;
-  height: 40px;
-  padding: 0;
 }
 .welcome-icon {
   display: grid;
@@ -1696,7 +1613,7 @@ body {
 .workspace:not(.modal-page)>.conversation-header {
   padding-block: 10px;
 }
-.run-trace .antd-thought-chain-node-content {
+.run-trace .ui-thought-chain-node-content {
   color: var(--text-secondary);
   font-size: 17px;
   line-height: 1.7;
@@ -1741,7 +1658,7 @@ body {
   font-size: 20px;
   font-weight: 600;
 }
-.sidebar-new-conversation.ant-btn {
+.sidebar-new-conversation.ui-btn {
   flex: none;
   justify-content: flex-start;
   width: 100%;
@@ -1754,24 +1671,9 @@ body {
   color: var(--accent);
   background: var(--accent-soft);
 }
-.sidebar-new-conversation.ant-btn:not(:disabled):hover {
+.sidebar-new-conversation.ui-btn:not(:disabled):hover {
   color: var(--accent);
   background: var(--hover);
-}
-.sidebar-search.ant-input-affix-wrapper {
-  flex: none;
-  border-color: transparent;
-  box-shadow: none;
-  background: transparent;
-  padding-inline: 12px;
-}
-.sidebar-search.ant-input-affix-wrapper:hover,.sidebar-search.ant-input-affix-wrapper:focus-within {
-  background: var(--surface);
-  border-color: var(--border);
-}
-.sidebar-search .ant-input-prefix {
-  color: var(--muted);
-  margin-right: 8px;
 }
 .sidebar-section-label {
   display: flex;
@@ -1793,6 +1695,25 @@ body {
   border-radius: 50%;
   background: var(--warning);
 }
+.session-close {
+  grid-column: 2;
+  grid-row: 1;
+}
+.sidebar-search.ui-input-affix-wrapper {
+  flex: none;
+  border-color: transparent;
+  box-shadow: none;
+  background: transparent;
+  padding-inline: 12px;
+}
+.sidebar-search.ui-input-affix-wrapper:hover,.sidebar-search.ui-input-affix-wrapper:focus-within {
+  background: var(--surface);
+  border-color: var(--border);
+}
+.sidebar-search .ui-input-prefix {
+  color: var(--muted);
+  margin-right: 8px;
+}
 .sessions-panel .session-close {
   opacity: 0;
   width: 24px;
@@ -1802,7 +1723,8 @@ body {
 .session-card:hover .session-close,.session-card:focus-within .session-close {
   opacity: 1;
 }
-.sidebar-navigation .ant-btn {
+@media(max-width:830px), (hover:none) { .sessions-panel .session-close { opacity: 1; } }
+.sidebar-navigation .ui-btn {
   height: auto;
   min-height: 46px;
   padding-block: 11px;
@@ -1845,15 +1767,17 @@ body {
 .session-heading-title h2 {
   font-weight: 500;
 }
-.session-heading-title>.ant-btn {
+.session-heading-title>.ui-btn {
   color: var(--faint);
-  font-size: 14px;
 }
-.workspace-splitter .ant-splitter-bar-dragger::before {
+.workspace-splitter .ui-splitter-bar-dragger::before {
   background: transparent;
 }
-.workspace-splitter .ant-splitter-bar-dragger:hover::before {
+.workspace-splitter .ui-splitter-bar-dragger:hover::before {
   background: var(--border-strong);
+}
+.workspace-splitter .ui-splitter-bar-dragger:focus-visible::before {
+  background: var(--accent);
 }
 /* Conversation and composer */
 .markdown :not(pre)>code {
@@ -1885,20 +1809,20 @@ body {
 .markdown li {
   margin-block: 4px;
 }
-.sender-card .antd-sender-input {
+.sender-card .ui-sender-input {
   font-size: 16px;
   line-height: 1.7;
 }
-.sender-card .antd-sender-content {
+.sender-card .ui-sender-content {
   padding: 18px 20px 12px;
 }
-.sender-card .antd-sender-footer {
+.sender-card .ui-sender-footer {
   padding: 0 12px 12px;
 }
 .sender-card .sender-picker:hover {
   background: var(--hover)!important;
 }
-.sender-card .composer-send.ant-btn {
+.sender-card .composer-send.ui-btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -1914,21 +1838,19 @@ body {
   color: var(--primary-text);
   box-shadow: none;
 }
-.sender-card .composer-send.ant-btn:disabled {
+.sender-card .composer-send.ui-btn:disabled {
   background: var(--hover);
   color: var(--faint);
   border-color: transparent;
 }
-.sender-card .composer-send.ant-btn:not(:disabled):hover {
+.sender-card .composer-send.ui-btn:not(:disabled):hover {
   background: var(--primary-hover);
   color: var(--primary-text);
 }
 .sender-card .sender-attach-label {
   display: none;
 }
-.sender-card .sender-attach .ant-btn {
-  width: 32px;
-  padding: 0;
+.sender-card .sender-attach .ui-btn {
   color: var(--muted);
 }
 .pending-inputs {
@@ -1957,20 +1879,10 @@ body {
   align-items: center;
   gap: 4px;
 }
-.settings-header-button.ant-btn {
-  display: inline-flex;
-  flex: none;
-  align-items: center;
-  justify-content: center;
-  width: 32px;
-  height: 32px;
-  padding: 0;
-  border-radius: 8px;
-  font-size: 18px;
-  line-height: 1;
+.settings-header-button.ui-btn {
   color: var(--muted);
 }
-.settings-header-button.ant-btn:not(:disabled):hover {
+.settings-header-button.ui-btn:not(:disabled):hover {
   color: var(--text);
   background: var(--hover);
 }
@@ -2054,13 +1966,12 @@ body {
 .settings-content .provider-heading strong {
   font-weight: 550;
 }
-.settings-content .provider-heading .ant-btn {
+.settings-content .provider-heading .ui-btn {
   border-color: transparent;
   background: transparent;
   box-shadow: none;
-  padding-inline: 6px;
 }
-.settings-content .provider-heading .ant-btn:hover {
+.settings-content .provider-heading .ui-btn:hover {
   background: var(--hover);
 }
 .settings-content .general-setting+.general-setting,
@@ -2163,20 +2074,20 @@ body {
   background: #679efe;
 }
 :where(button,a,input,textarea,[tabindex]):focus-visible {
-  outline: 2px solid var(--accent);
+  outline: var(--focus-outline, 2px solid var(--accent));
   outline-offset: 3px;
 }
-.ant-btn.ant-btn-primary:not(.ant-btn-dangerous) {
+.ui-btn.ui-btn-primary:not(.ui-btn-dangerous) {
   background: var(--primary);
   border-color: var(--primary);
   color: var(--primary-text);
 }
-.ant-btn.ant-btn-primary:not(.ant-btn-dangerous):not(:disabled):hover {
+.ui-btn.ui-btn-primary:not(.ui-btn-dangerous):not(:disabled):hover {
   background: var(--primary-hover);
   border-color: var(--primary-hover);
   color: var(--primary-text);
 }
-.ant-btn.ant-btn-primary:not(.ant-btn-dangerous):disabled {
+.ui-btn.ui-btn-primary:not(.ui-btn-dangerous):disabled {
   background: var(--hover);
   border-color: var(--border-subtle);
   color: var(--faint);
@@ -2186,9 +2097,7 @@ body {
   color: var(--text);
 }
 @media(hover:none) and (pointer:coarse) {
-  .jump-latest.ant-btn {
-    width: 40px;
-    height: 40px;
+  .jump-latest.ui-btn {
     bottom: 8px;
   }
 }
@@ -2198,10 +2107,10 @@ body {
   }
 }
 @media(max-width:830px) {
-  .workspace-splitter.ant-splitter>.sidebar-split-panel {
+  .workspace-splitter.ui-splitter>.sidebar-split-panel {
     overflow: visible;
   }
-  .workspace-splitter>.ant-splitter-bar {
+  .workspace-splitter>.ui-splitter-bar {
     display: none;
   }
   .sidebar-split-panel>.sessions-panel {
@@ -2255,12 +2164,8 @@ body {
     flex: 1;
   }
   .sender-options {
-    flex: 1 0 100%;
-  }
-  .sender-options .composer-model {
-    flex: 1 1 9rem;
-    width: auto;
-    min-width: 0;
+    flex: 1 1 auto;
+    flex-wrap: nowrap;
   }
   .composer-submit {
     width: 100%;
@@ -2310,7 +2215,7 @@ body {
     flex-direction: column;
     align-items: stretch;
   }
-  .session-manager-controls .ant-select {
+  .session-manager-controls .ui-select {
     width: 100%;
   }
   .managed-session .actions {
@@ -2337,15 +2242,6 @@ body {
   .sender-footer {
     gap: .35rem;
   }
-  .sender-options {
-    flex: 1 1 12rem;
-    flex-wrap: wrap;
-  }
-  .sender-options .composer-model {
-    flex: 1 1 9rem;
-    width: auto;
-    min-width: 0;
-  }
   .composer-submit {
     width: auto;
     max-width: 100%;
@@ -2361,10 +2257,6 @@ body {
 @media(max-width:520px) {
   .sender-options {
     gap: .3rem;
-  }
-  .sender-options .composer-model {
-    flex: 1 1 9rem;
-    min-width: 0;
   }
   .pending-input {
     grid-template-columns: minmax(0,1fr);
@@ -2386,9 +2278,6 @@ body {
   .pending-input {
     padding: .3rem .5rem;
   }
-  .sender-options .composer-model {
-    min-width: 0;
-  }
 }
 @media(max-height:520px) {
   .conversation-column {
@@ -2405,16 +2294,13 @@ body {
   .sender-card {
     margin-top: .35rem;
   }
-  .sender-card .antd-sender-content {
+  .sender-card .ui-sender-content {
     padding-top: 8px;
     padding-bottom: 6px;
   }
-  .sender-card .antd-sender-footer {
+  .sender-card .ui-sender-footer {
     padding-top: 0;
     padding-bottom: 8px;
-  }
-  .sender-options {
-    flex: 1 1 100%;
   }
   .composer-submit {
     width: auto;
@@ -2428,15 +2314,14 @@ body {
     grid-template-columns: repeat(2,minmax(0,1fr));
     gap: .6rem;
   }
-  .selection-stats-controls>.ant-select {
+  .selection-stats-controls>.ui-select {
     max-width: none;
   }
 }
 @media(max-width:600px) {
-  .sender-card .sender-options .composer-model,
   .sender-card .sender-options .composer-tier {
-    min-width: 6rem!important;
-    flex-basis: 6rem!important;
+    min-width: 96px!important;
+    flex-basis: 96px!important;
   }
   .sender-card .sender-state {
     max-width: 4rem;
@@ -2444,32 +2329,15 @@ body {
   .sender-card .sender-attach-label {
     display: none;
   }
-  .sender-card .sender-attach .ant-btn {
-    width: 32px;
-    padding-inline: 0;
-  }
-  .sender-card .execution-stop-button {
-    min-width: 0;
-    max-width: 9rem;
-    flex: 0 1 9rem;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
 }
 @media(max-width:830px) {
   .workspace:not(.modal-page)>.conversation-header {
     padding-block: 4px;
   }
-  .workspace:not(.modal-page)>.conversation-header :is(.mobile-sessions-trigger,.session-heading-title>.ant-btn,.header-status-trigger) {
-    width: 44px;
-    height: 44px;
-    padding: 0;
-  }
-  .workspace:not(.modal-page)>.conversation-header .session-rename>.ant-btn {
+  .workspace:not(.modal-page)>.conversation-header .session-rename>.ui-btn {
     min-height: 44px;
   }
-  .workspace:not(.modal-page)>.conversation-header .session-rename>.ant-input {
+  .workspace:not(.modal-page)>.conversation-header .session-rename>.ui-input {
     min-height: 44px;
   }
 }
@@ -2515,9 +2383,6 @@ body {
   }
   .sidebar-brand {
     margin-bottom: 12px;
-  }
-  .sessions-panel .session-close {
-    opacity: 1;
   }
   .settings-body {
     flex-direction: column;
@@ -2594,10 +2459,10 @@ body {
   .message-row {
     padding-bottom: 22px;
   }
-  .sender-card .antd-sender-content {
+  .sender-card .ui-sender-content {
     padding: 14px 14px 8px;
   }
-  .sender-card .antd-sender-footer {
+  .sender-card .ui-sender-footer {
     padding: 0 8px 8px;
   }
   .appearance-options {
@@ -2629,17 +2494,17 @@ body {
   .conversation-column {
     padding-bottom: 8px;
   }
-  .sender-card .antd-sender-content {
+  .sender-card .ui-sender-content {
     padding: 4px 10px;
   }
-  .sender-card .antd-sender-input {
+  .sender-card .ui-sender-input {
     line-height: 1.5;
     padding-block: 0;
   }
-  .sender-card .antd-sender-footer {
+  .sender-card .ui-sender-footer {
     padding: 0 8px 6px;
   }
-  .sender-card .composer-send.ant-btn {
+  .sender-card .composer-send.ui-btn {
     width: 30px;
     height: 30px;
     min-width: 30px;
@@ -2670,9 +2535,10 @@ body {
   }
 }
 
-.provider-auth-field { position: relative; }
-.provider-auth-help.ant-btn { position: absolute; top: -4px; right: 0; width: 24px; height: 24px; color: var(--muted); }
-.provider-auth-help.ant-btn:hover { color: var(--accent); }
+.provider-auth-field { display: flex; flex-direction: column; gap: 6px; }
+.provider-auth-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.provider-auth-help.ui-btn { color: var(--muted); }
+.provider-auth-help.ui-btn:hover { color: var(--accent); }
 .provider-auth-tooltip p { margin: 0; }
 .provider-auth-headers { display: grid; gap: 6px; margin: 10px 0; }
 .provider-auth-headers code { display: block; font-size: var(--font-size-small); white-space: normal; overflow-wrap: anywhere; }
@@ -2698,7 +2564,7 @@ body {
   font-size: .85em;
 }
 .sender-editing span { min-width: 0; overflow-wrap: anywhere; }
-.sender-editing .ant-btn { flex: none; }
+.sender-editing .ui-btn { flex: none; }
 .rollback-scope { color: var(--muted); line-height: 1.6; }
 
 .state-sync-error{display:flex;align-items:center;justify-content:center;gap:.75rem;flex-wrap:wrap}

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { onUnmounted, ref, watch } from 'vue'
-import { Alert, Popconfirm } from 'antdv-next'
+import { Alert, Button, Popover } from './ui'
 const props = defineProps<{ show: boolean; message: string; cancelText: string; confirmText: string; busy?: boolean; error?: string; popoverClass: string; zIndex?: number }>()
 const emit = defineEmits<{ 'update:show': [show: boolean]; confirm: [] }>()
 const confirming = ref(false)
@@ -22,16 +22,16 @@ watch(() => props.show, show => {
 onUnmounted(() => window.removeEventListener('keydown', onEscape, true))
 </script>
 <template>
-  <Popconfirm :open="show" placement="top" :z-index="zIndex ?? 1200"
+  <Popover :open="show" placement="top" trigger="click" :z-index="zIndex ?? 1500"
     :root-class="['confirmation-popover', popoverClass].join(' ')"
     :styles="{ root: { maxWidth: 'min(360px, calc(100vw - 2rem))' } }"
-    :title="confirmText" :cancel-text="cancelText" :ok-text="confirmText"
-    :ok-button-props="{ danger: true, loading: busy, disabled: busy }"
-    @confirm="confirm" @open-change="changeOpen">
-    <template #description><section class="confirmation-content" role="alertdialog" aria-modal="false" :aria-label="message">
+    @open-change="changeOpen">
+    <template #content><section class="confirmation-content" role="alertdialog" aria-modal="false" :aria-label="message">
+      <strong>{{ confirmText }}</strong>
       <p class="confirmation-message">{{ message }}</p>
       <Alert v-if="error" type="error" :message="error" show-icon />
+      <div class="confirmation-buttons"><Button :disabled="busy" @click="close">{{ cancelText }}</Button><Button variant="primary" danger :disabled="busy" :loading="busy" @click="confirm">{{ confirmText }}</Button></div>
     </section></template>
     <slot name="trigger" />
-  </Popconfirm>
+  </Popover>
 </template>

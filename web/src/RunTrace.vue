@@ -1,10 +1,10 @@
 <script setup lang="ts">
 import { computed, nextTick, onScopeDispose, reactive, ref, watch, type Component } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { Alert, Button } from 'antdv-next'
+import { Alert, Button } from './ui'
 import { BugOutlined, CheckOutlined, ClockCircleOutlined, ExclamationCircleOutlined, LoadingOutlined, MinusOutlined, StopOutlined } from '@antdv-next/icons'
-import Think from '@antdv-next/x/dist/think/index'
-import type { ThoughtChainItemType } from '@antdv-next/x/dist/thought-chain/interface'
+import Think from './ui/Think.vue'
+import type { TraceNodeView as Node } from './ui/traceTypes'
 import type { ContextNotice, ModelResultView, StreamEvent } from './client/types'
 import { useWorkspace } from './composables/useWorkspace'
 import { useRunHistory } from './composables/useRunHistory'
@@ -16,7 +16,6 @@ import TraceDiagnostics from './TraceDiagnostics.vue'
 import { createRunTraceView, type RunTraceViewState } from './state/runTraceView'
 import { inRunTraceRange } from './state/runTraceRange'
 
-type Node = RunTraceNode & ThoughtChainItemType
 const props = defineProps<{
   sessionId: string; runId: string; events: StreamEvent[]; active: boolean; status: string; before: number; first: number
   after?: number; through?: number
@@ -62,7 +61,7 @@ watch(segmentActive, (active, wasActive) => {
   const scroller = root.value?.closest<HTMLElement>('.messages')
   if (!scroller || !root.value) return
   const viewport = scroller.getBoundingClientRect()
-  const titles = [...root.value.querySelectorAll<HTMLElement>('.trace-reasoning[id], .antd-thought-chain-node-title [id]')]
+  const titles = [...root.value.querySelectorAll<HTMLElement>('.trace-reasoning[id], .ui-thought-chain-node-title [id]')]
   const candidates = titles.filter(element => {
     const bounds = element.getBoundingClientRect()
     return bounds.height > 0 && bounds.bottom > viewport.top && bounds.top < viewport.bottom
@@ -220,7 +219,6 @@ function expandNodes(task: RunTraceTask, keys: string[]) {
     if (node) hydrateNode(node)
   }
 }
-function toggleProcess() { emit('inspect'); expanded.value = !expanded.value }
 function retryPage() { emit('inspect'); void load() }
 watch(() => [props.sessionId, props.runId, props.after], () => {
   expanded.value = false
@@ -234,18 +232,18 @@ watch(() => [props.sessionId, props.runId, props.after], () => {
   <section v-if="hasDetails || overviewFailure || debugMode" ref="root" class="run-trace" :data-run-id="runId" :data-after-sequence="after ?? 0" :data-through-sequence="through" @click.capture="emit('inspect')">
     <TraceDiagnostics v-if="debugMode" v-model:open="diagnosticsOpen" :session-id="sessionId" :run-id="runId" :agents="agents" :events="events" />
     <div v-if="!hasDetails" class="trace-overview-error">
-      <template v-if="overviewFailure"><small role="alert">{{ t('traceOverviewUnavailable') }}</small><Button size="small" @click="loadOverview">{{ t('retry') }}</Button></template>
-      <Button v-if="debugMode" type="text" size="small" :title="t('traceDebugDetails')" :aria-label="t('traceDebugDetails')" class="trace-debug-trigger" @click="diagnosticsOpen = true"><BugOutlined /></Button>
+      <template v-if="overviewFailure"><small role="alert">{{ t('traceOverviewUnavailable') }}</small><Button @click="loadOverview">{{ t('retry') }}</Button></template>
+      <Button v-if="debugMode" variant="text" :title="t('traceDebugDetails')" :aria-label="t('traceDebugDetails')" class="icon-button trace-debug-trigger" @click="diagnosticsOpen = true"><BugOutlined /></Button>
     </div>
-    <Think v-else v-model:expanded="expanded" class="trace-overview run-overview" :classes="{ status: 'trace-process-header' }" :loading="segmentActive" :data-run-status="runStatusCode" @expand="emit('inspect')">
+    <Think v-else v-model:expanded="expanded" class="trace-overview run-overview" :classes="{ status: 'trace-process-header' }" :trigger-label="t('executionProcess')" :loading="segmentActive" :data-run-status="runStatusCode" @expand="emit('inspect')">
       <template #title>
         <div class="trace-summary">
-          <div class="trace-overview-heading" role="button" tabindex="0" :aria-expanded="expanded" :aria-label="t('executionProcess')" @keydown.enter.prevent.stop="toggleProcess" @keydown.space.prevent.stop="toggleProcess">
+          <div class="trace-overview-heading">
             <strong role="status">{{ runStatus }}</strong><small v-if="elapsed">{{ t('traceElapsed', { elapsed }) }}</small><span v-if="modelName" class="trace-model-name">{{ modelName }}</span><small v-if="checklist.length">{{ t('traceChecklistProgress', { done: completedItems, total: checklist.length }) }}</small>
           </div>
-          <span v-if="debugMode" class="trace-summary-debug" @click.stop @keydown.stop><Button type="text" size="small" :title="t('traceDebugDetails')" :aria-label="t('traceDebugDetails')" class="trace-debug-trigger" @click="diagnosticsOpen = true"><BugOutlined /></Button></span>
+          <span v-if="debugMode" class="trace-summary-debug" @click.stop @keydown.stop><Button variant="text" :title="t('traceDebugDetails')" :aria-label="t('traceDebugDetails')" class="icon-button trace-debug-trigger" @click="diagnosticsOpen = true"><BugOutlined /></Button></span>
         </div>
-        <div v-if="overviewFailure" class="trace-overview-error" @click.stop @keydown.stop><small role="alert">{{ t('traceOverviewUnavailable') }}</small><Button size="small" @click="loadOverview">{{ t('retry') }}</Button></div>
+        <div v-if="overviewFailure" class="trace-overview-error" @click.stop @keydown.stop><small role="alert">{{ t('traceOverviewUnavailable') }}</small><Button @click="loadOverview">{{ t('retry') }}</Button></div>
         <small v-else-if="overviewLoading && !events.length">{{ t('traceLoadingOverview') }}</small>
         <ul v-if="checklist.length" class="checklist trace-checklist" :aria-label="t('checklist')">
           <li v-for="(item, index) in checklist" :key="index" :class="item.status" :data-checklist-status="item.status">
@@ -256,7 +254,7 @@ watch(() => [props.sessionId, props.runId, props.after], () => {
         <p v-if="segmentActive && activityText" class="trace-last-activity"><span>{{ t('traceLastActivity', { activity: activityText }) }}</span><time v-if="lastActivityAt" :datetime="lastActivityAt" :title="localTime(lastActivityAt)">{{ localTime(lastActivityAt) }}</time><small v-if="activityAge">{{ t('traceActivityAge', { elapsed: activityAge }) }}</small></p>
       </template>
       <Alert v-if="failure" type="error" :message="failure" show-icon />
-      <Button v-if="failure" size="small" :loading="loading" @click="retryPage">{{ t('retry') }}</Button>
+      <Button v-if="failure" :loading="loading" @click="retryPage">{{ t('retry') }}</Button>
       <p v-if="loading" class="trace-loading" role="status">{{ t('loadingProcess') }}</p>
       <div v-for="agent in agents" :key="agent.task.id" class="trace-task trace-task-group" :class="{ 'trace-agent-group': agent.task.id !== 'main' }" :id="nodeId(`task/${agent.task.id}`)" :data-task-id="agent.task.id" :data-parent-task-id="agent.parentId" :data-task-status="agent.task.status" :data-agent-role="agent.task.id === 'main' ? 'main' : 'subagent'" :data-agent-number="agent.number" :data-agent-depth="agent.depth" :style="{ '--agent-indent': `${Math.min(agent.depth, 2) * 12}px` }">
         <template v-if="agent.task.id === 'main'">
@@ -266,7 +264,7 @@ watch(() => [props.sessionId, props.runId, props.after], () => {
         </template>
         <Think v-else v-model:expanded="expandedTasks[agent.task.id]" :default-expanded="false" :loading="traceStatus(agent.task.status) === 'loading'" :title="agentLabel(agent)" @expand="emit('inspect')">
           <template #title><TraceAgentHeader :label="agentLabel(agent)" :status="agent.task.background && traceStatus(agent.task.status) === 'loading' ? t('traceAgentBackground') : taskStatus(agent.task)" :model-name="taskModelName(agent.task)" :delegated-by="delegatorLabel(agent)" :purpose="agent.task.title" :purpose-expanded="expandedTasks[agent.task.id]" /></template>
-          <Button v-if="traceStatus(agent.task.status) === 'loading'" size="small" :loading="stoppingTasks[agent.task.id]" @click.stop="stopTask(agent.task)">{{ t('stopAgent') }}</Button>
+          <Button v-if="traceStatus(agent.task.status) === 'loading'" :loading="stoppingTasks[agent.task.id]" @click.stop="stopTask(agent.task)">{{ t('stopAgent') }}</Button>
           <Alert v-if="stopFailures[agent.task.id]" type="error" :message="stopFailures[agent.task.id]" />
           <TraceSteps :session-id="sessionId" :task="agent.task" show-report :items="taskItems(agent.task)" :expanded-keys="taskExpandedKeys(agent.task)" :node-loading="nodeLoading" :node-failure="nodeFailure" :node-id="nodeId" @expand="keys => expandNodes(agent.task, keys)" @retry="node => loadNode(node.lastSequence)">
             <template #tool-output="{ node, expanded: nodeExpanded }"><slot name="tool-output" :node="node" :expanded="nodeExpanded" /></template>
@@ -280,25 +278,24 @@ watch(() => [props.sessionId, props.runId, props.after], () => {
 </template>
 
 <style scoped>
-.run-trace :deep(.antd-think-content){border-inline-start:0}
+.run-trace :deep(.ui-think-content){border-inline-start:0}
 .trace-overview{--trace-summary-line-height:26px;min-width:0}
 .trace-overview :deep(.trace-process-header){position:relative;width:100%;align-items:flex-start;padding:.55rem 0;border:0;border-radius:8px}
 .trace-overview :deep(.trace-process-header:hover){border-color:var(--border-strong);background:var(--surface-subtle)}
-.trace-overview :deep(.trace-process-header>.antd-think-status-text){display:block;min-width:0}
-.trace-overview :deep(.trace-process-header>.antd-think-status-icon){height:var(--trace-summary-line-height);margin-top:0;align-items:center;justify-content:center}
+.trace-overview :deep(.trace-process-header>.ui-think-status-text){display:block;min-width:0}
+.trace-overview :deep(.trace-process-header>.ui-think-status-icon){height:var(--trace-summary-line-height);margin-top:0;align-items:center;justify-content:center}
 /* Leave room for the arrow's corners throughout its rotation. */
-.trace-overview :deep(.trace-process-header>.antd-think-status-down-icon){width:12px;height:12px;margin:7px;flex:none;align-items:center;justify-content:center}
+.trace-overview :deep(.trace-process-header>.ui-think-status-down-icon){width:12px;height:12px;margin:7px;flex:none;align-items:center;justify-content:center}
 .trace-summary{display:flex;align-items:flex-start;gap:.5rem;min-width:0;width:100%}
 .trace-overview-heading{display:flex;align-items:baseline;flex-wrap:wrap;gap:.35rem .65rem;flex:1;min-width:0;font-size:15px;line-height:var(--trace-summary-line-height);color:var(--text-secondary)}
-.trace-overview-heading:focus-visible{outline:2px solid var(--accent);outline-offset:3px;border-radius:3px}
 .trace-overview-heading strong{font-size:14px;font-weight:500;color:var(--text)}.trace-overview-heading small{font-size:14px}.trace-model-name{overflow-wrap:anywhere}
-.trace-debug-trigger{margin-left:auto;color:var(--muted)}.trace-summary-debug{display:inline-flex;align-items:center;flex:none;height:var(--trace-summary-line-height)}.trace-summary-debug .trace-debug-trigger{margin:0}
+.trace-debug-trigger{margin-left:auto;color:var(--muted)}.trace-summary-debug{display:inline-flex;align-items:center;flex:none;min-height:var(--trace-summary-line-height)}.trace-summary-debug .trace-debug-trigger{margin:0}
 .trace-last-activity{display:flex;flex-wrap:wrap;gap:.4rem;margin:.25rem 0 0;font-size:15px;color:var(--muted);overflow-wrap:anywhere}
 .trace-last-activity time{font-size:14px}.trace-checklist{font-size:16px;line-height:1.65;margin:.55rem 0 0;overflow-wrap:anywhere}.trace-checklist small{flex:none;font-size:14px}
 .trace-checklist-icon{display:inline-flex;align-items:center;justify-content:center;align-self:flex-start;flex:none;width:1em;height:1.65em}
 .trace-overview-error{display:flex;align-items:center;gap:.5rem;margin-top:.35rem}
 .trace-loading{font-size:15px;color:var(--muted)}.context-notice{font-size:15px;margin:.75rem 0}.context-notice pre{white-space:pre-wrap;overflow-wrap:anywhere}.context-notice summary{cursor:pointer}
-.trace-task{margin:.65rem 0;min-width:0}.trace-agent-group{margin-left:var(--agent-indent);padding:.65rem .8rem;border-left:2px solid var(--border);border-radius:0 8px 8px 0;background:var(--surface-subtle)}.trace-agent-group[data-agent-depth="2"],.trace-agent-group[data-agent-depth="3"]{border-left-color:var(--accent)}.trace-agent-group :deep(.antd-think-status-wrapper){align-items:flex-start;width:100%}.trace-agent-group :deep(.antd-think-status-text){flex:1}.trace-task-group :deep(.antd-thought-chain-node-title){font-size:15px;line-height:1.5;color:var(--text-secondary)}.trace-task-group :deep(.antd-thought-chain-node-description){font-size:15px;line-height:1.6;color:var(--muted)}.trace-details{margin-top:.5rem;font-size:15px;color:var(--muted)}
+.trace-task{margin:.65rem 0;min-width:0}.trace-agent-group{margin-left:var(--agent-indent);padding:.65rem .8rem;border-left:2px solid var(--border);border-radius:0 8px 8px 0;background:var(--surface-subtle)}.trace-agent-group[data-agent-depth="2"],.trace-agent-group[data-agent-depth="3"]{border-left-color:var(--accent)}.trace-agent-group :deep(.ui-think-status-wrapper){align-items:flex-start;width:100%}.trace-agent-group :deep(.ui-think-status-text){flex:1}.trace-task-group :deep(.ui-thought-chain-node-title){font-size:15px;line-height:1.5;color:var(--text-secondary)}.trace-task-group :deep(.ui-thought-chain-node-description){font-size:15px;line-height:1.6;color:var(--muted)}.trace-details{margin-top:.5rem;font-size:15px;color:var(--muted)}
 .trace-details summary{cursor:pointer}.trace-details dl{display:grid;grid-template-columns:auto minmax(0,1fr);gap:.2rem .7rem}.trace-details dd{margin:0;overflow-wrap:anywhere}
 @media(max-width:600px){.trace-overview :deep(.trace-process-header){padding:.4rem .5rem}.trace-checklist li{flex-wrap:wrap}.trace-checklist small{margin-left:1rem}.trace-last-activity time{display:block}}
 </style>

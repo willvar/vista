@@ -10,18 +10,18 @@ for (const modal of [
     const modalPage = page.locator(modal.page)
     await expect(modalPage).toBeVisible()
     // Wait until the library's opening motion has completed before closing.
-    await expect(page.locator('.workspace-modal.ant-zoom-enter, .workspace-modal.ant-zoom-appear')).toHaveCount(0)
+    await page.locator('.workspace-modal .ui-modal-container').evaluate(async element => { await Promise.allSettled(element.getAnimations().map(animation => animation.finished)) })
     await page.evaluate(() => {
-      const modal = document.querySelector('.workspace-modal')!
+      const modal = document.querySelector('.workspace-modal .ui-modal-container')!
       const observed = { leave: false, removedDuringLeave: false }
       ;(window as any).__modalMotion = observed
       const observer = new MutationObserver(() => {
-        if (modal.className.includes('ant-zoom-leave')) {
+        if (modal.getAttribute('data-state') === 'closed') {
           observed.leave = true
           observed.removedDuringLeave ||= !modal.isConnected
         }
       })
-      observer.observe(modal, { attributes: true, attributeFilter: ['class'] })
+      observer.observe(modal, { attributes: true, attributeFilter: ['data-state'] })
     })
     if (modal.page === '.settings-page') await closeSettings(page)
     else await modalPage.getByRole('button', { name: new RegExp(`^(?:${modal.close}|Back to conversation)$`) }).click()
@@ -35,18 +35,18 @@ test('settings navigation reuses the open modal and browser Back closes with nor
   await page.goto(vista.origin + '/')
   await page.locator('.settings-trigger').evaluate((button: HTMLButtonElement) => button.click())
   await expect(page.locator('.settings-page')).toBeVisible()
-  await expect(page.locator('.workspace-modal.ant-zoom-enter, .workspace-modal.ant-zoom-appear')).toHaveCount(0)
+  await page.locator('.workspace-modal .ui-modal-container').evaluate(async element => { await Promise.allSettled(element.getAnimations().map(animation => animation.finished)) })
   await page.evaluate(() => {
-    const modal = document.querySelector('.workspace-modal')!
+    const modal = document.querySelector('.workspace-modal .ui-modal-container')!
     ;(window as any).__workspaceModal = modal
     ;(window as any).__modalLeaveCount = 0
     new MutationObserver(() => {
-      if (modal.className.includes('ant-zoom-leave')) (window as any).__modalLeaveCount++
-    }).observe(modal, { attributes: true, attributeFilter: ['class'] })
+      if (modal.getAttribute('data-state') === 'closed') (window as any).__modalLeaveCount++
+    }).observe(modal, { attributes: true, attributeFilter: ['data-state'] })
   })
   await openSettingsSection(page, 'models')
   await expect(page).toHaveURL(vista.origin + '/settings/models')
-  expect(await page.evaluate(() => document.querySelector('.workspace-modal') === (window as any).__workspaceModal)).toBe(true)
+  expect(await page.evaluate(() => document.querySelector('.workspace-modal .ui-modal-container') === (window as any).__workspaceModal)).toBe(true)
   expect(await page.evaluate(() => (window as any).__modalLeaveCount)).toBe(0)
   await page.goBack()
   await expect(page).toHaveURL(vista.origin + (page.viewportSize()!.width <= 830 ? '/settings' : '/settings/general'))

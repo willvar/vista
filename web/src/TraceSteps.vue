@@ -2,12 +2,11 @@
 import { computed, onScopeDispose, ref, watch, type ComponentPublicInstance } from 'vue'
 import { elementScroll, useVirtualizer } from '@tanstack/vue-virtual'
 import { useDragStableMeasurement, useScrollbarDrag } from './composables/useScrollbarDrag'
-import type { ThoughtChainItemType } from '@antdv-next/x/dist/thought-chain/interface'
+import type { TraceNodeView as Node } from './ui/traceTypes'
 import type { RunTraceNode, RunTraceTask } from './state/runTrace'
 import TraceReport from './TraceReport.vue'
 import TraceStep from './TraceStep.vue'
 
-type Node = RunTraceNode & ThoughtChainItemType
 const props = defineProps<{
   sessionId: string; task: RunTraceTask; showReport: boolean; items: Node[]; expandedKeys: string[]
   nodeLoading: Record<number, boolean>; nodeFailure: Record<number, string>; nodeId: (key: string) => string
@@ -105,6 +104,6 @@ function expandRow(item: Node, keys: string[]) {
 .trace-steps{position:relative;min-width:0;padding:.5rem 0;overflow-anchor:none}
 .trace-steps[data-virtualized="true"]{overflow:clip}
 .trace-steps[data-virtualized="true"]>.trace-step-row{position:absolute;top:0;left:0;width:100%}
-.trace-step-row{min-width:0}.trace-step-row :deep(.antd-thought-chain){padding:0}
-.trace-step-row:not(.trace-step-last) :deep(.antd-thought-chain-node-icon::after){display:block}
+.trace-step-row{min-width:0}.trace-step-row :deep(.ui-thought-chain){padding:0}
+.trace-step-row:not(.trace-step-last) :deep(.ui-thought-chain-node-icon::after){display:block}
 </style>

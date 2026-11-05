@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, shallowRef, watch, type ComponentPublicInstance } from 'vue'
 import { useVirtualizer } from '@tanstack/vue-virtual'
-import { Empty as AEmpty, Button } from 'antdv-next'
+import { Empty as VEmpty, Button } from './ui'
 import { VerticalAlignBottomOutlined } from '@antdv-next/icons'
 import { useI18n } from 'vue-i18n'
 import { useWorkspace } from './composables/useWorkspace'
@@ -145,14 +145,14 @@ onUnmounted(() => {
     <div class="process-output-toolbar">
       <strong>{{ t('processOutput') }}</strong><span>{{ t('bytesCount', { count: size.toLocaleString() }) }}</span>
       <span v-if="following" class="process-following">{{ t('processFollowing') }}</span>
-      <Button v-else type="text" size="small" :aria-label="t('processFollow')" @click="resume"><VerticalAlignBottomOutlined aria-hidden="true" />{{ t('processFollow') }}</Button>
+      <Button v-else variant="text" :aria-label="t('processFollow')" @click="resume"><VerticalAlignBottomOutlined aria-hidden="true" />{{ t('processFollow') }}</Button>
     </div>
-    <div v-if="error" class="process-output-error" role="alert"><span>{{ t('outputLoadFailed') }}: {{ error }}</span><Button size="small" @click="retry">{{ t('retry') }}</Button></div>
+    <div v-if="error" class="process-output-error" role="alert"><span>{{ t('outputLoadFailed') }}: {{ error }}</span><Button @click="retry">{{ t('retry') }}</Button></div>
     <div ref="viewport" class="process-output-viewport" tabindex="0" :aria-label="t('processOutput')" @scroll="scroll" @wheel.passive="manualScroll" @pointerdown="manualScroll" @keydown="manualScroll">
       <div class="process-output-space" :style="{ height: `${virtualizer.getTotalSize()}px` }">
         <div v-for="row in rows" :key="row.key.toString()" :ref="measure" :data-index="row.index" class="process-output-block" :style="{ transform: `translateY(${row.start}px)`, minHeight: pages.has(row.index) ? undefined : '800px' }">
           <PlainTextOutput v-if="pages.get(row.index)?.content" :content="pages.get(row.index)!.content" />
-          <template v-else-if="pages.has(row.index)"><a-empty v-if="!size" class="vista-empty-state" :description="t('processNoOutput')" role="status" /></template>
+          <template v-else-if="pages.has(row.index)"><v-empty v-if="!size" class="vista-empty-state" :description="t('processNoOutput')" role="status" /></template>
           <p v-else class="process-output-placeholder">{{ failures.has(row.index) ? t('outputLoadFailed') : t('outputLoading') }}</p>
         </div>
       </div>
@@ -164,14 +164,14 @@ onUnmounted(() => {
 .process-output{display:flex;flex-direction:column;flex:1;min-height:124px;border:1px solid var(--border);border-radius:10px;overflow:hidden;background:var(--surface-subtle)}
 .process-output-toolbar{display:flex;align-items:center;gap:.75rem;flex:none;padding:.4rem .75rem;min-height:38px;border-bottom:1px solid var(--border);color:var(--muted);font-size:12px}
 .process-output-toolbar strong{color:var(--text-secondary);font-weight:500}
-.process-following,.process-output-toolbar .ant-btn{margin-left:auto;font-size:12px}
+.process-following,.process-output-toolbar .ui-btn{margin-left:auto}
 .process-output-viewport{position:relative;flex:1;min-height:0;overflow:auto;overscroll-behavior:contain;overflow-anchor:none;scrollbar-gutter:stable;padding:.75rem}
-.process-output-viewport:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
+.process-output-viewport:focus-visible{outline:var(--focus-outline, 2px solid var(--accent));outline-offset:-2px}
 .process-output-space{position:relative;width:100%}
 .process-output-block{position:absolute;top:0;left:0;width:100%;display:flow-root}
 .process-output-block :deep(pre){margin:0;white-space:pre-wrap;overflow-wrap:anywhere;word-break:break-word;overflow:visible;max-height:none;font:12px/1.65 var(--font-mono,monospace);color:var(--text-secondary)}
 .process-output-placeholder{margin:0;padding:.2rem 0;color:var(--muted);font-size:13px}
 .process-output-error{display:flex;align-items:center;gap:.5rem;padding:.4rem .75rem;color:var(--danger);font-size:12px;max-height:5rem;overflow:auto;overflow-wrap:anywhere}
 .process-output-error span{min-width:0;flex:1}
-@media(pointer:coarse){.process-output-toolbar .ant-btn{min-height:40px}.process-output-toolbar{min-height:44px}}
+@media(pointer:coarse){.process-output-toolbar{min-height:44px}}
 </style>

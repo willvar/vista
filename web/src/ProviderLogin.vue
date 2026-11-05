@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { onBeforeUnmount, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { Alert as AAlert, Button as AButton, Spin as ASpin } from 'antdv-next'
+import { Alert as VAlert, Button as VButton, Spin as VSpin } from './ui'
 import { CopyOutlined } from '@antdv-next/icons'
 import { VistaAPIError, type VistaClient } from './client/vista'
 import { useWorkspace } from './composables/useWorkspace'
@@ -121,13 +121,13 @@ onBeforeUnmount(() => {
 <template>
   <div class="provider-login">
     <p class="provider-help">{{ t(`${kind}LoginHint`) }}</p>
-    <a-alert v-if="error" type="error" role="alert" :message="error" />
+    <v-alert v-if="error" type="error" role="alert" :message="error" />
     <template v-if="login?.status === 'pending'">
-      <div class="provider-device-code"><code>{{ login.userCode }}</code><a-button type="text" :aria-label="t(copied ? 'providerCodeCopied' : 'providerCopyCode')" @click="copyCode"><CopyOutlined /></a-button></div>
+      <div class="provider-device-code"><code>{{ login.userCode }}</code><v-button class="icon-button" variant="text" :aria-label="t(copied ? 'providerCodeCopied' : 'providerCopyCode')" @click="copyCode"><CopyOutlined /></v-button></div>
       <p class="provider-help">{{ t(`${kind}DeviceHint`) }}</p>
-      <div class="actions"><a-button type="primary" :href="login.verificationUrl" target="_blank" rel="noopener noreferrer">{{ t(`${kind}OpenLogin`) }}</a-button><a-button @click="cancel">{{ t('providerCancelLogin') }}</a-button></div>
-      <div class="provider-login-wait" role="status"><a-spin size="small" /><span>{{ t('providerWaiting') }}</span></div>
+      <div class="actions"><v-button variant="primary" :href="login.verificationUrl" target="_blank" rel="noopener noreferrer">{{ t(`${kind}OpenLogin`) }}</v-button><v-button @click="cancel">{{ t('providerCancelLogin') }}</v-button></div>
+      <div class="provider-login-wait" role="status"><v-spin /><span>{{ t('providerWaiting') }}</span></div>
     </template>
-    <a-button v-else :type="connectionKey ? 'default' : 'primary'" :loading="starting" @click="start">{{ t(connectionKey ? 'providerReconnect' : `${kind}SignIn`) }}</a-button>
+    <v-button v-else :variant="connectionKey ? 'default' : 'primary'" :loading="starting" @click="start">{{ t(connectionKey ? 'providerReconnect' : `${kind}SignIn`) }}</v-button>
   </div>
 </template>

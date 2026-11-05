@@ -243,7 +243,7 @@ function createWorkspace() {
     // Components own Escape while a layer is open, including its closing animation.
     // Modal handlers also run on window, so stopPropagation alone is insufficient.
     if (settingsOpen.value || sessionManagerOpen.value || [...document.querySelectorAll<HTMLElement>(
-      '[role="dialog"], [role="alertdialog"], .ant-select-dropdown, .ant-popover, .ant-dropdown',
+      '[role="dialog"], [role="alertdialog"], .ui-select-dropdown, .ui-popover, .ui-menu',
     )].some(element => element.getClientRects().length && getComputedStyle(element).visibility !== 'hidden')) return
     if (renamingSessionID.value) { dismissRename(event); return }
     if (mobileSessionsOpen.value) { event.preventDefault(); mobileSessionsOpen.value = false; return }

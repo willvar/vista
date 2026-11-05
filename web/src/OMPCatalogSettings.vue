@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onUnmounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { Empty as AEmpty, Alert as AAlert, Button as AButton, Modal as AModal } from 'antdv-next'
+import { Empty as VEmpty, Alert as VAlert, Button as VButton, Modal as VModal } from './ui'
 import { HistoryOutlined } from '@antdv-next/icons'
 import { useWorkspace } from './composables/useWorkspace'
 import type { VistaClient } from './client/vista'
@@ -75,13 +75,13 @@ defineExpose({ headerAction: computed(() => ({ label: checking.value ? 'modelCat
         <small v-if="catalog">{{ t('modelCatalogCount', { count: catalog.modelCount.toLocaleString(locale) }) }} · OMP <span :title="catalog.revision">{{ catalog.revision.slice(0, 7) }}</span><template v-if="catalog.modelsDevRevision"> · models.dev <span :title="catalog.modelsDevRevision">{{ catalog.modelsDevRevision.slice(0, 7) }}</span></template></small>
       </div>
       <div class="omp-catalog-actions">
-        <a-button type="text" size="small" :disabled="loading" @click="openHistory"><HistoryOutlined aria-hidden="true" />{{ t('modelCatalogHistory') }}</a-button>
+        <v-button variant="text" :disabled="loading" @click="openHistory"><HistoryOutlined aria-hidden="true" />{{ t('modelCatalogHistory') }}</v-button>
       </div>
     </div>
     <small v-if="catalog" class="omp-catalog-updated">{{ catalog.updatedAt ? t('modelCatalogUpdatedAt', { time: updatedAt(catalog.updatedAt) }) : t('modelCatalogBundled') }}</small>
-    <a-alert v-if="error" type="error" role="alert" :message="error" />
+    <v-alert v-if="error" type="error" role="alert" :message="error" />
   </section>
-  <a-modal v-model:open="historyOpen" centered :z-index="1200" width="min(640px, calc(100vw - 2rem))" :title="t('modelCatalogHistory')" :footer="null" :styles="{ body: { maxHeight: '70dvh', overflowY: 'auto' } }">
+  <v-modal v-model:open="historyOpen" centered :z-index="1200" width="min(640px, calc(100vw - 2rem))" :title="t('modelCatalogHistory')" :footer="null" :styles="{ body: { maxHeight: '70dvh', overflowY: 'auto' } }">
     <div class="omp-catalog-history">
       <div class="omp-catalog-history-summary">
         <p>{{ t('modelCatalogHint') }}</p>
@@ -101,9 +101,9 @@ defineExpose({ headerAction: computed(() => ({ label: checking.value ? 'modelCat
           <p v-if="record.error" class="omp-catalog-history-error">{{ record.error }}</p>
         </li>
       </ol>
-      <a-empty v-else class="vista-empty-state" :description="t('modelCatalogHistoryEmpty')" role="status" />
+      <v-empty v-else class="vista-empty-state" :description="t('modelCatalogHistoryEmpty')" role="status" />
     </div>
-  </a-modal>
+  </v-modal>
 </template>
 
 <style scoped>
@@ -112,12 +112,12 @@ defineExpose({ headerAction: computed(() => ({ label: checking.value ? 'modelCat
 .omp-catalog-heading>div { display: flex; flex-direction: column; gap: .25rem; min-width: 0; }
 .omp-catalog-heading>div:first-child { flex: 1 1 12rem; }
 .omp-catalog-heading .omp-catalog-actions { flex-direction: row; flex-shrink: 0; gap: .5rem; margin-left: auto; }
-.omp-catalog-heading .ant-btn { flex-shrink: 0; }
+.omp-catalog-heading .ui-btn { flex-shrink: 0; }
 .omp-catalog-setting p { margin: .5rem 0; color: var(--muted); font-size: var(--font-size-body); line-height: 1.5; }
 .omp-catalog-setting small { color: var(--muted); font-size: var(--font-size-small); }
 .omp-catalog-updated { display: block; margin-top: .5rem; }
-.omp-catalog-setting .ant-alert { margin-top: .75rem; }
-.omp-catalog-setting :deep(.ant-alert-title) { white-space: pre-wrap; overflow-wrap: anywhere; }
+.omp-catalog-setting .ui-alert { margin-top: .75rem; }
+.omp-catalog-setting :deep(.ui-alert-title) { white-space: pre-wrap; overflow-wrap: anywhere; }
 .omp-catalog-history { color: var(--text); }
 .omp-catalog-history-summary { display: flex; flex-direction: column; gap: .35rem; padding-bottom: 1rem; }
 .omp-catalog-history-summary p { margin: 0 0 .35rem; color: var(--muted); font-size: var(--font-size-body); line-height: 1.6; }

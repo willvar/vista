@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { Empty as AEmpty, Alert as AAlert, Button as AButton, Modal as AModal, TextArea as ATextarea, type TextAreaRef } from 'antdv-next'
+import { Empty as VEmpty, Alert as VAlert, Button as VButton, Modal as VModal, TextArea as VTextarea, type TextAreaRef } from './ui'
 import { CloseOutlined, DeleteOutlined, EditOutlined, PlusOutlined, CommentOutlined, BookOutlined, RobotOutlined } from '@antdv-next/icons'
 import ConfirmPopover from './ConfirmPopover.vue'
 import ListPagination from './ListPagination.vue'
@@ -81,7 +81,6 @@ async function change(action: 'add' | 'update' | 'remove', memory?: Memory) {
   busy.value = true
   operationError.value = ''
   deleteError.value = ''
-  resource.cancel()
   const input = action === 'add' ? { action, text: draft.value.trim() }
     : { action, id: memory!.id, previousText: memory!.text, ...action === 'update' ? { text: draft.value.trim() } : {} }
   try {
@@ -118,7 +117,7 @@ onBeforeUnmount(() => { disposed = true; emit('modal-open', false) })
   <section class="memory-settings general-setting" aria-labelledby="memory-heading">
     <div class="memory-heading">
       <h3 id="memory-heading">{{ t('memories') }}</h3>
-      <a-button @click="managerOpen = true"><template #icon><BookOutlined aria-hidden="true" /></template>{{ t('manageMemories') }}</a-button>
+      <v-button @click="managerOpen = true"><template #icon><BookOutlined aria-hidden="true" /></template>{{ t('manageMemories') }}</v-button>
     </div>
     <figure class="personalization-figure memory-figure" :aria-label="t('memoryFigureLabel')">
       <div class="memory-flow">
@@ -134,7 +133,7 @@ onBeforeUnmount(() => { disposed = true; emit('modal-open', false) })
     </figure>
   </section>
 
-  <a-modal :open="managerOpen" centered :z-index="1200" width="min(760px, calc(100vw - 2rem))"
+  <v-modal :open="managerOpen" centered :z-index="1200" width="min(760px, calc(100vw - 2rem))"
     :footer="editing || !snapshot.total ? null : undefined" :closable="false" :keyboard="!busy && !deleting" :mask-closable="!busy && !deleting"
     destroy-on-hidden :after-close="resetManager" :styles="{ body: { maxHeight: editing || !snapshot.total ? 'calc(100dvh - 10rem)' : 'calc(100dvh - 15rem)', overflowY: 'auto', overscrollBehavior: 'contain' } }" @cancel="closeManager">
     <template #title>
@@ -142,39 +141,39 @@ onBeforeUnmount(() => { disposed = true; emit('modal-open', false) })
         <span class="memory-modal-heading">{{ t('manageMemories') }}<small v-if="ready" class="memory-count">{{ snapshot.total }}</small></span>
         <div class="settings-header-actions">
           <template v-if="!editing">
-            <a-button type="text" class="settings-header-button" :aria-label="t('addMemory')" :title="t('addMemory')" :disabled="!ready || busy || snapshot.total >= snapshot.maxCount" @click="startEdit('new')"><template #icon><PlusOutlined aria-hidden="true" /></template></a-button>
+            <v-button variant="text" class="icon-button settings-header-button" :aria-label="t('addMemory')" :title="t('addMemory')" :disabled="!ready || busy || snapshot.total >= snapshot.maxCount" @click="startEdit('new')"><template #icon><PlusOutlined aria-hidden="true" /></template></v-button>
           </template>
-          <a-button type="text" class="settings-header-button" :aria-label="t('close')" :title="t('close')" :disabled="busy" @click="closeManager"><template #icon><CloseOutlined aria-hidden="true" /></template></a-button>
+          <v-button variant="text" class="icon-button settings-header-button" :aria-label="t('close')" :title="t('close')" :disabled="busy" @click="closeManager"><template #icon><CloseOutlined aria-hidden="true" /></template></v-button>
         </div>
       </div>
     </template>
     <template #footer><ListPagination v-if="!editing" :page="page" :page-size="pageSize" :total="snapshot.total" :disabled="busy" @change="changePage" /></template>
     <div class="memory-manager" :aria-busy="loading || busy">
-    <a-alert v-if="error" type="error" show-icon role="alert" :message="error" />
-    <a-button v-if="resource.error.value && !editing" :disabled="busy || loading" @click="resource.refresh()">{{ t('retry') }}</a-button>
+    <v-alert v-if="error" type="error" show-icon role="alert" :message="error" />
+    <v-button v-if="resource.error.value && !editing" :disabled="busy || loading" @click="resource.refresh()">{{ t('retry') }}</v-button>
     <p v-if="loading && !ready" role="status">{{ t('memoriesLoading') }}</p>
     <template v-if="ready">
-      <a-empty v-if="!snapshot.memories.length && !editing" class="vista-empty-state memory-empty" :description="t('memoriesEmpty')" role="status" />
+      <v-empty v-if="!snapshot.memories.length && !editing" class="vista-empty-state memory-empty" :description="t('memoriesEmpty')" role="status" />
       <ul v-if="!editing && snapshot.memories.length" class="memory-list">
         <li v-for="memory in snapshot.memories" :key="memory.id">
             <button type="button" class="memory-preview" :disabled="busy || !!editing" @click="startEdit(memory)"><span class="memory-text">{{ preview(memory.text) }}</span></button>
             <div class="memory-row-actions">
-              <a-button type="text" :aria-label="t('editMemory', { text: preview(memory.text) })" :title="t('edit')" :disabled="busy || !!editing" @click="startEdit(memory)"><template #icon><EditOutlined /></template></a-button>
+              <v-button class="icon-button" variant="text" :aria-label="t('editMemory', { text: preview(memory.text) })" :title="t('edit')" :disabled="busy || !!editing" @click="startEdit(memory)"><template #icon><EditOutlined /></template></v-button>
               <ConfirmPopover :show="deleting === memory.id" :message="t('removeMemory', { text: deleteTarget?.id === memory.id ? deleteTarget.text : memory.text })" :cancel-text="t('cancel')" :confirm-text="t('delete')" :busy="busy" :error="deleteError" :z-index="1300" popover-class="memory-delete-popover" @update:show="updateDelete(memory, $event)" @confirm="change('remove', deleteTarget || memory)">
-                <template #trigger><a-button type="text" danger :aria-label="t('removeMemory', { text: preview(memory.text) })" :title="t('delete')" :disabled="busy || !!editing"><template #icon><DeleteOutlined /></template></a-button></template>
+                <template #trigger><v-button class="icon-button" variant="text" danger :aria-label="t('removeMemory', { text: preview(memory.text) })" :title="t('delete')" :disabled="busy || !!editing"><template #icon><DeleteOutlined /></template></v-button></template>
               </ConfirmPopover>
             </div>
         </li>
       </ul>
       <form v-if="editing" class="memory-editor" @submit.prevent="save">
-        <a-textarea :ref="setEditor" v-model:value="draft" class="memory-editor-input" :aria-label="t('memoryText')" :placeholder="t('memoryPlaceholder')" :auto-size="false" :disabled="busy" :status="bytes > snapshot.maxBytes ? 'error' : undefined" />
-        <div class="memory-editor-actions"><small>{{ t('instructionBytes', { current: bytes, max: snapshot.maxBytes }) }}</small><a-button :disabled="busy" @click="editing = null; operationError = ''">{{ t('cancel') }}</a-button><a-button type="primary" html-type="submit" :loading="busy" :disabled="!canSave || busy">{{ t('saveChanges') }}</a-button></div>
+        <v-textarea :ref="setEditor" v-model:value="draft" class="memory-editor-input" :aria-label="t('memoryText')" :placeholder="t('memoryPlaceholder')" :auto-size="false" :disabled="busy" :status="bytes > snapshot.maxBytes ? 'error' : undefined" />
+        <div class="memory-editor-actions"><small>{{ t('instructionBytes', { current: bytes, max: snapshot.maxBytes }) }}</small><v-button :disabled="busy" @click="editing = null; operationError = ''">{{ t('cancel') }}</v-button><v-button variant="primary" type="submit" :loading="busy" :disabled="!canSave || busy">{{ t('saveChanges') }}</v-button></div>
       </form>
     </template>
     </div>
-  </a-modal>
+  </v-modal>
 </template>
 
 <style scoped>
-.memory-settings,.memory-manager{min-width:0}.memory-heading,.memory-row-actions,.memory-editor-actions,.memory-modal-heading,.memory-modal-header{display:flex;align-items:center;gap:.5rem}.memory-heading{justify-content:space-between;flex-wrap:wrap}.memory-heading h3{font-size:16px;margin:0}.memory-count{font-weight:400;color:var(--text-secondary)}.memory-modal-header{justify-content:space-between}.memory-modal-heading{min-width:0}.memory-list{list-style:none;margin:.5rem 0 0;padding:0}.memory-list li{display:flex;align-items:flex-start;gap:.75rem;padding:.8rem 0;border-bottom:1px solid var(--border)}.memory-list li:last-child{border-bottom:0}.memory-preview{flex:1;min-width:0;text-align:start;border:0;background:transparent;color:var(--text);font:inherit;padding:.3rem;border-radius:6px;cursor:pointer}.memory-preview:disabled{cursor:default}.memory-preview:hover:not(:disabled){background:var(--surface-subtle)}.memory-preview:focus-visible{outline:2px solid var(--accent);outline-offset:2px}.memory-text{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden;overflow-wrap:anywhere;line-height:1.6}.memory-row-actions{flex:none}.memory-editor{width:100%;min-width:0;margin-top:.75rem}.memory-editor-input{height:clamp(80px,40dvh,420px);max-height:calc(100dvh - 15rem);min-height:80px;resize:vertical;line-height:1.65}.memory-editor-actions{justify-content:flex-end;flex-wrap:wrap;margin-top:.6rem}.memory-editor-actions small{margin-right:auto;color:var(--text-secondary)}.memory-manager>.ant-alert{margin-top:.75rem}
+.memory-settings,.memory-manager{min-width:0}.memory-heading,.memory-row-actions,.memory-editor-actions,.memory-modal-heading,.memory-modal-header{display:flex;align-items:center;gap:.5rem}.memory-heading{justify-content:space-between;flex-wrap:wrap}.memory-heading h3{font-size:16px;margin:0}.memory-count{font-weight:400;color:var(--text-secondary)}.memory-modal-header{justify-content:space-between}.memory-modal-heading{min-width:0}.memory-list{list-style:none;margin:.5rem 0 0;padding:0}.memory-list li{display:flex;align-items:flex-start;gap:.75rem;padding:.8rem 0;border-bottom:1px solid var(--border)}.memory-list li:last-child{border-bottom:0}.memory-preview{flex:1;min-width:0;text-align:start;border:0;background:transparent;color:var(--text);font:inherit;padding:.3rem;border-radius:6px;cursor:pointer}.memory-preview:disabled{cursor:default}.memory-preview:hover:not(:disabled){background:var(--surface-subtle)}.memory-preview:focus-visible{outline:var(--focus-outline, 2px solid var(--accent));outline-offset:2px}.memory-text{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden;overflow-wrap:anywhere;line-height:1.6}.memory-row-actions{flex:none}.memory-editor{width:100%;min-width:0;margin-top:.75rem}.memory-editor-input{height:clamp(80px,40dvh,420px);max-height:calc(100dvh - 15rem);min-height:80px;resize:vertical;line-height:1.65}.memory-editor-actions{justify-content:flex-end;flex-wrap:wrap;margin-top:.6rem}.memory-editor-actions small{margin-right:auto;color:var(--text-secondary)}.memory-manager>.ui-alert{margin-top:.75rem}
 </style>

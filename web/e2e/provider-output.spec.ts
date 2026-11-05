@@ -28,14 +28,14 @@ for (const format of ['perplexity', 'openrouter', 'responses'] as const) {
         await expect(page.locator('article.assistant .markdown')).toHaveText('Cited answer.')
         const trace = page.locator('.run-trace')
         await trace.locator('.trace-overview-heading').click()
-        await trace.locator('.antd-thought-chain-node-title').filter({ hasText: /^Sources$/ }).click()
+        await trace.locator('.ui-thought-chain-node-title').filter({ hasText: /^Sources$/ }).click()
         await expect(trace.getByRole('link', { name: source, exact: true })).toHaveAttribute('href', source)
         if (format === 'responses') {
           const reasoning = trace.locator('.trace-reasoning')
           await expect(reasoning).toHaveText('Checked the available source before answering.')
           await expect(reasoning.locator('.reply-footer')).toHaveCount(0)
-          await expect(reasoning.locator('button, .antd-thought-chain')).toHaveCount(0)
-          await trace.locator('.antd-thought-chain-node-title').filter({ hasText: 'Executed by Provider' }).click()
+          await expect(reasoning.locator('button, .ui-thought-chain')).toHaveCount(0)
+          await trace.locator('.ui-thought-chain-node-title').filter({ hasText: 'Executed by Provider' }).click()
           await expect(trace.locator('pre.trace-output')).toContainText('Provider executed this tool.')
         }
       }
@@ -61,10 +61,10 @@ test.describe('Responses terminal reasoning', () => {
       await expect(page.locator('.message-row article .markdown')).toHaveText([
         'Find the source', 'Cited answer.',
       ])
-      await expect(page.locator('.trace-overview-heading')).toHaveAttribute('aria-expanded', 'false')
+      await expect(page.locator('.trace-process-header')).toHaveAttribute('aria-expanded', 'false')
       await page.locator('.trace-overview-heading').click()
       await expect(reasoning).toHaveText('Checked the available source before answering.')
-      await expect(reasoning.locator('button, .antd-thought-chain')).toHaveCount(0)
+      await expect(reasoning.locator('button, .ui-thought-chain')).toHaveCount(0)
       const reasoningColor = await reasoning.evaluate(el => getComputedStyle(el).color)
       expect(reasoningColor).not.toBe(await answer.evaluate(el => getComputedStyle(el).color))
       await expect(reasoning.locator('.reply-footer')).toHaveCount(0)

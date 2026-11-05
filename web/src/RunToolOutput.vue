@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { Button } from 'antdv-next'
+import { Button } from './ui'
 import { useI18n } from 'vue-i18n'
 import type { Artifact, Job } from './client/types'
 import { projectToolOutput, toolOperationLabelKey, type RunTraceNode } from './state/runTrace'
@@ -30,9 +30,9 @@ function artifactResult(content: string) {
     <TraceToolResult v-if="!artifacts.length && !jobs.length" :node="node" :show-error="false" />
     <section v-for="(item, index) in jobs" :key="item.id" class="tool-output-entry" :data-output-id="item.id">
       <TraceToolResult v-if="index === 0" :node="node" :show-error="false" />
-      <Button type="link" size="small" @click="emit('openJob', item.id)">{{ t('viewProcess') }}</Button>
+      <Button variant="link" @click="emit('openJob', item.id)">{{ t('viewProcess') }}</Button>
     </section>
-    <Button v-for="id in node.jobIds.filter(id => !jobs.some(job => job.id === id))" :key="id" type="link" size="small" @click="emit('openJob', id)">{{ t('viewProcess') }}</Button>
+    <Button v-for="id in node.jobIds.filter(id => !jobs.some(job => job.id === id))" :key="id" variant="link" @click="emit('openJob', id)">{{ t('viewProcess') }}</Button>
     <section v-for="(item, index) in artifacts" :key="item.id" class="tool-output-entry" :data-output-id="item.id">
       <FullTraceOutput :path="outputPath(sessionId, 'artifacts', item.id)" :snapshot="snapshot(item)" :expanded="expanded">
         <template #default="{ content }"><TraceToolResult :node="artifactResult(content)" :show-error="!errors.length" /></template>

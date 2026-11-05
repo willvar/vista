@@ -24,9 +24,28 @@ test('one click sends a localized diagnostic question in a new conversation and 
   const { session: source } = await vista.api(`${originalPath}/checkpoint`)
   const original = await vista.api(`${originalPath}/messages`) as Message[]
   const failure = original.find(message => message.failure)!
-  await expect(page.locator('.run-failure-help')).toContainText('也可尝试手动压缩上下文后继续')
+  const help = page.locator('.run-failure-help')
+  const analyze = help.getByRole('button', { name: '在新会话分析此故障', exact: true })
+  await expect(help).toContainText('也可尝试手动压缩上下文后继续')
+  const linkLayout = await analyze.evaluate(element => {
+    const paragraph = element.closest('p')!
+    const prefix = [...paragraph.childNodes].find(node => node.nodeType === Node.TEXT_NODE && node.textContent?.trim())!
+    const before = document.createRange(), link = document.createRange()
+    before.selectNodeContents(prefix)
+    link.selectNodeContents(element)
+    return {
+      height: element.getBoundingClientRect().height,
+      lineHeight: parseFloat(getComputedStyle(paragraph).lineHeight),
+      textTopDifference: Math.abs(before.getClientRects()[0]!.top - link.getClientRects()[0]!.top),
+    }
+  })
+  expect(linkLayout.height, 'The diagnostic link fits the surrounding text line').toBeLessThanOrEqual(linkLayout.lineHeight + 1)
+  expect(linkLayout.textTopDifference, 'The diagnostic link follows the preceding text inline').toBeLessThanOrEqual(1)
+  await analyze.hover()
+  await expect(analyze).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)')
+  await expect(analyze).toHaveCSS('border-top-width', '0px')
   await page.locator('.sender-card textarea').fill('保留原会话草稿')
-  await page.getByRole('button', { name: '在新会话分析此故障', exact: true }).click()
+  await analyze.click()
   await expect.poll(() => new URL(page.url()).pathname).not.toBe(originalPath)
   await expect(page.locator('.run-failure-message')).toBeVisible()
   expect(mutations.map(item => item.path)).toEqual([

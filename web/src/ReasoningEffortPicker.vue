@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref, useId } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { Select as ASelect, Slider as ASlider } from 'antdv-next'
+import { Select as VSelect, Slider as VSlider } from './ui'
 
 const props = defineProps<{ options: { label: string; value: string }[]; disabled?: boolean }>()
 const value = defineModel<string>('value', { required: true })
@@ -29,11 +29,11 @@ const formatIndex = (index?: number) => orderedOptions.value[index ?? selectedIn
   <div class="reasoning-control" role="group" :data-effort="value" :aria-label="t('reasoningEffort')" :aria-disabled="disabled || undefined">
     <template v-if="smallScreen && options.length > 1">
       <label :for="selectId" class="visually-hidden">{{ t('reasoningEffort') }}</label>
-      <a-select :id="selectId" v-model:value="value" class="reasoning-select sender-picker"
+      <v-select :id="selectId" v-model:value="value" class="reasoning-select sender-picker"
         variant="borderless" :options="orderedOptions" :styles="{ content: { color: 'var(--effort-color)' } }" :disabled="disabled" :aria-label="t('reasoningEffort')" />
     </template>
     <template v-else>
-      <a-slider v-if="options.length > 1" v-model:value="selectedIndex" class="reasoning-slider"
+      <v-slider v-if="options.length > 1" v-model:value="selectedIndex" class="reasoning-slider"
         :min="0" :max="options.length - 1" :step="1" dots :disabled="disabled"
         :tooltip="{ formatter: formatIndex }" :aria-label-for-handle="t('reasoningEffort')"
         :aria-value-text-formatter-for-handle="formatIndex" />
@@ -54,13 +54,13 @@ const formatIndex = (index?: number) => orderedOptions.value[index ?? selectedIn
 .reasoning-control:is([data-effort=high],[data-effort=xhigh],[data-effort=max]){--effort-glow:color-mix(in srgb,var(--effort-color) 28%,transparent)}
 .reasoning-slider{width:96px;margin:10px 6px}
 .reasoning-select{width:6.5rem}
-.reasoning-control .reasoning-slider :deep(.ant-slider-track){background:var(--effort-color);box-shadow:0 0 8px var(--effort-glow);transition:width .22s cubic-bezier(.22,1,.36,1),background-color .18s ease,box-shadow .22s ease}
-.reasoning-control .reasoning-slider :deep(.ant-slider-handle){transition:left .22s cubic-bezier(.22,1,.36,1)}
-.reasoning-control .reasoning-slider :deep(.ant-slider-handle::after){box-shadow:0 0 0 2px var(--effort-color),0 0 12px 2px var(--effort-glow);transition:inset-inline-start .18s ease,inset-block-start .18s ease,width .18s ease,height .18s ease,box-shadow .22s ease,outline .18s ease}
-.reasoning-control .reasoning-slider :deep(.ant-slider-handle:is(:hover,:active,:focus)::after){box-shadow:0 0 0 3px var(--effort-color),0 0 14px 3px var(--effort-glow);outline:5px solid color-mix(in srgb,var(--effort-color) 15%,transparent)}
-.reasoning-control .reasoning-slider :deep(.ant-slider-dot-active){border-color:var(--effort-color);transition:border-color .18s ease}
-.reasoning-control .reasoning-slider.ant-slider-lock :deep(.ant-slider-track){transition:background-color .18s ease,box-shadow .22s ease}
-.reasoning-control .reasoning-slider.ant-slider-lock :deep(.ant-slider-handle){transition:none}
+.reasoning-control .reasoning-slider :deep(.ui-slider-track){background:var(--effort-color);box-shadow:0 0 8px var(--effort-glow);transition:right .22s cubic-bezier(.22,1,.36,1),left .22s cubic-bezier(.22,1,.36,1),background-color .18s ease,box-shadow .22s ease}
+.reasoning-control .reasoning-slider :deep(.ui-slider-handle){transition:inset-inline-start .22s cubic-bezier(.22,1,.36,1)}
+.reasoning-control .reasoning-slider :deep(.ui-slider-handle::after){box-shadow:0 0 0 2px var(--effort-color),0 0 12px 2px var(--effort-glow);transition:inset-inline-start .18s ease,inset-block-start .18s ease,width .18s ease,height .18s ease,box-shadow .22s ease,outline .18s ease}
+.reasoning-control .reasoning-slider :deep(.ui-slider-handle:is(:hover,:active,:focus)::after){box-shadow:0 0 0 3px var(--effort-color),0 0 14px 3px var(--effort-glow);outline:5px solid color-mix(in srgb,var(--effort-color) 15%,transparent)}
+.reasoning-control .reasoning-slider :deep(.ui-slider-dot-active){border-color:var(--effort-color);transition:border-color .18s ease}
+.reasoning-control .reasoning-slider.ui-slider-moving[data-dragging] :deep(.ui-slider-track){transition:background-color .18s ease,box-shadow .22s ease}
+.reasoning-control .reasoning-slider.ui-slider-moving[data-dragging] :deep(.ui-slider-handle){transition:none}
 .reasoning-current{display:grid;overflow:hidden;color:var(--effort-color);font-size:14px;line-height:20px;white-space:nowrap;transition:color .18s ease}
 .reasoning-current>span{grid-area:1/1}
 .reasoning-label-enter-active{transition:opacity .18s ease,transform .22s cubic-bezier(.22,1,.36,1)}

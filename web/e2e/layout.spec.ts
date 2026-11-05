@@ -32,8 +32,8 @@ async function expectControlReachable(control: Locator) {
 
 async function expectNoConversationOverflow(page: Page) {
   const geometry = await page.evaluate(() => {
-    const selectors = ['.messages', '.run-trace', '.antd-think-status-wrapper', '.antd-think-status-text',
-      '.antd-thought-chain-node-box', '.antd-thought-chain-node-title', '.sender-card', '.sender-footer', '.composer-submit']
+    const selectors = ['.messages', '.run-trace', '.ui-think-status-wrapper', '.ui-think-status-text',
+      '.ui-thought-chain-node-box', '.ui-thought-chain-node-title', '.sender-card', '.sender-footer', '.composer-submit']
     const model = document.querySelector('.composer-model')?.getBoundingClientRect()
     return {
       pageWidth: document.documentElement.scrollWidth,
@@ -54,8 +54,8 @@ async function expectNoConversationOverflow(page: Page) {
 
 async function expectModalLayout(page: Page, desktopWidth?: number) {
   const geometry = await page.locator('.modal-page:visible').evaluate(section => {
-    const container = section.closest('.ant-modal-container')!
-    const body = section.closest('.ant-modal-body')!
+    const container = section.closest('.ui-modal-container')!
+    const body = section.closest('.ui-modal-body')!
     const rect = (element: Element) => {
       const bounds = element.getBoundingClientRect()
       return { x: bounds.x, y: bounds.y, right: bounds.right, bottom: bounds.bottom, width: bounds.width, height: bounds.height }
@@ -134,6 +134,20 @@ for (const modal of [
     expect(new URL(page.url()).pathname).toBe(modal.route)
     await settleLayout(page)
     await expectModalLayout(page, modal.route === '/sessions' ? 960 : undefined)
+    if (modal.route === '/sessions') {
+      const title = page.locator('.managed-session-info .session-name')
+      const text = await title.evaluate(element => {
+        const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT, { acceptNode: node => node.textContent?.trim() ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_REJECT })
+        const first = walker.nextNode()!
+        const range = document.createRange(); range.setStart(first, 0); range.setEnd(first, 1)
+        return { inset: range.getBoundingClientRect().x - element.getBoundingClientRect().x, clipped: element.scrollWidth > element.clientWidth }
+      })
+      // Keep the beginning visible; a centered flex item can clip both ends
+      // even when the control declares text-overflow: ellipsis.
+      expect(text.clipped).toBe(true)
+      expect(text.inset).toBeGreaterThanOrEqual(0)
+      expect(text.inset).toBeLessThanOrEqual(4)
+    }
     const screenshot = testInfo.outputPath('workspace-layout.png')
     await page.screenshot({ path: screenshot })
     await testInfo.attach('modal-layout', { path: screenshot, contentType: 'image/png' })
@@ -153,17 +167,17 @@ for (const modal of [
       if (page.viewportSize()!.width > 830) {
         const viewport = page.viewportSize()!
         const widths = () => page.locator('.settings-page').evaluate(section => ({
-          modal: section.closest('.ant-modal-container')!.getBoundingClientRect().width,
+          modal: section.closest('.ui-modal-container')!.getBoundingClientRect().width,
           navigation: section.querySelector('.settings-nav')!.getBoundingClientRect().width,
           content: section.querySelector('.settings-content')!.getBoundingClientRect().width,
         }))
         const initial = await widths()
-        const picker = page.locator('.language-setting .ant-select')
+        const picker = page.locator('.language-setting .ui-select')
         for (const [language, locale] of [['French', 'fr'], ['zh-CN', 'zh-CN'], ['English', 'en']]) {
           await picker.scrollIntoViewIfNeeded()
           await picker.click()
           await picker.locator('input').fill(language!)
-          await page.locator('.ant-select-dropdown:visible .ant-select-item-option').click()
+          await page.locator('.ui-select-dropdown:visible .ui-select-item-option').click()
           await expect(page.locator('html')).toHaveAttribute('lang', locale!)
           const current = await widths()
           expect(current.content, 'Changing the language must not squeeze the settings pane').toBe(initial.content)
@@ -193,8 +207,8 @@ for (const modal of [
       const layer = await popup.evaluate(element => {
         const rect = element.getBoundingClientRect()
         return {
-          insideModal: !!element.closest('.ant-modal'),
-          zIndex: Number(getComputedStyle(element).zIndex),
+          insideModal: !!element.closest('.ui-modal'),
+          zIndex: Number(getComputedStyle(element.closest('[data-part="positioner"]') || element).zIndex),
           x: rect.x, y: rect.y, right: rect.right, bottom: rect.bottom,
           viewportWidth: innerWidth, viewportHeight: innerHeight,
         }
@@ -311,12 +325,12 @@ test('long running tool and completed process keep Stop and Queue reachable', as
   const activeTrace = page.locator(`.run-trace[data-run-id="${activeRun}"]`)
   const completedTrace = page.locator(`.run-trace[data-run-id="${completedRun}"]`)
   await expect(activeTrace.locator('.trace-last-activity')).toContainText('Last activity: Use tool · UI geometry only')
-  await expect(activeTrace.locator('.antd-thought-chain-node-title')).toBeHidden()
+  await expect(activeTrace.locator('.ui-thought-chain-node-title')).toBeHidden()
   await expect(completedTrace.locator('.trace-overview-heading')).not.toContainText('model calls')
-  await completedTrace.locator('.antd-think-status-wrapper').first().click()
-  await expect(completedTrace.locator('.antd-thought-chain-node-title')).toHaveText('Use tool · UI geometry only')
-  await activeTrace.locator('.antd-think-status-wrapper').first().click()
-  await expect(activeTrace.locator('.antd-thought-chain-node-title')).toHaveText('Use tool · UI geometry only')
+  await completedTrace.locator('.trace-overview-heading').click()
+  await expect(completedTrace.locator('.ui-thought-chain-node-title')).toHaveText('Use tool · UI geometry only')
+  await activeTrace.locator('.trace-overview-heading').click()
+  await expect(activeTrace.locator('.ui-thought-chain-node-title')).toHaveText('Use tool · UI geometry only')
 
   const textarea = page.locator('.sender-card textarea')
   for (const draft of ['', eightLines]) {

@@ -2,6 +2,18 @@ import type en from './en.ts'
 
 
 export default {
+  "uiShowValue": "Показать значение",
+  "uiHideValue": "Скрыть значение",
+  "uiIncrease": "Увеличить значение",
+  "uiDecrease": "Уменьшить значение",
+  "uiToggleOptions": "Открыть или закрыть варианты",
+  "uiClear": "Очистить выбор",
+  "uiResultsCount": "Результатов: {count}",
+  "uiLoading": "Загрузка…",
+  "uiPagination": "Навигация по страницам",
+  "uiPreviousPage": "Предыдущая страница",
+  "uiNextPage": "Следующая страница",
+  "uiPage": "Страница {page}",
   "statisticsSettings": "Использование",
   "statisticsIntro": "Время использования и динамика расхода.",
   "statisticsPeriod": "Период",

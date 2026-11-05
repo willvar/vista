@@ -242,7 +242,7 @@ test('Escape dismisses a dropdown, settings, context popup, or title editor befo
     const before = fixture.cancellations()
     if (overlay === 'model') {
       await page.locator('.composer-model').click()
-      await expect(page.locator('.ant-select-dropdown:visible')).toHaveCount(1)
+      await expect(page.locator('.ui-select-dropdown:visible')).toHaveCount(1)
     } else if (overlay === 'settings') {
       const mobileDrawer = page.locator('.mobile-sessions-trigger:visible')
       if (await mobileDrawer.count()) {
@@ -259,7 +259,7 @@ test('Escape dismisses a dropdown, settings, context popup, or title editor befo
       await header.getByRole('textbox', { name: 'Session title', exact: true }).fill('Do not save this title')
     }
     await page.keyboard.press('Escape')
-    if (overlay === 'model') await expect(page.locator('.ant-select-dropdown:visible')).toHaveCount(0)
+    if (overlay === 'model') await expect(page.locator('.ui-select-dropdown:visible')).toHaveCount(0)
     else if (overlay === 'settings') await expect(page.locator('.settings-page')).toBeHidden()
     else if (overlay === 'context') await expect(page.locator('.context-usage-hint:visible')).toHaveCount(0)
     else await expect(header.locator('.session-rename')).toHaveCount(0)

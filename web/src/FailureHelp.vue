@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { useI18n } from 'vue-i18n'
-import { Button as AButton } from 'antdv-next'
+import { Button as VButton } from './ui'
 import { useWorkspace } from './composables/useWorkspace'
 import type { FailureContext } from './state/failureAnalysis'
 
@@ -13,8 +13,8 @@ const { analyzingFailure, canAnalyzeFailure, analyzeFailure } = conversation
 <template>
   <i18n-t keypath="runFailureHelp" tag="p" class="run-failure-help" scope="global">
     <template #analyze>
-      <a-button type="link" size="small" :loading="analyzingFailure === failure.runId"
-        :disabled="busy || !!analyzingFailure || !canAnalyzeFailure" @click="analyzeFailure(failure)">{{ t('analyzeFailure') }}</a-button>
+      <v-button variant="link" :loading="analyzingFailure === failure.runId"
+        :disabled="busy || !!analyzingFailure || !canAnalyzeFailure" @click="analyzeFailure(failure)">{{ t('analyzeFailure') }}</v-button>
     </template>
   </i18n-t>
 </template>

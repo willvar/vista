@@ -1,9 +1,10 @@
 <script setup lang="ts">
-import { computed, nextTick, ref, watch, watchEffect } from 'vue'
-import { Empty as AEmpty, Button as AButton, Input as AInput, Modal as AModal, Splitter as ASplitter, SplitterPanel as ASplitterPanel } from 'antdv-next'
-import { AppstoreOutlined, SettingOutlined, SearchOutlined, CloseOutlined, PlusOutlined } from '@antdv-next/icons'
+import { computed, nextTick, ref, watch } from 'vue'
+import { Empty as VEmpty, Button as VButton, Modal as VModal, Input as VInput } from './ui'
+import { AppstoreOutlined, SettingOutlined, CloseOutlined, PlusOutlined, SearchOutlined } from '@antdv-next/icons'
 import { useI18n } from 'vue-i18n'
 import AppProvider from './AppProvider.vue'
+import WorkspaceSplit from './ui/WorkspaceSplit.vue'
 import { provideWorkspace } from './composables/useWorkspace'
 import { useSidebarWidth } from './composables/useSidebarWidth'
 import { useDrawerSwipe } from './composables/useDrawerSwipe'
@@ -21,14 +22,6 @@ const sessionsBackdrop = ref<HTMLElement | null>(null)
 const drawerSwipe = useDrawerSwipe(sessionsPanel, sessionsBackdrop, mobileSessionsOpen, desktop)
 const sessionSearch = ref('')
 const filteredSessions = computed(() => openSessions.value.filter(item => displaySessionTitle(item).toLocaleLowerCase().includes(sessionSearch.value.trim().toLocaleLowerCase())))
-watchEffect(() => {
-  const separator = layout.value?.querySelector<HTMLElement>('.ant-splitter-bar')
-  if (!separator) return
-  separator.setAttribute('aria-label', t('resizeSessionList'))
-  separator.setAttribute('aria-orientation', 'vertical')
-  separator.setAttribute('aria-controls', 'sessions-panel')
-  separator.title = t('resizeSessionListHint')
-}, { flush: 'post' })
 watch(() => selected.value?.id, async () => {
   sessionSearch.value = ''
   await nextTick()
@@ -45,45 +38,43 @@ function activateSession(id: string) {
   <main class="app-shell">
     <Transition name="mobile-sessions-mask"><div v-if="mobileSessionsOpen" ref="sessionsBackdrop" class="mobile-sessions-backdrop" @click="mobileSessionsOpen = false"></div></Transition>
     <p v-if="error" class="error">{{ error }}</p>
-    <p v-if="stateConnection.phase === 'error'" class="error state-sync-error" role="alert" :title="stateConnection.error"><span>{{ t('stateSyncFailed') }}</span><a-button size="small" @click="stateSync.reconnect()">{{ t('retry') }}</a-button></p>
+    <p v-if="stateConnection.phase === 'error'" class="error state-sync-error" role="alert" :title="stateConnection.error"><span>{{ t('stateSyncFailed') }}</span><v-button @click="stateSync.reconnect()">{{ t('retry') }}</v-button></p>
     <div ref="layout" class="layout" :class="{ 'has-session': !!selected }">
       <router-view name="overlay" />
-      <a-splitter class="workspace-splitter" :on-resize="resize" :on-resize-end="finishResize" :on-dragger-double-click="reset">
-      <a-splitter-panel class="sidebar-split-panel" :size="sidebarWidth" :min="desktop ? minimum : 0" :max="desktop ? maximum : 0" :resizable="desktop">
+      <WorkspaceSplit :sidebar-width="sidebarWidth" :minimum="minimum" :maximum="maximum" :desktop="desktop" @resize="resize" @resize-end="finishResize" @reset="reset">
+      <template #sidebar>
       <aside id="sessions-panel" ref="sessionsPanel" class="sessions-panel" :class="{ 'mobile-open': mobileSessionsOpen }"
         @pointerdown.capture="drawerSwipe.start" @pointermove="drawerSwipe.move" @pointerup="drawerSwipe.end"
         @pointercancel="drawerSwipe.cancel" @lostpointercapture="drawerSwipe.lostCapture" @click.capture="drawerSwipe.click">
-        <div class="sidebar-brand"><button class="brand-home" aria-label="Vista" :disabled="busy" @click="create"><VistaMark /><span>Vista</span></button><a-button type="text" class="mobile-sessions-close icon-close" :aria-label="t('closeSessionDrawer')" @click="mobileSessionsOpen = false"><CloseOutlined /></a-button></div>
-        <a-button type="text" class="sidebar-new-conversation" :disabled="busy" @click="create"><PlusOutlined aria-hidden="true" /><span>{{ t('newConversation') }}</span></a-button>
-        <a-input v-if="openSessions.length" v-model:value="sessionSearch" class="sidebar-search" :placeholder="t('searchSessions')" :aria-label="t('searchSessions')" allow-clear><template #prefix><SearchOutlined aria-hidden="true" /></template></a-input>
+        <div class="sidebar-brand"><button class="brand-home" aria-label="Vista" :disabled="busy" @click="create"><VistaMark /><span>Vista</span></button><v-button variant="text" class="icon-button mobile-sessions-close icon-close" :aria-label="t('closeSessionDrawer')" @click="mobileSessionsOpen = false"><CloseOutlined /></v-button></div>
+        <v-button variant="text" class="sidebar-new-conversation" :disabled="busy" @click="create"><PlusOutlined aria-hidden="true" /><span>{{ t('newConversation') }}</span></v-button>
+        <v-input v-if="openSessions.length" v-model:value="sessionSearch" class="sidebar-search" :placeholder="t('searchSessions')" :aria-label="t('searchSessions')" allow-clear><template #prefix><SearchOutlined aria-hidden="true" /></template></v-input>
         <div class="sidebar-section-label"><span>{{ t('recentConversations') }}</span><small>{{ openSessions.length || '' }}</small></div>
-        <a-empty v-if="!openSessions.length" class="vista-empty-state vista-empty-state-compact sidebar-empty" :description="t(totalSessions ? 'noOpenSessions' : 'createSessionHint')" />
-        <a-empty v-else-if="!filteredSessions.length" class="vista-empty-state vista-empty-state-compact sidebar-empty" :description="t('noMatchingSessions')" />
+        <v-empty v-if="!openSessions.length" class="vista-empty-state vista-empty-state-compact sidebar-empty" :description="t(totalSessions ? 'noOpenSessions' : 'createSessionHint')" />
+        <v-empty v-else-if="!filteredSessions.length" class="vista-empty-state vista-empty-state-compact sidebar-empty" :description="t('noMatchingSessions')" />
         <ul><li v-for="item in filteredSessions" :key="item.id" :data-session-id="item.id" class="session-card" :class="{ selected: selected?.id === item.id }" role="button" tabindex="0" :aria-label="t('activateSession', { title: displaySessionTitle(item) })" :aria-current="selected?.id === item.id ? 'page' : undefined" @click="activateSession(item.id)" @keydown.enter.prevent="activateSession(item.id)" @keydown.space.prevent="activateSession(item.id)">
-          <strong class="session-name" :class="{ unread: sessionHasUnread(item) }">{{ displaySessionTitle(item) }}</strong><a-button type="text" class="session-close icon-close" :aria-label="t('closeSession', { title: displaySessionTitle(item) })" :disabled="busy" @click.stop="action(item,'close')" @keydown.enter.stop @keydown.space.stop><CloseOutlined /></a-button>
+          <strong class="session-name" :class="{ unread: sessionHasUnread(item) }">{{ displaySessionTitle(item) }}</strong><v-button variant="text" class="icon-button session-close icon-close" :aria-label="t('closeSession', { title: displaySessionTitle(item) })" :disabled="busy" @click.stop="action(item,'close')" @keydown.enter.stop @keydown.space.stop><CloseOutlined /></v-button>
           <SessionIndicators :session="item" :worker-available="serverStatus ? workerAvailable(item.id) : undefined" />
-          <a-button v-if="serverStatus && !workerAvailable(item.id)" type="text" size="small" class="session-retry" :disabled="busy" @click.stop="action(item,'retry')" @keydown.enter.stop @keydown.space.stop>{{ t('retryWorker') }}</a-button>
+          <v-button v-if="serverStatus && !workerAvailable(item.id)" variant="text" class="session-retry" :disabled="busy" @click.stop="action(item,'retry')" @keydown.enter.stop @keydown.space.stop>{{ t('retryWorker') }}</v-button>
         </li></ul>
         <footer class="sessions-panel-footer">
           <nav class="sidebar-navigation" :aria-label="t('workspaceHeading')">
-            <a-button type="text" class="manage-sessions-link" @click="openSessionManager"><AppstoreOutlined aria-hidden="true" />{{ t('manageSessions') }}</a-button>
-            <a-button type="text" class="settings-trigger" :aria-label="t('settings')" @click="settingsOpen ? backToWorkspace() : openSettings()"><SettingOutlined aria-hidden="true" />{{ t('settings') }}</a-button>
+            <v-button variant="text" class="manage-sessions-link" @click="openSessionManager"><AppstoreOutlined aria-hidden="true" />{{ t('manageSessions') }}</v-button>
+            <v-button variant="text" class="settings-trigger" :aria-label="t('settings')" @click="settingsOpen ? backToWorkspace() : openSettings()"><SettingOutlined aria-hidden="true" />{{ t('settings') }}</v-button>
           </nav>
         </footer>
       </aside>
-      </a-splitter-panel>
-      <a-splitter-panel class="conversation-split-panel" :min="desktop ? 480 : 0" :resizable="desktop">
+      </template>
       <router-view />
-      </a-splitter-panel>
-      </a-splitter>
+      </WorkspaceSplit>
     </div>
   </main>
-  <a-modal :open="!!closeConfirmation" centered :z-index="1200" width="min(420px, calc(100vw - 2rem))"
+  <v-modal :open="!!closeConfirmation" centered :z-index="1200" width="min(420px, calc(100vw - 2rem))"
     :title="t((closeConfirmation?.count ?? 0) > 1 ? 'closeSelectedSessionsConfirmTitle' : 'closeSessionConfirmTitle', { count: closeConfirmation?.count ?? 0 })"
     :ok-text="t('closeAndStop')" :cancel-text="t('cancel')" :confirm-loading="busy"
     :ok-button-props="{ danger: true, disabled: busy }" :cancel-button-props="{ disabled: busy }"
     :closable="!busy" :keyboard="!busy" :mask-closable="!busy" @cancel="cancelSessionClose" @ok="confirmSessionClose">
     <p>{{ t('closeSessionConfirmBody', { manager: t('manageSessions') }) }}</p>
-  </a-modal>
+  </v-modal>
   </AppProvider>
 </template>

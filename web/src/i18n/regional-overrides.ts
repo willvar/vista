@@ -74,6 +74,8 @@ export const regionalOverrides = {
     noModelConfigured: 'No hay modelos disponibles. Conecta un proveedor en Configuración antes de enviar.',
   },
   'pt-PT': {
+    uiNextPage: 'Página seguinte',
+    uiLoading: 'A carregar…',
     statisticsIntro: 'Veja os seus horários de utilização e a evolução do consumo.',
     statisticsLoading: 'A carregar estatísticas…',
     statisticsEmpty: 'Ainda não há atividade nem consumo registados neste período.',

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { Alert as AAlert, Button as AButton, Checkbox as ACheckbox, InputNumber as AInputNumber, InputPassword as AInputPassword, Modal as AModal } from 'antdv-next'
+import { Alert as VAlert, Button as VButton, Checkbox as VCheckbox, InputNumber as VInputNumber, InputPassword as VInputPassword, Modal as VModal } from './ui'
 import { ArrowDownOutlined, ArrowUpOutlined, EditOutlined, SearchOutlined, FileTextOutlined, RobotOutlined, GlobalOutlined } from '@antdv-next/icons'
 import { useWorkspace } from './composables/useWorkspace'
 import ConfirmPopover from './ConfirmPopover.vue'
@@ -217,8 +217,8 @@ async function updateKey(remove = false) {
     </figure>
     <p class="search-settings-hint">{{ t('searchSettingsHint') }}</p>
 
-    <a-alert v-if="error" type="error" role="alert" :message="error" />
-    <a-button v-if="error" :disabled="loading || !!busy" @click="load">{{ t('retry') }}</a-button>
+    <v-alert v-if="error" type="error" role="alert" :message="error" />
+    <v-button v-if="error" :disabled="loading || !!busy" @click="load">{{ t('retry') }}</v-button>
     <p v-if="loading" role="status">{{ t('loadingSearchSettings') }}</p>
     <div class="web-order-sections">
     <template v-for="section in orderSections" :key="section.key">
@@ -233,13 +233,13 @@ async function updateKey(remove = false) {
             <span class="search-quota-tag" :class="{ 'has-key': keySource(credentialName(name, section.key)) !== 'none' }" :title="keyStatus(keySource(credentialName(name, section.key)), name)">{{ t(keySource(credentialName(name, section.key)) !== 'none' ? 'searchPaidQuota' : name === 'deepseek' ? 'searchKeyUnconfigured' : 'searchFreeQuota') }}</span>
           </span>
           <div class="search-order-actions">
-            <a-button html-type="button" type="text" :aria-label="t('editSearchKey', { name: providerName(name) })" :title="t('editSearchKey', { name: providerName(name) })" :disabled="loading || !!busy" @click="editKey(credentialName(name, section.key))"><EditOutlined /></a-button>
-            <a-button html-type="button" type="text" :aria-label="t('searchMoveUp', { name: providerName(name) })" :title="t('searchMoveUp', { name: providerName(name) })" :disabled="loading || !!busy || index === 0" @click="move(section.key, index, -1)"><ArrowUpOutlined /></a-button>
-            <a-button html-type="button" type="text" :aria-label="t('searchMoveDown', { name: providerName(name) })" :title="t('searchMoveDown', { name: providerName(name) })" :disabled="loading || !!busy || index === orders[section.key].length - 1" @click="move(section.key, index, 1)"><ArrowDownOutlined /></a-button>
+            <v-button class="icon-button" type="button" variant="text" :aria-label="t('editSearchKey', { name: providerName(name) })" :title="t('editSearchKey', { name: providerName(name) })" :disabled="loading || !!busy" @click="editKey(credentialName(name, section.key))"><EditOutlined /></v-button>
+            <v-button class="icon-button" type="button" variant="text" :aria-label="t('searchMoveUp', { name: providerName(name) })" :title="t('searchMoveUp', { name: providerName(name) })" :disabled="loading || !!busy || index === 0" @click="move(section.key, index, -1)"><ArrowUpOutlined /></v-button>
+            <v-button class="icon-button" type="button" variant="text" :aria-label="t('searchMoveDown', { name: providerName(name) })" :title="t('searchMoveDown', { name: providerName(name) })" :disabled="loading || !!busy || index === orders[section.key].length - 1" @click="move(section.key, index, 1)"><ArrowDownOutlined /></v-button>
           </div>
         </li>
       </ol>
-      <div class="search-provider-actions"><a-button html-type="submit" type="primary" :loading="busy === section.key" :disabled="loading || !!busy || !orderDirty(section.key)">{{ t('saveSearchOrder') }}</a-button></div>
+      <div class="search-provider-actions"><v-button type="submit" variant="primary" :loading="busy === section.key" :disabled="loading || !!busy || !orderDirty(section.key)">{{ t('saveSearchOrder') }}</v-button></div>
       <p v-if="updated === section.key || orders[section.key].some(name => credentialName(name, section.key) === updated)" class="search-settings-updated" role="status">{{ t('searchSettingsUpdated') }}</p>
     </form>
 
@@ -267,35 +267,35 @@ async function updateKey(remove = false) {
       <label :for="section.preview">{{ t(section.previewTitle) }}</label>
       <p :id="`${section.preview}-hint`" class="search-settings-hint">{{ t(section.previewHint) }}</p>
       <div class="web-preview-controls">
-        <a-input-number :id="section.preview" v-model:value="previews[section.preview].length" :aria-label="t(section.previewTitle)" :aria-describedby="`${section.preview}-hint web-preview-hint`" :min="1 / 1024" :step="1" :disabled="loading || !!busy || previews[section.preview].unlimited" />
+        <v-input-number :id="section.preview" v-model:value="previews[section.preview].length" :aria-label="t(section.previewTitle)" :aria-describedby="`${section.preview}-hint web-preview-hint`" :min="1 / 1024" :step="1" :disabled="loading || !!busy || previews[section.preview].unlimited" />
         <span>{{ t('webPreviewKiB') }}</span>
-        <a-checkbox v-model:checked="previews[section.preview].unlimited" :disabled="loading || !!busy">{{ t('webPreviewUnlimited') }}</a-checkbox>
+        <v-checkbox v-model:checked="previews[section.preview].unlimited" :disabled="loading || !!busy">{{ t('webPreviewUnlimited') }}</v-checkbox>
       </div>
-      <div class="search-provider-actions"><a-button html-type="submit" type="primary" :loading="busy === section.preview" :disabled="loading || !!busy || !previewDirty(section.preview) || !validPreview(section.preview)">{{ t('saveChanges') }}</a-button></div>
+      <div class="search-provider-actions"><v-button type="submit" variant="primary" :loading="busy === section.preview" :disabled="loading || !!busy || !previewDirty(section.preview) || !validPreview(section.preview)">{{ t('saveChanges') }}</v-button></div>
       <p v-if="updated === section.preview" class="search-settings-updated" role="status">{{ t('searchSettingsUpdated') }}</p>
     </form>
     </div>
     </section>
   </div>
-  <a-modal :open="!!editing" centered :z-index="1200" width="min(480px, calc(100vw - 2rem))"
+  <v-modal :open="!!editing" centered :z-index="1200" width="min(480px, calc(100vw - 2rem))"
     :title="t('editSearchKey', { name: providerName(editing) })" :footer="null" :closable="!busy" :keyboard="!busy && !removingKey" :mask-closable="!busy && !removingKey" destroy-on-hidden
     :styles="{ body: { maxHeight: 'calc(100dvh - 10rem)', overflowY: 'auto', overscrollBehavior: 'contain' } }" @cancel="closeKeyEditor">
     <form v-if="editing" class="search-key-form" :aria-label="providerName(editing)" @submit.prevent="updateKey()">
-      <a-alert v-if="keyError" type="error" role="alert" :message="keyError" />
+      <v-alert v-if="keyError" type="error" role="alert" :message="keyError" />
       <p class="search-settings-hint">{{ keyStatus(editingSource, editing) }}</p>
       <p v-if="editing === 'jina'" class="search-settings-hint">{{ t('jinaReaderHint') }}</p>
       <p v-if="editing === 'deepseek' || editing === 'deepseek-fetch'" class="search-settings-hint">{{ t(editing === 'deepseek' ? 'deepseekSearchKeyHint' : 'deepseekFetchKeyHint') }}</p>
       <label for="search-provider-key">{{ t('apiKey') }}</label>
-      <a-input-password id="search-provider-key" v-model:value="keyDraft" :aria-label="`${providerName(editing)} API Key`" :maxlength="4096" :disabled="!!busy" autocomplete="new-password" :placeholder="editingSource === 'settings' ? t('reuseSavedKey') : t('enterApiKey')" />
+      <v-input-password id="search-provider-key" v-model:value="keyDraft" :aria-label="`${providerName(editing)} API Key`" :maxlength="4096" :disabled="!!busy" autocomplete="new-password" :placeholder="editingSource === 'settings' ? t('reuseSavedKey') : t('enterApiKey')" />
       <p v-if="editingSource === 'environment'" class="search-settings-hint">{{ t('searchKeyEnvironmentHint') }}</p>
       <div class="search-key-actions">
         <ConfirmPopover v-if="editingSource === 'settings'" :show="removingKey" :message="t('removeSearchKeyConfirm', { name: removalName })" :cancel-text="t('cancel')" :confirm-text="t('delete')" :busy="!!busy" :error="removeKeyError" :z-index="1300" popover-class="search-key-remove-popover" @update:show="removingKey = $event; removeKeyError = ''" @confirm="updateKey(true)">
-          <template #trigger><a-button html-type="button" danger :disabled="!!busy">{{ t('removeSearchKey') }}</a-button></template>
+          <template #trigger><v-button type="button" danger :disabled="!!busy">{{ t('removeSearchKey') }}</v-button></template>
         </ConfirmPopover>
-        <div><a-button html-type="button" :disabled="!!busy" @click="closeKeyEditor">{{ t('cancel') }}</a-button><a-button html-type="submit" type="primary" :loading="!!busy" :disabled="!!busy || !canSaveKey">{{ t('saveChanges') }}</a-button></div>
+        <div><v-button type="button" :disabled="!!busy" @click="closeKeyEditor">{{ t('cancel') }}</v-button><v-button type="submit" variant="primary" :loading="!!busy" :disabled="!!busy || !canSaveKey">{{ t('saveChanges') }}</v-button></div>
       </div>
     </form>
-  </a-modal>
+  </v-modal>
 </template>
 
 <style scoped>
@@ -358,7 +358,7 @@ async function updateKey(remove = false) {
 .search-key-form, .web-order-form, .web-preview-form { display: flex; flex-direction: column; gap: .65rem; min-width: 0; }
 .web-preview-form>label { font-weight: 600; }
 .web-preview-controls { display: flex; align-items: center; flex-wrap: wrap; gap: .5rem; }
-.web-preview-controls .ant-input-number { width: 8rem; max-width: 100%; }
+.web-preview-controls .ui-input-number { width: 8rem; max-width: 100%; }
 .web-order-form h2 { margin: 0; font-size: 1rem; font-weight: 600; }
 .web-order-form ol { list-style: none; padding: 0; margin: 0; }
 .web-order-form li { display: flex; align-items: center; gap: .65rem; padding: .4rem 0; border-bottom: 1px solid var(--border); }
@@ -367,7 +367,6 @@ async function updateKey(remove = false) {
 .search-quota-tag { flex-shrink: 0; border: 1px solid var(--border); border-radius: 4px; padding: 0 .4rem; color: var(--muted); background: var(--surface-subtle); font-size: var(--font-size-small); line-height: 1.7; }
 .search-quota-tag.has-key { color: var(--accent); background: var(--accent-soft); }
 .search-order-actions { display: flex; flex-shrink: 0; gap: .25rem; }
-.search-order-actions .ant-btn { min-width: 36px; min-height: 36px; }
 .search-provider-actions, .search-key-actions, .search-key-actions>div { display: flex; align-items: center; flex-wrap: wrap; gap: .5rem; }
 .search-key-actions { margin-top: .5rem; }
 .search-key-actions>div { margin-left: auto; }

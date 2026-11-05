@@ -201,7 +201,7 @@ test('stdio arguments are explicit and the inner editor dismisses without closin
     const dialog = page.getByRole('dialog', { name: 'Add MCP server', exact: true })
     await dialog.getByLabel('Name', { exact: true }).fill('discarded')
     if (dismiss === 'escape') await dialog.getByLabel('Name', { exact: true }).press('Escape')
-    else await page.locator('.ant-modal-wrap').last().click({ position: { x: 5, y: 5 } })
+    else await page.locator('.ui-modal-wrap').last().click({ position: { x: 5, y: 5 } })
     await expect(dialog).toBeHidden()
     await expect(page.locator('.settings-page')).toBeVisible()
   }
@@ -239,7 +239,7 @@ test('connection checks show tools, schemas, errors and retries, and canceled re
   fixture.checkError = ''
   await dialog.getByRole('button', { name: 'Check again', exact: true }).click()
   await expect(dialog.locator('.mcp-tool')).toHaveCount(2)
-  await page.locator('.ant-modal-wrap').last().click({ position: { x: 5, y: 5 } })
+  await page.locator('.ui-modal-wrap').last().click({ position: { x: 5, y: 5 } })
   await expect(dialog).toBeHidden()
   await expect(row).toContainText('Available')
   fixture.checkDelay = 400

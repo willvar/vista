@@ -5,6 +5,44 @@ test.beforeEach(async ({ vista }) => {
   await vista.api('/preferences', { method: 'PATCH', body: JSON.stringify({ feedbackInvitationSeen: true }) })
 })
 
+test('message actions and usage retain their footer alignment and spacing', async ({ page, vista }, testInfo) => {
+  await page.goto(vista.origin)
+  const sender = page.locator('.sender-card')
+  await sender.locator('textarea').fill('Check the message footer')
+  await sender.getByRole('button', { name: 'Send', exact: true }).click()
+  const reply = page.locator('.messages article.assistant').filter({ hasText: 'Mock reply: Hi' })
+  await expect(reply.locator('.model-call-count')).toHaveText('· 1 model call')
+  const geometry = await reply.locator('.reply-footer').evaluate(footer => {
+    const actions = footer.querySelector('.message-actions')!
+    const usage = footer.querySelector('.message-model-results')!
+    const a = actions.getBoundingClientRect()
+    const u = usage.getBoundingClientRect()
+    const buttons = [...actions.querySelectorAll(':scope > button, :scope > span')]
+      .map(element => element.getBoundingClientRect()).filter(rect => rect.width > 0)
+    return { width: innerWidth, gap: u.left - a.right, left: u.left - a.left, aligned: Math.abs(a.top + a.height / 2 - u.top - u.height / 2),
+      usageTop: u.top, actionsBottom: a.bottom, actionGap: getComputedStyle(actions).gap,
+      overlaps: buttons.some((rect, index) => index > 0 && rect.left < buttons[index - 1]!.right - 1) }
+  })
+  expect(geometry.actionGap).toBe('8px')
+  expect(geometry.overlaps, 'Action buttons must not overlap').toBe(false)
+  if (geometry.width > 830 || geometry.usageTop < geometry.actionsBottom) {
+    expect(geometry.gap, 'Usage follows the actions instead of being pushed to the far edge').toBeCloseTo(12, 0)
+    expect(geometry.aligned).toBeLessThanOrEqual(1)
+  } else {
+    expect(geometry.usageTop).toBeGreaterThanOrEqual(geometry.actionsBottom)
+    expect(geometry.left).toBeCloseTo(0, 0)
+  }
+  const user = page.locator('.messages article.user').last()
+  await user.hover()
+  const alignment = await user.evaluate(article => {
+    const content = article.querySelector('.ui-bubble-content')!.getBoundingClientRect()
+    const actions = article.querySelector('.message-actions')!.getBoundingClientRect()
+    return Math.abs(content.right - actions.right)
+  })
+  expect(alignment, 'User actions align with the right edge of the user message').toBeLessThanOrEqual(1)
+  await page.screenshot({ path: testInfo.outputPath('message-footer.png'), animations: 'disabled' })
+})
+
 test('measured TPS matches persisted model timing and survives refresh', async ({ page, vista }) => {
   const session = await vista.api('/sessions', { method: 'POST', body: '{}' })
   await page.goto(`${vista.origin}/sessions/${session.id}`)
@@ -91,13 +129,13 @@ test('missing or partial timing remains visible without invented TPS', async ({ 
   await testInfo.attach('usage-table-layout', { body: await page.screenshot(), contentType: 'image/png' })
   await expect(page.locator('.messages')).not.toContainText(/TPS (?:NaN|Infinity)/)
   await details.getByLabel('Filter model calls', { exact: true }).click()
-  await page.locator('.ant-select-dropdown:visible').getByText('Failures', { exact: true }).click()
-  const empty = details.locator('.ant-empty-description')
+  await page.locator('.ui-select-dropdown:visible').getByText('Failures', { exact: true }).click()
+  const empty = details.locator('.ui-empty-description')
   await expect(empty).toHaveText('No matching model calls')
   await expect(details.locator('.usage-pagination')).toHaveCount(0)
   const emptyLayout = await details.evaluate(element => {
     const panel = element.getBoundingClientRect()
-    const description = element.querySelector('.ant-empty-description')!.getBoundingClientRect()
+    const description = element.querySelector('.ui-empty-description')!.getBoundingClientRect()
     return { clipped: description.bottom - panel.bottom, overflow: element.scrollHeight - element.clientHeight }
   })
   expect(emptyLayout.clipped, 'Empty description must fit inside the usage panel').toBeLessThanOrEqual(2)

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onUnmounted, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { Empty as AEmpty, Alert as AAlert, Button as AButton, Input as AInput, Modal as AModal, Switch as ASwitch, TextArea as ATextarea } from 'antdv-next'
+import { Empty as VEmpty, Alert as VAlert, Button as VButton, Input as VInput, Modal as VModal, Switch as VSwitch, TextArea as VTextarea } from './ui'
 import { DeleteOutlined, EditOutlined, EyeOutlined, FileMarkdownOutlined, SearchOutlined } from '@antdv-next/icons'
 import ConfirmPopover from './ConfirmPopover.vue'
 import { useWorkspace } from './composables/useWorkspace'
@@ -115,33 +115,33 @@ defineExpose({ imported: () => { saved.value = true } })
   <div class="settings-content skills-settings" :aria-busy="loading">
     <div class="skills-toolbar"><p class="skills-hint">{{ t('skillsSettingsHint') }}</p></div>
     <div v-if="directory" class="skills-directory"><p class="skills-hint">{{ t('skillsDirectory') }}</p><code>{{ directory }}</code><p class="skills-hint">{{ t('skillsDirectoryHint') }}</p></div>
-    <a-alert v-if="error" type="error" role="alert" :message="error" />
-    <a-button v-if="error" :disabled="busy || loading" @click="resource.refresh">{{ t('retry') }}</a-button>
-    <a-input v-if="skills.length" v-model:value="query" allow-clear :placeholder="t('skillsSearch')" :aria-label="t('skillsSearch')"><template #prefix><SearchOutlined aria-hidden="true" /></template></a-input>
+    <v-alert v-if="error" type="error" role="alert" :message="error" />
+    <v-button v-if="error" :disabled="busy || loading" @click="resource.refresh">{{ t('retry') }}</v-button>
+    <v-input v-if="skills.length" v-model:value="query" allow-clear :placeholder="t('skillsSearch')" :aria-label="t('skillsSearch')"><template #prefix><SearchOutlined aria-hidden="true" /></template></v-input>
     <p v-if="loading" class="skills-hint" role="status">{{ t('skillsLoading') }}</p>
-    <a-empty v-else-if="!hasUserSkills && !query && !error" class="vista-empty-state skills-empty" :description="t('skillsEmpty')" role="status" />
-    <a-empty v-else-if="!visibleSkills.length && !error" class="vista-empty-state skills-empty" :description="t('skillsNoMatch')" role="status" />
+    <v-empty v-else-if="!hasUserSkills && !query && !error" class="vista-empty-state skills-empty" :description="t('skillsEmpty')" role="status" />
+    <v-empty v-else-if="!visibleSkills.length && !error" class="vista-empty-state skills-empty" :description="t('skillsNoMatch')" role="status" />
     <p v-if="saved" class="skills-saved" role="status">{{ t('skillsSaved') }}</p>
     <article v-for="skill in visibleSkills" :key="skill.id" class="skill-card" :data-skill="skill.id">
-      <div class="skill-heading"><div class="skill-name"><FileMarkdownOutlined aria-hidden="true" /><strong>{{ skill.name }}</strong><span class="skill-badge">{{ t(skill.source === 'system' ? 'skillSystem' : 'skillUser') }}</span><span v-if="skill.disabled" class="skill-badge">{{ t('skillDisabled') }}</span></div><a-switch v-if="skill.source !== 'system'" :checked="!skill.disabled" :disabled="busy || !!skill.error" :aria-label="t('skillEnable', { name: skill.name })" @update:checked="toggle(skill, !!$event)" /></div>
+      <div class="skill-heading"><div class="skill-name"><FileMarkdownOutlined aria-hidden="true" /><strong>{{ skill.name }}</strong><span class="skill-badge">{{ t(skill.source === 'system' ? 'skillSystem' : 'skillUser') }}</span><span v-if="skill.disabled" class="skill-badge">{{ t('skillDisabled') }}</span></div><v-switch v-if="skill.source !== 'system'" :checked="!skill.disabled" :disabled="busy || !!skill.error" :aria-label="t('skillEnable', { name: skill.name })" @update:checked="toggle(skill, !!$event)" /></div>
       <p v-if="skill.description" class="skill-description">{{ skill.description }}</p>
       <small class="skill-path">{{ skill.source === 'system' ? t('skillSystemHint') : `${skill.id}/SKILL.md` }}</small>
       <p v-if="skill.error" class="skill-error" role="alert">{{ skill.error }}</p>
-      <div class="skill-actions"><a-button size="small" :disabled="busy" :aria-label="t(skill.source === 'system' ? 'skillViewName' : 'skillEditName', { name: skill.name })" @click="edit(skill)"><component :is="skill.source === 'system' ? EyeOutlined : EditOutlined" aria-hidden="true" />{{ t(skill.source === 'system' ? 'skillView' : 'edit') }}</a-button><ConfirmPopover v-if="skill.source !== 'system'" :show="deleting === skill.id" :message="t('skillDeleteConfirm', { name: skill.name })" :cancel-text="t('cancel')" :confirm-text="t('delete')" :busy="busy" :error="deleteError" popover-class="skill-delete-popover" @update:show="deleting = $event ? skill.id : ''; deleteError = ''" @confirm="remove(skill)"><template #trigger><a-button type="text" size="small" danger :disabled="busy" :aria-label="t('skillDeleteName', { name: skill.name })"><DeleteOutlined /></a-button></template></ConfirmPopover></div>
+      <div class="skill-actions"><v-button :disabled="busy" :aria-label="t(skill.source === 'system' ? 'skillViewName' : 'skillEditName', { name: skill.name })" @click="edit(skill)"><component :is="skill.source === 'system' ? EyeOutlined : EditOutlined" aria-hidden="true" />{{ t(skill.source === 'system' ? 'skillView' : 'edit') }}</v-button><ConfirmPopover v-if="skill.source !== 'system'" :show="deleting === skill.id" :message="t('skillDeleteConfirm', { name: skill.name })" :cancel-text="t('cancel')" :confirm-text="t('delete')" :busy="busy" :error="deleteError" popover-class="skill-delete-popover" @update:show="deleting = $event ? skill.id : ''; deleteError = ''" @confirm="remove(skill)"><template #trigger><v-button class="icon-button" variant="text" danger :disabled="busy" :aria-label="t('skillDeleteName', { name: skill.name })"><DeleteOutlined /></v-button></template></ConfirmPopover></div>
     </article>
   </div>
 
-  <a-modal :open="editorOpen" centered :z-index="1200" width="min(800px, calc(100vw - 2rem))" :title="t(editing?.source === 'system' ? 'skillView' : 'skillEdit')" :footer="null" :closable="!busy" :keyboard="!busy" :mask-closable="!busy" destroy-on-hidden :styles="{ body: { maxHeight: 'calc(100dvh - 10rem)', overflowY: 'auto', overscrollBehavior: 'contain' } }" @cancel="closeEditor">
+  <v-modal :open="editorOpen" centered :z-index="1200" width="min(800px, calc(100vw - 2rem))" :title="t(editing?.source === 'system' ? 'skillView' : 'skillEdit')" :footer="null" :closable="!busy" :keyboard="!busy" :mask-closable="!busy" destroy-on-hidden :styles="{ body: { maxHeight: 'calc(100dvh - 10rem)', overflowY: 'auto', overscrollBehavior: 'contain' } }" @cancel="closeEditor">
     <form v-if="editorOpen" class="skill-form" @submit.prevent="save">
-      <a-alert v-if="formError" type="error" role="alert" :message="formError" />
+      <v-alert v-if="formError" type="error" role="alert" :message="formError" />
       <p v-if="editing" class="skill-path">{{ editing.source === 'system' ? t('skillSystemHint') : editing.path }}</p>
       <p v-if="documentLoading" role="status" class="skills-hint">{{ t('skillsLoading') }}</p>
-      <label for="skill-content">SKILL.md<a-textarea id="skill-content" v-model:value="draft.content" class="skill-content-input" :auto-size="false" :readonly="editing?.source === 'system'" :disabled="busy || documentLoading || !draft.sha256" aria-label="SKILL.md" :aria-describedby="editing?.source === 'system' ? undefined : 'skill-content-hint'" /></label>
+      <label for="skill-content">SKILL.md<v-textarea id="skill-content" v-model:value="draft.content" class="skill-content-input" :auto-size="false" :readonly="editing?.source === 'system'" :disabled="busy || documentLoading || !draft.sha256" aria-label="SKILL.md" :aria-describedby="editing?.source === 'system' ? undefined : 'skill-content-hint'" /></label>
       <p v-if="editing?.source !== 'system'" id="skill-content-hint" class="skills-hint">{{ t('skillContentHint') }}</p>
       <details v-if="supportingFiles.length" class="skill-supporting-files"><summary>{{ t('skillSupportingFiles', { count: supportingFiles.length }) }}</summary><ul><li v-for="path in supportingFiles" :key="path">{{ path }}</li></ul><small v-if="editing?.source !== 'system'" class="skills-hint">{{ t('skillSupportingFilesHint') }}</small></details>
-      <div class="skill-form-footer"><div class="skill-form-actions"><a-button :disabled="busy" @click="closeEditor">{{ t(editing?.source === 'system' ? 'close' : 'cancel') }}</a-button><a-button v-if="editing?.source !== 'system'" html-type="submit" type="primary" :loading="busy" :disabled="busy || !canSave">{{ t('saveChanges') }}</a-button></div></div>
+      <div class="skill-form-footer"><div class="skill-form-actions"><v-button :disabled="busy" @click="closeEditor">{{ t(editing?.source === 'system' ? 'close' : 'cancel') }}</v-button><v-button v-if="editing?.source !== 'system'" type="submit" variant="primary" :loading="busy" :disabled="busy || !canSave">{{ t('saveChanges') }}</v-button></div></div>
     </form>
-  </a-modal>
+  </v-modal>
 </template>
 
 <style scoped>

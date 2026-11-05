@@ -3,11 +3,9 @@ import type { Page } from '@playwright/test'
 import { test, expect } from './fixtures'
 
 const panelWidth = (page: Page) => page.locator('.sessions-panel').evaluate(element => element.getBoundingClientRect().width)
-const dragger = (page: Page) => page.locator('.ant-splitter-bar-dragger:visible')
+const dragger = (page: Page) => page.locator('.ui-splitter-bar-dragger:visible')
 
 async function dragSidebarTo(page: Page, width: number) {
-  // SplitBar reserves 300 ms after mousedown to recognize a double click.
-  await page.waitForTimeout(350)
   const handle = dragger(page)
   await expect(handle).toBeVisible()
   const bounds = (await handle.boundingBox())!
@@ -26,6 +24,21 @@ async function noPageOverflow(page: Page) {
   expect(bounds.pageHeight).toBeLessThanOrEqual(bounds.height + 2)
 }
 
+test('sidebar keyboard resizing uses pixel steps, preserves limits and saves the width', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await expect.poll(() => panelWidth(page)).toBe(270)
+  const handle = dragger(page)
+  await handle.press('ArrowRight')
+  await expect.poll(() => panelWidth(page)).toBe(280)
+  await handle.press('ArrowLeft')
+  await expect.poll(() => panelWidth(page)).toBe(270)
+  await handle.press('End')
+  await expect.poll(() => panelWidth(page)).toBe(480)
+  await handle.press('Home')
+  await expect.poll(() => panelWidth(page)).toBe(220)
+  await expect.poll(() => page.evaluate(() => Number(localStorage.getItem('vista-sidebar-width')))).toBe(220)
+})
+
 test('desktop sidebar drag respects limits, persists its width, resets, and leaves settings centered', async ({ page }, testInfo) => {
   await page.setViewportSize({ width: 1440, height: 900 })
   await expect.poll(() => panelWidth(page)).toBe(270)
@@ -40,11 +53,11 @@ test('desktop sidebar drag respects limits, persists its width, resets, and leav
   const settings = page.locator('.settings-page:visible')
   await expect(settings).toBeVisible()
   await settings.evaluate(async element => {
-    const modal = element.closest('.ant-modal-wrap') || element
+    const modal = element.closest('.ui-modal-wrap') || element
     await Promise.allSettled(modal.getAnimations({ subtree: true }).map(animation => animation.finished))
   })
   const modal = await settings.evaluate(element => {
-    const bounds = element.closest('.ant-modal-container')!.getBoundingClientRect()
+    const bounds = element.closest('.ui-modal-container')!.getBoundingClientRect()
     return { x: bounds.x, y: bounds.y, width: bounds.width, height: bounds.height, viewportWidth: innerWidth, viewportHeight: innerHeight }
   })
   expect(Math.abs(modal.x + modal.width / 2 - modal.viewportWidth / 2)).toBeLessThanOrEqual(2)

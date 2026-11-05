@@ -29,7 +29,7 @@ test('UA presets preview exact headers and custom changes reach a resident Worke
   await expect(save).toBeDisabled()
   for (const preset of initial.presets) {
     await region.locator('#user-agent-preset').click()
-    await page.locator('.ant-select-dropdown:visible .ant-select-item-option').filter({ hasText: new RegExp('^' + preset.name + '$') }).click()
+    await page.locator('.ui-select-dropdown:visible .ui-select-item-option').filter({ hasText: new RegExp('^' + preset.name + '$') }).click()
     await expect(preview).toHaveText('User-Agent: ' + preset.value)
   }
   // Preview alone has not modified the saved selection.
@@ -40,7 +40,7 @@ test('UA presets preview exact headers and custom changes reach a resident Worke
   expect((await vista.api('/user-agent')).preset).toBe(selected.id)
   await send('Preset request', selected.value)
   await region.locator('#user-agent-preset').click()
-  await page.locator('.ant-select-dropdown:visible .ant-select-item-option').filter({ hasText: /^Custom$/ }).click()
+  await page.locator('.ui-select-dropdown:visible .ui-select-item-option').filter({ hasText: /^Custom$/ }).click()
   await expect(save).toBeDisabled()
   const input = region.getByRole('textbox', { name: 'Custom UA', exact: true })
   await input.fill('客户端/1')

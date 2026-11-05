@@ -349,7 +349,11 @@ async function mockExecution(page: Page, origin: string, source = replayEvents()
     if (path === '/user-agent') return reply({ preset: 'vista', custom: '', value: 'Vista/test', presets: [{ id: 'vista', name: 'Vista', value: 'Vista/test' }], maxLength: 512 })
     if (path === '/models') return reply({ default: 'replay-model', models: [{ key: 'replay-model', name: 'Replay', provider: 'openai-chat', id: 'gpt-6-astra', tools: true, reasoningOptions: ['high'] }] })
     if (path === '/status') return reply({ state: 'running', sessions: { total: 1, open: 1, closed: 0, running: session.executing ? 1 : 0, workers: 1 }, workerMetrics: [{ sessionId: session.id, pid: 1, memory: { heapBytes: 1000000, rssBytes: 4000000, sampledAt: session.createdAt } }] })
-    if (path === '/sessions') return reply([session])
+    if (path === '/sessions') {
+      if (!url.searchParams.has('page')) return reply([session])
+      const items = url.searchParams.get('open') === 'false' ? [] : [session]
+      return reply({ items, page: 1, pageSize: Number(url.searchParams.get('pageSize') || 10), total: items.length, version: 'replay' })
+    }
     if (path.endsWith('/snapshot')) {
       historyPages.push('') // The initial recent page is now loaded with the core snapshot.
       const recent = events.slice(-100)
@@ -459,11 +463,18 @@ async function mockExecution(page: Page, origin: string, source = replayEvents()
   return { events, runId, session, messages, artifacts, jobs, outputContents, outputFailures, holdOutput, historyPages, outputReads, mainOutputReads, nodeReads, turnReads, overviewReads, unexpected, append, get sseRequests() { return sseRequests } }
 }
 
-function taskHeader(task: Locator) { return task.locator(':scope > .antd-think > .antd-think-status-wrapper') }
-function processHeader(trace: Locator) { return trace.locator(':scope > .antd-think > .antd-think-status-wrapper') }
+function taskHeader(task: Locator) { return task.locator(':scope > .ui-think > .ui-think-status-wrapper') }
+function processHeader(trace: Locator) { return trace.locator(':scope > .ui-think > .ui-think-status-wrapper') }
 async function scrollPosition(page: Page) { return page.locator('.messages').evaluate(element => element.scrollTop) }
 async function distanceToLatest(page: Page) { return page.locator('.messages').evaluate(element => element.scrollHeight - element.scrollTop - element.clientHeight) }
 function nodeTitle(trace: Locator, runId: string, key: string) { return trace.locator(`[id="trace-${runId}-0-${encodeURIComponent(key)}"]`) }
+// Output can arrive before its opening motion finishes. Geometry assertions
+// must inspect the settled row, while the motion tests inspect intermediate frames.
+async function settledHeight(node: Locator) {
+  return node.evaluate(element => element.getAnimations({ subtree: true }).some(animation =>
+    animation.playState === 'running' && animation.effect?.getTiming().iterations !== Infinity,
+  ) ? 0 : element.getBoundingClientRect().height)
+}
 // Move only the conversation scrollbar. Missing virtual rows must become reachable
 // by scrolling the visible history, without calling component methods or controls.
 async function scrollToTraceStep(page: Page, task: Locator, runId: string, key: string, from: 'start' | 'end' = 'start') {
@@ -478,7 +489,7 @@ async function scrollToTraceStep(page: Page, task: Locator, runId: string, key: 
     let maxMounted = 0
     for (let attempt = 0; attempt < 400; attempt++) {
       await new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())))
-      maxMounted = Math.max(maxMounted, element.querySelectorAll('.antd-thought-chain-node').length)
+      maxMounted = Math.max(maxMounted, element.querySelectorAll('.ui-thought-chain-node').length)
       if (element.querySelector(`[id="${options.titleId}"]`)) return { found: true, maxMounted, connected: element.isConnected, scrollTop: scroller.scrollTop }
       const previous = scroller.scrollTop
       scroller.scrollTop += (options.from === 'start' ? 1 : -1) * Math.max(60, scroller.clientHeight * .7)
@@ -583,7 +594,7 @@ for (const longSteps of [false, true]) test(`expanding ${longSteps ? 'virtualize
   const stepKey = longSteps ? 'tool/task-1/call-40' : 'tool/child-a/child-a-3'
   const title = longSteps ? await scrollToTraceStep(page, child, runId, stepKey) : nodeTitle(child, runId, stepKey)
   await clickWithoutJump(title, 'execution-step')
-  await expect(title.locator('xpath=ancestor::div[contains(concat(" ",normalize-space(@class)," ")," antd-thought-chain-node ")][1]').locator('pre.trace-output')).toBeVisible()
+  await expect(title.locator('xpath=ancestor::div[contains(concat(" ",normalize-space(@class)," ")," ui-thought-chain-node ")][1]').locator('pre.trace-output')).toBeVisible()
   expect(fixture.unexpected).toEqual([])
   await testInfo.attach('expansion-scroll-positions', { body: JSON.stringify(positions, null, 2), contentType: 'application/json' })
 })
@@ -710,12 +721,12 @@ test('complete session steps and manual expansion remain independent during live
   const taskIds = ['main', 'child-a', 'child-b', 'grandchild-a']
   const group = (taskId: string) => trace.locator(`.trace-task-group[data-task-id="${taskId}"]`)
   const title = (taskId: string, step: number) => nodeTitle(group(taskId), fixture.runId, `tool/${taskId}/${taskId}-${step}`)
-  const body = (taskId: string, step: number) => title(taskId, step).locator('xpath=ancestor::div[contains(concat(" ",normalize-space(@class)," ")," antd-thought-chain-node ")][1]').locator('pre.trace-output')
-  const titleIds = (taskId: string) => group(taskId).locator('.antd-thought-chain-node-title [id]').evaluateAll(elements => elements.map(element => element.id))
+  const body = (taskId: string, step: number) => title(taskId, step).locator('xpath=ancestor::div[contains(concat(" ",normalize-space(@class)," ")," ui-thought-chain-node ")][1]').locator('pre.trace-output')
+  const titleIds = (taskId: string) => group(taskId).locator('.ui-thought-chain-node-title [id]').evaluateAll(elements => elements.map(element => element.id))
   await processHeader(trace).getByRole('status').click()
   for (const taskId of taskIds) {
     if (taskId !== 'main') await taskHeader(group(taskId)).click()
-    await expect(group(taskId).locator('.antd-thought-chain-node')).toHaveCount(6)
+    await expect(group(taskId).locator('.ui-thought-chain-node')).toHaveCount(6)
     await title(taskId, 1).click()
     await expect(body(taskId, 1)).toHaveText(`Body from ${taskId} step 1.`)
   }
@@ -753,7 +764,7 @@ test('complete session steps and manual expansion remain independent during live
   await expect(body('main', 2)).toHaveCount(0)
   await expect(body('child-b', 2)).toHaveCount(0)
   await expect(body('child-a', 1)).toHaveText('Body from child-a step 1.')
-  await expect(group('child-a').locator('.antd-thought-chain-node')).toHaveCount(31)
+  await expect(group('child-a').locator('.ui-thought-chain-node')).toHaveCount(31)
   await expect(title('child-a', 2)).toHaveCount(1)
 
   const childWindows = new Map(await Promise.all(['child-a', 'child-b', 'grandchild-a'].map(async taskId => [taskId, await titleIds(taskId)] as const)))
@@ -769,7 +780,7 @@ test('complete session steps and manual expansion remain independent during live
 
   await expect(trace.getByRole('button', { name: 'Load earlier steps', exact: true })).toHaveCount(0)
   for (const taskId of ['main', 'child-a']) {
-    await expect(group(taskId).locator('.antd-thought-chain-node')).toHaveCount(31)
+    await expect(group(taskId).locator('.ui-thought-chain-node')).toHaveCount(31)
     await expect(title(taskId, 2)).toHaveCount(1)
     await expect(title(taskId, 4)).toHaveCount(1)
     await expect(body(taskId, 1)).toHaveText(`Body from ${taskId} step 1.`)
@@ -813,10 +824,10 @@ test('long complete execution steps scroll naturally with bounded DOM and preser
   const middleIndex = Number(await mainMiddle.locator('xpath=ancestor::div[contains(concat(" ",normalize-space(@class)," ")," trace-step-row ")][1]').getAttribute('data-index'))
   expect(middleIndex).toBeGreaterThan(100)
   await mainMiddle.click()
-  const middleNode = mainMiddle.locator('xpath=ancestor::div[contains(concat(" ",normalize-space(@class)," ")," antd-thought-chain-node ")][1]')
+  const middleNode = mainMiddle.locator('xpath=ancestor::div[contains(concat(" ",normalize-space(@class)," ")," ui-thought-chain-node ")][1]')
   const expectedMiddle = fullOutputText('Tool output virtual-middle-output')
   await expect(middleNode.locator('.tool-output-entry pre')).toHaveText(expectedMiddle)
-  expect((await middleNode.boundingBox())!.height, 'Expanded output contributes its full dynamic row height').toBeGreaterThan(1500)
+  await expect.poll(() => settledHeight(middleNode), { message: 'Expanded output contributes its full dynamic row height after opening' }).toBeGreaterThan(1500)
   const middleOutputPath = '/sessions/execution-session/artifacts/virtual-middle-output/output?full=1'
   expect(fixture.outputReads.filter(path => path === middleOutputPath)).toHaveLength(1)
   const middlePosition = (await mainMiddle.boundingBox())!.y
@@ -869,9 +880,9 @@ test('crossing the step virtualization threshold preserves the reading position 
   await expect(trace.locator('.trace-loading')).toHaveCount(0, { timeout: 15_000 })
   const first = nodeTitle(mainTask, runId, 'tool/main/threshold-1')
   await first.click()
-  const firstNode = first.locator('xpath=ancestor::div[contains(concat(" ",normalize-space(@class)," ")," antd-thought-chain-node ")][1]')
+  const firstNode = first.locator('xpath=ancestor::div[contains(concat(" ",normalize-space(@class)," ")," ui-thought-chain-node ")][1]')
   await expect(firstNode.locator('pre.trace-output')).toHaveText(firstOutput)
-  expect((await firstNode.boundingBox())!.height).toBeGreaterThan(1500)
+  await expect.poll(() => settledHeight(firstNode)).toBeGreaterThan(1500)
   const anchor = nodeTitle(mainTask, runId, 'tool/main/threshold-70')
   await anchor.scrollIntoViewIfNeeded()
   const naturalRows = await steps.evaluate(element => {
@@ -930,7 +941,7 @@ test('expanded execution history and output restore after the outer message list
   const mainTask = trace.locator('.trace-task[data-task-id="main"]')
   const title = await scrollToTraceStep(page, mainTask, runId, 'tool/main/call-310')
   await title.click()
-  const node = title.locator('xpath=ancestor::div[contains(concat(" ",normalize-space(@class)," ")," antd-thought-chain-node ")][1]')
+  const node = title.locator('xpath=ancestor::div[contains(concat(" ",normalize-space(@class)," ")," ui-thought-chain-node ")][1]')
   const expected = fullOutputText('Tool output virtual-middle-output')
   await expect(node.locator('.tool-output-entry pre')).toHaveText(expected)
   // Scrolling across other replies legitimately loads their first overviews.
@@ -978,7 +989,7 @@ test('execution overview and complete task details survive live updates, finish,
   const overview = trace.locator('.run-overview')
   const header = processHeader(trace)
   const checklist = trace.locator('.trace-checklist')
-  const details = overview.locator(':scope > div > .antd-think-content')
+  const details = overview.locator(':scope > .ui-think-content')
   const assertChecklist = async (unfinishedStatus = 'in_progress') => {
     await expect(checklist, 'Each run has one checklist below its summary').toHaveCount(1)
     await expect(header.locator('.trace-checklist')).toHaveCount(1)
@@ -990,7 +1001,7 @@ test('execution overview and complete task details survive live updates, finish,
     const order = await trace.evaluate(element => {
       const summary = element.querySelector('.trace-summary')!.getBoundingClientRect()
       const checklist = element.querySelector('.trace-checklist')!.getBoundingClientRect()
-      const details = element.querySelector(':scope > .antd-think > div > .antd-think-content')
+      const details = element.querySelector(':scope > .ui-think > .ui-think-content')
       return { summaryBottom: summary.bottom, checklistTop: checklist.top, checklistBottom: checklist.bottom, detailsTop: details?.checkVisibility() ? details.getBoundingClientRect().top : null }
     })
     expect(order.checklistTop, 'Todo follows the execution summary').toBeGreaterThanOrEqual(order.summaryBottom - 1)
@@ -1003,7 +1014,7 @@ test('execution overview and complete task details survive live updates, finish,
   await expect(overview.locator('.trace-overview-heading')).not.toContainText('model calls')
   await expect(overview.locator('.trace-last-activity')).toBeVisible()
   await assertChecklist()
-  await expect(header.locator('.trace-overview-heading')).toHaveAttribute('aria-expanded', 'false')
+  await expect(header).toHaveAttribute('aria-expanded', 'false')
   await expect(header).toContainText('1/3 checklist items complete')
   await expect(trace.locator('.trace-task')).toHaveCount(0)
   await expect(trace.getByRole('button', { name: 'Read output', exact: true })).toHaveCount(0)
@@ -1020,7 +1031,7 @@ test('execution overview and complete task details survive live updates, finish,
   await page.screenshot({ path: testInfo.outputPath('overview.png'), animations: 'disabled' })
 
   await checklist.getByText(initialChecklist[0].text, { exact: true }).click()
-  await expect(header.locator('.trace-overview-heading'), 'Clicking Todo expands the shared execution panel').toHaveAttribute('aria-expanded', 'true')
+  await expect(header, 'Clicking Todo expands the shared execution panel').toHaveAttribute('aria-expanded', 'true')
   await expect(trace.locator('.trace-task')).toHaveCount(6)
   await expect(overview.locator('.trace-last-activity time')).toHaveAttribute('datetime', fixture.events.at(-1)!.createdAt!)
   await assertChecklist()
@@ -1028,7 +1039,7 @@ test('execution overview and complete task details survive live updates, finish,
   await checklist.scrollIntoViewIfNeeded()
   await page.screenshot({ path: testInfo.outputPath('checklist-with-expanded-details.png'), animations: 'disabled' })
   await checklist.getByText(initialChecklist[1].text, { exact: true }).click()
-  await expect(header.locator('.trace-overview-heading'), 'Clicking Todo again collapses the shared execution panel').toHaveAttribute('aria-expanded', 'false')
+  await expect(header, 'Clicking Todo again collapses the shared execution panel').toHaveAttribute('aria-expanded', 'false')
   await expect(trace.locator('.trace-task')).toHaveCount(0)
   await assertChecklist()
   await expect(overview).toBeVisible()
@@ -1047,11 +1058,11 @@ test('execution overview and complete task details survive live updates, finish,
   expect(initialHistoryPages).toBe(1 + Math.ceil(fixture.events.length / 100))
   expect(fixture.historyPages.slice(1).every(query => new URLSearchParams(query).get('compact') === '1')).toBe(true)
   await expect(trace.getByRole('button', { name: 'Load earlier steps', exact: true })).toHaveCount(0)
-  await expect(trace.locator('.trace-task-group[data-agent-role="subagent"] .antd-thought-chain-node')).toHaveCount(0)
+  await expect(trace.locator('.trace-task-group[data-agent-role="subagent"] .ui-thought-chain-node')).toHaveCount(0)
   const reportTask = trace.locator('.trace-task[data-task-id="task-4"]')
   await taskHeader(reportTask).click()
   await expect(reportTask.locator('.trace-report')).toBeVisible()
-  expect(await reportTask.locator('.antd-thought-chain-node').count()).toBeLessThanOrEqual(100)
+  expect(await reportTask.locator('.ui-thought-chain-node').count()).toBeLessThanOrEqual(100)
   const reportBody = reportTask.locator('.trace-report-body')
   await expect(reportBody.getByRole('heading', { level: 2 })).toHaveText(['Opening section', 'Middle section', 'Final section'])
   await expect(reportBody).toContainText('Child report 1004 ending — 完整输出 ✅.')
@@ -1073,7 +1084,7 @@ test('execution overview and complete task details survive live updates, finish,
   const toolTitle = reportTask.locator(`[id="trace-${fixture.runId}-0-${encodeURIComponent(`tool/task-4/${callId}`)}"]`)
   await expect(toolTitle).toHaveCount(1)
   await toolTitle.click()
-  const toolNode = toolTitle.locator('xpath=ancestor::div[contains(concat(" ",normalize-space(@class)," ")," antd-thought-chain-node ")][1]')
+  const toolNode = toolTitle.locator('xpath=ancestor::div[contains(concat(" ",normalize-space(@class)," ")," ui-thought-chain-node ")][1]')
   const toolOutput = toolNode.locator('.tool-output-entry')
   await expect(toolOutput).toHaveCount(1)
   await expect(toolOutput.locator('details')).toHaveCount(0)
@@ -1118,7 +1129,7 @@ test('execution overview and complete task details survive live updates, finish,
   const captureReadingPosition = () => trace.evaluate(element => {
     const scroller = element.closest<HTMLElement>('.messages')!
     const viewport = scroller.getBoundingClientRect()
-    const titles = [...element.querySelectorAll<HTMLElement>('.antd-thought-chain-node-title [id]')].map(title => ({ id: title.id, top: title.getBoundingClientRect().top, bottom: title.getBoundingClientRect().bottom })).filter(title => title.bottom > viewport.top && title.top < viewport.bottom)
+    const titles = [...element.querySelectorAll<HTMLElement>('.ui-thought-chain-node-title [id]')].map(title => ({ id: title.id, top: title.getBoundingClientRect().top, bottom: title.getBoundingClientRect().bottom })).filter(title => title.bottom > viewport.top && title.top < viewport.bottom)
     return { scrollTop: scroller.scrollTop, scrollHeight: scroller.scrollHeight, viewportTop: viewport.top, viewportBottom: viewport.bottom, titles, status: element.querySelector('.run-overview')?.getAttribute('data-run-status') }
   })
   const beforeReadingPosition = await captureReadingPosition()
@@ -1255,9 +1266,9 @@ test('main and nested subagents keep distinct identities, delegation, and indepe
   const fixture = await mockExecution(page, mockOrigin, agentIdentityEvents())
   const trace = page.locator(`.run-trace[data-run-id="${fixture.runId}"]`)
   await processHeader(trace).getByRole('status').click()
-  await expect.poll(() => trace.locator('.antd-think-content:visible').evaluateAll(elements => elements.map(element => getComputedStyle(element).borderInlineStartWidth))).toEqual(['0px'])
+  await expect.poll(() => trace.locator('.ui-think-content:visible').evaluateAll(elements => elements.map(element => getComputedStyle(element).borderInlineStartWidth))).toEqual(['0px'])
   await expect(trace.locator('.trace-navigation')).toHaveCount(0)
-  await expect(trace.locator('select, .ant-select')).toHaveCount(0)
+  await expect(trace.locator('select, .ui-select')).toHaveCount(0)
   await expect(trace.getByRole('combobox')).toHaveCount(0)
   const agents = trace.locator('.trace-task-group')
   const expectedOrder = ['main', 'child-a', 'grandchild-a', 'child-b']
@@ -1313,7 +1324,7 @@ test('main and nested subagents keep distinct identities, delegation, and indepe
       await expect(purpose).toHaveCSS('cursor', 'text')
       await purpose.click()
       await expect(purpose, 'Clicking expanded delegation text does not collapse the session').toHaveText(instructions)
-      const contentBorders = await trace.locator('.antd-think-content:visible').evaluateAll(elements => elements.map(element => getComputedStyle(element).borderInlineStartWidth))
+      const contentBorders = await trace.locator('.ui-think-content:visible').evaluateAll(elements => elements.map(element => getComputedStyle(element).borderInlineStartWidth))
       expect(contentBorders.length).toBeGreaterThanOrEqual(2)
       expect(contentBorders.every(width => width === '0px'), 'Execution process and expanded child session Think content must have no inline border').toBe(true)
       await expect(agent.locator('.trace-agent-purpose')).toHaveCount(1)
@@ -1344,7 +1355,7 @@ test('main and nested subagents keep distinct identities, delegation, and indepe
     }
     const title = nodeTitle(agent, fixture.runId, `tool/${identity.id}/read-${identity.id}`)
     await title.click()
-    const node = title.locator('xpath=ancestor::div[contains(concat(" ",normalize-space(@class)," ")," antd-thought-chain-node ")][1]')
+    const node = title.locator('xpath=ancestor::div[contains(concat(" ",normalize-space(@class)," ")," ui-thought-chain-node ")][1]')
     await expect(node.locator(identity.id === 'grandchild-a' ? 'p.tool-output-error' : 'pre.trace-output').first()).toHaveText(`Independent result from ${identity.id}.`)
     for (const other of identities.filter(value => value.id !== identity.id)) {
       await expect(agent).not.toContainText(`Independent result from ${other.id}.`)
@@ -1374,7 +1385,7 @@ test('main and nested subagents keep distinct identities, delegation, and indepe
   const emptyChild = trace.locator('.trace-task-group[data-task-id="child-empty"]')
   await expect(emptyChild).toHaveCount(1)
   await expect(emptyChild.locator('.trace-agent-role')).toHaveText('子会话 4')
-  await expect(emptyChild.locator('.antd-thought-chain-node')).toHaveCount(0)
+  await expect(emptyChild.locator('.ui-thought-chain-node')).toHaveCount(0)
   const emptyPurpose = taskHeader(emptyChild).locator('.trace-agent-purpose')
   const emptySummary = await emptyPurpose.textContent()
   expect(emptySummary).toMatch(/…$/)
@@ -1451,14 +1462,14 @@ test('execution tool results render once, keep useful summaries, and move metada
   await expect(fullTitle).toContainText('cat src/example.ts')
   await expect(fullTitle).toHaveAttribute('title', 'cat src/example.ts')
   await fullTitle.click()
-  const fullNode = fullTitle.locator('xpath=ancestor::div[contains(concat(" ",normalize-space(@class)," ")," antd-thought-chain-node ")][1]')
+  const fullNode = fullTitle.locator('xpath=ancestor::div[contains(concat(" ",normalize-space(@class)," ")," ui-thought-chain-node ")][1]')
   await expect(fullNode.locator('pre.trace-output')).toHaveCount(1)
   await expect(fullNode.locator('pre.trace-output')).toHaveText(source.full)
   expect(fixture.outputReads.filter(path => path.includes('artifact-full'))).toEqual([fullPath + '?full=1'])
 
   const failedTitle = nodeTitle(trace, runId, 'tool/main/shell-error')
   await failedTitle.click()
-  const failedNode = failedTitle.locator('xpath=ancestor::div[contains(concat(" ",normalize-space(@class)," ")," antd-thought-chain-node ")][1]')
+  const failedNode = failedTitle.locator('xpath=ancestor::div[contains(concat(" ",normalize-space(@class)," ")," ui-thought-chain-node ")][1]')
   await expect(failedNode.locator('p.tool-output-error')).toHaveCount(1)
   await expect(failedNode.locator('p.tool-output-error')).toHaveText(source.error)
   await expect(failedNode.locator('pre.trace-output')).toHaveText('/synthetic\n')
@@ -1471,10 +1482,10 @@ test('execution tool results render once, keep useful summaries, and move metada
 
   for (const [callId, text] of [['empty-skills', 'No skills found'], ['checklist-updated', 'Checklist updated · 1 items']]) {
     const title = nodeTitle(trace, runId, `tool/main/${callId}`)
-    const node = title.locator('xpath=ancestor::div[contains(concat(" ",normalize-space(@class)," ")," antd-thought-chain-node ")][1]')
-    await expect(node.locator('.antd-thought-chain-node-description')).toContainText(text)
-    await expect(node.locator('.antd-thought-chain-node-collapse-icon')).toHaveCount(0)
-    await expect(node.locator('.antd-thought-chain-node-content-box')).toHaveCount(0)
+    const node = title.locator('xpath=ancestor::div[contains(concat(" ",normalize-space(@class)," ")," ui-thought-chain-node ")][1]')
+    await expect(node.locator('.ui-thought-chain-node-description')).toContainText(text)
+    await expect(node.locator('.ui-thought-chain-node-collapse-icon')).toHaveCount(0)
+    await expect(node.locator('.ui-thought-chain-node-content-box')).toHaveCount(0)
   }
   await expect(trace.locator('details.trace-details, details.tool-output-technical')).toHaveCount(0)
   await expect(trace.getByText('Technical details', { exact: true })).toHaveCount(0)
@@ -1510,7 +1521,7 @@ test('tool output failure falls back to one inline preview and Retry replaces it
   await processHeader(trace).getByRole('status').click()
   const title = nodeTitle(trace, runId, 'tool/main/shell-full')
   await title.click()
-  const node = title.locator('xpath=ancestor::div[contains(concat(" ",normalize-space(@class)," ")," antd-thought-chain-node ")][1]')
+  const node = title.locator('xpath=ancestor::div[contains(concat(" ",normalize-space(@class)," ")," ui-thought-chain-node ")][1]')
   await expect(node.locator('.trace-output-load-error')).toBeVisible()
   await expect(node.locator('pre.trace-output')).toHaveCount(1)
   await expect(node.locator('pre.trace-output')).toHaveText(source.full.slice(0, 1024))
@@ -1540,7 +1551,7 @@ test('truncated file and search steps hydrate on expansion, and jump to latest r
   const readTitle = nodeTitle(trace, fixture.runId, 'tool/main/read-source')
   const searchTitle = nodeTitle(trace, fixture.runId, 'tool/main/search-title')
   await readTitle.click()
-  const readNode = readTitle.locator('xpath=ancestor::div[contains(concat(" ",normalize-space(@class)," ")," antd-thought-chain-node ")][1]')
+  const readNode = readTitle.locator('xpath=ancestor::div[contains(concat(" ",normalize-space(@class)," ")," ui-thought-chain-node ")][1]')
   await expect(readNode.locator('pre.trace-output').first()).toContainText('Hydrated file ending.')
   await expect.poll(() => fixture.nodeReads).toEqual([readEvent.sequence])
   await expect(readNode.locator('details.trace-details')).toHaveCount(0)
@@ -1548,7 +1559,7 @@ test('truncated file and search steps hydrate on expansion, and jump to latest r
   await readTitle.click()
   expect(fixture.nodeReads).toEqual([readEvent.sequence])
   await searchTitle.click()
-  const searchNode = searchTitle.locator('xpath=ancestor::div[contains(concat(" ",normalize-space(@class)," ")," antd-thought-chain-node ")][1]')
+  const searchNode = searchTitle.locator('xpath=ancestor::div[contains(concat(" ",normalize-space(@class)," ")," ui-thought-chain-node ")][1]')
   await expect(searchNode.locator('.trace-search-results li')).toHaveCount(2)
   await expect(searchNode.locator('.trace-search-results')).toContainText('src/title.test.ts:24')
   await expect(searchNode.locator('.trace-result-summary')).toHaveText('2 matches · 7 files scanned')
@@ -2018,5 +2029,5 @@ test('a failed Markdown renderer displays escaped plain text and retains copying
   const reply = page.locator('.messages article.assistant:not(.main-output)')
   await expect(reply.locator('.message-plain-text')).toHaveText(answer.content)
   await expect(reply.locator('.markdown script')).toHaveCount(0)
-  await expect(reply.getByRole('button', { name: 'Copy', exact: true })).toBeEnabled()
+  await expect(reply.getByRole('button', { name: 'Copy reply', exact: true })).toBeEnabled()
 })

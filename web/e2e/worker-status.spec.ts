@@ -71,7 +71,7 @@ test('worker metrics stay behind an icon and their popup fits the viewport', asy
   await expect(worker).toHaveAttribute('aria-expanded', 'false')
   await expect(context).toHaveAttribute('aria-expanded', 'true')
   await expect(contextPopup).toContainText('Context saved. The task continues automatically.')
-  await expect(context.locator('.ant-progress')).toHaveCount(0)
+  await expect(context.locator('.ui-progress')).toHaveCount(0)
   const contextGeometry = await contextPopup.evaluate(element => {
     const bounds = element.getBoundingClientRect()
     return { left: bounds.left, right: bounds.right, top: bounds.top, bottom: bounds.bottom, width: innerWidth, height: innerHeight, overflow: element.scrollWidth - element.clientWidth, teleported: !element.closest('.conversation-header') }

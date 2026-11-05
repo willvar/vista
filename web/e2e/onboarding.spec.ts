@@ -9,10 +9,10 @@ for (const locale of ['zh-CN', 'fr-FR']) {
       const override = initial === 'zh-CN' ? 'en' : 'zh-CN'
       await expect(page.locator('html')).toHaveAttribute('lang', initial)
       await page.goto(vista.origin + '/settings/general')
-      const picker = page.locator('.language-setting .ant-select')
+      const picker = page.locator('.language-setting .ui-select')
       await picker.click()
       await picker.locator('input').fill(override === 'en' ? 'eNgLiSh' : 'zh-CN')
-      const options = page.locator('.ant-select-dropdown:visible .ant-select-item-option')
+      const options = page.locator('.ui-select-dropdown:visible .ui-select-item-option')
       await expect(options).toHaveText([override === 'en' ? 'English' : '简体中文'])
       await options.click()
       await expect(page.locator('html')).toHaveAttribute('lang', override)
@@ -21,7 +21,7 @@ for (const locale of ['zh-CN', 'fr-FR']) {
       expect(await page.evaluate(() => document.cookie)).toContain(`vista-language=${override}`)
       await picker.click()
       await picker.locator('input').fill('auto')
-      await page.locator('.ant-select-dropdown:visible .ant-select-item-option')
+      await page.locator('.ui-select-dropdown:visible .ui-select-item-option')
         .filter({ hasText: override === 'en' ? /^Auto$/ : /^自动$/ }).click()
       await page.reload()
       await expect(page.locator('html')).toHaveAttribute('lang', initial)
@@ -48,10 +48,10 @@ test('provider recovery follows error codes and keeps the draft through a settin
   const modal = page.locator('.settings-page')
   await modal.getByRole('button', { name: 'Connect provider', exact: true }).click()
   const form = page.locator('.provider-connection-modal .model-form')
-  const providerPicker = form.locator('label').first().locator('.ant-select')
+  const providerPicker = form.locator('label').first().locator('.ui-select')
   await providerPicker.click()
   await providerPicker.locator('input').fill('Custom provider')
-  await page.locator('.ant-select-dropdown:visible .ant-select-item-option')
+  await page.locator('.ui-select-dropdown:visible .ui-select-item-option')
     .filter({ hasText: /^Custom provider$/ }).click()
   const name = form.locator('label').filter({ hasText: /^Provider name/ }).locator('input')
   const baseURL = form.locator('label').filter({ hasText: /^Base URL/ }).locator('input')
@@ -60,8 +60,8 @@ test('provider recovery follows error codes and keeps the draft through a settin
   await baseURL.fill(vista.modelEndpoint)
   await apiKey.fill('test-key')
   const connect = form.getByRole('button', { name: 'Connect provider', exact: true })
-  const format = form.locator('label').filter({ hasText: /^Conversation API format/ }).locator('.ant-select')
-  const modelIDs = form.locator('.model-list-field .ant-select')
+  const format = form.locator('label').filter({ hasText: /^Conversation API format/ }).locator('.ui-select')
+  const modelIDs = form.locator('.model-list-field .ui-select')
   const submit = async (message: string) => {
     await connect.scrollIntoViewIfNeeded()
     await connect.click()
@@ -105,14 +105,14 @@ test.describe('first launch without a provider', () => {
   test('automatic mode shows zero models until a provider is connected', async ({ page, vista }) => {
     await page.goto(vista.origin + '/settings/general')
     await page.getByRole('combobox', { name: 'Model selection', exact: true }).click()
-    await page.locator('.ant-select-dropdown:visible').getByText('Automatic', { exact: true }).click()
+    await page.locator('.ui-select-dropdown:visible').getByText('Automatic', { exact: true }).click()
     const stats = page.locator('.model-selection-stats')
     await expect(stats.locator('.selection-stats-summary')).toContainText('0 models · 0 samples')
-    await expect(stats.locator('.selection-stats-empty .ant-empty-description')).toHaveText('Connect a provider to start learning.')
+    await expect(stats.locator('.selection-stats-empty .ui-empty-description')).toHaveText('Connect a provider to start learning.')
     await expect(stats.locator('.selection-stats-model')).toHaveCount(0)
     await page.reload()
     await expect(stats.locator('.selection-stats-summary')).toContainText('0 models · 0 samples')
-    await expect(stats.locator('.selection-stats-empty .ant-empty-description')).toHaveText('Connect a provider to start learning.')
+    await expect(stats.locator('.selection-stats-empty .ui-empty-description')).toHaveText('Connect a provider to start learning.')
   })
   test('connect a provider and create the first session only when sending Hi', async ({ page, vista }, testInfo) => {
     let creationRequests = 0
@@ -164,11 +164,11 @@ test.describe('first launch without a provider', () => {
 
     await modal.getByRole('button', { name: 'Connect provider', exact: true }).click()
     const form = page.locator('.provider-connection-modal .model-form')
-    const providerPicker = form.locator('label').first().locator('.ant-select')
+    const providerPicker = form.locator('label').first().locator('.ui-select')
     await providerPicker.scrollIntoViewIfNeeded()
     await providerPicker.click()
     await providerPicker.locator('input').fill('Custom provider')
-    await page.locator('.ant-select-dropdown:visible .ant-select-item-option')
+    await page.locator('.ui-select-dropdown:visible .ui-select-item-option')
       .filter({ hasText: /^Custom provider$/ }).click()
 
     await form.locator('label').filter({ hasText: /^Provider name/ }).locator('input').fill('E2E Provider')
@@ -179,7 +179,7 @@ test.describe('first launch without a provider', () => {
     await expect(connect).toBeEnabled()
     const modalGeometry = await page.locator('.provider-connection-modal').evaluate(section => {
       const rect = section.getBoundingClientRect()
-      const scroll = section.querySelector('.ant-modal-body')!
+      const scroll = section.querySelector('.ui-modal-body')!
       return {
         width: innerWidth, height: innerHeight,
         left: rect.left, right: rect.right, top: rect.top, bottom: rect.bottom,
@@ -216,11 +216,12 @@ test.describe('first launch without a provider', () => {
     await expect(page.locator('.welcome')).toBeVisible()
     await expect(sender).toBeVisible()
     const modelPicker = sender.locator('.composer-model')
+    const composerLabel = page.viewportSize()!.width <= 830 ? 'GPT-6 Luna' : 'E2E Provider · GPT-6 Luna'
     await modelPicker.scrollIntoViewIfNeeded()
     await modelPicker.click()
-    await page.locator('.ant-select-dropdown:visible .ant-select-item-option')
+    await page.locator('.ui-select-dropdown:visible .ui-select-item-option')
       .filter({ hasText: 'GPT-6 Luna' }).first().click()
-    await expect(modelPicker).toContainText('E2E Provider · GPT-6 Luna')
+    await expect(modelPicker.locator('.ui-select-selection-item')).toHaveText(composerLabel)
 
     const catalog = await vista.api('/models') as { models: { name?: string; id: string; reasoningOptions?: string[] }[] }
     const reasoningOptions = catalog.models.find(model => model.name === 'E2E Provider' && model.id === vista.modelId)?.reasoningOptions || []
@@ -232,7 +233,7 @@ test.describe('first launch without a provider', () => {
     const reasoningSlider = reasoningPicker.getByRole('slider', { name: 'Reasoning effort', exact: true })
     if (page.viewportSize()!.width <= 830) {
       await reasoningPicker.getByRole('combobox', { name: 'Reasoning effort', exact: true }).click()
-      await page.locator('.ant-select-dropdown:visible').getByText(reasoningLabel, { exact: true }).click()
+      await page.locator('.ui-select-dropdown:visible').getByText(reasoningLabel, { exact: true }).click()
     } else {
       await expect(reasoningSlider).toHaveAttribute('aria-valuemax', String(reasoningOptions.length - 1))
       await reasoningSlider.press('End')
@@ -247,7 +248,7 @@ test.describe('first launch without a provider', () => {
     await closeSettings(page)
     await expect(page).toHaveURL(url => url.pathname === '/')
     await expect(sender.getByPlaceholder('Send a message')).toHaveValue('Hi')
-    await expect(modelPicker).toContainText('E2E Provider · GPT-6 Luna')
+    await expect(modelPicker.locator('.ui-select-selection-item')).toHaveText(composerLabel)
     await expect(reasoningPicker).toContainText(reasoningLabel)
     expect(await vista.api('/sessions')).toHaveLength(0)
     expect(creationRequests).toBe(0)
@@ -290,7 +291,7 @@ test.describe('first launch without a provider', () => {
       : reasoningOptions[0]!.charAt(0).toUpperCase() + reasoningOptions[0]!.slice(1)
     if (page.viewportSize()!.width <= 830) {
       await reasoningPicker.getByRole('combobox', { name: 'Reasoning effort', exact: true }).click()
-      await page.locator('.ant-select-dropdown:visible').getByText(lowestReasoningLabel, { exact: true }).click()
+      await page.locator('.ui-select-dropdown:visible').getByText(lowestReasoningLabel, { exact: true }).click()
     } else await reasoningSlider.press('Home')
     await expect(reasoningPicker).toContainText(lowestReasoningLabel)
     await expect(reply.locator('.reply-footer .message-model-name')).toHaveText('E2E Provider · GPT-6 Luna')

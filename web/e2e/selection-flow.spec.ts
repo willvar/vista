@@ -1,6 +1,53 @@
 import { closeSettings, openSettingsSection } from './settings-navigation'
 import { test, expect } from './fixtures'
 
+test('reasoning controls align on the homepage and in a conversation', async ({ page, vista }, testInfo) => {
+  await vista.api('/preferences', { method: 'PATCH', body: JSON.stringify({ feedbackInvitationSeen: true }) })
+  const catalog = await vista.api('/models')
+  const model = catalog.models.find((item: { key: string }) => item.key === catalog.default)
+  const choices: string[] = model.reasoningOptions
+  await page.reload()
+  for (const location of ['homepage', 'conversation']) {
+    if (location === 'conversation') {
+      const session = await vista.api('/sessions', { method: 'POST', body: '{}' })
+      await page.goto(`${vista.origin}/sessions/${session.id}`)
+    }
+    const reasoning = page.locator('.composer-reasoning')
+    await expect(reasoning).toBeVisible()
+    if (page.viewportSize()!.width <= 830) {
+      await expect(reasoning.getByRole('combobox', { name: 'Reasoning effort', exact: true })).toBeVisible()
+      await expect(reasoning.getByRole('slider')).toHaveCount(0)
+      continue
+    }
+    const slider = reasoning.getByRole('slider', { name: 'Reasoning effort', exact: true })
+    for (const [key, index] of [['Home', 0], ['End', choices.length - 1], ['ArrowLeft', choices.length - 2]] as const) {
+      await slider.press(key)
+      await expect(slider).toHaveAttribute('aria-valuenow', String(index))
+      await expect.poll(() => reasoning.evaluate((element, selected) => {
+        const rail = element.querySelector('.ui-slider-rail')!.getBoundingClientRect()
+        const thumb = element.querySelector('.ui-slider-handle')!.getBoundingClientRect()
+        const range = element.querySelector('.ui-slider-track')!.getBoundingClientRect()
+        const marks = [...element.querySelectorAll('.ui-slider-dot')]
+        const centerY = rail.y + rail.height / 2
+        const selectedX = rail.x + rail.width * selected / (marks.length - 1)
+        return Math.max(
+          Math.abs(thumb.x + thumb.width / 2 - selectedX),
+          Math.abs(thumb.y + thumb.height / 2 - centerY),
+          Math.abs(range.right - selectedX),
+          ...marks.flatMap((mark, index) => {
+            const rect = mark.getBoundingClientRect()
+            return [Math.abs(rect.x + rect.width / 2 - (rail.x + rail.width * index / (marks.length - 1))), Math.abs(rect.y + rect.height / 2 - centerY)]
+          }),
+        )
+      }, index)).toBeLessThan(0.6)
+    }
+    for (const colorScheme of ['light', 'dark'] as const) {
+      await page.emulateMedia({ colorScheme })
+      await page.screenshot({ path: testInfo.outputPath(`reasoning-${location}-${colorScheme}.png`), animations: 'disabled' })
+    }
+  }
+})
+
 test.describe('explicit reasoning budgets and toggles', () => {
   test.use({ budgetModel: true, replyWithPrompt: true })
 
@@ -18,7 +65,7 @@ test.describe('explicit reasoning budgets and toggles', () => {
     const choose = async (choice: string, label: string) => {
       if (page.viewportSize()!.width <= 830) {
         await picker.getByRole('combobox', { name: 'Reasoning effort', exact: true }).click()
-        await page.locator('.ant-select-dropdown:visible').getByText(label, { exact: true }).click()
+        await page.locator('.ui-select-dropdown:visible').getByText(label, { exact: true }).click()
       } else {
         const slider = picker.getByRole('slider', { name: 'Reasoning effort', exact: true })
         await slider.press('Home')
@@ -59,7 +106,7 @@ test('real server keeps manual choice separate from automatic selection and lear
   const effortLabel = manualEffort.charAt(0).toUpperCase() + manualEffort.slice(1)
   const select = async (name: string, option: string) => {
     await page.getByRole('combobox', { name, exact: true }).click()
-    await page.locator('.ant-select-dropdown:visible').getByText(option, { exact: true }).click()
+    await page.locator('.ui-select-dropdown:visible').getByText(option, { exact: true }).click()
   }
   const openGeneralSettings = async () => {
     if (page.viewportSize()!.width <= 830) await page.locator('.mobile-sessions-trigger:visible').click()
@@ -96,12 +143,12 @@ test('real server keeps manual choice separate from automatic selection and lear
     await select('Reasoning effort', highest.charAt(0).toUpperCase() + highest.slice(1))
   } else {
     await expect(effort).toHaveAttribute('aria-valuemax', String(choices.length - 1))
-    const track = reasoning.locator('.ant-slider')
+    const track = reasoning.locator('.ui-slider')
     const trackBox = await track.boundingBox()
-    const trackColor = await reasoning.locator('.ant-slider-track').evaluate(element => getComputedStyle(element).backgroundColor)
+    const trackColor = await reasoning.locator('.ui-slider-track').evaluate(element => getComputedStyle(element).backgroundColor)
     await track.click({ position: { x: trackBox!.width / (choices.length - 1), y: trackBox!.height / 2 } })
     await expect(effort).toHaveAttribute('aria-valuetext', effortLabel)
-    expect(await effort.evaluate(element => element.getAnimations().some(animation => animation instanceof CSSTransition && animation.transitionProperty === 'left'))).toBe(true)
+    expect(await effort.evaluate(element => element.getAnimations().some(animation => animation instanceof CSSTransition && ['left', 'inset-inline-start'].includes(animation.transitionProperty)))).toBe(true)
     await effort.press('ArrowLeft')
     await expect(effort).toHaveAttribute('aria-valuenow', '0')
     await effort.press('ArrowRight')
@@ -115,7 +162,7 @@ test('real server keeps manual choice separate from automatic selection and lear
     await effort.press('End')
     await page.mouse.move(0, 0)
     await reasoning.evaluate(element => Promise.all(element.getAnimations({ subtree: true }).map(animation => animation.finished.catch(() => {}))))
-    expect(await reasoning.locator('.ant-slider-track').evaluate(element => getComputedStyle(element).backgroundColor)).not.toBe(trackColor)
+    expect(await reasoning.locator('.ui-slider-track').evaluate(element => getComputedStyle(element).backgroundColor)).not.toBe(trackColor)
   }
   await page.screenshot({ path: testInfo.outputPath('reasoning-high-light.png'), animations: 'disabled' })
   await page.emulateMedia({ colorScheme: 'dark' })
@@ -124,7 +171,7 @@ test('real server keeps manual choice separate from automatic selection and lear
   await page.emulateMedia({ reducedMotion: 'reduce' })
   if (!smallScreen) {
     await effort.press('Home')
-    expect(await effort.evaluate(element => element.getAnimations().some(animation => animation instanceof CSSTransition && animation.transitionProperty === 'left'))).toBe(false)
+    expect(await effort.evaluate(element => element.getAnimations().some(animation => animation instanceof CSSTransition && ['left', 'inset-inline-start'].includes(animation.transitionProperty)))).toBe(false)
   }
   await page.emulateMedia({ colorScheme: 'light', reducedMotion: 'no-preference' })
   if (smallScreen) await select('Reasoning effort', effortLabel)

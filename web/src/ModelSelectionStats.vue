@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { Empty as AEmpty, Alert as AAlert, Button as AButton, Input as AInput, Pagination as APagination, Select as ASelect, Tabs as ATabs, TabPane as ATabPane } from 'antdv-next'
+import { Empty as VEmpty, Alert as VAlert, Button as VButton, Input as VInput, Pagination as VPagination, Select as VSelect, Tabs as VTabs } from './ui'
 import type { ModelSelectionStats } from './client/types'
 import { useWorkspace } from './composables/useWorkspace'
 import ConfirmPopover from './ConfirmPopover.vue'
@@ -61,25 +61,22 @@ async function reset() {
   <section class="model-selection-stats" :aria-label="t('selectionStats')">
     <div class="selection-stats-heading"><h3>{{ t('selectionStats') }}</h3></div>
     <p class="selection-stats-hint">{{ t('statsReasoningHint') }}</p>
-    <a-tabs v-model:active-key="tab">
-      <a-tab-pane key="speed" :tab="t('speedStats')" />
-      <a-tab-pane key="quality" :tab="t('qualityStats')" />
-    </a-tabs>
+    <v-tabs v-model:active-key="tab" :items="[{ value: 'speed', label: t('speedStats') }, { value: 'quality', label: t('qualityStats') }]">
     <p class="selection-stats-scope">{{ tab === 'speed' ? t('speedStatsScope', { days: stats?.speedWindowDays ?? 30 }) : t('qualityStatsScope', { count: stats?.qualityWindowSize ?? 200 }) }}</p>
-    <a-alert v-if="error" type="error" role="alert" :message="error" />
-    <a-button v-if="error" :disabled="loading || resetting" @click="resource.refresh()">{{ t('retry') }}</a-button>
+    <v-alert v-if="error" type="error" role="alert" :message="error" />
+    <v-button v-if="error" :disabled="loading || resetting" @click="resource.refresh()">{{ t('retry') }}</v-button>
     <div class="selection-stats-controls">
-      <a-input v-model:value="search" :placeholder="t('searchStatsModels')" :aria-label="t('searchStatsModels')" allow-clear />
+      <v-input v-model:value="search" :placeholder="t('searchStatsModels')" :aria-label="t('searchStatsModels')" allow-clear />
       <label v-if="tab === 'speed'" for="selection-stats-input-length" class="visually-hidden">{{ t('statsInputLength') }}</label>
-      <a-select v-if="tab === 'speed'" id="selection-stats-input-length" v-model:value="bucket" :options="bucketOptions" :aria-label="t('statsInputLength')" />
+      <v-select v-if="tab === 'speed'" id="selection-stats-input-length" v-model:value="bucket" :options="bucketOptions" :aria-label="t('statsInputLength')" />
     </div>
     <div class="selection-stats-summary"><small>{{ t('statsSummary', { models: models.length, samples }) }}</small>
       <confirm-popover :show="resetOpen" :message="t(tab === 'speed' ? 'resetSpeedStatsConfirm' : 'resetQualityStatsConfirm')" :cancel-text="t('cancel')" :confirm-text="resetLabel" :busy="resetting" :error="error" popover-class="selection-stats-reset-popover" @update:show="resetOpen = $event" @confirm="reset">
-        <template #trigger><a-button size="small" danger :disabled="!stats || loading || resetting">{{ resetLabel }}</a-button></template>
+        <template #trigger><v-button danger :disabled="!stats || loading || resetting">{{ resetLabel }}</v-button></template>
       </confirm-popover>
     </div>
     <p v-if="loading && !visibleModels.length" role="status">{{ t('statsLoading') }}</p>
-    <a-empty v-else-if="!visibleModels.length && !error" class="vista-empty-state selection-stats-empty" :description="t(search ? 'statsNoMatches' : 'statsNoModels')" role="status" />
+    <v-empty v-else-if="!visibleModels.length && !error" class="vista-empty-state selection-stats-empty" :description="t(search ? 'statsNoMatches' : 'statsNoModels')" role="status" />
     <ul v-if="visibleModels.length" class="selection-stats-list" :aria-busy="loading || resetting">
       <li v-for="model in visibleModels" :key="model.modelId" :data-model-id="model.modelId" class="selection-stats-model">
         <div class="selection-stats-model-name"><strong>{{ workspace.modelNameById(model.modelId) }}</strong><small>{{ model.providers.join(' · ') }}</small></div>
@@ -97,6 +94,7 @@ async function reset() {
         </dl>
       </li>
     </ul>
-    <a-pagination v-if="models.length > pageSize" v-model:current="page" size="small" :page-size="pageSize" :total="models.length" :show-size-changer="false" :show-less-items="true" />
+    <v-pagination v-if="models.length > pageSize" v-model:current="page" :page-size="pageSize" :total="models.length" :show-size-changer="false" :show-less-items="true" />
+    </v-tabs>
   </section>
 </template>

@@ -1,6 +1,9 @@
 :root {
   --font-size-body: 16px;
   --font-size-small: 14px;
+  --button-icon-size: 32px;
+  --control-height: 36px;
+  --control-radius: 8px;
   --canvas: #ffffff;
   --sidebar: #f2f7ff;
   --surface: #ffffff;
@@ -10,6 +13,7 @@
   --border: #d5e2f4;
   --border-subtle: #e5edfa;
   --border-strong: #9fbce8;
+  --switch-off: rgba(0, 0, 0, .25);
   --text: #172b4d;
   --text-secondary: #425c7c;
   --muted: #5e7391;
@@ -28,6 +32,8 @@
   --scrollbar: #becfe8;
   --shadow-color: #1b4f9712;
   --scrim: #102b5433;
+  --tooltip-surface: #172b4d;
+  --tooltip-text: #ffffff;
   --modal-shadow: 0 12px 40px #143e7814, 0 2px 6px #143e7808;
   color-scheme: light;
 }
@@ -42,6 +48,7 @@
   --border: #ffffff1f;
   --border-subtle: #ffffff0f;
   --border-strong: #ffffff33;
+  --switch-off: rgba(255, 255, 255, .25);
   --text: #f9fafb;
   --text-secondary: #cfd3d6;
   --muted: #adb2b8;
@@ -60,6 +67,14 @@
   --scrollbar: #3c3c3d;
   --shadow-color: #00000026;
   --scrim: #00000059;
+  --tooltip-surface: #43454a;
+  --tooltip-text: #f9fafb;
   --modal-shadow: 0 12px 40px #00000038, 0 2px 6px #0000001f;
   color-scheme: dark;
+}
+
+@media (max-width: 830px), (pointer: coarse) {
+  :root {
+    --button-icon-size: 44px;
+  }
 }

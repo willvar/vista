@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { Button as AButton } from 'antdv-next'
+import { Button as VButton } from './ui'
 import { CloseOutlined } from '@antdv-next/icons'
 import { isPlainEscape } from './composables/useEscape'
 import { messageImageZoom } from './ui/messageImageZoom'
@@ -13,7 +13,7 @@ const retries = ref<Record<number, number>>({})
 const sources = computed(() => Array.from({ length: props.count }, (_, index) =>
   `/api/sessions/${encodeURIComponent(props.sessionId)}/messages/${encodeURIComponent(props.messageId)}/images/${index}${retries.value[index] ? `?retry=${retries.value[index]}` : ''}`))
 const previewOpen = ref(false)
-const closeControl = ref<InstanceType<typeof AButton> | null>(null)
+const closeControl = ref<InstanceType<typeof VButton> | null>(null)
 let image: HTMLImageElement | undefined
 let trigger: HTMLButtonElement | undefined
 let opening: Promise<unknown> | undefined
@@ -95,7 +95,7 @@ onBeforeUnmount(() => {
   <div class="message-images">
     <template v-for="(src, index) in sources" :key="src">
       <div v-if="failed[index]" class="message-image-error">
-        <span>{{ t('imageLoadFailed') }}</span><a-button size="small" @click="retry(index)">{{ t('retry') }}</a-button>
+        <span>{{ t('imageLoadFailed') }}</span><v-button @click="retry(index)">{{ t('retry') }}</v-button>
       </div>
       <button v-else type="button" class="message-image-thumbnail" :aria-label="t('zoomImage', { index: index + 1 })" @click.stop="openPreview">
         <img :src="src" :alt="t('attachedImage')" loading="lazy" decoding="async" @error="failed[index] = true">
@@ -104,7 +104,7 @@ onBeforeUnmount(() => {
   </div>
   <Teleport to="body">
     <div v-if="previewOpen" class="message-image-preview-controls" role="dialog" aria-modal="true" :aria-label="t('attachedImage')">
-      <a-button ref="closeControl" class="message-image-preview-close" type="text" shape="circle" :aria-label="t('close')" @click="closePreview"><template #icon><CloseOutlined /></template></a-button>
+      <v-button ref="closeControl" class="message-image-preview-close" variant="text" shape="circle" :aria-label="t('close')" @click="closePreview"><template #icon><CloseOutlined /></template></v-button>
     </div>
   </Teleport>
 </template>
@@ -112,11 +112,11 @@ onBeforeUnmount(() => {
 <style scoped>
 .message-images{display:flex;flex-wrap:wrap;align-items:flex-start;gap:.5rem;max-width:100%;margin-top:.55rem}
 .message-image-thumbnail{display:block;flex:0 1 auto;max-width:min(240px,100%);margin:0;padding:0;border:0;border-radius:8px;background:var(--surface);cursor:zoom-in;line-height:0;overflow:hidden}
-.message-image-thumbnail:focus-visible{outline:2px solid var(--accent);outline-offset:3px}
+.message-image-thumbnail:focus-visible{outline:var(--focus-outline, 2px solid var(--accent));outline-offset:3px}
 .message-image-thumbnail img{display:block;max-width:100%;max-height:240px;width:auto;height:auto;object-fit:contain;border-radius:8px}
 .message-image-error{display:flex;align-items:center;flex-wrap:wrap;gap:.5rem;max-width:100%;padding:.7rem;border:1px solid var(--border-strong);border-radius:8px;color:var(--text-secondary);font-size:14px}
 .message-image-preview-controls{position:fixed;inset:0;z-index:1102;pointer-events:none}
-.message-image-preview-close.ant-btn{position:absolute;top:max(12px,env(safe-area-inset-top));right:max(12px,env(safe-area-inset-right));width:44px;height:44px;background:var(--surface);color:var(--text);pointer-events:auto}
+.message-image-preview-close.ui-btn{position:absolute;top:max(12px,env(safe-area-inset-top));right:max(12px,env(safe-area-inset-right));width:44px;height:44px;background:var(--surface);color:var(--text);pointer-events:auto}
 :global(.medium-zoom-overlay){z-index:1100}
 :global(.medium-zoom-image--opened){z-index:1101}
 /* medium-zoom's own transition is !important and waits for transitionend. */

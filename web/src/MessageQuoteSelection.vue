@@ -134,7 +134,7 @@ onUnmounted(() => {
 <style scoped>
 .message-quote-action{position:fixed;z-index:900;display:flex;align-items:center;gap:7px;height:36px;padding:0 12px;border:1px solid var(--accent);border-radius:9px;background:var(--accent);color:var(--accent-text);box-shadow:0 4px 16px #0002;font:inherit;font-size:14px;white-space:nowrap;cursor:pointer;touch-action:manipulation}
 .message-quote-action:hover{filter:brightness(1.08)}
-.message-quote-action:focus-visible{outline:2px solid var(--accent);outline-offset:3px}
+.message-quote-action:focus-visible{outline:var(--focus-outline, 2px solid var(--accent));outline-offset:3px}
 .quote-mark{height:24px;font-family:Georgia,serif;font-size:32px;line-height:1}
 @media(prefers-reduced-motion:no-preference){
   .quote-action-enter-active{transition:opacity .14s ease-out,transform .14s ease-out}

@@ -32,6 +32,7 @@ async function mockAgentSettings(page: Page, origin: string, section = 'general'
     const path = new URL(request.url()).pathname.slice(4)
     const method = request.method()
     const reply = (json: unknown) => route.fulfill({ json })
+    if (path === '/activity' && method === 'POST') return route.fulfill({ status: 204 })
     if (path === '/agent-settings' && method === 'GET') return reply(saved)
     if (path === '/memories' && method === 'GET') return reply({ memories: [], maxCount: 128, maxBytes: 4096, maxTotalBytes: 32768 })
     if (path === '/agent-settings' && method === 'PUT') {
@@ -76,7 +77,7 @@ async function reachable(control: Locator) {
 
 async function noHorizontalOverflow(page: Page) {
   const result = await page.locator('.settings-page:visible').evaluate(section => {
-    const modal = section.closest('.ant-modal-container')!
+    const modal = section.closest('.ui-modal-container')!
     const content = section.querySelector('.settings-content')!
     return {
       viewport: innerWidth,
@@ -180,7 +181,7 @@ test('Personalization saves delegation depth and instructions independently', as
   await expect(save).toBeDisabled()
   await depth.fill('8')
   await expect(save).toBeEnabled()
-  await expect(settings.getByRole('button', { name: 'Increase Value', exact: true })).toBeDisabled()
+  await expect(settings.getByRole('button', { name: 'Increase value', exact: true })).toBeDisabled()
   await save.click()
   await expect.poll(() => fixture.puts.length).toBe(4)
   expect(fixture.puts[3]?.delegationDepth).toBe(8)
@@ -248,7 +249,7 @@ test('full-screen instructions keep an unsaved draft, focus the editor and scrol
   await expand.click()
   await expect(editor).toHaveValue(draft)
   await editor.fill('中'.repeat(18000))
-  await expect(editor).not.toHaveClass(/ant-input-status-error/)
+  expect(await editor.evaluate(element => (element as HTMLTextAreaElement).checkValidity())).toBe(true)
   await dialog.getByRole('button', { name: 'Exit full screen', exact: true }).click()
   await expect(dialog).toBeHidden()
   const save = settings.getByRole('form', { name: 'Global instructions', exact: true }).getByRole('button', { name: 'Save changes', exact: true })

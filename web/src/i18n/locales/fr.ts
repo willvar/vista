@@ -2,6 +2,18 @@ import type en from './en.ts'
 
 
 export default {
+  "uiShowValue": "Afficher la valeur",
+  "uiHideValue": "Masquer la valeur",
+  "uiIncrease": "Augmenter la valeur",
+  "uiDecrease": "Diminuer la valeur",
+  "uiToggleOptions": "Afficher ou masquer les options",
+  "uiClear": "Effacer la sélection",
+  "uiResultsCount": "Résultats : {count}",
+  "uiLoading": "Chargement…",
+  "uiPagination": "Pagination",
+  "uiPreviousPage": "Page précédente",
+  "uiNextPage": "Page suivante",
+  "uiPage": "Page {page}",
   "statisticsSettings": "Utilisation",
   "statisticsIntro": "Consultez vos horaires d’utilisation et l’évolution de la consommation.",
   "statisticsPeriod": "Période",

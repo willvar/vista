@@ -361,7 +361,7 @@ test('key editor preserves failed saves, retries loading, and discards canceled 
     await expect(draft).toHaveValue('')
     await draft.fill('discarded-secret')
     if (dismiss === 'escape') await draft.press('Escape')
-    else await page.locator('.ant-modal-wrap').last().click({ position: { x: 5, y: 5 } })
+    else await page.locator('.ui-modal-wrap').last().click({ position: { x: 5, y: 5 } })
     await expect(dialog).toBeHidden()
     await expect(settings).toBeVisible()
     await expect(settings.locator('[data-provider="parallel"] .search-quota-tag')).toHaveText('Free quota')
@@ -491,7 +491,7 @@ test('search settings remain readable and reachable in English and Chinese', asy
       await expect(form).toBeHidden()
     }
     const overflow = await settings.evaluate(section => {
-      const elements = [document.documentElement, section.closest('.ant-modal-container')!, section.querySelector('.settings-content')!, ...section.querySelectorAll('form, .search-order-form li')]
+      const elements = [document.documentElement, section.closest('.ui-modal-container')!, section.querySelector('.settings-content')!, ...section.querySelectorAll('form, .search-order-form li')]
       return Math.max(...elements.map(element => element.scrollWidth - element.clientWidth))
     })
     expect(overflow).toBeLessThanOrEqual(2)

@@ -116,7 +116,7 @@ async function mockWorkspace(page: Page, origin: string) {
 }
 async function choose(page: Page, name: string, option: string) {
   const select = page.getByRole('combobox', { name, exact: true }); await select.click()
-  await page.locator('.ant-select-dropdown:visible').getByText(option, { exact: true }).click()
+  await page.locator('.ui-select-dropdown:visible').getByText(option, { exact: true }).click()
 }
 async function withinViewport(page: Page) {
   const problems = await page.evaluate(() => {
@@ -166,10 +166,12 @@ test('pending deletion requires confirmation and Escape keeps the task running',
 
 test('independent selection, voluntary feedback, pending controls, and context fit the viewport', async ({ page, mockOrigin }, testInfo) => {
   test.slow()
+  const errors: string[] = []
+  page.on('pageerror', error => errors.push(error.message))
   const fixture = await mockWorkspace(page, mockOrigin)
   const smallScreen = page.viewportSize()!.width <= 830
   await expect(page.getByRole('dialog')).toContainText('Help Vista learn what works for you')
-  await expect(page.locator('.ant-select-dropdown:visible')).toHaveCount(0)
+  await expect(page.locator('.ui-select-dropdown:visible')).toHaveCount(0)
   const invitation = page.getByRole('dialog')
   const invitationBox = await invitation.boundingBox()
   expect(invitationBox!.width).toBeLessThanOrEqual(page.viewportSize()!.width)
@@ -204,7 +206,7 @@ test('independent selection, voluntary feedback, pending controls, and context f
   await expect(page.locator('.settings-page')).toBeHidden()
   await expect(page.locator('.sender-card').getByRole('combobox')).toHaveCount(smallScreen ? 2 : 1)
   await expect(page.locator('.composer-mode')).toHaveCount(0)
-  await expect(page.locator('.composer-model')).toContainText('Example · model-alpha')
+  await expect(page.locator('.composer-model .ui-select-selection-item')).toHaveText(smallScreen ? 'model-alpha' : 'Example · model-alpha')
   await expect(page.locator('.composer-reasoning')).toContainText('High')
   await expect(page.locator('.sender-attach')).toHaveCount(0)
   await choose(page, 'Model', 'model-beta')
@@ -219,9 +221,11 @@ test('independent selection, voluntary feedback, pending controls, and context f
   await expect(page.locator('.message-actions .reply-feedback')).toHaveCount(0)
   await rating.click()
   await expect(page.getByRole('group', { name: 'Rate answer', exact: true })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Helpful answer', exact: true })).toBeFocused()
   expect(fixture.feedback['assistant-1']).toBeUndefined()
   await page.keyboard.press('Escape')
   await expect(rating).toHaveAttribute('aria-expanded', 'false')
+  await expect(rating).toBeFocused()
   expect(fixture.session.executing, 'Dismissing feedback must not stop the task').toBe(true)
   await rating.click()
   await page.getByRole('button', { name: 'Helpful answer', exact: true }).click()
@@ -264,7 +268,7 @@ test('independent selection, voluntary feedback, pending controls, and context f
   await expect(header.getByRole('heading', { name: fixture.session.title, exact: true })).toBeVisible()
   await expect(context).toBeVisible()
   await expect(context).toHaveAttribute('aria-expanded', 'false')
-  await expect(context.locator('.ant-progress')).toHaveCount(0)
+  await expect(context.locator('.ui-progress')).toHaveCount(0)
   await expect(context).toContainText('Context compacted')
   await expect(header.locator('.context-status')).toHaveCount(0)
   await page.locator('.sender-card textarea').fill('A follow-up draft stays ready while viewing context usage.')
@@ -326,4 +330,5 @@ test('independent selection, voluntary feedback, pending controls, and context f
   await expect(panel).toBeVisible()
   await page.screenshot({ path: testInfo.outputPath('context-composer.png'), animations: 'disabled' })
   await page.screenshot({ path: testInfo.outputPath('iteration.png'), fullPage: true, animations: 'disabled' })
+  expect(errors).toEqual([])
 })

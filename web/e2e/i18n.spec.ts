@@ -33,9 +33,9 @@ function displayRegions(page: Page, locale: string, regions: readonly string[]) 
 
 test('Chinese region selection keeps script groups, fixed defaults and the saved regional catalog', async ({ page, vista }, testInfo) => {
   await page.goto(vista.origin + '/settings/general')
-  const picker = page.locator('.language-setting .ant-select')
-  const region = page.locator('.region-setting .ant-select')
-  const options = page.locator('.ant-select-dropdown:visible .ant-select-item-option')
+  const picker = page.locator('.language-setting .ui-select')
+  const region = page.locator('.region-setting .ui-select')
+  const options = page.locator('.ui-select-dropdown:visible .ui-select-item-option')
   for (const [script, locales] of [
     ['zh-Hans', ['zh-CN', 'zh-SG', 'zh-MY']],
     ['zh-Hant', ['zh-TW', 'zh-HK', 'zh-MO']],
@@ -64,8 +64,8 @@ test('Chinese region selection keeps script groups, fixed defaults and the saved
 
 test('a language with one region hides the region picker and keeps its selection after reload', async ({ page, vista }, testInfo) => {
   await page.goto(vista.origin + '/settings/general')
-  const picker = page.locator('.language-setting .ant-select')
-  const options = page.locator('.ant-select-dropdown:visible .ant-select-item-option')
+  const picker = page.locator('.language-setting .ui-select')
+  const options = page.locator('.ui-select-dropdown:visible .ui-select-item-option')
   for (const [search, locale] of [['French', 'fr'], ['Russian', 'ru'], ['Korean', 'ko'], ['Japanese', 'ja']] as const) {
     await picker.click()
     await picker.locator('input').fill(search)
@@ -92,9 +92,9 @@ test('regional wording and formatting choices survive manual selection and reloa
     await route.fulfill({ response, json: { ...await response.json(), updatedAt: '2026-10-20T03:15:42Z' } })
   })
   await page.goto(vista.origin + '/settings/general')
-  const picker = page.locator('.language-setting .ant-select')
-  const region = page.locator('.region-setting .ant-select')
-  const options = page.locator('.ant-select-dropdown:visible .ant-select-item-option')
+  const picker = page.locator('.language-setting .ui-select')
+  const region = page.locator('.region-setting .ui-select')
+  const options = page.locator('.ui-select-dropdown:visible .ui-select-item-option')
   for (const [search, initial, selected] of [
     ['English', 'en', 'en-GB'], ['Português', 'pt-BR', 'pt-PT'],
     ['Deutsch', 'de', 'de-CH'], ['Español', 'es', 'es-MX'],
@@ -137,12 +137,12 @@ for (const { browser, locale, reply } of cases) {
       await expect(page.locator('.welcome-intro > p')).toHaveCount(0)
       await page.goto(vista.origin + '/settings/general')
       await expect(page.locator('.page-heading h2')).toHaveText(text.appearance)
-      const picker = page.locator('.language-setting .ant-select')
-      const region = page.locator('.region-setting .ant-select')
+      const picker = page.locator('.language-setting .ui-select')
+      const region = page.locator('.region-setting .ui-select')
       await expect(page.locator('.region-setting')).toHaveCount(0)
       await picker.click()
-      const options = page.locator('.ant-select-dropdown:visible .ant-select-item-option')
-      // Ant Select virtualizes long lists; query its options by filtering.
+      const options = page.locator('.ui-select-dropdown:visible .ui-select-item-option')
+      // Query filtered options so the check also works with virtual lists.
       if (locale === 'ko') {
         for (const alias of ['韩语', '朝鲜语', '조선말', '조선어']) {
           await picker.locator('input').fill(alias)
@@ -208,21 +208,25 @@ for (const { browser, locale, reply } of cases) {
       for (const [path, label, action] of [
         ['models', text.modelConnections, text.connectProvider],
         ['mcp', text.mcpSettings, text.mcpAdd],
-        ['skills', text.skillsSettings, text.refresh],
-        ['storage', text.storageSettings, text.resourceStorageRefresh],
+        ['skills', text.skillsSettings, undefined],
+        ['storage', text.storageSettings, undefined],
         ['about', text.aboutSettings, text.modelCatalogCheck],
       ]) {
         await openSettingsSection(page, path!)
         await expect(page.locator('.page-heading h2')).toHaveText(label!)
-        const button = page.getByRole('button', { name: action!, exact: true })
-        await expect(button).toHaveAttribute('aria-label', action!)
-        await expect(button).toBeEnabled()
-        await expect(page.locator('.settings-content').getByRole('button', { name: action!, exact: true })).toHaveCount(0)
-        const bounds = await button.boundingBox()
-        const close = await page.locator('.modal-close').boundingBox()
-        if (close) {
-          expect(close.x - (bounds!.x + bounds!.width)).toBeGreaterThanOrEqual(0)
-          expect(close.x - (bounds!.x + bounds!.width)).toBeLessThanOrEqual(16)
+        if (action) {
+          const button = page.getByRole('button', { name: action, exact: true })
+          await expect(button).toHaveAttribute('aria-label', action)
+          await expect(button).toBeEnabled()
+          await expect(page.locator('.settings-content').getByRole('button', { name: action, exact: true })).toHaveCount(0)
+          const bounds = await button.boundingBox()
+          const close = await page.locator('.modal-close').boundingBox()
+          if (close) {
+            expect(close.x - (bounds!.x + bounds!.width)).toBeGreaterThanOrEqual(0)
+            expect(close.x - (bounds!.x + bounds!.width)).toBeLessThanOrEqual(16)
+          }
+        } else {
+          await expect(page.getByRole('button', { name: path === 'skills' ? text.refresh : text.resourceStorageRefresh, exact: true })).toHaveCount(0)
         }
         await checkLayout()
         expect(new URL(page.url()).pathname).toBe(`/settings/${path}`)

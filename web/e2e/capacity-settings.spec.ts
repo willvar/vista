@@ -9,7 +9,7 @@ test('selecting custom without changing limits survives background metrics and c
   const save = region.getByRole('button', { name: 'Save changes', exact: true })
   await expect(region.getByRole('status')).toContainText('/ 2048 MiB')
   await region.locator('#memory-preset').click()
-  await page.locator('.ant-select-dropdown:visible .ant-select-item-option').filter({ hasText: /^Custom$/ }).click()
+  await page.locator('.ui-select-dropdown:visible .ui-select-item-option').filter({ hasText: /^Custom$/ }).click()
   const budget = region.getByRole('spinbutton', { name: 'Memory budget', exact: true })
   await expect(budget).toHaveValue('2048')
   // Leave the editor untouched through the next five-second metrics push.
@@ -35,7 +35,7 @@ test('capacity presets and custom limits save, synchronize and preserve an unsav
   const save = region.getByRole('button', { name: 'Save changes', exact: true })
   const choose = async (label: string) => {
     await region.locator('#memory-preset').click()
-    await page.locator('.ant-select-dropdown:visible .ant-select-item-option').filter({ hasText: new RegExp('^' + label + '$') }).click()
+    await page.locator('.ui-select-dropdown:visible .ui-select-item-option').filter({ hasText: new RegExp('^' + label + '$') }).click()
   }
   await expect(region.getByRole('status')).toContainText('/ 2048 MiB')
   await expect(save).toBeDisabled()

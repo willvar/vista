@@ -42,6 +42,8 @@ test.describe('single completed reply', () => {
 })
 
 test('manual compaction preserves chat and draft, and Tab completes Continue without sending or trapping focus', async ({ page, vista }, testInfo) => {
+  // A preference left by the removed switch must not disable navigation or completion.
+  await page.addInitScript(() => localStorage.setItem('vista-keyboard-navigation', 'off'))
   await vista.api('/preferences', { method: 'PATCH', body: JSON.stringify({ feedbackInvitationSeen: true }) })
   const session = await vista.api('/sessions', { method: 'POST', body: '{}' })
   for (let i = 0; i < 3; i++) {

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { reactive } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { Button } from 'antdv-next'
+import { Button } from './ui'
 import { useWorkspace } from './composables/useWorkspace'
 import { useFullOutput } from './composables/useFullOutput'
 import { renderMarkdown } from './ui/markdown'
@@ -16,7 +16,7 @@ const { output, loading, failure, retry } = useFullOutput(client, source)
 
 <template>
   <small v-if="loading && !output" class="trace-output-loading" role="status">{{ t('outputLoading') }}</small>
-  <div v-if="failure" class="trace-output-load-error"><small role="alert">{{ t('outputLoadFailed') }}</small><Button size="small" @click="retry">{{ t('retry') }}</Button></div>
+  <div v-if="failure" class="trace-output-load-error"><small role="alert">{{ t('outputLoadFailed') }}</small><Button @click="retry">{{ t('retry') }}</Button></div>
   <slot v-if="failure && !output" name="fallback" />
   <slot v-if="output" :content="output.content">
     <div v-if="markdown" class="markdown trace-report-body" v-html="renderMarkdown(output.content)"></div>

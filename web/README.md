@@ -81,9 +81,17 @@ Message rows and long traces use virtual rendering and measured heights. Full-te
 
 A stable text selection offers quoted follow-up after 350 ms. Dragging/selection changes, copy, scroll, or Escape dismiss it. Quote drafts are conversation-scoped and sent as Markdown with the question through the normal user-input path, including steering/queueing. The combined message still has the 8 KiB input limit; failure retains the full draft. Editing and withdrawal share the [conversation rollback contract](../docs/message-revert.md).
 
-`src/ui/appearance.ts` stores `vista-appearance` and syncs same-origin tabs. Semantic colors live in `src/ui/tokens.css`; `src/ui/theme.ts` configures components. Startup applies theme before styles. Motion follows `prefers-reduced-motion`, including component motion, CSS transitions/animations, and JavaScript smooth scrolling.
+`src/ui/` contains Vista's presentation components. Ark UI supplies interaction and accessibility primitives for dialogs, selections, menus, toggles, sliders, pagination, collapsible sections, and the workspace splitter. Basic buttons, text fields, message bubbles, and the composer use native elements. Conversation state, rendering windows, and send behavior remain in Vista's existing state and composable layers. The standalone `@antdv-next/icons` package supplies icons.
 
-Empty views use `antdv-next`'s `Empty`, with its simple illustration configured once in `AppProvider.vue` and shared spacing and typography in `.vista-empty-state`; narrow sidebars use `.vista-empty-state-compact`. Keep loading and errors separate from empty results, preserve context-specific descriptions, and omit pagination when no results exist.
+`src/ui/appearance.ts` stores `vista-appearance` and syncs same-origin tabs. Semantic colors and control dimensions live in `src/ui/tokens.css`; shared component styles live in `src/ui/components.css`. Startup applies theme before styles. Motion follows `prefers-reduced-motion`, including component motion, CSS transitions/animations, and JavaScript smooth scrolling.
+
+Keyboard navigation stays enabled. Tab moves focus unless an input consumes it for completion; preserve text editing, IME, send shortcuts and Escape.
+Use `:focus-visible` for navigation indicators; pointer focus alone must not draw a keyboard ring.
+`AppProvider` tracks Ark UI's interaction modality; focus outlines use `--focus-outline` so mouse/touch focus restoration stays quiet while keyboard and assistive navigation retain their indicators.
+
+Text actions use the shared `Button` at its default 36px height, including list actions and confirmation popovers; do not use `small` or shrink them through local padding, height, or font overrides. Icon buttons use `.icon-button` and the shared `--button-icon-size`: 32px on desktop, 44px at widths up to 830px or with a coarse pointer. Send controls, message actions, image-preview dismissal, and sidebar navigation retain their dedicated layouts.
+
+Empty views use `src/ui/Empty.vue`, with one shared illustration and spacing and typography in `.vista-empty-state`; narrow sidebars use `.vista-empty-state-compact`. Keep loading and errors separate from empty results, preserve context-specific descriptions, and omit pagination when no results exist.
 
 ## Internationalization
 
@@ -91,7 +99,7 @@ Language registration and client matching are in `src/i18n/languages.ts`; region
 
 Maintain Simplified Chinese in `src/i18n/locales/zh-CN.ts`, with corrections in `src/i18n/chinese-overrides.ts`. `scripts/generate-chinese.ts` uses locked OpenCC JS to generate Taiwan (`twp`), Hong Kong/Macau (`hk`), and Singapore/Malaysia catalogs. Do not edit generated catalogs directly. Generation preserves placeholders, inline code, and URLs; OpenCC is a build dependency, not browser runtime code.
 
-Other regional wording is maintained in `src/i18n/regional-overrides.ts`. Register component-library locale support when adding languages. `scripts/generate-reply-languages.ts` derives `internal/replylanguage/language_names.json` from the same language registry. Dev and production builds generate both outputs; `check:i18n` rejects stale generation. Tests cover keys, syntax, placeholders, region matching/formatting, backend names, and plural forms.
+Other regional wording is maintained in `src/i18n/regional-overrides.ts`. `AppProvider.vue` passes the effective locale to Ark UI; component labels and announcements use the same application catalogs. `scripts/generate-reply-languages.ts` derives `internal/replylanguage/language_names.json` from the same language registry. Dev and production builds generate both outputs; `check:i18n` rejects stale generation. Tests cover keys, syntax, placeholders, region matching/formatting, backend names, and plural forms.
 
 ## Browser checks
 

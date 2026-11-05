@@ -81,9 +81,17 @@ HTTP 初始化和 SSE 更新必须采用相同的视图范围；同时检查返�
 
 稳定选中文字 350 ms 后提供引用追问，拖动／选区变化、复制、滚动或 Escape 收起。引用草稿按会话保存，发送时作为 Markdown 与问题共用普通输入链路，包括插话和排队。合并后的消息仍受 8 KiB 输入上限约束，失败保留完整草稿。编辑和撤回共用[会话回退约定](../docs/message-revert.zh-CN.md)。
 
-`src/ui/appearance.ts` 保存 `vista-appearance` 并同步同源标签页；语义颜色位于 `src/ui/tokens.css`，组件主题在 `src/ui/theme.ts`。启动时先于样式应用主题；动效跟随 `prefers-reduced-motion`，包括组件动效、CSS 过渡／动画及 JavaScript 平滑滚动。
+`src/ui/` 维护 Vista 的展示组件。Ark UI 提供弹窗、选择框、菜单、开关、滑杆、分页、折叠内容和工作区分栏的交互与无障碍基础；普通按钮、文本输入、消息气泡和发送区使用原生元素。会话状态、渲染窗口和发送逻辑仍由现有状态层与组合式函数管理。独立的 `@antdv-next/icons` 包提供图标。
 
-空状态使用 `antdv-next` 的 `Empty`，在 `AppProvider.vue` 统一配置简洁图示，通过 `.vista-empty-state` 统一间距和字体；窄侧栏使用 `.vista-empty-state-compact`。加载中和错误状态与空结果分别呈现，保留各场景的提示文案，没有结果时隐藏分页控件。
+`src/ui/appearance.ts` 保存 `vista-appearance` 并同步同源标签页；语义颜色和控件尺寸位于 `src/ui/tokens.css`，共享组件样式位于 `src/ui/components.css`。启动时先于样式应用主题；动效跟随 `prefers-reduced-motion`，包括组件动效、CSS 过渡／动画及 JavaScript 平滑滚动。
+
+键盘导航保持启用。输入框未将 Tab 用于补全时，Tab 用于切换焦点；保留文字编辑、输入法、发送快捷键和 Esc。
+导航指示使用 `:focus-visible`，不能仅因鼠标／触屏聚焦就显示键盘焦点框。
+`AppProvider` 使用 Ark UI 跟踪交互方式，焦点轮廓统一使用 `--focus-outline`，使鼠标／触屏操作后的焦点恢复不误亮，同时保留键盘和辅助导航的提示。
+
+文字操作使用共享 `Button` 的默认 36px 高度，包括列表操作及确认气泡；不使用 `small`，也不通过局部 padding、高度或字号覆盖缩小。图标按钮使用 `.icon-button` 和统一的 `--button-icon-size`：桌面端 32px，宽度不超过 830px 或粗指针设备上为 44px。发送控件、消息操作、图片预览关闭和侧栏导航保留专用布局。
+
+空状态使用 `src/ui/Empty.vue` 的共享图示，通过 `.vista-empty-state` 统一间距和字体；窄侧栏使用 `.vista-empty-state-compact`。加载中和错误状态与空结果分别呈现，保留各场景的提示文案，没有结果时隐藏分页控件。
 
 ## 国际化
 
@@ -91,7 +99,7 @@ HTTP 初始化和 SSE 更新必须采用相同的视图范围；同时检查返�
 
 简体中文维护 `src/i18n/locales/zh-CN.ts`，校订位于 `src/i18n/chinese-overrides.ts`。`scripts/generate-chinese.ts` 使用锁定的 OpenCC JS 生成台湾（`twp`）、香港／澳门（`hk`）、新加坡／马来西亚词条，不直接编辑生成文件。生成保留占位符、行内代码及 URL；OpenCC 仅用于构建，不进入浏览器运行代码。
 
-其他地区文案差异在 `src/i18n/regional-overrides.ts`，新增语言需登记组件库 locale。`scripts/generate-reply-languages.ts` 从同一注册表生成 `internal/replylanguage/language_names.json`。开发和生产构建均执行这两类生成，`check:i18n` 拒绝过期结果。测试覆盖键、语法、占位符、地区匹配／格式、后端语言名及复数。
+其他地区文案差异在 `src/i18n/regional-overrides.ts`，`AppProvider.vue` 将生效语言传给 Ark UI，组件标签和无障碍播报使用应用的同一套文案。`scripts/generate-reply-languages.ts` 从同一注册表生成 `internal/replylanguage/language_names.json`。开发和生产构建均执行这两类生成，`check:i18n` 拒绝过期结果。测试覆盖键、语法、占位符、地区匹配／格式、后端语言名及复数。
 
 ## 浏览器检查
 

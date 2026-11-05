@@ -15,9 +15,8 @@
   },
   "dependencies": {
     "@antdv-next/icons": "1.0.6",
-    "@antdv-next/x": "1.2.5",
+    "@ark-ui/vue": "5.40.0",
     "@tanstack/vue-virtual": "^3.13.39",
-    "antdv-next": "1.2.0",
     "dompurify": "^3.4.16",
     "markdown-it": "^15.0.2",
     "medium-zoom": "1.1.0",

@@ -46,7 +46,7 @@ test('memory manager keeps long text out of settings and previews, with independ
   await expect(editor).toHaveCount(0)
   expect((await vista.api('/memories')).memories[0].text).toBe(edited)
 
-  await page.locator('.ant-modal-wrap:visible').last().click({ position: { x: 1, y: 1 } })
+  await page.locator('.ui-modal-wrap:visible').last().click({ position: { x: 1, y: 1 } })
   await expect(manager).toBeHidden()
   await expect(settings).toBeVisible()
   await expect(page).toHaveURL(`${vista.origin}/settings/personalization`)
@@ -64,7 +64,7 @@ test('memories in Personalization support editing, conflicts and deletion in lig
   await page.goto(`${vista.origin}/settings/personalization`)
   const section = await openMemoryManager(page)
   await expect(section.getByText('No saved preferences yet.', { exact: false })).toBeVisible()
-  await expect(section.locator('.ant-modal-footer')).toHaveCount(0)
+  await expect(section.locator('.ui-modal-footer')).toHaveCount(0)
   await page.screenshot({ path: testInfo.outputPath('memory-empty-light.png'), animations: 'disabled' })
   await section.getByRole('button', { name: 'Add memory', exact: true }).click()
   const editor = section.getByRole('textbox', { name: 'Preference', exact: true })
@@ -101,11 +101,26 @@ test('memories in Personalization support editing, conflicts and deletion in lig
   await editor.fill('stale UI draft')
   const snapshot: Memories = await vista.api('/memories')
   const memory = snapshot.memories[0]
-  await vista.api('/memories', { method: 'POST', body: JSON.stringify({ action: 'update', id: memory.id, previousText: memory.text, text: 'Changed by another session.' }) })
-  await section.getByRole('button', { name: 'Save changes', exact: true }).click()
-  await expect(section.getByRole('alert')).toContainText('This memory was changed or deleted')
-  await expect(editor).toHaveValue('stale UI draft')
-  expect((await vista.api('/memories')).memories[0].text).toBe('Changed by another session.')
+  let releaseRead!: () => void
+  let readStarted!: () => void
+  const holdRead = new Promise<void>(resolve => { releaseRead = resolve })
+  const backgroundRead = new Promise<void>(resolve => { readStarted = resolve })
+  // A conflicting save must not discard an in-flight update from another client.
+  await page.route('**/api/memories?*', async route => {
+    if (route.request().method() !== 'GET') return route.continue()
+    const response = await route.fetch()
+    readStarted()
+    await holdRead
+    await route.fulfill({ response })
+  }, { times: 1 })
+  try {
+    await vista.api('/memories', { method: 'POST', body: JSON.stringify({ action: 'update', id: memory.id, previousText: memory.text, text: 'Changed by another session.' }) })
+    await backgroundRead
+    await section.getByRole('button', { name: 'Save changes', exact: true }).click()
+    await expect(section.getByRole('alert')).toContainText('This memory was changed or deleted')
+    await expect(editor).toHaveValue('stale UI draft')
+    expect((await vista.api('/memories')).memories[0].text).toBe('Changed by another session.')
+  } finally { releaseRead() }
   await section.getByRole('button', { name: 'Cancel', exact: true }).click()
   await expect(section.getByRole('button', { name: 'Refresh memories', exact: true })).toHaveCount(0)
   await expect(section.locator('.memory-text')).toHaveText('Changed by another session.')
@@ -139,7 +154,7 @@ test('memories in Personalization support editing, conflicts and deletion in lig
   await confirmation.getByRole('button', { name: 'Delete', exact: true }).click()
   await expect(confirmation).toBeHidden()
   await expect(section.locator('.memory-text')).toHaveCount(0)
-  await expect(section.locator('.ant-modal-footer')).toHaveCount(0)
+  await expect(section.locator('.ui-modal-footer')).toHaveCount(0)
   await page.screenshot({ path: testInfo.outputPath('memory-empty-dark.png'), animations: 'disabled' })
   expect((await vista.api('/memories')).memories).toEqual([])
 })
@@ -158,7 +173,7 @@ test.describe('model-managed preferences', () => {
     await page.goto(`${vista.origin}/sessions/${first.id}`)
     const trace = page.locator('.run-trace')
     await trace.getByRole('button', { name: 'Execution process', exact: true }).click()
-    await trace.locator('.antd-thought-chain-node-title').filter({ hasText: 'Memory' }).click()
+    await trace.locator('.ui-thought-chain-node-title').filter({ hasText: 'Memory' }).click()
     await expect(trace.locator('.trace-result-summary')).toHaveText('Memory added')
     await expect(trace.locator('.trace-step-content')).toContainText('Keep answers concise.')
 

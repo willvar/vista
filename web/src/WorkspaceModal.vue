@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { onUnmounted, ref, watch } from 'vue'
 import { onBeforeRouteLeave } from 'vue-router'
-import { Modal, type ModalProps } from 'antdv-next'
+import { Modal, type ModalProps } from './ui'
 
 const props = withDefaults(defineProps<{ open: boolean; keyboard?: boolean; width: NonNullable<ModalProps['width']> }>(), { keyboard: true })
 const emit = defineEmits<{ cancel: [] }>()
@@ -62,7 +62,7 @@ const styles = {
 @media (max-width: 830px) {
   .workspace-modal-wrap { overflow: hidden; }
   .workspace-modal-wrap::before { display: none; }
-  .workspace-modal.ant-modal {
+  .workspace-modal.ui-modal {
     --workspace-modal-border: 0;
     width: 100% !important;
     max-width: 100%;
@@ -71,7 +71,7 @@ const styles = {
     padding: 0;
     vertical-align: top;
   }
-  .workspace-modal .ant-modal-container { border-radius: 0; box-shadow: none; }
+  .workspace-modal .ui-modal-container { border-radius: 0; box-shadow: none; }
   .workspace-modal .modal-page {
     height: 100dvh;
     padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
@@ -81,9 +81,8 @@ const styles = {
     max-height: none;
   }
   .workspace-modal .modal-page > .conversation-header { padding: .4rem .6rem; gap: .5rem; }
-  .workspace-modal .page-back { display: inline-flex; flex: none; width: 44px; height: 44px; padding: 0; font-size:22px; }
-  .workspace-modal .modal-close.ant-btn { display: none; }
-  .workspace-modal .settings-header-action.ant-btn { width: 44px; height: 44px; }
+  .workspace-modal .page-back { display: inline-flex; }
+  .workspace-modal .modal-close.ui-btn { display: none; }
   .workspace-modal .page-heading { flex: 1; min-width: 0; }
   .workspace-modal .page-heading > small { display: none; }
   .workspace-modal .settings-content, .workspace-modal .session-manager-content { overscroll-behavior: contain; }
