@@ -7,7 +7,6 @@ import (
 	"net/http/httptest"
 	"os"
 	"strings"
-	"sync/atomic"
 	"testing"
 	"time"
 
@@ -70,12 +69,7 @@ func TestDesktopStatusRequestErrorsAndCancellation(t *testing.T) {
 	}
 	for _, mode := range []string{"invalid JSON", "HTTP failure", "timeout"} {
 		t.Run(mode, func(t *testing.T) {
-			var calls atomic.Int32
 			endpoint := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				if calls.Add(1) == 1 {
-					w.WriteHeader(200)
-					return
-				} // instance probe
 				switch mode {
 				case "invalid JSON":
 					_, _ = w.Write([]byte("{"))

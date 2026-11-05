@@ -277,6 +277,9 @@ func TestNativeWindowsTray(t *testing.T) {
 	if platform.IsAlive(before.PID) {
 		t.Fatal("old Server survived Restart")
 	}
+	// A registered tray precedes the independent Restart command's completed
+	// readiness check. Let that command open the browser before issuing Stop.
+	trayTestWait(t, "Restart completed its browser open", func() bool { return countBrowser() == 5 })
 	response, err = http.Get(after.Address + "/api/sessions")
 	if err != nil {
 		t.Fatal(err)
@@ -299,6 +302,12 @@ func TestNativeWindowsTray(t *testing.T) {
 		t.Fatalf("Stop retained instance lock: %v", err)
 	}
 	_ = instance.Unlock(lock)
+	// Tray lifecycle commands deliberately outlive their Server. Wait for
+	// those commands to release the log before TempDir removes the fixture.
+	trayTestWait(t, "tray lifecycle commands released the log", func() bool {
+		err := os.Remove(filepath.Join(d, "server.log"))
+		return err == nil || os.IsNotExist(err)
+	})
 }
 
 func TestNativeWindowsTrayLongStatus(t *testing.T) {
@@ -319,10 +328,9 @@ func TestNativeWindowsTrayLongStatus(t *testing.T) {
 		workers[i] = map[string]any{"sessionId": fmt.Sprintf("conversation-%03d", i), "pid": 1000 + i, "memory": map[string]any{"sampledAt": "2026-10-22T03:04:05Z", "rssBytes": 1048576}}
 	}
 	var slow atomic.Bool
-	var slowCalls atomic.Int32
 	requestStarted := make(chan struct{}, 1)
 	endpoint := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if slow.Load() && slowCalls.Add(1) > 1 {
+		if slow.Load() {
 			requestStarted <- struct{}{}
 			<-r.Context().Done()
 			return

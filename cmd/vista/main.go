@@ -92,14 +92,23 @@ func addPortFlag(command *cobra.Command, port *int) {
 	}
 }
 func dir() (string, error) { return instance.Dir() }
-func probe(dir string) (instance.Info, bool) {
+func readLiveInstance(dir string) (instance.Info, bool) {
 	x, err := instance.Read(dir)
 	if err != nil || !instance.IsLoopbackAddress(x.Address) || !instance.IsAlive(x.PID) {
 		return x, false
 	}
+	return x, true
+}
+func probe(dir string) (instance.Info, bool) {
+	x, alive := readLiveInstance(dir)
+	if !alive {
+		return x, false
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
 	defer cancel()
-	req, err := http.NewRequestWithContext(ctx, "GET", x.Address+"/api/status", nil)
+	// Readiness needs only the static UI. Detailed status can involve slower
+	// native memory sampling and must not decide whether the service is alive.
+	req, err := http.NewRequestWithContext(ctx, http.MethodHead, x.Address+"/", nil)
 	if err != nil {
 		return x, false
 	}
@@ -165,7 +174,7 @@ func requestContext(ctx context.Context, method, path string) (*http.Response, e
 	if err != nil {
 		return nil, err
 	}
-	x, ok := probe(d)
+	x, ok := readLiveInstance(d)
 	if !ok {
 		return nil, os.ErrNotExist
 	}
@@ -209,15 +218,14 @@ func stop() error {
 }
 func waitStopped(d string) error {
 	for i := 0; i < 300; i++ {
-		if _, ok := probe(d); !ok {
-			lock, err := instance.Lock(d)
-			if err == nil {
-				_ = instance.Unlock(lock)
-				return nil
-			}
-			if !platform.IsLockBusy(err) {
-				return err
-			}
+		// The lock outlives all runtime cleanup; no status request is needed.
+		lock, err := instance.Lock(d)
+		if err == nil {
+			_ = instance.Unlock(lock)
+			return nil
+		}
+		if !platform.IsLockBusy(err) {
+			return err
 		}
 		time.Sleep(100 * time.Millisecond)
 	}

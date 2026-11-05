@@ -1,12 +1,68 @@
 package main
 
 import (
+	"context"
 	"io"
+	"net/http"
+	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
+	"time"
+
+	"vista/internal/instance"
 
 	"github.com/spf13/cobra"
 )
+
+func TestLifecycleRequestsDoNotPreflightStatus(t *testing.T) {
+	root := t.TempDir()
+	for _, name := range []string{"XDG_CONFIG_HOME", "APPDATA", "HOME"} {
+		t.Setenv(name, root)
+	}
+	d, err := dir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(d, 0700); err != nil {
+		t.Fatal(err)
+	}
+	for _, method := range []string{http.MethodGet, http.MethodPost} {
+		t.Run(method, func(t *testing.T) {
+			calls := make(chan string, 4)
+			endpoint := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				calls <- r.Method + " " + r.URL.Path
+				if r.URL.Path == "/api/status" {
+					// Real status sampling can exceed the former 300 ms
+					// preflight deadline without the runtime being stopped.
+					time.Sleep(400 * time.Millisecond)
+				}
+				w.WriteHeader(http.StatusOK)
+			}))
+			defer endpoint.Close()
+			if err := instance.Write(d, instance.Info{PID: os.Getpid(), Address: endpoint.URL}); err != nil {
+				t.Fatal(err)
+			}
+			path := "/api/status"
+			if method == http.MethodPost {
+				path = "/api/stop"
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+			defer cancel()
+			response, err := requestContext(ctx, method, path)
+			if err != nil {
+				t.Fatalf("live runtime was rejected: %v", err)
+			}
+			response.Body.Close()
+			if got := <-calls; got != method+" "+path {
+				t.Fatalf("unrelated request: %s", got)
+			}
+			if len(calls) != 0 {
+				t.Fatal("lifecycle request redundantly sampled status")
+			}
+		})
+	}
+}
 
 func TestStartupCommandsRejectEphemeralAndInvalidPorts(t *testing.T) {
 	for _, command := range []string{"", "start", "restart", "serve"} {
