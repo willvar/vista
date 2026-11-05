@@ -76,6 +76,14 @@ public static class VistaCITaskbar {
             # Shell_TrayWnd appears before the notification area can accept
             # icons. Wait for the real API rather than treating window creation
             # as a completed Explorer startup.
+            if (-not [VistaCITaskbar]::Probe()) {
+                # A disconnected remote desktop can leave shell windows alive
+                # without a usable notification area. Keep this recovery inside
+                # the disposable runner's desktop validation process.
+                & (Join-Path $env:WINDIR 'System32/query.exe') session *>> $logPath
+                & (Join-Path $env:WINDIR 'System32/tscon.exe') (Get-Process -Id $PID).SessionId /dest:console *>> $logPath
+                "Console session transfer exit code: $LASTEXITCODE" | Add-Content -LiteralPath $logPath
+            }
             $trayDeadline = [DateTime]::UtcNow.AddSeconds(45)
             while (-not [VistaCITaskbar]::Probe()) {
                 if ([DateTime]::UtcNow -gt $trayDeadline) {
