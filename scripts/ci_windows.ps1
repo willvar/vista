@@ -16,6 +16,24 @@ if ($Desktop) {
         foreach ($entry in $state.environment.PSObject.Properties) {
             [Environment]::SetEnvironmentVariable($entry.Name, $entry.Value, 'Process')
         }
+        if ($state.start_explorer) {
+            Add-Type -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+public static class VistaCITaskbar {
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    public static extern IntPtr FindWindow(string className, string title);
+}
+'@
+            if ([VistaCITaskbar]::FindWindow('Shell_TrayWnd', $null) -eq [IntPtr]::Zero) {
+                Start-Process -FilePath (Join-Path $env:WINDIR 'explorer.exe')
+                $shellDeadline = [DateTime]::UtcNow.AddSeconds(30)
+                while ([VistaCITaskbar]::FindWindow('Shell_TrayWnd', $null) -eq [IntPtr]::Zero) {
+                    if ([DateTime]::UtcNow -gt $shellDeadline) { throw 'Explorer did not create an interactive taskbar within 30 seconds.' }
+                    Start-Sleep -Milliseconds 250
+                }
+            }
+        }
         Set-Location -LiteralPath $root
         & $state.python -u scripts/ci_native.py --target $state.target --version $state.version *>> $logPath
         $exitCode = $LASTEXITCODE
@@ -33,10 +51,24 @@ if ($Bootstrap) {
     $shell = New-Object -ComObject Shell.Application
     $desktopHwnd = 0
     $desktopWindow = $shell.Windows().FindWindowSW(0, 0, 8, [ref]$desktopHwnd, 1)
-    if ($null -eq $desktopWindow) { throw 'An interactive Explorer desktop is required for native Windows validation.' }
     $powershell = (Get-Process -Id $PID).Path
-    $desktopWindow.Document.Application.ShellExecute($powershell,
-        ('-NoProfile -ExecutionPolicy Bypass -File "' + $PSCommandPath + '" -Desktop'), $root, 'open', 0)
+    $arguments = '-NoProfile -ExecutionPolicy Bypass -File "' + $PSCommandPath + '" -Desktop'
+    if ($null -ne $desktopWindow) {
+        $desktopWindow.Document.Application.ShellExecute($powershell, $arguments, $root, 'open', 0)
+    } else {
+        # Windows ARM runners may have no Explorer automation entry. An
+        # interactive task runs outside the runner Job without storing a password.
+        $state = Get-Content -LiteralPath $statePath -Raw | ConvertFrom-Json
+        $state | Add-Member -NotePropertyName start_explorer -NotePropertyValue $true
+        $state | ConvertTo-Json | Set-Content -LiteralPath $statePath
+        $action = New-ScheduledTaskAction -Execute $powershell -Argument $arguments -WorkingDirectory $root
+        $principal = New-ScheduledTaskPrincipal -UserId ([System.Security.Principal.WindowsIdentity]::GetCurrent().Name) `
+            -LogonType Interactive -RunLevel Limited
+        $settings = New-ScheduledTaskSettingsSet -ExecutionTimeLimit (New-TimeSpan -Minutes 22)
+        Register-ScheduledTask -TaskName $state.task_name -Action $action -Principal $principal -Settings $settings | Out-Null
+        Start-ScheduledTask -TaskName $state.task_name
+        Write-Output 'Launched native Windows checks through an interactive scheduled task.'
+    }
     exit 0
 }
 
@@ -51,7 +83,8 @@ foreach ($name in @('PATH', 'GOPATH', 'GOCACHE', 'GOTOOLCHAIN', 'GOWORK', 'CGO_E
     $value = [Environment]::GetEnvironmentVariable($name)
     if ($null -ne $value) { $environment[$name] = $value }
 }
-@{ python = (Get-Command python).Source; environment = $environment; target = $Target; version = $Version } |
+$taskName = 'VistaNativeValidation-' + $PID
+@{ python = (Get-Command python).Source; environment = $environment; target = $Target; version = $Version; task_name = $taskName } |
     ConvertTo-Json | Set-Content -LiteralPath $statePath
 
 # The hosted runner's enclosing Job can forbid CREATE_BREAKAWAY_FROM_JOB.
@@ -86,6 +119,11 @@ try {
     }
 } finally {
     if (-not $bootstrapProcess.HasExited) { Stop-Process -Id $bootstrapProcess.Id -Force }
+    $scheduled = Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
+    if ($null -ne $scheduled) {
+        $scheduled | Stop-ScheduledTask -ErrorAction SilentlyContinue
+        $scheduled | Unregister-ScheduledTask -Confirm:$false
+    }
     Get-Content -LiteralPath $bootstrapLog, $bootstrapError -ErrorAction SilentlyContinue
 }
 Get-Content -LiteralPath $logPath | Select-Object -Skip $linesRead

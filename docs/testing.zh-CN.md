@@ -48,12 +48,13 @@ Go 单测／vet／竞态及前端检查在 Ubuntu 上运行。
 报告列出工具链、源码提交、二进制／压缩包哈希及跳过项，必要的应用及进程检查必须通过。
 脚本使用已提交的前端资源、UA 版本及许可声明，不改写这些快照。
 也可在本地使用 Python 3.11+ 运行，例如 `python3 scripts/ci_native.py --target linux/amd64 --version dev`；本地报告会明确记录未提交源码状态。
-Windows 通过 [`ci_windows.ps1`](../scripts/ci_windows.ps1) 在交互式 Explorer 桌面中运行检查，避免 runner 外层的进程 Job 阻止应用脱离启动进程。
+Windows 通过 [`ci_windows.ps1`](../scripts/ci_windows.ps1) 经由 Explorer 或交互式计划任务运行检查，避免 runner 外层的进程 Job 阻止应用脱离启动进程。
+runner 缺少 Explorer 桌面入口时，计划任务会启动 Explorer，并在任务栏就绪后开始验证；两种架构均要求桌面启动、托盘和原生状态窗口测试通过。
 
 Linux 浏览器矩阵安装与锁定 Playwright 包匹配的 Chromium，三个视口项目分别使用独立 runner，各运行两个工作进程。
 手动运行时可关闭浏览器测试；推送发布 tag 时始终执行。
 原生报告、压缩包和浏览器结果摘要保留三天，浏览器 trace／截图仅在失败时上传。
-runner 结果只证明实际运行的检查：跳过的交互式 Windows 托盘测试仍未经验证，模拟模型端点也不证明真实服务商兼容性。
+runner 结果只证明实际运行的检查，模拟模型端点不证明真实服务商兼容性。
 
 推送带注释的 `vMAJOR.MINOR.PATCH` tag 会启动自动发布。
 tag 说明作为 Release 正文，使用签名 tag 并保持英文发布说明简洁。
