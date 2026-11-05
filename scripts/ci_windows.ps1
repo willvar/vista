@@ -120,6 +120,14 @@ public static class VistaCITaskbar {
 if ($FormsProbe) {
     Add-Type -AssemblyName System.Windows.Forms, System.Drawing
     Initialize-TaskbarProbe
+    [System.Windows.Forms.Screen]::AllScreens | Select-Object DeviceName, Bounds, Primary | Format-List
+    $screen = [System.Windows.Forms.SystemInformation]::VirtualScreen
+    $bitmap = New-Object System.Drawing.Bitmap $screen.Width, $screen.Height
+    $graphics = [System.Drawing.Graphics]::FromImage($bitmap)
+    try {
+        $graphics.CopyFromScreen($screen.Left, $screen.Top, 0, 0, $screen.Size)
+        $bitmap.Save((Join-Path $output 'desktop.png'))
+    } finally { $graphics.Dispose(); $bitmap.Dispose() }
     $tray = New-Object System.Windows.Forms.NotifyIcon
     try {
         $tray.Icon = [System.Drawing.SystemIcons]::Application
@@ -177,6 +185,12 @@ if ($Desktop) {
                 }
                 $frameworkShell = Join-Path $env:WINDIR 'System32/WindowsPowerShell/v1.0/powershell.exe'
                 & $frameworkShell -NoProfile -NonInteractive -STA -ExecutionPolicy Bypass -File $PSCommandPath -FormsProbe *>> $logPath
+                Get-Service -Name StateRepository, AppXSvc, AppReadiness, BrokerInfrastructure, SystemEventsBroker, WpnService, 'WpnUserService*' -ErrorAction SilentlyContinue |
+                    Select-Object Name, Status, StartType | Format-Table | Out-String | Add-Content -LiteralPath $logPath
+                Get-AppxPackage | Where-Object Name -Match 'ShellExperience|StartMenuExperience|Client.CBS|Client.Core' |
+                    Select-Object Name, Status, InstallLocation | Format-List | Out-String | Add-Content -LiteralPath $logPath
+                Get-WinEvent -FilterHashtable @{ LogName = 'Application'; Id = 1000, 1001; StartTime = (Get-Date).AddMinutes(-10) } -MaxEvents 5 -ErrorAction SilentlyContinue |
+                    Select-Object TimeCreated, Id, Message | Format-List | Out-String | Add-Content -LiteralPath $logPath
                 'Restarting the runner Explorer after failed native registration.' | Add-Content -LiteralPath $logPath
                 Get-Process -Name explorer -ErrorAction SilentlyContinue |
                     Where-Object SessionId -EQ (Get-Process -Id $PID).SessionId | Stop-Process -Force

@@ -120,6 +120,7 @@ jobs:
             .vista/ci/windows/desktop.log
             .vista/ci/windows/result.json
             .vista/ci/windows/bootstrap*.log
+            .vista/ci/windows/desktop.png
           include-hidden-files: true
           retention-days: 3
           compression-level: 0
