@@ -99,6 +99,7 @@ jobs:
             .vista/ci/native/*/dist/*
             .vista/ci/windows/desktop.log
             .vista/ci/windows/result.json
+            .vista/ci/windows/bootstrap*.log
           include-hidden-files: true
           retention-days: 3
           compression-level: 0
