@@ -73,9 +73,22 @@ public static class VistaCITaskbar {
                     Start-Sleep -Milliseconds 250
                 }
             }
-            $taskbarReady = [VistaCITaskbar]::Probe()
+            # Shell_TrayWnd appears before the notification area can accept
+            # icons. Wait for the real API rather than treating window creation
+            # as a completed Explorer startup.
+            $trayDeadline = [DateTime]::UtcNow.AddSeconds(45)
+            while (-not [VistaCITaskbar]::Probe()) {
+                if ([DateTime]::UtcNow -gt $trayDeadline) {
+                    [VistaCITaskbar]::LastProbe | Add-Content -LiteralPath $logPath
+                    Get-Process -Name explorer, ShellExperienceHost, ShellHost -IncludeUserName -ErrorAction SilentlyContinue |
+                        Select-Object Id, SessionId, UserName, Path | Format-List | Out-String |
+                        Add-Content -LiteralPath $logPath
+                    [Security.Principal.WindowsIdentity]::GetCurrent().Name | Add-Content -LiteralPath $logPath
+                    throw 'The runner taskbar rejected an independent native system-icon probe for 45 seconds.'
+                }
+                Start-Sleep -Milliseconds 500
+            }
             [VistaCITaskbar]::LastProbe | Add-Content -LiteralPath $logPath
-            if (-not $taskbarReady) { throw 'The runner taskbar rejected an independent native system-icon probe.' }
         }
         Set-Location -LiteralPath $root
         & $state.python -u scripts/ci_native.py --target $state.target --version $state.version *>> $logPath
