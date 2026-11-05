@@ -160,6 +160,28 @@ if ($Desktop) {
                     Start-Sleep -Milliseconds 250
                 }
             }
+            if (-not [VistaCITaskbar]::Probe()) {
+                [void][VistaCITaskbar]::Probe(0, $true)
+                [VistaCITaskbar]::LastProbe | Add-Content -LiteralPath $logPath
+                [void][VistaCITaskbar]::Probe([uint32]2147483648, $true)
+                [VistaCITaskbar]::LastProbe | Add-Content -LiteralPath $logPath
+                foreach ($policy in @('HKCU:\Software\Microsoft\Windows\CurrentVersion\Policies\Explorer',
+                        'HKLM:\Software\Microsoft\Windows\CurrentVersion\Policies\Explorer',
+                        'HKCU:\Software\Policies\Microsoft\Windows\Explorer',
+                        'HKLM:\Software\Policies\Microsoft\Windows\Explorer')) {
+                    if (Test-Path -LiteralPath $policy) {
+                        $policy | Add-Content -LiteralPath $logPath
+                        Get-ItemProperty -LiteralPath $policy |
+                            Select-Object NoTrayItemsDisplay, DisableNotificationCenter, NoSetTaskbar | Format-List | Out-String | Add-Content -LiteralPath $logPath
+                    }
+                }
+                $frameworkShell = Join-Path $env:WINDIR 'System32/WindowsPowerShell/v1.0/powershell.exe'
+                & $frameworkShell -NoProfile -NonInteractive -STA -ExecutionPolicy Bypass -File $PSCommandPath -FormsProbe *>> $logPath
+                'Restarting the runner Explorer after failed native registration.' | Add-Content -LiteralPath $logPath
+                Get-Process -Name explorer -ErrorAction SilentlyContinue |
+                    Where-Object SessionId -EQ (Get-Process -Id $PID).SessionId | Stop-Process -Force
+                Start-Process -FilePath (Join-Path $env:WINDIR 'explorer.exe') -WindowStyle Normal
+            }
             # Shell_TrayWnd appears before the notification area can accept
             # icons. Wait for the real API rather than treating window creation
             # as a completed Explorer startup.
@@ -203,28 +225,6 @@ if ($Bootstrap) {
         # Windows ARM runners may have no Explorer automation entry. Local WMI
         # can create a process on the user's desktop outside the runner Job.
         # A scheduled task cannot: its own Job also denies process breakaway.
-        Initialize-TaskbarProbe
-        Write-Output ("Runner launch " + [VistaCITaskbar]::Context())
-        $runnerTrayReady = [VistaCITaskbar]::Probe()
-        [VistaCITaskbar]::LastProbe | Write-Output
-        if (-not $runnerTrayReady) {
-            [void][VistaCITaskbar]::Probe(0, $true)
-            [VistaCITaskbar]::LastProbe | Write-Output
-            [void][VistaCITaskbar]::Probe([uint32]2147483648, $true)
-            [VistaCITaskbar]::LastProbe | Write-Output
-            foreach ($policy in @('HKCU:\Software\Microsoft\Windows\CurrentVersion\Policies\Explorer',
-                    'HKLM:\Software\Microsoft\Windows\CurrentVersion\Policies\Explorer',
-                    'HKCU:\Software\Policies\Microsoft\Windows\Explorer',
-                    'HKLM:\Software\Policies\Microsoft\Windows\Explorer')) {
-                if (Test-Path -LiteralPath $policy) {
-                    Write-Output $policy
-                    Get-ItemProperty -LiteralPath $policy |
-                        Select-Object NoTrayItemsDisplay, DisableNotificationCenter, NoSetTaskbar | Format-List
-                }
-            }
-            $frameworkShell = Join-Path $env:WINDIR 'System32/WindowsPowerShell/v1.0/powershell.exe'
-            & $frameworkShell -NoProfile -NonInteractive -STA -ExecutionPolicy Bypass -File $PSCommandPath -FormsProbe
-        }
         $state = Get-Content -LiteralPath $statePath -Raw | ConvertFrom-Json
         $state | Add-Member -NotePropertyName start_explorer -NotePropertyValue $true
         $state | ConvertTo-Json | Set-Content -LiteralPath $statePath
