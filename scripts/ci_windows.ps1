@@ -1,4 +1,4 @@
-param([switch]$Desktop, [switch]$Bootstrap, [switch]$FormsProbe, [string]$Target = 'windows/amd64', [string]$Version = 'dev')
+param([switch]$Desktop, [switch]$Bootstrap, [switch]$CaptureDesktop, [string]$Target = 'windows/amd64', [string]$Version = 'dev')
 
 $ErrorActionPreference = 'Stop'
 $root = Split-Path $PSScriptRoot -Parent
@@ -21,27 +21,6 @@ public static class VistaCITaskbar {
     [DllImport("user32.dll")] static extern IntPtr OpenInputDesktop(uint flags, bool inherit, uint access);
     [DllImport("user32.dll")] static extern bool CloseDesktop(IntPtr desktop);
     [DllImport("user32.dll")] static extern IntPtr GetShellWindow();
-    [DllImport("kernel32.dll")] static extern IntPtr GetCurrentProcess();
-    [DllImport("kernel32.dll", CharSet = CharSet.Unicode)] static extern IntPtr GetModuleHandle(string name);
-    [DllImport("kernel32.dll")] static extern bool CloseHandle(IntPtr handle);
-    [DllImport("kernel32.dll")] static extern bool IsProcessInJob(IntPtr process, IntPtr job, out bool contained);
-    [DllImport("kernel32.dll")] static extern bool QueryInformationJobObject(IntPtr job, int kind, IntPtr data, uint size, out uint needed);
-    [DllImport("advapi32.dll")] static extern bool OpenProcessToken(IntPtr process, uint access, out IntPtr token);
-    [DllImport("advapi32.dll")] static extern bool GetTokenInformation(IntPtr token, int kind, IntPtr data, uint size, out uint needed);
-    static string TokenContext() {
-        IntPtr token;
-        if (!OpenProcessToken(GetCurrentProcess(), 8, out token)) return "token unavailable";
-        var buffer = Marshal.AllocHGlobal(256);
-        try {
-            uint needed;
-            string logon = GetTokenInformation(token, 10, buffer, 256, out needed) ? Marshal.ReadInt64(buffer, 8).ToString("x") : "unavailable";
-            string elevation = GetTokenInformation(token, 18, buffer, 256, out needed) ? Marshal.ReadInt32(buffer).ToString() : "unavailable";
-            bool contained;
-            IsProcessInJob(GetCurrentProcess(), IntPtr.Zero, out contained);
-            string ui = !contained ? "none" : QueryInformationJobObject(IntPtr.Zero, 4, buffer, 4, out needed) ? Marshal.ReadInt32(buffer).ToString("x") : "unavailable";
-            return "logon=" + logon + ", elevation=" + elevation + ", job=" + contained + ", job_ui=" + ui;
-        } finally { Marshal.FreeHGlobal(buffer); CloseHandle(token); }
-    }
     [DllImport("user32.dll", CharSet = CharSet.Unicode)]
     static extern bool GetUserObjectInformation(IntPtr obj, int index, System.Text.StringBuilder text, uint size, out uint needed);
     static string ObjectName(IntPtr obj) {
@@ -52,9 +31,9 @@ public static class VistaCITaskbar {
     public static string Context() {
         var input = OpenInputDesktop(0, false, 1);
         try {
-            return String.Format("Desktop context: interactive={0}, station={1}, desktop={2}, input={3}, shell={4}, {5}",
+            return String.Format("Desktop context: interactive={0}, station={1}, desktop={2}, input={3}, shell={4}",
                 Environment.UserInteractive, ObjectName(GetProcessWindowStation()),
-                ObjectName(GetThreadDesktop(GetCurrentThreadId())), ObjectName(input), GetShellWindow(), TokenContext());
+                ObjectName(GetThreadDesktop(GetCurrentThreadId())), ObjectName(input), GetShellWindow());
         } finally { if (input != IntPtr.Zero) CloseDesktop(input); }
     }
     [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
@@ -79,22 +58,9 @@ public static class VistaCITaskbar {
     [DllImport("user32.dll")] static extern IntPtr LoadIcon(IntPtr instance, IntPtr name);
     [DllImport("shell32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
     static extern bool Shell_NotifyIcon(uint message, ref NotifyData data);
-    [StructLayout(LayoutKind.Sequential)]
-    struct IconIdentifier { public uint Size; public IntPtr Window; public uint ID; public Guid GUID; }
-    [StructLayout(LayoutKind.Sequential)]
-    struct Rect { public int Left, Top, Right, Bottom; }
-    [DllImport("shell32.dll")] static extern int Shell_NotifyIconGetRect(ref IconIdentifier identifier, out Rect rect);
-    public static string IconRect(IntPtr window, uint id) {
-        var identifier = new IconIdentifier { Size = (uint)Marshal.SizeOf<IconIdentifier>(), Window = window, ID = id };
-        Rect rect;
-        int result = Shell_NotifyIconGetRect(ref identifier, out rect);
-        return String.Format("WinForms native icon rectangle: result=0x{0:x8}, window={1}, id={2}, bounds={3},{4},{5},{6}",
-            result, window, id, rect.Left, rect.Top, rect.Right, rect.Bottom);
-    }
-    public static bool Probe() { return Probe(0, false); }
-    public static bool Probe(uint windowStyle, bool ownModule) {
-        var window = CreateWindowEx(0, "STATIC", "Vista CI taskbar probe", windowStyle,
-            0, 0, 0, 0, IntPtr.Zero, IntPtr.Zero, ownModule ? GetModuleHandle(null) : IntPtr.Zero, IntPtr.Zero);
+    public static bool Probe() {
+        var window = CreateWindowEx(0, "STATIC", "Vista CI taskbar probe", 0,
+            0, 0, 0, 0, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
         if (window == IntPtr.Zero) throw new Exception("Could not create the native taskbar probe window.");
         var data = new NotifyData {
             Size = (uint)Marshal.SizeOf<NotifyData>(), Window = window, ID = 1,
@@ -107,8 +73,8 @@ public static class VistaCITaskbar {
         }
         try {
             bool result = Shell_NotifyIcon(0, ref data);
-            LastProbe = String.Format("Native system-icon probe: registered={0}, data_size={1}, window={2}, icon={3}, last_error={4}, style={5:x}, own_module={6}",
-                result, data.Size, window, data.Icon, Marshal.GetLastWin32Error(), windowStyle, ownModule);
+            LastProbe = String.Format("Native system-icon probe: registered={0}, data_size={1}, window={2}, icon={3}, last_error={4}",
+                result, data.Size, window, data.Icon, Marshal.GetLastWin32Error());
             if (result) Shell_NotifyIcon(2, ref data);
             return result;
         } finally { DestroyWindow(window); }
@@ -117,10 +83,8 @@ public static class VistaCITaskbar {
 '@
 }
 
-if ($FormsProbe) {
+if ($CaptureDesktop) {
     Add-Type -AssemblyName System.Windows.Forms, System.Drawing
-    Initialize-TaskbarProbe
-    [System.Windows.Forms.Screen]::AllScreens | Select-Object DeviceName, Bounds, Primary | Format-List
     $screen = [System.Windows.Forms.SystemInformation]::VirtualScreen
     $bitmap = New-Object System.Drawing.Bitmap $screen.Width, $screen.Height
     $graphics = [System.Drawing.Graphics]::FromImage($bitmap)
@@ -128,19 +92,6 @@ if ($FormsProbe) {
         $graphics.CopyFromScreen($screen.Left, $screen.Top, 0, 0, $screen.Size)
         $bitmap.Save((Join-Path $output 'desktop.png'))
     } finally { $graphics.Dispose(); $bitmap.Dispose() }
-    $tray = New-Object System.Windows.Forms.NotifyIcon
-    try {
-        $tray.Icon = [System.Drawing.SystemIcons]::Application
-        $tray.Text = 'Vista CI standard control'
-        $tray.Visible = $true
-        [System.Windows.Forms.Application]::DoEvents()
-        $fields = $tray.GetType().GetFields([Reflection.BindingFlags]'Instance,NonPublic')
-        $windowField = $fields | Where-Object Name -In 'window', '_window'
-        $idField = $fields | Where-Object Name -In 'id', '_id'
-        $window = $windowField.GetValue($tray)
-        $id = $idField.GetValue($tray)
-        [VistaCITaskbar]::IconRect($window.Handle, $id) | Write-Output
-    } finally { $tray.Dispose() }
     exit 0
 }
 
@@ -157,22 +108,22 @@ if ($Desktop) {
         }
         "Desktop profile: USERPROFILE=$env:USERPROFILE; APPDATA=$env:APPDATA; LOCALAPPDATA=$env:LOCALAPPDATA" |
             Add-Content -LiteralPath $logPath
+        if ($env:GITHUB_ACTIONS -eq 'true' -and $state.target -eq 'windows/arm64') {
+            # Hosted ARM64 images can leave first-logon privacy setup over
+            # the desktop: actions/runner-images#14069. The policy prevents
+            # relaunch; WWAHost must also exit if the wizard is already open.
+            $policy = 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\OOBE'
+            New-Item -Path $policy -Force | Out-Null
+            New-ItemProperty -Path $policy -Name DisablePrivacyExperience -Value 1 -PropertyType DWord -Force | Out-Null
+            Get-Process -Name WWAHost -ErrorAction SilentlyContinue |
+                Where-Object SessionId -EQ (Get-Process -Id $PID).SessionId | Stop-Process -Force
+            # Closing privacy setup can leave the full-screen Start menu.
+            (New-Object -ComObject WScript.Shell).SendKeys('{ESC}')
+            'Dismissed the hosted ARM64 first-logon privacy experience.' | Add-Content -LiteralPath $logPath
+        }
         if ($state.start_explorer) {
             Initialize-TaskbarProbe
             [VistaCITaskbar]::Context() | Add-Content -LiteralPath $logPath
-            if ($env:GITHUB_ACTIONS -eq 'true' -and $state.target -eq 'windows/arm64') {
-                # Hosted ARM64 images can leave first-logon privacy setup over
-                # the desktop: actions/runner-images#14069. The policy prevents
-                # relaunch; WWAHost must also exit if the wizard is already open.
-                $policy = 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\OOBE'
-                New-Item -Path $policy -Force | Out-Null
-                New-ItemProperty -Path $policy -Name DisablePrivacyExperience -Value 1 -PropertyType DWord -Force | Out-Null
-                Get-Process -Name WWAHost -ErrorAction SilentlyContinue |
-                    Where-Object SessionId -EQ (Get-Process -Id $PID).SessionId | Stop-Process -Force
-                # Closing privacy setup can leave the full-screen Start menu.
-                (New-Object -ComObject WScript.Shell).SendKeys('{ESC}')
-                'Dismissed the hosted ARM64 first-logon privacy experience.' | Add-Content -LiteralPath $logPath
-            }
             if ([VistaCITaskbar]::FindWindow('Shell_TrayWnd', $null) -eq [IntPtr]::Zero) {
                 Start-Process -FilePath (Join-Path $env:WINDIR 'explorer.exe') -WindowStyle Normal
                 $shellDeadline = [DateTime]::UtcNow.AddSeconds(30)
@@ -180,34 +131,6 @@ if ($Desktop) {
                     if ([DateTime]::UtcNow -gt $shellDeadline) { throw 'Explorer did not create an interactive taskbar within 30 seconds.' }
                     Start-Sleep -Milliseconds 250
                 }
-            }
-            if (-not [VistaCITaskbar]::Probe()) {
-                [void][VistaCITaskbar]::Probe(0, $true)
-                [VistaCITaskbar]::LastProbe | Add-Content -LiteralPath $logPath
-                [void][VistaCITaskbar]::Probe([uint32]2147483648, $true)
-                [VistaCITaskbar]::LastProbe | Add-Content -LiteralPath $logPath
-                foreach ($policy in @('HKCU:\Software\Microsoft\Windows\CurrentVersion\Policies\Explorer',
-                        'HKLM:\Software\Microsoft\Windows\CurrentVersion\Policies\Explorer',
-                        'HKCU:\Software\Policies\Microsoft\Windows\Explorer',
-                        'HKLM:\Software\Policies\Microsoft\Windows\Explorer')) {
-                    if (Test-Path -LiteralPath $policy) {
-                        $policy | Add-Content -LiteralPath $logPath
-                        Get-ItemProperty -LiteralPath $policy |
-                            Select-Object NoTrayItemsDisplay, DisableNotificationCenter, NoSetTaskbar | Format-List | Out-String | Add-Content -LiteralPath $logPath
-                    }
-                }
-                $frameworkShell = Join-Path $env:WINDIR 'System32/WindowsPowerShell/v1.0/powershell.exe'
-                & $frameworkShell -NoProfile -NonInteractive -STA -ExecutionPolicy Bypass -File $PSCommandPath -FormsProbe *>> $logPath
-                Get-Service -Name StateRepository, AppXSvc, AppReadiness, BrokerInfrastructure, SystemEventsBroker, WpnService, 'WpnUserService*' -ErrorAction SilentlyContinue |
-                    Select-Object Name, Status, StartType | Format-Table | Out-String | Add-Content -LiteralPath $logPath
-                Get-AppxPackage | Where-Object Name -Match 'ShellExperience|StartMenuExperience|Client.CBS|Client.Core' |
-                    Select-Object Name, Status, InstallLocation | Format-List | Out-String | Add-Content -LiteralPath $logPath
-                Get-WinEvent -FilterHashtable @{ LogName = 'Application'; Id = 1000, 1001; StartTime = (Get-Date).AddMinutes(-10) } -MaxEvents 5 -ErrorAction SilentlyContinue |
-                    Select-Object TimeCreated, Id, Message | Format-List | Out-String | Add-Content -LiteralPath $logPath
-                'Restarting the runner Explorer after failed native registration.' | Add-Content -LiteralPath $logPath
-                Get-Process -Name explorer -ErrorAction SilentlyContinue |
-                    Where-Object SessionId -EQ (Get-Process -Id $PID).SessionId | Stop-Process -Force
-                Start-Process -FilePath (Join-Path $env:WINDIR 'explorer.exe') -WindowStyle Normal
             }
             # Shell_TrayWnd appears before the notification area can accept
             # icons. Wait for the real API rather than treating window creation
@@ -221,6 +144,8 @@ if ($Desktop) {
                         Select-Object Id, SessionId, UserName, Path | Format-List | Out-String |
                         Add-Content -LiteralPath $logPath
                     [Security.Principal.WindowsIdentity]::GetCurrent().Name | Add-Content -LiteralPath $logPath
+                    $frameworkShell = Join-Path $env:WINDIR 'System32/WindowsPowerShell/v1.0/powershell.exe'
+                    & $frameworkShell -NoProfile -NonInteractive -STA -ExecutionPolicy Bypass -File $PSCommandPath -CaptureDesktop *>> $logPath
                     throw 'The runner taskbar rejected an independent native system-icon probe for 45 seconds.'
                 }
                 Start-Sleep -Milliseconds 500

@@ -9,8 +9,10 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -75,11 +77,24 @@ func TestNativeResetPort(t *testing.T) {
 	t.Cleanup(func() {
 		if output, err := cli("stop"); err != nil {
 			t.Errorf("cleanup: %v %s", err, output)
+			if runtime.GOOS != "windows" {
+				// Preserve the real blocked shutdown before cleaning up this
+				// isolated runtime; SIGQUIT emits the Go goroutine stacks.
+				info, readErr := instance.Read(filepath.Join(config, "state"))
+				if readErr == nil && instance.IsAlive(info.PID) {
+					process, findErr := os.FindProcess(info.PID)
+					if findErr == nil {
+						_ = process.Signal(syscall.Signal(3))
+						_ = process.Release()
+						time.Sleep(200 * time.Millisecond)
+					}
+				}
+			}
 		}
 		if t.Failed() {
 			data, err := os.ReadFile(filepath.Join(config, "state", "server.log"))
-			if len(data) > 8192 {
-				data = data[len(data)-8192:]
+			if len(data) > 80<<10 {
+				data = append(data[:64<<10], data[len(data)-(16<<10):]...)
 			}
 			t.Logf("runtime log: %v\n%s", err, data)
 		}

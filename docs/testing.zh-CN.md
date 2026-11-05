@@ -49,6 +49,7 @@ Go 单测／vet／竞态及前端检查在 Ubuntu 上运行。
 脚本使用已提交的前端资源、UA 版本及许可声明，不改写这些快照。
 也可在本地使用 Python 3.11+ 运行，例如 `python3 scripts/ci_native.py --target linux/amd64 --version dev`；本地报告会明确记录未提交源码状态。
 Windows 通过 [`ci_windows.ps1`](../scripts/ci_windows.ps1) 经由 Explorer 或本地 WMI 桌面进程运行检查，避免 runner 外层的进程 Job 阻止应用脱离启动进程。
+Windows ARM64 托管 runner 会在桌面检查前关闭首次登录隐私设置向导。
 runner 缺少 Explorer 桌面入口时，该进程会启动 Explorer，并在任务栏就绪后开始验证；两种架构均要求桌面启动、托盘和原生状态窗口测试通过。
 原生脚本在编译前检查进程脱离权限，不改写应用的启动标志。
 
