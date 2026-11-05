@@ -18,6 +18,7 @@ test.describe('custom provider dialogs', () => {
     await connect.click()
     await expect(page.getByRole('dialog', { name: 'Connect provider', exact: true })).toBeVisible()
     await expect(settings.locator('.model-form')).toHaveCount(0)
+    await form.locator('.ui-select input').click()
     await form.locator('.ui-select input').fill('Custom provider')
     await page.getByRole('option', { name: 'Custom provider', exact: true }).click()
     const name = form.locator('label').filter({ hasText: /^Provider name/ }).locator('input')
@@ -32,6 +33,7 @@ test.describe('custom provider dialogs', () => {
     await expect(settings).toBeVisible()
 
     await connect.click()
+    await form.locator('.ui-select input').click()
     await form.locator('.ui-select input').fill('Custom provider')
     await page.getByRole('option', { name: 'Custom provider', exact: true }).click()
     await name.fill('Modal provider')
@@ -96,6 +98,7 @@ test('custom model entry appears only after discovery fails and retry returns to
     await modal.getByRole('button', { name: 'Connect provider', exact: true }).click()
     const form = page.locator('.provider-connection-modal .model-form')
     const picker = form.locator('label').first().locator('.ui-select')
+    await picker.click()
     await picker.locator('input').fill('Custom provider')
     await page.getByRole('option', { name: 'Custom provider', exact: true }).click()
     await form.locator('label').filter({ hasText: /^Provider name/ }).locator('input').fill('Discovery fallback')
@@ -237,6 +240,7 @@ test('Azure deployment and local services use their own connection fields', asyn
     const chooseProvider = async (name: string) => {
       await modal.getByRole('button', { name: 'Connect provider', exact: true }).click()
       const picker = form.locator('label').first().locator('.ui-select')
+      await picker.click()
       await picker.locator('input').fill(name)
       await page.locator('.ui-select-dropdown:visible .ui-select-item-option').filter({ hasText: name }).first().click()
     }
@@ -301,6 +305,7 @@ test('custom API format and authentication stay independent through edit, reload
     await modal.getByRole('button', { name: 'Connect provider', exact: true }).click()
     const form = page.locator('.provider-connection-modal .model-form')
     const picker = form.locator('label').first().locator('.ui-select')
+    await picker.click()
     await picker.locator('input').fill('Custom provider')
     await page.getByRole('option', { name: 'Custom provider', exact: true }).click()
     const format = form.locator('label').filter({ hasText: /^Conversation API format/ }).locator('.ui-select')
@@ -390,6 +395,7 @@ test('custom connection supports anonymous access and advanced headers through s
     await modal.getByRole('button', { name: 'Connect provider', exact: true }).click()
     const form = page.locator('.provider-connection-modal .model-form')
     const picker = form.locator('label').first().locator('.ui-select')
+    await picker.click()
     await picker.locator('input').fill('Custom provider')
     await page.getByRole('option', { name: 'Custom provider', exact: true }).click()
     await form.locator('label').filter({ hasText: /^Base URL/ }).locator('input').fill(`http://127.0.0.1:${address.port}`)
