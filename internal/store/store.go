@@ -28,6 +28,7 @@ type Session struct {
 	Running                  bool          `json:"running"`
 	Executing                bool          `json:"executing"`
 	CreatedAt                string        `json:"createdAt"`
+	UpdatedAt                string        `json:"updatedAt,omitempty"`
 	SelectionMode            string        `json:"selectionMode"`
 	SelectionTier            string        `json:"selectionTier"`
 	ManualModelKey           string        `json:"manualModelKey"`
@@ -380,21 +381,28 @@ func (s *Store) List(ctx context.Context, open ...bool) ([]Session, error) {
 	if len(open) > 0 {
 		query = query.Where("sessions.is_open = ?", open[0])
 	}
-	return readSessions(db, query, 1000, 0)
+	return readSessions(db, query, 1000, 0, SessionCreatedNewest)
 }
 
-func readSessions(db, query *gorm.DB, limit, offset int) ([]Session, error) {
+func readSessions(db, query *gorm.DB, limit, offset int, sort SessionSort) ([]Session, error) {
 	var rows []struct {
 		Session             sessionRow `gorm:"embedded"`
+		UpdatedAt           string
 		LatestReplySequence int64
 		LatestRunStatus     string
 		PendingInputCount   int
 	}
-	if err := query.Select(`sessions.*,
+	columns := `sessions.*,
   COALESCE((SELECT MAX(sequence) FROM messages WHERE session_id=sessions.id AND role='assistant'),0) AS latest_reply_sequence,
   COALESCE((SELECT status FROM runs WHERE session_id=sessions.id ORDER BY created_at DESC,id DESC LIMIT 1),'') AS latest_run_status,
-  (SELECT COUNT(*) FROM queued_inputs WHERE session_id=sessions.id AND status IN ('queued','paused')) AS pending_input_count`).
-		Order("pinned DESC, created_at DESC, id DESC").Limit(limit).Offset(offset).Find(&rows).Error; err != nil {
+  (SELECT COUNT(*) FROM queued_inputs WHERE session_id=sessions.id AND status IN ('queued','paused')) AS pending_input_count`
+	if sort.byUpdate() {
+		// The event primary key supports this lookup without scanning history.
+		// Read markers, pins and open/closed state do not append content events.
+		columns += `, COALESCE((SELECT created_at FROM events WHERE session_id=sessions.id ORDER BY sequence DESC LIMIT 1),sessions.created_at) AS updated_at`
+	}
+	if err := query.Select(columns).
+		Order(sort.order()).Limit(limit).Offset(offset).Find(&rows).Error; err != nil {
 		return nil, err
 	}
 	result := make([]Session, 0, len(rows))
@@ -425,6 +433,7 @@ func readSessions(db, query *gorm.DB, limit, offset int) ([]Session, error) {
 	}
 	for _, row := range rows {
 		item := sessionFromRow(row.Session)
+		item.UpdatedAt = row.UpdatedAt
 		item.Running, item.Executing = running[item.ID], executing[item.ID]
 		item.LatestReplySequence, item.LatestRunStatus, item.PendingInputCount = row.LatestReplySequence, row.LatestRunStatus, row.PendingInputCount
 		result = append(result, item)

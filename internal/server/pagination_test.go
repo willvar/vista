@@ -76,6 +76,46 @@ func TestSessionManagementReturnsOnlyRequestedPageAndFullSearchCount(t *testing.
 	}
 }
 
+func TestSessionManagementValidatesAndAppliesSorting(t *testing.T) {
+	consumer, _ := newResultConsumerTest(t)
+	app := &App{store: consumer.store}
+	for _, query := range []string{
+		"?sort=updated-desc", "?page=1&sort=invalid", "?page=1&sort=updated-desc&sort=created-desc",
+		"?page=1&sort=created_at%20DESC", "?page=1&sort=UPDATED-DESC",
+	} {
+		w := httptest.NewRecorder()
+		app.sessions(w, httptest.NewRequest(http.MethodGet, "/api/sessions"+query, nil))
+		if w.Code != http.StatusBadRequest {
+			t.Fatalf("accepted sort %s: %d %s", query, w.Code, w.Body.String())
+		}
+	}
+	for _, id := range []string{"alpha", "omega"} {
+		if _, err := app.store.Create(consumer.ctx, id, "Sorting API "+id); err != nil {
+			t.Fatal(err)
+		}
+		if err := app.store.SetOpen(consumer.ctx, id, false); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := app.store.Rename(consumer.ctx, "alpha", "Sorting API updated"); err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		sort string
+		id   string
+	}{
+		{"created-desc", "omega"}, {"created-asc", "alpha"},
+		{"updated-desc", "alpha"}, {"updated-asc", "omega"},
+	} {
+		w := httptest.NewRecorder()
+		app.sessions(w, httptest.NewRequest(http.MethodGet, "/api/sessions?page=1&pageSize=1&open=false&search=Sorting%20API&sort="+tc.sort, nil))
+		var result store.SessionPage
+		if err := json.Unmarshal(w.Body.Bytes(), &result); err != nil || w.Code != http.StatusOK || result.Total != 2 || len(result.Items) != 1 || result.Items[0].ID != tc.id {
+			t.Fatalf("sort %s: %d %s %v", tc.sort, w.Code, w.Body.String(), err)
+		}
+	}
+}
+
 func TestMemoryManagementPagesAndDeleteClampAreScopedToActivePage(t *testing.T) {
 	consumer, _ := newResultConsumerTest(t)
 	app := &App{store: consumer.store}
