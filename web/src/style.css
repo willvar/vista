@@ -82,6 +82,33 @@ a {
 .sessions-panel li:focus-visible {
   outline: var(--focus-outline, 2px solid var(--accent));
 }
+.session-card-actions {
+  --session-actions-opacity: 0;
+  --session-loading-display: grid;
+  position: relative;
+  display: flex;
+  align-items: center;
+  grid-column: 2;
+  grid-row: 1;
+}
+.session-execution-loading {
+  position: absolute;
+  inset-block: 0;
+  inset-inline-end: 0;
+  width: var(--button-icon-size);
+  display: var(--session-loading-display);
+  place-items: center;
+  color: var(--muted);
+  font-size: 18px;
+  pointer-events: none;
+}
+.inline-session-title {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+.inline-session-title.session-rename { flex-wrap: nowrap; }
+.session-pin.session-pinned { color: var(--accent); }
 .session-retry {
   grid-column: 1/-1;
   justify-self: start;
@@ -1695,35 +1722,27 @@ body {
   border-radius: 50%;
   background: var(--warning);
 }
-.session-close {
-  grid-column: 2;
-  grid-row: 1;
+.sessions-panel .session-menu,.sessions-panel .session-pin:not(.session-pinned),
+.sessions-panel .session-card-actions:has(.session-execution-loading) .session-pin {
+  opacity: var(--session-actions-opacity);
 }
-.sidebar-search.ui-input-affix-wrapper {
-  flex: none;
-  border-color: transparent;
-  box-shadow: none;
-  background: transparent;
-  padding-inline: 12px;
+.session-card:hover .session-card-actions,
+.session-card:has(.session-menu[aria-expanded=true]) .session-card-actions,
+:where(:root:not([data-interaction-modality=pointer])) .session-card:focus-within .session-card-actions {
+  --session-actions-opacity: 1;
+  --session-loading-display: none;
 }
-.sidebar-search.ui-input-affix-wrapper:hover,.sidebar-search.ui-input-affix-wrapper:focus-within {
-  background: var(--surface);
-  border-color: var(--border);
+@media(max-width:830px), (hover:none) {
+  .session-card-actions {
+    --session-actions-opacity: 1;
+  }
+  .session-execution-loading {
+    position: static;
+    display: grid;
+    flex: none;
+    align-self: stretch;
+  }
 }
-.sidebar-search .ui-input-prefix {
-  color: var(--muted);
-  margin-right: 8px;
-}
-.sessions-panel .session-close {
-  opacity: 0;
-  width: 24px;
-  height: 24px;
-  font-size: 12px;
-}
-.session-card:hover .session-close,.session-card:focus-within .session-close {
-  opacity: 1;
-}
-@media(max-width:830px), (hover:none) { .sessions-panel .session-close { opacity: 1; } }
 .sidebar-navigation .ui-btn {
   height: auto;
   min-height: 46px;

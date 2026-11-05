@@ -8,7 +8,7 @@ import { useConversation } from './useConversation'
 import { usePresentation } from './usePresentation'
 import { useInteractionPreferences } from './useInteractionPreferences'
 import { isPlainEscape } from './useEscape'
-import { mergeSessionSnapshot, sessionNeedsAttention } from '../state/workspace'
+import { compareSessionOrder, mergeSessionSnapshot, sessionNeedsAttention } from '../state/workspace'
 import { quoteStoragePrefix } from '../state/quotedReply'
 import { trackActivity } from '../client/activity'
 
@@ -35,7 +35,7 @@ function createWorkspace() {
   const modelCatalog = ref<ModelCatalog>({ default: '', models: [] })
   const serverStatus = ref<ServerStatus | null>(null)
   const mobileSessionsOpen = ref(false)
-  const openSessions = computed(() => sessions.value.filter(session => session.open))
+  const openSessions = computed(() => sessions.value.filter(session => session.open).sort(compareSessionOrder))
   const closedSessions = computed(() => serverStatus.value?.sessions.closed ?? 0)
   const totalSessions = computed(() => serverStatus.value?.sessions.total ?? sessions.value.length)
   const attentionCount = computed(() => openSessions.value.filter(session => sessionNeedsAttention(session,
@@ -156,14 +156,17 @@ function createWorkspace() {
   const renamingSessionID = ref('')
   const sessionTitleDraft = ref('')
   const deleteTarget = ref<Session | null>(null)
-  const closeConfirmation = ref<{ count: number; close: () => Promise<void> } | null>(null)
-  async function requestSessionClose(items: Session[], close: () => Promise<void>) {
+  const closeConfirmation = ref<{ count: number; stopsWork: boolean; close: () => Promise<void> } | null>(null)
+  async function requestSessionClose(items: Session[], close: () => Promise<void>, confirm?: () => void, alwaysConfirm = false) {
     if (busy.value || closeConfirmation.value || !items.length) return
     const interruptsWork = items.some(item => {
       const current = selected.value?.id === item.id ? selected.value : sessions.value.find(session => session.id === item.id) ?? item
       return current.running || current.executing
     })
-    if (interruptsWork) closeConfirmation.value = { count: items.length, close }
+    if (interruptsWork || alwaysConfirm) {
+      if (confirm) confirm()
+      else closeConfirmation.value = { count: items.length, stopsWork: interruptsWork, close }
+    }
     else await close()
   }
   function cancelSessionClose() { if (!busy.value) closeConfirmation.value = null }
@@ -175,19 +178,25 @@ function createWorkspace() {
   }
   function beginRename(item: Session) { renamingSessionID.value = item.id; sessionTitleDraft.value = presentation.displaySessionTitle(item) }
   function cancelRename() { renamingSessionID.value = ''; sessionTitleDraft.value = '' }
+  async function renameTitle(item: Session, title: string) {
+    error.value = ''
+    try {
+      await client.request(`/sessions/${item.id}`, { method: 'PATCH', body: JSON.stringify({ title }) })
+      return true
+    } catch (cause) { error.value = String(cause); return false }
+  }
   async function rename(item: Session, title: string, done: () => void) {
     if (!title || title.length > 200) return
     busy.value = true
     try {
-      await client.request(`/sessions/${item.id}`, { method: 'PATCH', body: JSON.stringify({ title }) })
-      done()
-    } catch (cause) { error.value = String(cause) }
+      if (await renameTitle(item, title)) done()
+    }
     finally { busy.value = false }
   }
   function saveRename(item: Session) { return rename(item, sessionTitleDraft.value.trim(), cancelRename) }
-  async function action(item: Session, kind: 'open' | 'close' | 'delete' | 'retry') {
+  async function action(item: Session, kind: 'open' | 'close' | 'delete' | 'retry', confirmClose = false) {
     if (busy.value) return
-    if (kind === 'close') return requestSessionClose([item], () => performAction(item, kind))
+    if (kind === 'close') return requestSessionClose([item], () => performAction(item, kind), undefined, confirmClose)
     await performAction(item, kind)
   }
   async function performAction(item: Session, kind: 'open' | 'close' | 'delete' | 'retry') {
@@ -286,7 +295,7 @@ function createWorkspace() {
   return {
     client, stateSync, stateConnection, router, route, error, busy, debugMode, sessions, openSessions, closedSessions, totalSessions, attentionCount, modelCatalog, serverStatus, mobileSessionsOpen,
     settingsOpen, sessionManagerOpen, needsProvider, conversation, selected, modalQuery, backToWorkspace, openSessionManager,
-    openSettings, create, action, renamingSessionID, sessionTitleDraft, beginRename, cancelRename, saveRename,
+    openSettings, create, action, renamingSessionID, sessionTitleDraft, beginRename, cancelRename, saveRename, renameTitle,
     deleteTarget, updateSessionDelete, confirmDelete,
     closeConfirmation, requestSessionClose, cancelSessionClose, confirmSessionClose,
     workerMemory, workerAvailable, mib, interactionPreferences, ...presentation,

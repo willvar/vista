@@ -72,6 +72,85 @@ async function expectCurrentSession(page: Page, vista: Vista, active: Session, o
   )
 }
 
+test.describe('attention badge', () => {
+  test.use({ modelFailure: { status: 400, body: { error: {
+    type: 'invalid_request_error', message: 'Synthetic provider failure for badge positioning',
+  } } } })
+
+  test('stays anchored across navigation and dismisses failures only after their errors are read', async ({ page, vista }, testInfo) => {
+    await vista.api('/preferences', { method: 'PATCH', body: JSON.stringify({ feedbackInvitationSeen: true }) })
+    const session = await vista.api('/sessions', { method: 'POST', body: JSON.stringify({ title: 'Failed conversation' }) })
+    const other = await vista.api('/sessions', { method: 'POST', body: JSON.stringify({ title: 'Other conversation' }) })
+    await vista.api(`/sessions/${session.id}/messages`, { method: 'POST', body: JSON.stringify({ content: 'Create a failed run', modelKey: 'test' }) })
+    await expect.poll(async () => (await vista.api('/sessions')).find((item: { id: string }) => item.id === session.id)?.latestRunStatus).toBe('failed')
+    await page.goto(vista.origin + '/')
+    const card = page.locator(`.sessions-panel [data-session-id="${session.id}"]`)
+    const badge = page.locator('.mobile-sessions-trigger:visible .session-attention-dot')
+    const reads: string[] = []
+    page.on('request', request => {
+      const path = new URL(request.url()).pathname
+      if (request.method() === 'GET' && ['/api/sessions', '/api/status', '/api/models'].includes(path)) reads.push(path)
+    })
+
+    async function expectBadgeInsideTrigger() {
+      const trigger = page.locator('.mobile-sessions-trigger:visible')
+      await expect(trigger.locator('.session-attention-dot')).toBeVisible()
+      const bounds = await trigger.evaluate(element => {
+        const button = element.getBoundingClientRect()
+        const badge = element.querySelector('.session-attention-dot')!.getBoundingClientRect()
+        return {
+          left: badge.left - button.left, top: badge.top - button.top,
+          right: button.right - badge.right, bottom: button.bottom - badge.bottom,
+        }
+      })
+      for (const [edge, inset] of Object.entries(bounds)) {
+        expect(inset, `The badge's ${edge} edge stays inside the session button`).toBeGreaterThanOrEqual(0)
+      }
+    }
+
+    await expect(page.locator('.workspace.welcome')).toBeVisible()
+    await expectBadgeInsideTrigger()
+    await page.screenshot({ path: testInfo.outputPath('home-attention-badge.png'), animations: 'disabled' })
+    const panel = await openDrawer(page)
+    await panel.locator(`[data-session-id="${other.id}"] .session-name`).tap()
+    await expect(page).toHaveURL(url => url.pathname === `/sessions/${other.id}`)
+    await expect(page.locator('.conversation-header h2')).toBeVisible()
+    await expectBadgeInsideTrigger()
+    await page.screenshot({ path: testInfo.outputPath('conversation-attention-badge.png'), animations: 'disabled' })
+    await openDrawer(page)
+    await panel.locator('.sidebar-new-conversation').tap()
+    await expect(page.locator('.workspace.welcome')).toBeVisible()
+    await expectBadgeInsideTrigger()
+    await openDrawer(page)
+    await card.locator('.session-name').tap()
+    await expect(page.locator('.run-failure-message')).toBeVisible()
+    await expect(card.locator('.session-indicator.unread')).toHaveCount(0)
+    await expect(badge).toHaveCount(0)
+    await expect(card.locator('.session-indicator.failed')).toHaveText('Execution failed')
+    expect(reads).toEqual([])
+    await page.reload()
+    await expect(page.locator('.run-failure-message')).toBeVisible()
+    await expect(card.locator('.session-indicator.failed')).toHaveText('Execution failed')
+    await expect(badge).toHaveCount(0)
+    await openDrawer(page)
+    await panel.locator('.sidebar-new-conversation').tap()
+    await expect(page.locator('.workspace.welcome')).toBeVisible()
+    await expect(badge).toHaveCount(0)
+
+    const previous = (await vista.api(`/sessions/${session.id}/checkpoint`)).session
+    reads.length = 0
+    await vista.api(`/sessions/${session.id}/messages`, { method: 'POST', body: JSON.stringify({ content: 'Create another failed run', modelKey: 'test' }) })
+    await expectBadgeInsideTrigger()
+    await expect.poll(async () => (await vista.api(`/sessions/${session.id}/checkpoint`)).session.latestReplySequence).toBeGreaterThan(previous.latestReplySequence)
+    // A read receipt from another client clears only the reminder, through SSE.
+    const latest = (await vista.api(`/sessions/${session.id}/checkpoint`)).session
+    await vista.api(`/sessions/${session.id}/read`, { method: 'POST', body: JSON.stringify({ sequence: latest.latestReplySequence }) })
+    await expect(badge).toHaveCount(0)
+    await expect(card.locator('.session-indicator.failed')).toHaveText('Execution failed')
+    expect(reads).toEqual([])
+  })
+})
+
 test('a slow short left drag follows the finger, fades the backdrop, and springs back', async ({ page, vista }, testInfo) => {
   const { active, other } = await prepareSessions(page, vista)
   const panel = await openDrawer(page)
@@ -122,11 +201,11 @@ test('a long left drag and a short fast fling both close without activating a ca
   }
 })
 
-test('dragging from a close button preserves the session and the next tap still activates it', async ({ page, vista }) => {
+test('dragging from a menu button preserves the session and the next tap still activates it', async ({ page, vista }) => {
   const { active, other } = await prepareSessions(page, vista)
   const panel = await openDrawer(page)
   const card = panel.locator('.session-card').filter({ hasText: other.title })
-  const close = card.locator('.session-close')
+  const close = card.locator('.session-menu')
   await close.scrollIntoViewIfNeeded()
   const button = (await close.boundingBox())!
   const start = { x: button.x + button.width / 2, y: button.y + button.height / 2 }

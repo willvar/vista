@@ -1,12 +1,24 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { createConversationState, reduceConversationEvent } from './conversation.ts'
-import { mergeSessionSnapshot, sessionHasUnread, sessionNeedsAttention, sessionSnapshotIsCurrent } from './workspace.ts'
+import { compareSessionOrder, mergeSessionSnapshot, sessionHasUnread, sessionNeedsAttention, sessionSnapshotIsCurrent } from './workspace.ts'
 import type { Session } from '../client/types'
 
 const session: Session = { id: 'a', title: 'New session', modelKey: '', open: true, running: true, executing: false, createdAt: '' }
 
-test('all five reminders are independent and an empty paused queue needs no action', () => {
+test('local insertions and recovery keep pins first and preserve the server creation-time and ID order', () => {
+  const sessions = [
+    { ...session, id: 'new', createdAt: '2026-11-04T12:00:00Z' },
+    { ...session, id: 'a', pinned: true, createdAt: '2026-11-01T12:00:00Z' },
+    { ...session, id: 'c', pinned: false, createdAt: '2026-11-02T12:00:00Z' },
+    { ...session, id: 'b', pinned: true, createdAt: '2026-11-01T12:00:00Z' },
+  ]
+  assert.deepEqual([...sessions].sort(compareSessionOrder).map(item => item.id), ['b', 'a', 'new', 'c'])
+  const recovered = sessions.map(item => item.id === 'c' ? { ...item, pinned: true } : item)
+  assert.deepEqual(recovered.sort(compareSessionOrder).map(item => item.id), ['c', 'b', 'a', 'new'])
+})
+
+test('unread results and pending actions need attention while viewed failures do not', () => {
   assert.equal(sessionNeedsAttention(session), false)
   assert.equal(sessionNeedsAttention({ ...session, latestReplySequence: 10, readSequence: 9 }), true)
   assert.equal(sessionNeedsAttention({ ...session, pendingReply: { runId: 'r', kind: 'question', content: '', questions: [] } }), true)
@@ -14,7 +26,9 @@ test('all five reminders are independent and an empty paused queue needs no acti
   assert.equal(sessionNeedsAttention({ ...session, inputQueuePaused: true, pendingInputCount: 0 }), false)
   assert.equal(sessionNeedsAttention(session, false), true)
   assert.equal(sessionNeedsAttention({ ...session, open: false }, false), false)
-  assert.equal(sessionNeedsAttention({ ...session, latestRunStatus: 'failed' }, true), true)
+  assert.equal(sessionNeedsAttention({ ...session, latestRunStatus: 'failed' }, true), false)
+  assert.equal(sessionNeedsAttention({ ...session, latestRunStatus: 'failed', latestReplySequence: 10, readSequence: 9 }, true), true)
+  assert.equal(sessionNeedsAttention({ ...session, latestRunStatus: 'failed', latestReplySequence: 10, readSequence: 10 }, true), false)
   assert.equal(sessionNeedsAttention({ ...session, latestRunStatus: 'running' }, true), false)
   assert.equal(sessionHasUnread({ ...session, latestReplySequence: 10, readSequence: 10 }), false)
 })

@@ -643,24 +643,37 @@ func (a *App) session(w http.ResponseWriter, r *http.Request) {
 	if r.Method == http.MethodPatch && len(bits) == 1 {
 		r.Body = http.MaxBytesReader(w, r.Body, 1024)
 		var input struct {
-			Title string `json:"title"`
+			Title  *string `json:"title"`
+			Pinned *bool   `json:"pinned"`
 		}
 		decoder := json.NewDecoder(r.Body)
 		decoder.DisallowUnknownFields()
 		if decoder.Decode(&input) != nil || decoder.Decode(new(any)) != io.EOF {
-			http.Error(w, "invalid title request", 400)
+			http.Error(w, "invalid session update", 400)
 			return
 		}
-		input.Title = strings.TrimSpace(input.Title)
-		if input.Title == "" || len(input.Title) > 200 || strings.ContainsAny(input.Title, "\r\n") {
-			http.Error(w, "title must be one line and at most 200 bytes", 400)
+		if (input.Title == nil) == (input.Pinned == nil) {
+			http.Error(w, "provide either title or pinned", 400)
 			return
 		}
-		if err := a.store.Rename(r.Context(), item.ID, input.Title); err != nil {
-			http.Error(w, err.Error(), 500)
-			return
+		if input.Title != nil {
+			title := strings.TrimSpace(*input.Title)
+			if title == "" || len(title) > 200 || strings.ContainsAny(title, "\r\n") {
+				http.Error(w, "title must be one line and at most 200 bytes", 400)
+				return
+			}
+			if err := a.store.Rename(r.Context(), item.ID, title); err != nil {
+				http.Error(w, err.Error(), 500)
+				return
+			}
+			item.Title = title
+		} else {
+			if err := a.store.SetPinned(r.Context(), item.ID, *input.Pinned); err != nil {
+				http.Error(w, err.Error(), 500)
+				return
+			}
+			item.Pinned = *input.Pinned
 		}
-		item.Title = input.Title
 		jsonOut(w, item)
 		return
 	}

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from 'vue'
-import { Empty as VEmpty, Button as VButton, Modal as VModal, Input as VInput } from './ui'
-import { AppstoreOutlined, SettingOutlined, CloseOutlined, PlusOutlined, SearchOutlined } from '@antdv-next/icons'
+import { Empty as VEmpty, Button as VButton, Modal as VModal, Dropdown as VDropdown } from './ui'
+import { AppstoreOutlined, SettingOutlined, CloseOutlined, PlusOutlined, EllipsisOutlined, LoadingOutlined } from '@antdv-next/icons'
 import { useI18n } from 'vue-i18n'
 import AppProvider from './AppProvider.vue'
 import WorkspaceSplit from './ui/WorkspaceSplit.vue'
@@ -10,6 +10,9 @@ import { useSidebarWidth } from './composables/useSidebarWidth'
 import { useDrawerSwipe } from './composables/useDrawerSwipe'
 import VistaMark from './VistaMark.vue'
 import SessionIndicators from './SessionIndicators.vue'
+import InlineSessionTitle from './InlineSessionTitle.vue'
+import SessionPin from './SessionPin.vue'
+import type { Session } from './client/types'
 import { sessionHasUnread } from './state/workspace'
 const { t } = useI18n({ useScope: 'global' })
 const { router, error, busy, totalSessions, openSessions, selected, serverStatus, mobileSessionsOpen, settingsOpen,
@@ -20,10 +23,51 @@ const { desktop, width: sidebarWidth, minimum, maximum, resize, finishResize, re
 const sessionsPanel = ref<HTMLElement | null>(null)
 const sessionsBackdrop = ref<HTMLElement | null>(null)
 const drawerSwipe = useDrawerSwipe(sessionsPanel, sessionsBackdrop, mobileSessionsOpen, desktop)
-const sessionSearch = ref('')
-const filteredSessions = computed(() => openSessions.value.filter(item => displaySessionTitle(item).toLocaleLowerCase().includes(sessionSearch.value.trim().toLocaleLowerCase())))
+const renamingSession = ref('')
+const editingSessionOrder = ref<string[]>([])
+// Update live row contents, but defer reordering until the title editor closes.
+// Moving a focused input's DOM node would blur it and submit an unfinished title.
+const sidebarSessions = computed(() => {
+  if (!renamingSession.value) return openSessions.value
+  const positions = new Map(editingSessionOrder.value.map((id, index) => [id, index]))
+  return [...openSessions.value].sort((a, b) => (positions.get(a.id) ?? positions.size) - (positions.get(b.id) ?? positions.size))
+})
+watch(renamingSession, id => { editingSessionOrder.value = id ? sidebarSessions.value.map(item => item.id) : [] }, { flush: 'sync' })
+watch(openSessions, items => {
+  if (renamingSession.value && !items.some(item => item.id === renamingSession.value)) renamingSession.value = ''
+}, { flush: 'sync' })
+const deletingSession = ref<Session | null>(null)
+const deleteConfirmationOpen = ref(false)
+// Keep confirmation copy stable while the dialog's exit animation runs.
+const closeDialogDetails = ref({ count: 0, stopsWork: false })
+watch(closeConfirmation, request => {
+  if (request) closeDialogDetails.value = { count: request.count, stopsWork: request.stopsWork }
+}, { flush: 'sync' })
+function updateRenaming(item: Session, editing: boolean) {
+  if (editing) renamingSession.value = item.id
+  else if (renamingSession.value === item.id) renamingSession.value = ''
+}
+function sessionMenu(item: Session) {
+  return {
+    items: [
+      { key: 'rename', label: t('editTitle'), disabled: busy.value },
+      { key: 'close', label: t('close'), disabled: busy.value },
+      { key: 'delete', label: t('delete'), disabled: busy.value, danger: true },
+    ],
+    onClick: ({ key }: { key: string }) => {
+      if (key === 'rename') renamingSession.value = item.id
+      else if (key === 'close') void action(item, 'close', true)
+      else if (key === 'delete') { deletingSession.value = item; deleteConfirmationOpen.value = true }
+    },
+  }
+}
+async function deleteSession() {
+  if (!deletingSession.value || busy.value) return
+  await action(deletingSession.value, 'delete')
+  deleteConfirmationOpen.value = false
+}
+
 watch(() => selected.value?.id, async () => {
-  sessionSearch.value = ''
   await nextTick()
   if (window.innerWidth > 830 || mobileSessionsOpen.value) document.querySelector('.sessions-panel .session-card.selected')?.scrollIntoView({ block: 'nearest' })
 })
@@ -48,12 +92,17 @@ function activateSession(id: string) {
         @pointercancel="drawerSwipe.cancel" @lostpointercapture="drawerSwipe.lostCapture" @click.capture="drawerSwipe.click">
         <div class="sidebar-brand"><button class="brand-home" aria-label="Vista" :disabled="busy" @click="create"><VistaMark /><span>Vista</span></button><v-button variant="text" class="icon-button mobile-sessions-close icon-close" :aria-label="t('closeSessionDrawer')" @click="mobileSessionsOpen = false"><CloseOutlined /></v-button></div>
         <v-button variant="text" class="sidebar-new-conversation" :disabled="busy" @click="create"><PlusOutlined aria-hidden="true" /><span>{{ t('newConversation') }}</span></v-button>
-        <v-input v-if="openSessions.length" v-model:value="sessionSearch" class="sidebar-search" :placeholder="t('searchSessions')" :aria-label="t('searchSessions')" allow-clear><template #prefix><SearchOutlined aria-hidden="true" /></template></v-input>
         <div class="sidebar-section-label"><span>{{ t('recentConversations') }}</span><small>{{ openSessions.length || '' }}</small></div>
         <v-empty v-if="!openSessions.length" class="vista-empty-state vista-empty-state-compact sidebar-empty" :description="t(totalSessions ? 'noOpenSessions' : 'createSessionHint')" />
-        <v-empty v-else-if="!filteredSessions.length" class="vista-empty-state vista-empty-state-compact sidebar-empty" :description="t('noMatchingSessions')" />
-        <ul><li v-for="item in filteredSessions" :key="item.id" :data-session-id="item.id" class="session-card" :class="{ selected: selected?.id === item.id }" role="button" tabindex="0" :aria-label="t('activateSession', { title: displaySessionTitle(item) })" :aria-current="selected?.id === item.id ? 'page' : undefined" @click="activateSession(item.id)" @keydown.enter.prevent="activateSession(item.id)" @keydown.space.prevent="activateSession(item.id)">
-          <strong class="session-name" :class="{ unread: sessionHasUnread(item) }">{{ displaySessionTitle(item) }}</strong><v-button variant="text" class="icon-button session-close icon-close" :aria-label="t('closeSession', { title: displaySessionTitle(item) })" :disabled="busy" @click.stop="action(item,'close')" @keydown.enter.stop @keydown.space.stop><CloseOutlined /></v-button>
+        <ul><li v-for="item in sidebarSessions" :key="item.id" :data-session-id="item.id" class="session-card" :class="{ selected: selected?.id === item.id }" role="button" tabindex="0" :aria-label="t('activateSession', { title: displaySessionTitle(item) })" :aria-current="selected?.id === item.id ? 'page' : undefined" @click="activateSession(item.id)" @keydown.enter.prevent="activateSession(item.id)" @keydown.space.prevent="activateSession(item.id)">
+          <InlineSessionTitle :session="item" :editing="renamingSession === item.id" @update:editing="updateRenaming(item, $event)">
+            <strong class="session-name" :class="{ unread: sessionHasUnread(item) }">{{ displaySessionTitle(item) }}</strong>
+          </InlineSessionTitle>
+          <div class="session-card-actions" @click.stop @keydown.enter.stop @keydown.space.stop>
+            <span v-if="item.running && item.executing && (!serverStatus || workerAvailable(item.id))" class="session-execution-loading" aria-hidden="true"><LoadingOutlined class="ui-icon-spin" /></span>
+            <v-dropdown :menu="sessionMenu(item)"><v-button variant="text" class="icon-button session-menu" :aria-label="t('sessionMenu')" :disabled="busy"><EllipsisOutlined /></v-button></v-dropdown>
+            <SessionPin :session="item" />
+          </div>
           <SessionIndicators :session="item" :worker-available="serverStatus ? workerAvailable(item.id) : undefined" />
           <v-button v-if="serverStatus && !workerAvailable(item.id)" variant="text" class="session-retry" :disabled="busy" @click.stop="action(item,'retry')" @keydown.enter.stop @keydown.space.stop>{{ t('retryWorker') }}</v-button>
         </li></ul>
@@ -70,11 +119,17 @@ function activateSession(id: string) {
     </div>
   </main>
   <v-modal :open="!!closeConfirmation" centered :z-index="1200" width="min(420px, calc(100vw - 2rem))"
-    :title="t((closeConfirmation?.count ?? 0) > 1 ? 'closeSelectedSessionsConfirmTitle' : 'closeSessionConfirmTitle', { count: closeConfirmation?.count ?? 0 })"
-    :ok-text="t('closeAndStop')" :cancel-text="t('cancel')" :confirm-loading="busy"
+    :title="t(closeDialogDetails.count > 1 ? 'closeSelectedSessionsConfirmTitle' : 'closeSessionConfirmTitle', { count: closeDialogDetails.count })"
+    :ok-text="t(closeDialogDetails.stopsWork ? 'closeAndStop' : 'close')" :cancel-text="t('cancel')" :confirm-loading="busy"
     :ok-button-props="{ danger: true, disabled: busy }" :cancel-button-props="{ disabled: busy }"
     :closable="!busy" :keyboard="!busy" :mask-closable="!busy" @cancel="cancelSessionClose" @ok="confirmSessionClose">
     <p>{{ t('closeSessionConfirmBody', { manager: t('manageSessions') }) }}</p>
+  </v-modal>
+  <v-modal :open="deleteConfirmationOpen" centered :z-index="1200" width="min(420px, calc(100vw - 2rem))"
+    :title="t('deleteSessionConfirmTitle')" :ok-text="t('delete')" :cancel-text="t('cancel')" :confirm-loading="busy"
+    :ok-button-props="{ danger: true, disabled: busy }" :cancel-button-props="{ disabled: busy }"
+    :closable="!busy" :keyboard="!busy" :mask-closable="!busy" @cancel="!busy && (deleteConfirmationOpen = false)" @ok="deleteSession">
+    <p style="overflow-wrap: anywhere">{{ t('deleteSessionConfirm', { title: deletingSession ? displaySessionTitle(deletingSession) : '' }) }}</p>
   </v-modal>
   </AppProvider>
 </template>

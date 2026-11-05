@@ -2,6 +2,10 @@ import type { Session } from '../client/types'
 
 export type SessionSnapshotBoundary = { sessionId: string; eventSequence: number }
 
+export function compareSessionOrder(a: Session, b: Session) {
+  return Number(!!b.pinned) - Number(!!a.pinned) || b.createdAt.localeCompare(a.createdAt) || b.id.localeCompare(a.id)
+}
+
 export function sessionHasUnread(session: Session) {
   return (session.latestReplySequence || 0) > (session.readSequence || 0)
 }
@@ -9,7 +13,7 @@ export function sessionHasUnread(session: Session) {
 export function sessionNeedsAttention(session: Session, workerAvailable?: boolean) {
   return sessionHasUnread(session) || !!session.pendingReply
     || !!session.inputQueuePaused && (session.pendingInputCount || 0) > 0
-    || session.open && workerAvailable === false || session.latestRunStatus === 'failed'
+    || session.open && workerAvailable === false
 }
 
 export function sessionSnapshotIsCurrent(selected: Session | null, started: SessionSnapshotBoundary | null) {

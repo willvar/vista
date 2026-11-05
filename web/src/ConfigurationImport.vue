@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { Empty as VEmpty, Alert as VAlert, Button as VButton, Checkbox as VCheckbox, Input as VInput, Modal as VModal, Select as VSelect, Spin as VSpin } from './ui'
+import { Empty as VEmpty, Alert as VAlert, Button as VButton, Checkbox as VCheckbox, Input as VInput, Select as VSelect, Spin as VSpin } from './ui'
+import BatchOperationModal from './BatchOperationModal.vue'
 import { ReloadOutlined } from '@antdv-next/icons'
 import { useWorkspace } from './composables/useWorkspace'
 
@@ -22,6 +23,7 @@ const preview = ref<Preview>()
 const selected = ref<string[]>([])
 const reading = ref(false)
 const importing = ref(false)
+const phase = ref<'confirm' | 'running'>('confirm')
 const error = ref('')
 const busy = computed(() => reading.value || importing.value)
 let request: AbortController | undefined
@@ -69,6 +71,7 @@ async function read() {
 async function confirm() {
   if (busy.value || !preview.value || !selected.value.length) return
   importing.value = true
+  phase.value = 'running'
   error.value = ''
   const controller = new AbortController()
   request = controller
@@ -81,7 +84,9 @@ async function confirm() {
     emit('imported', result.imported)
     open.value = false
     emit('modal-open', false)
-  } catch (failure) { if (!controller.signal.aborted) error.value = failure instanceof Error ? failure.message : String(failure) }
+  } catch (failure) {
+    if (!controller.signal.aborted) { error.value = failure instanceof Error ? failure.message : String(failure); phase.value = 'confirm' }
+  }
   finally { importing.value = false; if (request === controller) request = undefined }
 }
 function show() {
@@ -91,6 +96,7 @@ function show() {
   credentialPath.value = ''
   directory.value = ''
   invalidate()
+  phase.value = 'confirm'
   open.value = true
   emit('modal-open', true)
 }
@@ -99,12 +105,12 @@ defineExpose({ show })
 </script>
 
 <template>
-  <v-modal :open="open" centered :z-index="1200" width="min(580px, calc(100vw - 2rem))"
-    class="provider-import-modal" :title="t(titleKey)" :ok-text="t('providerImportConfirm', { count: selected.length })" :cancel-text="t('cancel')"
-    :confirm-loading="importing" :ok-button-props="{ disabled: busy || !selected.length }" :cancel-button-props="{ disabled: importing }"
-    :closable="!importing" :keyboard="!importing" :mask-closable="!importing"
-    :styles="{ body: { maxHeight: 'calc(100dvh - 12rem)', overflowY: 'auto', overscrollBehavior: 'contain' } }"
-    @ok="confirm" @cancel="cancel">
+  <BatchOperationModal :open="open" :phase="phase" width="min(580px, calc(100vw - 2rem))"
+    class="provider-import-modal" :title="t(titleKey)" :confirm-text="t('providerImportConfirm', { count: selected.length })"
+    :total="selected.length" :confirm-disabled="busy"
+    :progress-label="t(props.kind === 'providers' ? 'providerImportProgress' : 'extensionImportProgress')"
+    @confirm="confirm" @cancel="cancel">
+    <template #confirmation>
     <div class="provider-import-content" :aria-busy="busy">
       <v-alert type="info" show-icon :message="t(props.kind === 'providers' ? 'providerImportRecommendation' : 'extensionImportRecommendation')" />
       <label class="provider-import-source"><span>{{ t('providerImportSource') }}</span><v-select v-model:value="source" :disabled="busy" :options="[{ label: 'OpenCode', value: 'opencode' }]" :aria-label="t('providerImportSource')" /></label>
@@ -126,10 +132,10 @@ defineExpose({ show })
           </v-checkbox>
         </div>
       </template>
-      <v-alert v-if="importing" type="info" role="status" :message="t(props.kind === 'providers' ? 'providerImportProgress' : 'extensionImportProgress')" />
       <v-alert v-if="error" type="error" role="alert" :message="error" />
     </div>
-  </v-modal>
+    </template>
+  </BatchOperationModal>
 </template>
 
 <style>

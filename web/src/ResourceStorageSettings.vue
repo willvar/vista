@@ -5,7 +5,7 @@ import { Alert as VAlert, Button as VButton, Spin as VSpin } from './ui'
 import { DeleteOutlined } from '@antdv-next/icons'
 import { useWorkspace } from './composables/useWorkspace'
 import { formatDateTime } from './ui/datetime.ts'
-import ConfirmPopover from './ConfirmPopover.vue'
+import BatchOperationModal from './BatchOperationModal.vue'
 import type { ResourceStorageStatus as Status } from './client/types'
 
 const emit = defineEmits<{ 'modal-open': [open: boolean] }>()
@@ -14,12 +14,19 @@ const { client, stateSync } = useWorkspace()
 const status = ref<Status>({ phase: 'idle', deletedCount: 0, deletedBytes: 0 })
 const error = ref('')
 const cleanOpen = ref(false)
+const cleanPhase = ref<'confirm' | 'running' | 'complete'>('confirm')
+const cleanFailure = ref('')
+const cleanResult = ref('')
+let cleanAccepted = false
 const cleanMessage = computed(() => t('resourceStorageCleanConfirm', {
   files: t('resourceStorageCount', { count: status.value.stats?.cleanableCount || 0 }),
   size: size(status.value.stats?.cleanableBytes || 0),
 }))
 const submitting = ref(false)
 const busy = computed(() => submitting.value || status.value.phase === 'running')
+const cleanProgress = computed(() => status.value.deletedCount
+  ? t('resourceStorageFreed', { count: status.value.deletedCount, size: size(status.value.deletedBytes) })
+  : t('resourceStorageCleaning'))
 const controller = new AbortController()
 let revision = 0
 let disposed = false
@@ -34,6 +41,24 @@ function accept(result: Status) {
   if (disposed) return
   status.value = result
   error.value = result.error || ''
+  settleClean()
+}
+function settleClean() {
+  if (!cleanOpen.value || cleanPhase.value !== 'running' || !cleanAccepted || busy.value) return
+  cleanFailure.value = error.value
+  cleanResult.value = t('resourceStorageFreed', { count: status.value.deletedCount, size: size(status.value.deletedBytes) })
+  if (error.value) cleanPhase.value = 'complete'
+  else cleanOpen.value = false
+}
+function showClean() {
+  if (busy.value || !status.value.stats?.cleanableCount) return
+  error.value = ''
+  cleanFailure.value = ''
+  cleanPhase.value = 'confirm'
+  cleanOpen.value = true
+}
+function cancelClean() {
+  if (cleanPhase.value !== 'running') cleanOpen.value = false
 }
 async function readStorage(signal = controller.signal, propagate = false) {
   const request = ++revision
@@ -56,13 +81,23 @@ async function start(action: 'scan' | 'clean') {
   const request = ++revision
   submitting.value = true
   error.value = ''
+  if (action === 'clean') { cleanAccepted = false; cleanPhase.value = 'running' }
   try {
     const result = await client.request<Status>('/resource-storage', { method: 'POST', body: JSON.stringify({ action }), signal: controller.signal })
+    if (disposed) return
     if (request === revision) accept(result)
-    if (action === 'clean') cleanOpen.value = false
+    if (action === 'clean') {
+      cleanAccepted = result.action === 'clean'
+      if (!cleanAccepted) {
+        error.value = t('resourceStorageScanning')
+        cleanPhase.value = 'confirm'
+      }
+    }
   }
-  catch (failure) { if (!disposed) error.value = String(failure) }
-  finally { submitting.value = false }
+  catch (failure) {
+    if (!disposed) { error.value = String(failure); if (action === 'clean') cleanPhase.value = 'confirm' }
+  }
+  finally { submitting.value = false; if (!disposed) settleClean() }
 }
 watch(cleanOpen, value => emit('modal-open', value), { flush: 'sync' })
 onBeforeUnmount(() => { disposed = true; controller.abort(); unsubscribe(); emit('modal-open', false) })
@@ -84,11 +119,9 @@ const cards = computed(() => [
     </div>
     <p class="storage-description">{{ t('resourceStorageRetention') }}</p>
     <div class="storage-actions">
-      <ConfirmPopover :show="cleanOpen" :message="cleanMessage" :cancel-text="t('cancel')" :confirm-text="t('delete')" :busy="busy" :error="error" popover-class="resource-clean-popover" @update:show="cleanOpen = $event; error = ''" @confirm="start('clean')">
-        <template #trigger><v-button :disabled="busy || !status.stats?.cleanableCount"><template #icon><DeleteOutlined aria-hidden="true" /></template>{{ t('resourceStorageClean') }}</v-button></template>
-      </ConfirmPopover>
+      <v-button :disabled="busy || !status.stats?.cleanableCount" @click="showClean"><template #icon><DeleteOutlined aria-hidden="true" /></template>{{ t('resourceStorageClean') }}</v-button>
     </div>
-    <div class="storage-progress" role="status" aria-live="polite">
+    <div v-if="!cleanOpen" class="storage-progress" role="status" aria-live="polite">
       <template v-if="busy"><v-spin /><span>{{ t(status.action === 'clean' ? 'resourceStorageCleaning' : 'resourceStorageScanning') }}<template v-if="status.action === 'clean' && status.deletedCount"> {{ t('resourceStorageFreed', { count: status.deletedCount, size: size(status.deletedBytes) }) }}</template></span></template>
       <span v-else-if="(status.action === 'clean' || status.deletedCount) && !error">{{ t('resourceStorageFreed', { count: status.deletedCount, size: size(status.deletedBytes) }) }}</span>
     </div>
@@ -96,6 +129,11 @@ const cards = computed(() => [
     <v-alert v-if="error && !cleanOpen" type="error" show-icon :message="error" />
     <v-button v-if="error && !cleanOpen" :disabled="busy" @click="start('scan')">{{ t('retry') }}</v-button>
   </div>
+  <BatchOperationModal :open="cleanOpen" :title="t('resourceStorageClean')" :phase="cleanPhase"
+    :total="status.stats?.cleanableCount ?? 0" :progress-label="cleanPhase === 'complete' ? cleanResult : cleanProgress" :confirm-text="t('delete')" danger
+    :confirm-disabled="busy" :error="cleanFailure" @confirm="start('clean')" @cancel="cancelClean">
+    <template #confirmation><p class="clean-confirmation">{{ cleanMessage }}</p><v-alert v-if="error" type="error" show-icon :message="error" /></template>
+  </BatchOperationModal>
 </template>
 
 <style scoped>
@@ -109,5 +147,6 @@ const cards = computed(() => [
 .storage-card>strong{font-size:24px;font-weight:bold;overflow-wrap:anywhere}
 .storage-actions{display:flex;flex-wrap:wrap;gap:10px}
 .storage-progress{display:flex;align-items:center;gap:10px;min-height:24px;color:var(--text-secondary)}
+.clean-confirmation{margin:0 0 1rem;overflow-wrap:anywhere}
 @media(max-width:600px){.storage-cards{grid-template-columns:1fr}.storage-card{display:grid;grid-template-columns:1fr auto;align-items:center;padding:14px}.storage-card>strong{grid-column:2;grid-row:1/3}.storage-card>small{grid-column:1}}
 </style>

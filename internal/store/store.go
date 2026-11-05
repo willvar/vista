@@ -24,6 +24,7 @@ type Session struct {
 	ModelKey                 string        `json:"modelKey"`
 	Pending                  *PendingReply `json:"pendingReply,omitempty"`
 	Open                     bool          `json:"open"`
+	Pinned                   bool          `json:"pinned"`
 	Running                  bool          `json:"running"`
 	Executing                bool          `json:"executing"`
 	CreatedAt                string        `json:"createdAt"`
@@ -118,6 +119,7 @@ type sessionRow struct {
 	Title                    string `gorm:"column:title"`
 	ModelKey                 string `gorm:"column:model_key"`
 	IsOpen                   int    `gorm:"column:is_open"`
+	Pinned                   bool   `gorm:"column:pinned;not null;default:false"`
 	PendingKind              string `gorm:"column:pending_kind"`
 	PendingContent           string `gorm:"column:pending_content"`
 	PendingRunID             string `gorm:"column:pending_run_id"`
@@ -134,7 +136,7 @@ type sessionRow struct {
 func (sessionRow) TableName() string { return "sessions" }
 
 func sessionFromRow(row sessionRow) Session {
-	item := Session{ID: row.ID, Title: row.Title, ModelKey: row.ModelKey, Open: row.IsOpen == 1, CreatedAt: row.CreatedAt}
+	item := Session{ID: row.ID, Title: row.Title, ModelKey: row.ModelKey, Open: row.IsOpen == 1, Pinned: row.Pinned, CreatedAt: row.CreatedAt}
 	item.SelectionMode, item.SelectionTier = row.SelectionMode, row.SelectionTier
 	item.ManualModelKey, item.ManualReasoningEffort = row.ManualModelKey, row.ManualReasoningEffort
 	item.SelectionReasoningEffort, item.InputQueuePaused = row.SelectionReasoningEffort, row.InputQueuePaused
@@ -392,7 +394,7 @@ func readSessions(db, query *gorm.DB, limit, offset int) ([]Session, error) {
   COALESCE((SELECT MAX(sequence) FROM messages WHERE session_id=sessions.id AND role='assistant'),0) AS latest_reply_sequence,
   COALESCE((SELECT status FROM runs WHERE session_id=sessions.id ORDER BY created_at DESC,id DESC LIMIT 1),'') AS latest_run_status,
   (SELECT COUNT(*) FROM queued_inputs WHERE session_id=sessions.id AND status IN ('queued','paused')) AS pending_input_count`).
-		Order("created_at DESC, id DESC").Limit(limit).Offset(offset).Find(&rows).Error; err != nil {
+		Order("pinned DESC, created_at DESC, id DESC").Limit(limit).Offset(offset).Find(&rows).Error; err != nil {
 		return nil, err
 	}
 	result := make([]Session, 0, len(rows))
@@ -435,6 +437,9 @@ func (s *Store) SetOpen(ctx context.Context, id string, open bool) error {
 		value = 1
 	}
 	return sessionRowsAffected(s.orm.WithContext(ctx).Model(&sessionRow{}).Where("id = ?", id).Update("is_open", value))
+}
+func (s *Store) SetPinned(ctx context.Context, id string, pinned bool) error {
+	return sessionRowsAffected(s.orm.WithContext(ctx).Model(&sessionRow{}).Where("id = ?", id).Update("pinned", pinned))
 }
 func (s *Store) Delete(ctx context.Context, id string) error {
 	return s.orm.WithContext(ctx).Transaction(func(tx *gorm.DB) error {

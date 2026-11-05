@@ -45,6 +45,11 @@ test('originals survive compaction and closing, and become cleanable only after 
     if (route.request().method() === 'POST' && route.request().postDataJSON().action === 'clean') {
       cleanRequests++
       if (cleanRequests === 1) return route.fulfill({ status: 503, body: 'Temporary cleanup failure' })
+      // Acknowledgement starts the operation; only its SSE result completes it.
+      // Hold the real cleanup until the progress view has been checked.
+      return vista.api('/resource-storage').then(status => route.fulfill({ status: 202, json: {
+        ...status, phase: 'running', action: 'clean', deletedCount: 0, deletedBytes: 0,
+      } }))
     }
     return route.continue()
   })
@@ -85,8 +90,8 @@ test('originals survive compaction and closing, and become cleanable only after 
     await page.screenshot({ path: testInfo.outputPath(`resource-storage-${theme}.png`), animations: 'disabled' })
   }
   await clean.click()
-  const confirmation = page.locator('.resource-clean-popover')
-  await expect(confirmation.getByRole('alertdialog')).toContainText(`1 file, ${original.length} B`)
+  const confirmation = page.getByRole('dialog', { name: 'Clean unreferenced resources', exact: true })
+  await expect(confirmation).toContainText(`1 file, ${original.length} B`)
   expect(cleanRequests).toBe(0)
   await expect(cards.nth(0)).toContainText('1 file')
   await confirmation.getByRole('button', { name: 'Cancel', exact: true }).click()
@@ -102,12 +107,31 @@ test('originals survive compaction and closing, and become cleanable only after 
   await confirmation.getByRole('button', { name: 'Delete', exact: true }).click()
   await expect(confirmation.getByRole('alert')).toContainText('Temporary cleanup failure')
   await expect(cards.nth(0)).toContainText('1 file')
+  await confirmation.getByRole('button', { name: 'Cancel', exact: true }).click()
+  await expect(confirmation).toBeHidden()
+  await expect(page.locator('.resource-storage-settings').getByRole('alert')).toContainText('Temporary cleanup failure')
+  await clean.click()
+  await expect(confirmation.getByRole('alert')).toHaveCount(0)
+  const acknowledged = page.waitForResponse(response => new URL(response.url()).pathname === '/api/resource-storage' && response.status() === 202)
   await confirmation.getByRole('button', { name: 'Delete', exact: true }).click()
+  await acknowledged
+  await expect(confirmation.locator('.batch-operation-progress')).toContainText('Cleaning unreferenced resources…')
+  expect(await confirmation.getByRole('progressbar').evaluate(element => element.matches(':indeterminate'))).toBe(true)
+  await page.keyboard.press('Escape')
+  await page.mouse.click(2, 2)
+  await expect(confirmation).toBeVisible()
+  await expect(confirmation.getByRole('button')).toHaveCount(0)
+  await expect(cards.nth(0)).toContainText('1 file')
+  await expect(page.locator('.resource-storage-settings .storage-progress')).toHaveCount(0)
+  const readsBeforeCompletion = statusReads
+  await page.screenshot({ path: testInfo.outputPath('resource-cleanup-progress.png'), animations: 'disabled' })
+  await vista.api('/resource-storage', { method: 'POST', body: JSON.stringify({ action: 'clean' }) })
   await expect(confirmation).toBeHidden()
   await expect(page.locator('.storage-progress')).toContainText(`Cleaned 1 file and freed ${original.length} B.`)
   expect(cleanRequests).toBe(2)
   await expect(cards.nth(0)).toContainText('0 files')
   await expect(clean).toBeDisabled()
+  expect(statusReads).toBe(readsBeforeCompletion)
   await page.reload()
   await expect(cards.nth(0)).toContainText('0 files')
 })

@@ -19,13 +19,18 @@ async function openSidebar(page: Page) {
   if (await trigger.count()) await trigger.click()
 }
 
-test('idle sessions close directly from the sidebar and manager while retaining their history', async ({ page, vista }) => {
+test('idle sidebar sessions require confirmation and manager sessions retain their history', async ({ page, vista }) => {
   const sidebarSession = await vista.api('/sessions', { method: 'POST', body: JSON.stringify({ title: 'Idle sidebar' }) })
   const managerSession = await vista.api('/sessions', { method: 'POST', body: JSON.stringify({ title: 'Idle manager' }) })
   const closeRequests = trackCloseRequests(page)
   await page.goto(`${vista.origin}/sessions/${sidebarSession.id}`)
   await openSidebar(page)
-  await page.locator(`.session-card[data-session-id="${sidebarSession.id}"] .session-close`).click()
+  await page.locator(`.session-card[data-session-id="${sidebarSession.id}"] .session-menu`).click()
+  await page.getByRole('menuitem', { name: 'Close', exact: true }).click()
+  const confirmation = page.getByRole('dialog', { name: 'Close session?', exact: true })
+  await expect(confirmation).toBeVisible()
+  expect(closeRequests).toEqual([])
+  await confirmation.locator('.ui-modal-footer').getByRole('button', { name: 'Close', exact: true }).click()
   await expect.poll(async () => (await vista.api('/sessions')).find((item: { id: string }) => item.id === sidebarSession.id)?.open).toBe(false)
   await expect(page.getByRole('dialog', { name: 'Close session?', exact: true })).toBeHidden()
 
@@ -51,8 +56,9 @@ test('closing an executing session waits for confirmation and Escape leaves the 
     await page.locator('.sender-card textarea').press('Enter')
     await expect(page.getByRole('button', { name: 'Stop current execution', exact: true })).toBeVisible()
     await openSidebar(page)
-    const close = page.locator(`.session-card[data-session-id="${session.id}"] .session-close`)
+    const close = page.locator(`.session-card[data-session-id="${session.id}"] .session-menu`)
     await close.click()
+    await page.getByRole('menuitem', { name: 'Close', exact: true }).click()
     const confirmation = page.getByRole('dialog', { name: 'Close session?', exact: true })
     await expect(confirmation).toContainText('Running tasks and background processes will stop.')
     await expect(confirmation).toContainText('Chat history will be kept')
@@ -103,6 +109,9 @@ test.describe('background work', () => {
       const session = (await vista.api('/sessions')).find((item: { id: string }) => item.id === active.id)
       return { running: session.running, executing: session.executing }
     }).toEqual({ running: true, executing: false })
+    const sidebar = page.locator(`.session-card[data-session-id="${active.id}"]`)
+    await expect(sidebar.locator('.session-indicator.running')).toHaveText('Background running')
+    await expect(sidebar.locator('.session-execution-loading')).toHaveCount(0)
 
     await page.goto(`${vista.origin}/sessions?session=${active.id}`)
     const manager = page.locator('.session-manager-page')

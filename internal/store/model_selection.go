@@ -229,7 +229,7 @@ type SessionSelectionPatch struct {
 
 func (s *Store) initModelSelectionSchema() error {
 	// Add session settings and read position through GORM.
-	for _, field := range []string{"SelectionMode", "SelectionTier", "ManualModelKey", "ManualReasoningEffort", "SelectionReasoningEffort", "InputQueuePaused", "ReadSequence"} {
+	for _, field := range []string{"SelectionMode", "SelectionTier", "ManualModelKey", "ManualReasoningEffort", "SelectionReasoningEffort", "InputQueuePaused", "ReadSequence", "Pinned"} {
 		if !s.orm.Migrator().HasColumn(&sessionRow{}, field) {
 			if err := s.orm.Migrator().AddColumn(&sessionRow{}, field); err != nil {
 				return err

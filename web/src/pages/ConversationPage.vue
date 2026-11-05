@@ -1,11 +1,12 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch, type ComponentPublicInstance } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { Empty as VEmpty, Alert as VAlert, Button as VButton, Input as VInput, Modal as VModal } from '../ui'
+import { Empty as VEmpty, Alert as VAlert, Button as VButton, Modal as VModal } from '../ui'
 import { MenuOutlined, VerticalAlignBottomOutlined, EditOutlined } from '@antdv-next/icons'
 import Bubble from '../ui/Bubble.vue'
 import ConversationSender from '../ConversationSender.vue'
 import VistaMark from '../VistaMark.vue'
+import InlineSessionTitle from '../InlineSessionTitle.vue'
 import { elementScroll, useVirtualizer } from '@tanstack/vue-virtual'
 import { provideScrollbarDrag, useDragStableMeasurement } from '../composables/useScrollbarDrag'
 import RunTrace from '../RunTrace.vue'
@@ -29,9 +30,11 @@ import { messageModelIdentity } from '../composables/usePresentation'
 const { t } = useI18n({ useScope: 'global' })
 const workspace = useWorkspace()
 const { selected, needsProvider, busy, workerAvailable, modelLabel, modelCatalog, localTime, statusLabel,
-  historicalModelLabel, modelNameById, formatModelWithReasoning, renamingSessionID, sessionTitleDraft, beginRename, cancelRename, saveRename,
+  historicalModelLabel, modelNameById, formatModelWithReasoning,
   workerMemory, mobileSessionsOpen, attentionCount, debugMode, route, displaySessionTitle } = workspace
 const selectedWorkerMemory = computed(() => selected.value ? workerMemory(selected.value.id) : undefined)
+const renamingTitle = ref(false)
+watch(() => selected.value?.id, () => { renamingTitle.value = false })
 const { synchronization, viewRevision, resynchronize, renderFailure, feedbackInvitationOpen,
   beginEditMessage, withdrawMessage, rollbackFailure, draft, attachedImages,
   feedback, feedbackBusy, rateMessage, selectionMode, pendingInputs, inputQueuePaused, pendingBusy, mutateInput, resumeInputs,
@@ -277,7 +280,7 @@ onUnmounted(() => {
 
 <template>
       <section v-if="selected" class="workspace">
-        <div class="conversation-header"><v-button variant="text" class="icon-button mobile-sessions-trigger" :aria-label="t('sessions')" :aria-expanded="mobileSessionsOpen" @click="mobileSessionsOpen = true"><MenuOutlined /><span v-if="attentionCount" class="session-attention-dot" role="img" :aria-label="t('sessionsNeedAttention', { count: attentionCount })"></span></v-button><div class="conversation-heading"><form v-if="renamingSessionID === selected.id" class="session-rename" @submit.prevent="saveRename(selected)"><v-input v-model:value="sessionTitleDraft" :maxlength="200" :aria-label="t('sessionTitle')" /><v-button type="submit" variant="primary" :disabled="busy || !sessionTitleDraft.trim()">{{ t('saveChanges') }}</v-button><v-button @click="cancelRename">{{ t('cancel') }}</v-button></form><div v-else class="session-heading-title"><h2 :title="displaySessionTitle(selected)">{{ displaySessionTitle(selected) }}</h2><v-button variant="text" :aria-label="t('editTitle')" @click="beginRename(selected)"><EditOutlined /></v-button></div></div><div class="conversation-header-tools">
+        <div class="conversation-header"><v-button variant="text" class="icon-button mobile-sessions-trigger" :aria-label="t('sessions')" :aria-expanded="mobileSessionsOpen" @click="mobileSessionsOpen = true"><MenuOutlined /><span v-if="attentionCount" class="session-attention-dot" role="img" :aria-label="t('sessionsNeedAttention', { count: attentionCount })"></span></v-button><div class="conversation-heading"><InlineSessionTitle :key="selected.id" :session="selected" v-model:editing="renamingTitle"><div class="session-heading-title"><h2 :title="displaySessionTitle(selected)">{{ displaySessionTitle(selected) }}</h2><v-button class="icon-button" variant="text" :aria-label="t('editTitle')" @click="renamingTitle = true"><EditOutlined /></v-button></div></InlineSessionTitle></div><div class="conversation-header-tools">
           <WorkerStatus v-if="debugMode && selected.open" :key="selected.id" :memory="selectedWorkerMemory" :available="workerAvailable(selected.id)" />
         </div></div>
         <v-alert v-if="needsProvider" class="session-setup-notice" type="warning" :message="t('noModelConfigured')" />
