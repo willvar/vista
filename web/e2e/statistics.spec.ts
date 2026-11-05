@@ -74,6 +74,97 @@ test('reported tokens include normal replies and titles once and remain after co
   await expect(total).toHaveAttribute('aria-label','Token usage details: 50 tokens')
 })
 
+test('usage header reset requires confirmation and synchronizes all periods and other clients',async({page,vista})=>{
+  const session=await vista.api('/sessions',{method:'POST',body:'{}'})
+  await vista.api(`/sessions/${session.id}/messages`,{method:'POST',body:JSON.stringify({content:'Keep this conversation after resetting statistics'})})
+  await expect.poll(async()=> (await vista.api('/statistics?days=7')).requests).toBe(2)
+  await expect.poll(async()=> (await vista.api(`/sessions/${session.id}/checkpoint`)).session.executing).toBe(false)
+  const messages=await vista.api(`/sessions/${session.id}/messages`)
+  const minute=Math.floor(Date.now()/60_000)
+  await vista.api('/activity',{method:'POST',body:JSON.stringify({minutes:[minute-10]})})
+  await page.goto(vista.origin+'/settings/statistics')
+  const stats=page.locator('.statistics-settings')
+  const resetButton=page.locator('.settings-header-actions').getByRole('button',{name:'Reset statistics',exact:true})
+  await expect(resetButton).toBeVisible()
+  await expect(resetButton.locator('svg')).toHaveCount(1)
+  await expect(stats.locator('.statistics-token-value')).toHaveAttribute('aria-label','Token usage details: 50 tokens')
+  const selectPeriod=async(days:number)=>{
+    await stats.getByRole('combobox',{name:'Period',exact:true}).click()
+    await page.locator('.ui-select-dropdown:visible .ui-select-item-option-content').filter({hasText:new RegExp(`^Last ${days} days$`)}).click()
+    await expect(page.locator('.ui-select-dropdown:visible')).toHaveCount(0)
+    await expect(stats).toHaveAttribute('aria-busy','false')
+  }
+  await selectPeriod(90)
+  await selectPeriod(7)
+  const sibling=await page.context().newPage()
+  await sibling.goto(vista.origin+'/settings/statistics')
+  await expect(sibling.locator('.statistics-token-value')).toHaveAttribute('aria-label','Token usage details: 50 tokens')
+  const mutations:string[]=[]
+  const unrelated:string[]=[]
+  page.on('request',request=>{
+    const path=new URL(request.url()).pathname
+    if(path==='/api/statistics/reset')mutations.push(request.postData()??'')
+    if(['/api/sessions','/api/models','/api/status'].includes(path))unrelated.push(path)
+  })
+  const confirmation=page.locator('.statistics-reset-modal:visible')
+  await resetButton.click()
+  await expect(confirmation).toContainText('Conversations and settings are kept.')
+  await confirmation.getByRole('button',{name:'Cancel',exact:true}).click()
+  await expect(confirmation).toHaveCount(0)
+  await expect(stats).toBeVisible()
+  expect(mutations).toHaveLength(0)
+  await resetButton.click()
+  await page.keyboard.press('Escape')
+  await expect(confirmation).toHaveCount(0)
+  await expect(stats).toBeVisible()
+  expect(mutations).toHaveLength(0)
+  await resetButton.click()
+  await confirmation.getByRole('button',{name:'Reset',exact:true}).click()
+  await expect(confirmation).toHaveCount(0)
+  await expect(stats.locator('.statistics-token-value')).toHaveText('0')
+  await expect(stats.locator('.statistics-totals dd').nth(1)).toHaveText('0min')
+  await expect(sibling.locator('.statistics-token-value')).toHaveText('0')
+  await expect(sibling.locator('.statistics-totals dd').nth(1)).toHaveText('0min')
+  expect(mutations.map(body=>JSON.parse(body))).toEqual([{confirm:'reset-statistics'}])
+  expect(unrelated).toEqual([])
+  await selectPeriod(90)
+  await expect(stats.locator('.statistics-token-value')).toHaveText('0')
+  await selectPeriod(30)
+  await expect(stats.locator('.statistics-token-value')).toHaveText('0')
+  // A pre-reset activity buffer cannot refill the cleared statistics.
+  await vista.api('/activity',{method:'POST',body:JSON.stringify({minutes:[minute-10,minute]})})
+  expect((await vista.api('/statistics?days=90')).activeMinutes).toBe(0)
+  expect(await vista.api(`/sessions/${session.id}/messages`)).toEqual(messages)
+  await page.reload()
+  await expect(stats.locator('.statistics-token-value')).toHaveText('0')
+  await vista.api(`/sessions/${session.id}/messages`,{method:'POST',body:JSON.stringify({content:'New usage after reset'})})
+  await expect(stats.locator('.statistics-token-value')).toHaveAttribute('aria-label','Token usage details: 25 tokens')
+  await expect(sibling.locator('.statistics-token-value')).toHaveAttribute('aria-label','Token usage details: 25 tokens')
+  await sibling.close()
+})
+
+test('failed statistics resets retain the confirmation and data for an explicit retry',async({page,vista})=>{
+  await vista.api('/activity',{method:'POST',body:JSON.stringify({minutes:[Math.floor(Date.now()/60_000)-5]})})
+  await page.goto(vista.origin+'/settings/statistics')
+  const stats=page.locator('.statistics-settings')
+  await expect(stats.locator('.statistics-totals dd').nth(1)).toHaveText('1min')
+  let attempts=0
+  await page.route('**/api/statistics/reset',async route=>{
+    attempts++
+    if(attempts===1)await route.fulfill({status:500,body:'could not reset statistics'})
+    else await route.continue()
+  })
+  await page.getByRole('button',{name:'Reset statistics',exact:true}).click()
+  const confirmation=page.locator('.statistics-reset-modal:visible')
+  await confirmation.getByRole('button',{name:'Reset',exact:true}).click()
+  await expect(confirmation.getByRole('alert')).toContainText('could not reset statistics')
+  await expect(stats.locator('.statistics-totals dd').nth(1)).toHaveText('1min')
+  await confirmation.getByRole('button',{name:'Reset',exact:true}).click()
+  await expect(confirmation).toHaveCount(0)
+  await expect(stats.locator('.statistics-totals dd').nth(1)).toHaveText('0min')
+  expect(attempts).toBe(2)
+})
+
 test('token comparisons change reference with scale, reveal exact totals without reads and fit small screens',async({page,vista},info)=>{
   let tokens=52_000
   let unreported=0

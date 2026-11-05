@@ -97,6 +97,34 @@ func (a *App) activity(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+func (a *App) resetStatistics(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Cache-Control", "no-store")
+	if r.Method != http.MethodPost {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+	var input struct {
+		Confirm string `json:"confirm"`
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<10)
+	decoder := json.NewDecoder(r.Body)
+	decoder.DisallowUnknownFields()
+	if decoder.Decode(&input) != nil || input.Confirm != "reset-statistics" {
+		http.Error(w, "statistics reset confirmation required", http.StatusBadRequest)
+		return
+	}
+	if err := decoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
+		http.Error(w, "invalid statistics reset request", http.StatusBadRequest)
+		return
+	}
+	if err := a.store.ResetStatistics(r.Context(), time.Now()); err != nil {
+		http.Error(w, "could not reset statistics", http.StatusInternalServerError)
+		return
+	}
+	a.updates.notify("statistics")
+	w.WriteHeader(http.StatusNoContent)
+}
+
 func (a *App) recordTokenUsage(id string, tokens *int64) {
 	// A completed request remains consumed even if its title or conversation is
 	// no longer eligible for saving. Do not inherit cancellation from that work.

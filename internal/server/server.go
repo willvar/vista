@@ -359,6 +359,7 @@ func (a *App) handler() http.Handler {
 	mux.HandleFunc("/api/skills/", a.skillSetting)
 	mux.HandleFunc("/api/preferences", a.preferences)
 	mux.HandleFunc("/api/statistics", a.statistics)
+	mux.HandleFunc("/api/statistics/reset", a.resetStatistics)
 	mux.HandleFunc("/api/activity", a.activity)
 	mux.HandleFunc("/api/model-selection/stats", a.modelSelectionStats)
 	mux.HandleFunc("/api/model-discovery", a.discoverCustomModels)

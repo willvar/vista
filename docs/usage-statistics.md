@@ -8,6 +8,9 @@ Repeated processing of the same content still consumes tokens; this is not a cou
 Successful calls without usable reported usage are excluded from the total and identified separately.
 Failed or canceled requests without usable usage are excluded from accounting; valid usage already reported is retained.
 
+The reset button at the upper right of Usage requires confirmation, clears activity and token statistics across all retained periods, and starts collection again.
+Conversations and settings are kept; restarting does not re-import cleared usage from conversation history.
+
 The summary compares cumulative processing volume with familiar texts.
 Hover, tap, or focus the comparison to see the original token count and a brief explanation.
 Reference sources and conversion rules are documented below, rather than shown in the popup.

@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -13,6 +14,58 @@ import (
 	"vista/internal/store"
 	"vista/internal/workerproto"
 )
+
+func TestStatisticsResetRequiresConfirmationAndPublishesAfterCommit(t *testing.T) {
+	c, _ := newResultConsumerTest(t)
+	a := &App{store: c.store}
+	ctx := context.Background()
+	now := time.Now()
+	tokens := int64(125)
+	if _, err := c.store.RecordTokenUsage(ctx, "before-reset", &tokens, now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.store.RecordActivity(ctx, []int64{now.Unix() / 60}, now); err != nil {
+		t.Fatal(err)
+	}
+	for _, body := range []string{"", `{}`, `{"confirm":"reset-all"}`, `{"confirm":"reset-statistics","extra":true}`, `{"confirm":"reset-statistics"} {}`, strings.Repeat(" ", 1024) + `{"confirm":"reset-statistics"}`} {
+		w := httptest.NewRecorder()
+		a.resetStatistics(w, httptest.NewRequest(http.MethodPost, "/api/statistics/reset", strings.NewReader(body)))
+		if w.Code != http.StatusBadRequest || a.updates.snapshot().Revisions["statistics"] != 0 {
+			t.Fatal("invalid reset changed statistics", w.Code, w.Body.String())
+		}
+	}
+	w := httptest.NewRecorder()
+	a.resetStatistics(w, httptest.NewRequest(http.MethodGet, "/api/statistics/reset", nil))
+	if w.Code != http.StatusMethodNotAllowed {
+		t.Fatal("accepted reset without POST", w.Code)
+	}
+	stats, err := c.store.Statistics(ctx, 7, "UTC", time.Now())
+	if err != nil || stats.Tokens != tokens || stats.ActiveMinutes != 1 {
+		t.Fatal("rejected reset changed data", stats, err)
+	}
+	w = httptest.NewRecorder()
+	a.resetStatistics(w, httptest.NewRequest(http.MethodPost, "/api/statistics/reset", strings.NewReader(`{"confirm":"reset-statistics"}`)))
+	if w.Code != http.StatusNoContent || w.Header().Get("Cache-Control") != "no-store" {
+		t.Fatal(w.Code, w.Body.String())
+	}
+	for topic, revision := range a.updates.snapshot().Revisions {
+		if topic == "statistics" && revision != 1 || topic != "statistics" && revision != 0 {
+			t.Fatal("unexpected reset notification", topic, revision)
+		}
+	}
+	stats, err = c.store.Statistics(ctx, 7, "UTC", time.Now())
+	if err != nil || stats.Tokens != 0 || stats.Requests != 0 || stats.ActiveMinutes != 0 {
+		t.Fatal("notification preceded reset commit", stats, err)
+	}
+	if err := c.store.Close(); err != nil {
+		t.Fatal(err)
+	}
+	w = httptest.NewRecorder()
+	a.resetStatistics(w, httptest.NewRequest(http.MethodPost, "/api/statistics/reset", strings.NewReader(`{"confirm":"reset-statistics"}`)))
+	if w.Code != http.StatusInternalServerError || a.updates.snapshot().Revisions["statistics"] != 1 {
+		t.Fatal("failed reset published an update", w.Code)
+	}
+}
 
 func TestActivityHTTPOnlyPublishesCommittedNewMinutes(t *testing.T) {
 	c, _ := newResultConsumerTest(t)

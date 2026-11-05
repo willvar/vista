@@ -116,6 +116,8 @@ Reports contain no key values, message text, or navigation paths and accept at m
 `GET /api/statistics?days=30&timezone=Asia%2FHong_Kong` reads bounded 7/30/90-day daily series, weekday/hour activity, totals and coverage in one SQLite read transaction, using IANA timezone data embedded for cross-platform operation.
 The `hours` matrix contains mean active minutes per observed local date/hour slot; its denominator includes inactive slots, excludes time before activity collection and future hours, and counts repeated DST hours once per local date/hour while omitting skipped hours.
 The global stream carries only the statistics revision; chart history is read only while the statistics view is mounted, with versioned cache reuse, cancellation, stale-response rejection and reconnect recovery, without polling or broadcasting chart history to unrelated clients.
+`POST /api/statistics/reset` requires `{"confirm":"reset-statistics"}` and atomically clears both statistics tables, resets coverage timestamps and preserves the one-time import marker before publishing a statistics revision.
+Activity reports through the reset minute are ignored to prevent delayed client buffers from restoring cleared activity; usage finishing after reset enters the new ledger.
 While a statistics view is subscribed, its connection schedules invalidation at the viewer's next local hour boundary, including local midnight and DST transitions; closing the view stops that clock.
 Reopening across an hour boundary invalidates the local chart cache even if no writes occurred while closed.
 

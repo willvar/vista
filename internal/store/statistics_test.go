@@ -229,6 +229,86 @@ func TestStatisticsLegacyBackfillRunsOnceAndNeverDoubleCountsNewUsage(t *testing
 	}
 }
 
+func TestResetStatisticsClearsAllPeriodsWithoutRestoringHistory(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "vista.db")
+	s, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { s.Close() }()
+	if _, err := s.Create(ctx, "session", "keep conversation"); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := s.BeginRun(ctx, "session", "run", "message", "keep message"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.AppendRunEvent(ctx, "session", "run", "model_result", workerproto.Result{RunID: "run", Turn: 1, ModelResult: &workerproto.ModelResult{Usage: &workerproto.ModelUsage{InputTokens: 100, OutputTokens: 25}}}); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC().Truncate(time.Second)
+	tokens := int64(125)
+	for index, at := range []time.Time{now.AddDate(0, 0, -60), now} {
+		if _, err := s.RecordTokenUsage(ctx, []string{"old", "new"}[index], &tokens, at); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := s.RecordTokenUsage(ctx, "unknown", nil, now); err != nil {
+		t.Fatal(err)
+	}
+	minute := now.Unix() / 60
+	if _, err := s.RecordActivity(ctx, []int64{minute - 1, minute}, now); err != nil {
+		t.Fatal(err)
+	}
+	// A failed transaction cannot leave activity cleared but usage retained.
+	if _, err := s.db.Exec(`CREATE TRIGGER reject_usage_reset BEFORE DELETE ON token_usage BEGIN SELECT RAISE(ABORT,'test failure'); END`); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.ResetStatistics(ctx, now); err == nil {
+		t.Fatal("reset ignored storage failure")
+	}
+	stats, err := s.Statistics(ctx, 90, "UTC", now)
+	if err != nil || stats.Tokens != 250 || stats.Requests != 3 || stats.Unreported != 1 || stats.ActiveMinutes != 2 {
+		t.Fatal("failed reset changed data", stats, err)
+	}
+	if _, err := s.db.Exec(`DROP TRIGGER reject_usage_reset`); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.ResetStatistics(ctx, now); err != nil {
+		t.Fatal(err)
+	}
+	for _, days := range []int{7, 30, 90} {
+		stats, err := s.Statistics(ctx, days, "UTC", now)
+		if err != nil || stats.Tokens != 0 || stats.Requests != 0 || stats.Unreported != 0 || stats.ActiveMinutes != 0 || stats.ActiveDays != 0 || stats.ActivitySince != now.Format(time.RFC3339) || stats.UsageSince != now.Format(time.RFC3339) {
+			t.Fatal("reset left retained data or stale coverage", days, stats, err)
+		}
+	}
+	if changed, err := s.RecordActivity(ctx, []int64{minute - 1, minute}, now.Add(time.Minute)); err != nil || changed {
+		t.Fatal("buffered activity restored cleared data", changed, err)
+	}
+	if _, err := s.RecordActivity(ctx, []int64{minute + 1}, now.Add(time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.RecordTokenUsage(ctx, "after-reset", &tokens, now); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Close(); err != nil {
+		t.Fatal(err)
+	}
+	s, err = Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stats, err = s.Statistics(ctx, 90, "UTC", now.Add(time.Minute))
+	if err != nil || stats.Tokens != 125 || stats.Requests != 1 || stats.Unreported != 0 || stats.ActiveMinutes != 1 {
+		t.Fatal("new usage lost or cleared usage re-imported", stats, err)
+	}
+	var events int
+	if err := s.db.QueryRow(`SELECT COUNT(*) FROM events WHERE session_id='session'`).Scan(&events); err != nil || events != 2 {
+		t.Fatal("reset changed conversation history", events, err)
+	}
+}
+
 func TestStatisticsRetentionMatchesLongestView(t *testing.T) {
 	for _, trigger := range []string{"activity", "usage", "initialization"} {
 		t.Run(trigger, func(t *testing.T) {

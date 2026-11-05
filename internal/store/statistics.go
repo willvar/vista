@@ -100,6 +100,33 @@ func pruneStatistics(ctx context.Context, tx *sql.Tx, now time.Time) error {
 	return nil
 }
 
+// ResetStatistics leaves conversation history and its one-time migration marker
+// intact so reopening the database cannot re-import the cleared usage.
+func (s *Store) ResetStatistics(ctx context.Context, now time.Time) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	for _, query := range []string{`DELETE FROM activity_minutes`, `DELETE FROM token_usage`} {
+		if _, err = tx.ExecContext(ctx, query); err != nil {
+			return err
+		}
+	}
+	for _, key := range []string{"activity_since", "usage_since"} {
+		if _, err = tx.ExecContext(ctx, `INSERT INTO statistics_meta(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value`, key, now.UTC().Format(time.RFC3339)); err != nil {
+			return err
+		}
+	}
+	// Reports are buffered in clients at minute granularity. Start activity at
+	// the next full minute so a delayed report or the reset click cannot restore
+	// pre-reset activity, including when it comes from another client.
+	if _, err = tx.ExecContext(ctx, `INSERT INTO statistics_meta(key,value) VALUES('activity_reset_minute',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value`, now.Unix()/60); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
 // RecordActivity deduplicates UTC minutes across clients. Reports contain only
 // minutes with real input, never a heartbeat or the duration of an open page.
 func (s *Store) RecordActivity(ctx context.Context, minutes []int64, now time.Time) (bool, error) {
@@ -117,8 +144,15 @@ func (s *Store) RecordActivity(ctx context.Context, minutes []int64, now time.Ti
 		return false, err
 	}
 	defer tx.Rollback()
+	var resetMinute int64
+	if err = tx.QueryRowContext(ctx, `SELECT COALESCE((SELECT CAST(value AS INTEGER) FROM statistics_meta WHERE key='activity_reset_minute'),-1)`).Scan(&resetMinute); err != nil {
+		return false, err
+	}
 	changed := false
 	for _, minute := range minutes {
+		if minute <= resetMinute {
+			continue
+		}
 		result, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO activity_minutes(minute) VALUES(?)`, minute)
 		if err != nil {
 			return false, err

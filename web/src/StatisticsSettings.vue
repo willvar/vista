@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, onUnmounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { Alert as VAlert, Button as VButton, Empty as VEmpty, Popover, Select as VSelect } from './ui'
+import { Alert as VAlert, Button as VButton, Empty as VEmpty, Modal as VModal, Popover, Select as VSelect } from './ui'
 import { useWorkspace } from './composables/useWorkspace'
 import { useStatistics } from './composables/useStatistics'
 import { useEscapeDismiss } from './composables/useEscape'
@@ -13,6 +13,30 @@ const { t, locale } = useI18n({ useScope: 'global' })
 const { client, stateSync } = useWorkspace()
 const period = ref(30)
 const { data, loading, error, refresh } = useStatistics(client, stateSync, period)
+const emit = defineEmits<{ 'modal-open': [open: boolean] }>()
+const resetOpen = ref(false)
+const resetBusy = ref(false)
+const resetError = ref('')
+watch(resetOpen, value => emit('modal-open', value), { flush: 'sync' })
+onUnmounted(() => emit('modal-open', false))
+function confirmReset() {
+  resetError.value = ''
+  resetOpen.value = true
+}
+async function reset() {
+  if (resetBusy.value) return
+  resetBusy.value = true
+  resetError.value = ''
+  try {
+    await client.request('/statistics/reset', { method: 'POST', body: JSON.stringify({ confirm: 'reset-statistics' }) })
+    resetOpen.value = false
+  } catch (cause) {
+    resetError.value = String(cause)
+  } finally {
+    resetBusy.value = false
+  }
+}
+defineExpose({ headerAction: computed(() => ({ label: 'statisticsReset', run: confirmReset, disabled: resetBusy.value, loading: resetBusy.value })) })
 const periodOptions = computed(() => [7,30,90].map(value => ({ value, label: t('statisticsPeriodDays',{count:value}) })))
 const number = (value: number) => new Intl.NumberFormat(locale.value).format(value)
 const compact = (value: number) => new Intl.NumberFormat(locale.value,{notation:'compact',maximumFractionDigits:1}).format(value)
@@ -148,6 +172,14 @@ const legacyPeriod = computed(() => data.value && calendarDate(data.value.days[0
       </div>
     </template>
   </section>
+  <v-modal :open="resetOpen" centered :z-index="1200" width="min(520px, calc(100vw - 2rem))"
+    class="statistics-reset-modal" :title="t('statisticsResetTitle')" :ok-text="t('reset')" :cancel-text="t('cancel')"
+    :confirm-loading="resetBusy" :ok-button-props="{ danger: true }" :cancel-button-props="{ disabled: resetBusy }"
+    :closable="!resetBusy" :keyboard="!resetBusy" :mask-closable="!resetBusy"
+    @ok="reset" @cancel="!resetBusy && (resetOpen = false)">
+    <p>{{ t('statisticsResetWarning') }}</p>
+    <v-alert v-if="resetError" type="error" role="alert" :message="resetError" />
+  </v-modal>
 </template>
 
 <style scoped>

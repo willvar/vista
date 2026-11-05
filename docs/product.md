@@ -76,7 +76,7 @@ Successful calls without usable reported usage are identified and excluded from 
 The total is shown as an approximate comparison with familiar texts; hover, tap, or focus it for the original token count and a brief explanation. See [usage statistics](./usage-statistics.md) for the reference sources and conversion rules.
 Existing retained model-result records are imported once; the page identifies when complete collection began, and does not invent historical interaction activity.
 Records are kept for 90 days, matching the longest available view; selecting a shorter period does not shorten retention.
-Conversation deletion or withdrawal does not deduct retained consumption; a full Vista reset removes the statistics.
+Conversation deletion or withdrawal does not deduct retained consumption; a confirmed statistics reset in Usage or a full Vista reset removes the statistics.
 
 ## Current boundaries
 

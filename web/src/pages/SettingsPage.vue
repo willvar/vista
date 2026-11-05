@@ -20,7 +20,7 @@ import UserAgentSettings from '../UserAgentSettings.vue'
 import ResetVistaSettings from '../ResetVistaSettings.vue'
 import VistaMark from '../VistaMark.vue'
 import StatisticsSettings from '../StatisticsSettings.vue'
-import { BarChartOutlined } from '@antdv-next/icons'
+import { BarChartOutlined, ClearOutlined } from '@antdv-next/icons'
 import { useWorkspace } from '../composables/useWorkspace'
 import { useProviderSettings } from '../composables/useProviderSettings'
 import { useAppearance } from '../ui/appearance'
@@ -87,6 +87,7 @@ const memoryModalOpen = ref(false)
 const searchModalOpen = ref(false)
 const storageModalOpen = ref(false)
 const resetModalOpen = ref(false)
+const statisticsModalOpen = ref(false)
 const providerImportOpen = ref(false)
 const providerImport = ref<InstanceType<typeof ConfigurationImport>>()
 const importedCount = ref(0)
@@ -118,7 +119,7 @@ function onImported(count: number) {
 }
 const headerAction = computed<HeaderAction | undefined>(() => route.name === 'settings'
   ? { label: 'connectProvider', run: startProviderConnection, disabled: settingsBusy.value, loading: false }
-  : ['settings-mcp', 'settings-about'].includes(String(route.name)) ? sectionActions.value?.headerAction : undefined)
+  : ['settings-mcp', 'settings-about', 'settings-statistics'].includes(String(route.name)) ? sectionActions.value?.headerAction : undefined)
 const loginBusy = ref(false)
 watch(() => modelDraft.value.kind, () => { loginBusy.value = false })
 function providerTypeLabel(kind: string, protocol: string) {
@@ -139,14 +140,14 @@ watch(() => route.fullPath, () => {
 </script>
 
 <template>
-<WorkspaceModal :open="true" width="max-content" :keyboard="!providerDisconnectTarget && !modelFormOpen && !providerImportOpen && !mcpModalOpen && !skillModalOpen && !memoryModalOpen && !searchModalOpen && !storageModalOpen && !resetModalOpen && !instructionsEditorOpen" @cancel="backToWorkspace"><section class="workspace settings-page modal-page" :class="{ 'settings-index': settingsIndex }">
+<WorkspaceModal :open="true" width="max-content" :keyboard="!providerDisconnectTarget && !modelFormOpen && !providerImportOpen && !mcpModalOpen && !skillModalOpen && !memoryModalOpen && !searchModalOpen && !storageModalOpen && !resetModalOpen && !statisticsModalOpen && !instructionsEditorOpen" @cancel="backToWorkspace"><section class="workspace settings-page modal-page" :class="{ 'settings-index': settingsIndex }">
         <div class="conversation-header">
           <v-button variant="text" class="icon-button page-back" :aria-label="t(settingsIndex ? 'backToConversation' : 'backToSettings')" @click="back"><ArrowLeftOutlined /></v-button>
           <div class="page-heading"><small v-if="!settingsIndex">{{ t('settingsHeading') }}</small><h2 ref="pageHeading" tabindex="-1">{{ settingsTitle }}</h2></div>
           <div class="settings-header-actions">
             <v-button v-if="canImport" variant="text" class="icon-button settings-header-action settings-header-button" :aria-label="t(importTitleKey)" :title="t(importTitleKey)" :disabled="importKind === 'providers' ? settingsBusy : headerAction?.disabled" @click="importedCount = 0; providerImport?.show()"><template #icon><ImportOutlined aria-hidden="true" /></template></v-button>
             <v-button v-if="headerAction" variant="text" class="icon-button settings-header-action settings-header-button" :aria-label="t(headerAction.label)" :title="t(headerAction.label)" :disabled="headerAction.disabled" :loading="headerAction.loading" @click="headerAction.run()">
-              <template #icon><PlusOutlined v-if="route.name === 'settings' || route.name === 'settings-mcp'" aria-hidden="true" /><ReloadOutlined v-else aria-hidden="true" /></template>
+              <template #icon><PlusOutlined v-if="route.name === 'settings' || route.name === 'settings-mcp'" aria-hidden="true" /><ClearOutlined v-else-if="route.name === 'settings-statistics'" aria-hidden="true" /><ReloadOutlined v-else aria-hidden="true" /></template>
             </v-button>
             <v-button variant="text" class="icon-button modal-close settings-header-button" :aria-label="t('closeSettings')" :title="t('closeSettings')" @click="backToWorkspace">
               <template #icon><CloseOutlined aria-hidden="true" /></template>
@@ -158,7 +159,7 @@ watch(() => route.fullPath, () => {
           <router-link v-for="section in sections" :key="section.name" :to="{ name: section.name, query: route.query }" :class="{ active: route.name === section.name }" :aria-current="route.name === section.name ? 'page' : undefined"><component :is="section.icon" aria-hidden="true" /><span>{{ t(section.label) }}</span><RightOutlined class="settings-nav-chevron" aria-hidden="true" /></router-link>
         </nav>
         <SearchSettings v-if="route.name === 'settings-search'" @modal-open="searchModalOpen = $event" />
-        <StatisticsSettings v-if="route.name === 'settings-statistics'" />
+        <StatisticsSettings ref="sectionActions" v-if="route.name === 'settings-statistics'" @modal-open="statisticsModalOpen = $event" />
         <MCPSettings ref="sectionActions" v-if="route.name === 'settings-mcp'" @modal-open="mcpModalOpen = $event" />
         <SkillsSettings ref="sectionActions" v-if="route.name === 'settings-skills'" @modal-open="skillModalOpen = $event" />
         <ResourceStorageSettings ref="sectionActions" v-if="route.name === 'settings-storage'" @modal-open="storageModalOpen = $event" />
