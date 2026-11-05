@@ -7,21 +7,8 @@ $statePath = Join-Path $output 'launch.json'
 $resultPath = Join-Path $output 'result.json'
 $logPath = Join-Path $output 'desktop.log'
 
-if ($Desktop) {
-    $exitCode = 1
-    "Desktop validation started: PID $PID, session $((Get-Process -Id $PID).SessionId)" |
-        Set-Content -LiteralPath $logPath
-    try {
-        $state = Get-Content -LiteralPath $statePath -Raw | ConvertFrom-Json
-        "WMI profile before restoration: USERPROFILE=$env:USERPROFILE; APPDATA=$env:APPDATA; LOCALAPPDATA=$env:LOCALAPPDATA" |
-            Add-Content -LiteralPath $logPath
-        foreach ($entry in $state.environment.PSObject.Properties) {
-            [Environment]::SetEnvironmentVariable($entry.Name, $entry.Value, 'Process')
-        }
-        "Desktop profile: USERPROFILE=$env:USERPROFILE; APPDATA=$env:APPDATA; LOCALAPPDATA=$env:LOCALAPPDATA" |
-            Add-Content -LiteralPath $logPath
-        if ($state.start_explorer) {
-            Add-Type -TypeDefinition @'
+function Initialize-TaskbarProbe {
+    Add-Type -TypeDefinition @'
 using System;
 using System.Runtime.InteropServices;
 public static class VistaCITaskbar {
@@ -34,6 +21,26 @@ public static class VistaCITaskbar {
     [DllImport("user32.dll")] static extern IntPtr OpenInputDesktop(uint flags, bool inherit, uint access);
     [DllImport("user32.dll")] static extern bool CloseDesktop(IntPtr desktop);
     [DllImport("user32.dll")] static extern IntPtr GetShellWindow();
+    [DllImport("kernel32.dll")] static extern IntPtr GetCurrentProcess();
+    [DllImport("kernel32.dll")] static extern bool CloseHandle(IntPtr handle);
+    [DllImport("kernel32.dll")] static extern bool IsProcessInJob(IntPtr process, IntPtr job, out bool contained);
+    [DllImport("kernel32.dll")] static extern bool QueryInformationJobObject(IntPtr job, int kind, IntPtr data, uint size, out uint needed);
+    [DllImport("advapi32.dll")] static extern bool OpenProcessToken(IntPtr process, uint access, out IntPtr token);
+    [DllImport("advapi32.dll")] static extern bool GetTokenInformation(IntPtr token, int kind, IntPtr data, uint size, out uint needed);
+    static string TokenContext() {
+        IntPtr token;
+        if (!OpenProcessToken(GetCurrentProcess(), 8, out token)) return "token unavailable";
+        var buffer = Marshal.AllocHGlobal(256);
+        try {
+            uint needed;
+            string logon = GetTokenInformation(token, 10, buffer, 256, out needed) ? Marshal.ReadInt64(buffer, 8).ToString("x") : "unavailable";
+            string elevation = GetTokenInformation(token, 18, buffer, 256, out needed) ? Marshal.ReadInt32(buffer).ToString() : "unavailable";
+            bool contained;
+            IsProcessInJob(GetCurrentProcess(), IntPtr.Zero, out contained);
+            string ui = contained && QueryInformationJobObject(IntPtr.Zero, 4, buffer, 256, out needed) ? Marshal.ReadInt32(buffer).ToString("x") : "none";
+            return "logon=" + logon + ", elevation=" + elevation + ", job=" + contained + ", job_ui=" + ui;
+        } finally { Marshal.FreeHGlobal(buffer); CloseHandle(token); }
+    }
     [DllImport("user32.dll", CharSet = CharSet.Unicode)]
     static extern bool GetUserObjectInformation(IntPtr obj, int index, System.Text.StringBuilder text, uint size, out uint needed);
     static string ObjectName(IntPtr obj) {
@@ -44,9 +51,9 @@ public static class VistaCITaskbar {
     public static string Context() {
         var input = OpenInputDesktop(0, false, 1);
         try {
-            return String.Format("Desktop context: interactive={0}, station={1}, desktop={2}, input={3}, shell={4}",
+            return String.Format("Desktop context: interactive={0}, station={1}, desktop={2}, input={3}, shell={4}, {5}",
                 Environment.UserInteractive, ObjectName(GetProcessWindowStation()),
-                ObjectName(GetThreadDesktop(GetCurrentThreadId())), ObjectName(input), GetShellWindow());
+                ObjectName(GetThreadDesktop(GetCurrentThreadId())), ObjectName(input), GetShellWindow(), TokenContext());
         } finally { if (input != IntPtr.Zero) CloseDesktop(input); }
     }
     [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
@@ -94,6 +101,23 @@ public static class VistaCITaskbar {
     }
 }
 '@
+}
+
+if ($Desktop) {
+    $exitCode = 1
+    "Desktop validation started: PID $PID, session $((Get-Process -Id $PID).SessionId)" |
+        Set-Content -LiteralPath $logPath
+    try {
+        $state = Get-Content -LiteralPath $statePath -Raw | ConvertFrom-Json
+        "Launch profile before restoration: USERPROFILE=$env:USERPROFILE; APPDATA=$env:APPDATA; LOCALAPPDATA=$env:LOCALAPPDATA" |
+            Add-Content -LiteralPath $logPath
+        foreach ($entry in $state.environment.PSObject.Properties) {
+            [Environment]::SetEnvironmentVariable($entry.Name, $entry.Value, 'Process')
+        }
+        "Desktop profile: USERPROFILE=$env:USERPROFILE; APPDATA=$env:APPDATA; LOCALAPPDATA=$env:LOCALAPPDATA" |
+            Add-Content -LiteralPath $logPath
+        if ($state.start_explorer) {
+            Initialize-TaskbarProbe
             [VistaCITaskbar]::Context() | Add-Content -LiteralPath $logPath
             if ([VistaCITaskbar]::FindWindow('Shell_TrayWnd', $null) -eq [IntPtr]::Zero) {
                 Start-Process -FilePath (Join-Path $env:WINDIR 'explorer.exe') -WindowStyle Normal
@@ -146,6 +170,10 @@ if ($Bootstrap) {
         # Windows ARM runners may have no Explorer automation entry. Local WMI
         # can create a process on the user's desktop outside the runner Job.
         # A scheduled task cannot: its own Job also denies process breakaway.
+        Initialize-TaskbarProbe
+        Write-Output ("Runner launch " + [VistaCITaskbar]::Context())
+        $runnerTrayReady = [VistaCITaskbar]::Probe()
+        [VistaCITaskbar]::LastProbe | Write-Output
         $state = Get-Content -LiteralPath $statePath -Raw | ConvertFrom-Json
         $state | Add-Member -NotePropertyName start_explorer -NotePropertyValue $true
         $state | ConvertTo-Json | Set-Content -LiteralPath $statePath
