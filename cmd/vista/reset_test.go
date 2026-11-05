@@ -76,6 +76,13 @@ func TestNativeResetPort(t *testing.T) {
 		if output, err := cli("stop"); err != nil {
 			t.Errorf("cleanup: %v %s", err, output)
 		}
+		if t.Failed() {
+			data, err := os.ReadFile(filepath.Join(config, "state", "server.log"))
+			if len(data) > 8192 {
+				data = data[len(data)-8192:]
+			}
+			t.Logf("runtime log: %v\n%s", err, data)
+		}
 	})
 	if output, err := cli("start", "--port", strconv.Itoa(initialPort)); err != nil {
 		t.Fatalf("start: %v %s", err, output)
@@ -127,7 +134,19 @@ func TestNativeResetPort(t *testing.T) {
 	if err != nil || info.Address != targetURL {
 		t.Fatalf("instance discovery did not follow restart: %+v %v", info, err)
 	}
+	started := time.Now()
 	if output, err := cli("status"); err != nil || !strings.Contains(output, targetURL) {
-		t.Fatalf("CLI could not discover restarted runtime: %v %s", err, output)
+		t.Logf("CLI status after %s: %v %s", time.Since(started), err, output)
+		current, readErr := instance.Read(filepath.Join(config, "state"))
+		t.Logf("instance: %+v, read error: %v, process alive: %v", current, readErr, instance.IsAlive(current.PID))
+		started = time.Now()
+		response, requestErr := client.Get(targetURL + "/api/status")
+		if requestErr != nil {
+			t.Logf("direct status after %s: %v", time.Since(started), requestErr)
+		} else {
+			response.Body.Close()
+			t.Logf("direct status after %s: HTTP %d", time.Since(started), response.StatusCode)
+		}
+		t.Fatal("CLI could not discover restarted runtime")
 	}
 }
