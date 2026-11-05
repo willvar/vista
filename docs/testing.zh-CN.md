@@ -49,7 +49,7 @@ Go 单测／vet／竞态及前端检查在 Ubuntu 上运行。
 也可在本地使用 Python 3.11+ 运行，例如 `python3 scripts/ci_native.py --target linux/amd64`；本地报告会明确记录未提交源码状态。
 Windows 通过 [`ci_windows.ps1`](../scripts/ci_windows.ps1) 在交互式 Explorer 桌面中运行检查，避免 runner 外层的进程 Job 阻止应用脱离启动进程。
 
-可选的 Linux 浏览器任务安装与锁定 Playwright 包匹配的 Chromium，使用两个工作进程运行全部三个视口项目。
+可选的 Linux 浏览器矩阵安装与锁定 Playwright 包匹配的 Chromium，三个视口项目分别使用独立 runner，各运行两个工作进程。
 原生报告、压缩包和浏览器结果摘要保留三天，浏览器 trace／截图仅在失败时上传。
 runner 结果只证明实际运行的检查：跳过的交互式 Windows 托盘测试仍未经验证，模拟模型端点也不证明真实服务商兼容性。
 

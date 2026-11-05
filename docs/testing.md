@@ -49,7 +49,7 @@ The script uses the committed frontend assets and notices and produces `dev` val
 It can also run locally with Python 3.11+, for example `python3 scripts/ci_native.py --target linux/amd64`; local reports identify uncommitted source explicitly.
 On Windows, [`ci_windows.ps1`](../scripts/ci_windows.ps1) runs the checks through the interactive Explorer desktop so the runner's enclosing process Job does not prevent detached application startup.
 
-The optional Linux browser job installs the Chromium version matching the pinned Playwright package and runs all three viewport projects with two workers.
+The optional Linux browser matrix installs the Chromium version matching the pinned Playwright package and runs each of the three viewport projects on a separate runner with two workers.
 Native reports, archives and browser summaries are retained for three days; browser traces/screenshots are uploaded on failure only.
 Runner results establish the checks actually run: a skipped interactive Windows tray test remains unverified, and simulated model endpoints do not establish live-provider compatibility.
 

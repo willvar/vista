@@ -13,7 +13,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: runner-validation-${{ github.ref }}
+  group: runner-validation-${{ github.ref }}-${{ inputs.browser }}
   cancel-in-progress: true
 
 env:
@@ -105,11 +105,16 @@ jobs:
           if-no-files-found: error
 
   browser:
-    name: Linux browser checks
+    name: Linux browser ${{ matrix.project }}
     if: ${{ inputs.browser }}
     runs-on: ubuntu-24.04
-    timeout-minutes: 45
+    timeout-minutes: 35
+    strategy:
+      fail-fast: false
+      matrix:
+        project: [desktop, mobile-portrait, mobile-landscape]
     env:
+      BROWSER_PROJECT: ${{ matrix.project }}
       PLAYWRIGHT_JSON_OUTPUT_FILE: ${{ github.workspace }}/web/.vista/test-state/browser-report.json
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -129,23 +134,26 @@ jobs:
           npm ci
           npx playwright install --with-deps chromium
           node --input-type=module -e 'import { chromium } from "@playwright/test"; console.log("VISTA_CHROME=" + chromium.executablePath())' >> "$GITHUB_ENV"
-      - name: Run all browser projects
-        run: make test e2e E2E_ARGS="--max-failures=1 --workers=2 --reporter=list,json --global-timeout=2400000"
+      - name: Run viewport browser checks
+        run: make test e2e E2E_ARGS="--project=$BROWSER_PROJECT --max-failures=0 --workers=2 --reporter=list,json --global-timeout=1800000"
       - name: Retain the browser result summary
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: browser-results
+          name: browser-results-${{ matrix.project }}
           path: web/.vista/test-state/browser-report.json
           include-hidden-files: true
           retention-days: 3
           if-no-files-found: warn
+      - name: Collect failed-test diagnostic attachments
+        if: ${{ failure() }}
+        run: python3 scripts/ci_browser_artifacts.py
       - name: Retain failure traces and screenshots
         if: ${{ failure() }}
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: browser-failures
-          path: web/.vista/test-state/e2e-results/
+          name: browser-failures-${{ matrix.project }}
+          path: .vista/ci/browser-failures/
           include-hidden-files: true
           retention-days: 3
           if-no-files-found: warn

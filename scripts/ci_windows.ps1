@@ -9,13 +9,15 @@ $logPath = Join-Path $output 'desktop.log'
 
 if ($Desktop) {
     $exitCode = 1
+    "Desktop validation started: PID $PID, session $((Get-Process -Id $PID).SessionId)" |
+        Set-Content -LiteralPath $logPath
     try {
         $state = Get-Content -LiteralPath $statePath -Raw | ConvertFrom-Json
         foreach ($entry in $state.environment.PSObject.Properties) {
             [Environment]::SetEnvironmentVariable($entry.Name, $entry.Value, 'Process')
         }
         Set-Location -LiteralPath $root
-        & $state.python -u scripts/ci_native.py --target windows/amd64 *> $logPath
+        & $state.python -u scripts/ci_native.py --target windows/amd64 *>> $logPath
         $exitCode = $LASTEXITCODE
     } catch {
         $_ | Out-String | Add-Content -LiteralPath $logPath
@@ -48,14 +50,24 @@ $desktopHwnd = 0
 $desktopWindow = $shell.Windows().FindWindowSW(0, 0, 8, [ref]$desktopHwnd, 1)
 if ($null -eq $desktopWindow) { throw 'An interactive Explorer desktop is required for native Windows validation.' }
 $powershell = (Get-Process -Id $PID).Path
+Write-Output 'Launching native Windows checks through Explorer.'
 $desktopWindow.Document.Application.ShellExecute($powershell,
     ('-NoProfile -ExecutionPolicy Bypass -File "' + $PSCommandPath + '" -Desktop'), $root, 'open', 0)
 
 $deadline = [DateTime]::UtcNow.AddMinutes(20)
+$startDeadline = [DateTime]::UtcNow.AddSeconds(45)
+$linesRead = 0
 while (-not (Test-Path -LiteralPath $resultPath)) {
+    if (Test-Path -LiteralPath $logPath) {
+        $lines = @(Get-Content -LiteralPath $logPath)
+        $lines | Select-Object -Skip $linesRead
+        $linesRead = $lines.Count
+    } elseif ([DateTime]::UtcNow -gt $startDeadline) {
+        throw 'Explorer did not start the native Windows validation process within 45 seconds.'
+    }
     if ([DateTime]::UtcNow -gt $deadline) { throw 'Native Windows validation did not finish within 20 minutes.' }
     Start-Sleep -Seconds 1
 }
-Get-Content -LiteralPath $logPath
+Get-Content -LiteralPath $logPath | Select-Object -Skip $linesRead
 $result = Get-Content -LiteralPath $resultPath -Raw | ConvertFrom-Json
 exit $result.exit_code
