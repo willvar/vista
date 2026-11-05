@@ -36,22 +36,29 @@ Make builds test executables under `.vista/test-state/bin` and uses separate con
 
 `E2E_ARGS` passes options to Playwright without changing the default projects, for example `make test e2e E2E_ARGS='--max-failures=1 --workers=2'`.
 
-## GitHub runner validation
+## GitHub builds and releases
 
-[`validate.yml`](../.github/workflows/validate.yml) accepts manual `workflow_dispatch` runs only; it has read-only repository permissions and does not publish releases or respond to tags.
-Run it from Actions → Runner validation, or `gh workflow run validate.yml -f browser=true`.
+[`validate.yml`](../.github/workflows/validate.yml) accepts manual `workflow_dispatch` runs and pushes of `v*` tags.
+Run checks without publishing from Actions → Build and release, or `gh workflow run validate.yml -f browser=true`.
+Manual branch runs build `dev` archives; tag runs use the tag's `vMAJOR.MINOR.PATCH` version.
 
 Go units/vet/race and frontend checks run on Ubuntu.
-The native matrix builds and packages committed source separately on Linux x86-64, Windows x86-64, Intel macOS and Apple Silicon macOS.
+The native matrix builds and packages committed source separately for x86-64 and ARM64 on Linux, Windows and macOS, covering all six system/architecture combinations.
 [`ci_native.py`](../scripts/ci_native.py) rejects a cross-compiled target, checks source/platform build metadata, verifies archive contents and checksums, and runs the unpacked executable through the existing application, platform and MCP-host tests.
 Its report lists the toolchain, source commit, executable/archive hashes and skipped tests; mandatory application and process checks must pass.
-The script uses the committed frontend assets and notices and produces `dev` validation archives.
-It can also run locally with Python 3.11+, for example `python3 scripts/ci_native.py --target linux/amd64`; local reports identify uncommitted source explicitly.
+The script uses the committed frontend assets, UA versions and notices without rewriting them.
+It can also run locally with Python 3.11+, for example `python3 scripts/ci_native.py --target linux/amd64 --version dev`; local reports identify uncommitted source explicitly.
 On Windows, [`ci_windows.ps1`](../scripts/ci_windows.ps1) runs the checks through the interactive Explorer desktop so the runner's enclosing process Job does not prevent detached application startup.
 
-The optional Linux browser matrix installs the Chromium version matching the pinned Playwright package and runs each of the three viewport projects on a separate runner with two workers.
+The Linux browser matrix installs the Chromium version matching the pinned Playwright package and runs each of the three viewport projects on a separate runner with two workers.
+Manual runs may disable it; pushed release tags always run it.
 Native reports, archives and browser summaries are retained for three days; browser traces/screenshots are uploaded on failure only.
 Runner results establish the checks actually run: a skipped interactive Windows tray test remains unverified, and simulated model endpoints do not establish live-provider compatibility.
+
+Pushing an annotated `vMAJOR.MINOR.PATCH` tag starts an automatic release.
+The tag message supplies the release notes; use a signed tag with the concise English release description.
+After all checks pass, [`ci_release.py`](../scripts/ci_release.py) verifies every native report's source, version, result and archive checksum, then combines the exact tested archives with one `SHA256SUMS` file.
+Only the publishing job has repository write permission; it creates a regular GitHub Release after uploading the archives, without rebuilding or replacing an existing published release.
 
 ## Target-platform application checks
 

@@ -14,6 +14,13 @@ import zipfile
 
 
 ROOT = Path(__file__).resolve().parent.parent
+TARGETS = ("linux/amd64", "linux/arm64", "windows/amd64", "windows/arm64", "darwin/amd64", "darwin/arm64")
+
+
+def build_version(value):
+    if value != "dev" and not re.fullmatch(r"v(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)", value):
+        raise argparse.ArgumentTypeError("version must be dev or vMAJOR.MINOR.PATCH")
+    return value
 
 
 def sha256(path):
@@ -101,7 +108,8 @@ def native_tests(binary, output, env):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--target", required=True, choices=["linux/amd64", "windows/amd64", "darwin/amd64", "darwin/arm64"])
+    parser.add_argument("--target", required=True, choices=TARGETS)
+    parser.add_argument("--version", type=build_version, default="dev")
     args = parser.parse_args()
     env = {key: value for key, value in os.environ.items() if not key.startswith("VISTA_")}
     env.update(GOWORK="off", CGO_ENABLED="0", VISTA_NO_BROWSER="1",
@@ -115,14 +123,14 @@ def main():
     dirty = bool(run(["git", "status", "--porcelain"], env).strip())
     if os.environ.get("GITHUB_ACTIONS") == "true" and (dirty or source != os.environ["GITHUB_SHA"]):
         raise ValueError("runner source must be clean and match the dispatched commit")
-    output = ROOT / ".vista/ci/native" / args.target.replace("/", "_")
+    output = ROOT / ".vista/ci/native" / (args.target.replace("/", "_") + "_" + args.version)
     output.mkdir(parents=True, exist_ok=True)
-    report = {"source_commit": source, "source_modified": dirty, "version": "dev",
+    report = {"source_commit": source, "source_modified": dirty, "version": args.version,
               "target": args.target, "go": go, "runner_os": os.environ.get("RUNNER_OS"),
               "runner_arch": os.environ.get("RUNNER_ARCH"), "status": "running"}
     try:
         binary = output / ("vista.exe" if go["GOOS"] == "windows" else "vista")
-        run(["go", "build", "-trimpath", "-ldflags=-s -w -X vista/internal/buildinfo.Version=dev",
+        run(["go", "build", "-trimpath", "-ldflags=-s -w -X vista/internal/buildinfo.Version=" + args.version,
              "-o", str(binary), "./cmd/vista"], env)
         metadata = run(["go", "version", "-m", str(binary)], env)
         settings = dict(re.findall(r"^\s*build\s+(\S+)=(.*)$", metadata, re.M))
@@ -131,7 +139,7 @@ def main():
             if settings.get(key) != expected:
                 raise ValueError("binary metadata mismatch for " + key)
         archive = Path(run([sys.executable, "scripts/package_release.py", "--binary", str(binary),
-                            "--version", "dev", "--output-dir", str(output / "dist")], env).strip())
+                            "--version", args.version, "--output-dir", str(output / "dist")], env).strip())
         report.update(binary_sha256=sha256(binary), archive=archive.name, archive_sha256=sha256(archive),
                       archive_size=archive.stat().st_size, build_metadata=metadata)
         expected_checksum = report["archive_sha256"] + "  " + archive.name + "\n"
@@ -155,7 +163,7 @@ def main():
                     stream.write(f"Passed: {tests['passed']}; skipped: {len(tests['skipped'])}.\n\n")
                     for skipped in tests["skipped"]:
                         stream.write(f"- Skipped: `{skipped['package']}/{skipped['test']}`: {skipped['reason']}\n")
-                stream.write("\nValidation archives only; no release was published.\n")
+                stream.write("\nArchives validated; publication is a separate workflow job.\n")
         print(json.dumps(report, indent=2), flush=True)
 
 

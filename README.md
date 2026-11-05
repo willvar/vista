@@ -9,6 +9,7 @@ Vista is a general-purpose agent for Linux, Windows, and macOS. Describe a goal 
 ## Getting started
 
 Download the archive for your system from [GitHub Releases](https://github.com/willvar/vista/releases/latest) and extract it.
+Linux, Windows, and macOS each provide x86-64 (`amd64`) and ARM64 (`arm64`) archives.
 
 Run `vista`; on Windows, you can also double-click `vista.exe`. It starts the service in the background and opens the default browser. Opening it again uses the running instance. The default address is `http://127.0.0.1:5186/`.
 
@@ -41,7 +42,9 @@ make build
 After `make web`, cross-compile the executable with:
 
 ```sh
+GOWORK=off CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -o bin/vista-linux-arm64 ./cmd/vista
 GOWORK=off CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -o bin/vista-windows-amd64.exe ./cmd/vista
+GOWORK=off CGO_ENABLED=0 GOOS=windows GOARCH=arm64 go build -o bin/vista-windows-arm64.exe ./cmd/vista
 GOWORK=off CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build -o bin/vista-darwin-arm64 ./cmd/vista
 GOWORK=off CGO_ENABLED=0 GOOS=darwin GOARCH=amd64 go build -o bin/vista-darwin-amd64 ./cmd/vista
 ```

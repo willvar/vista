@@ -9,6 +9,7 @@ Vista 是适用于 Linux、Windows 和 macOS 的通用型智能体。在浏览�
 ## 开始使用
 
 从 [GitHub Releases](https://github.com/willvar/vista/releases/latest) 下载适合当前系统的压缩包并解压。
+Linux、Windows 和 macOS 均提供 x86-64（`amd64`）与 ARM64（`arm64`）版本。
 
 运行 `vista`；Windows 也可以直接双击 `vista.exe`。它会在后台启动服务并打开默认浏览器，再次打开会复用已运行的实例。默认地址为 `http://127.0.0.1:5186/`。
 
@@ -41,7 +42,9 @@ make build
 执行 `make web` 后，可交叉编译：
 
 ```sh
+GOWORK=off CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -o bin/vista-linux-arm64 ./cmd/vista
 GOWORK=off CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -o bin/vista-windows-amd64.exe ./cmd/vista
+GOWORK=off CGO_ENABLED=0 GOOS=windows GOARCH=arm64 go build -o bin/vista-windows-arm64.exe ./cmd/vista
 GOWORK=off CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build -o bin/vista-darwin-arm64 ./cmd/vista
 GOWORK=off CGO_ENABLED=0 GOOS=darwin GOARCH=amd64 go build -o bin/vista-darwin-amd64 ./cmd/vista
 ```

@@ -1,4 +1,4 @@
-param([switch]$Desktop, [switch]$Bootstrap)
+param([switch]$Desktop, [switch]$Bootstrap, [string]$Target = 'windows/amd64', [string]$Version = 'dev')
 
 $ErrorActionPreference = 'Stop'
 $root = Split-Path $PSScriptRoot -Parent
@@ -17,7 +17,7 @@ if ($Desktop) {
             [Environment]::SetEnvironmentVariable($entry.Name, $entry.Value, 'Process')
         }
         Set-Location -LiteralPath $root
-        & $state.python -u scripts/ci_native.py --target windows/amd64 *>> $logPath
+        & $state.python -u scripts/ci_native.py --target $state.target --version $state.version *>> $logPath
         $exitCode = $LASTEXITCODE
     } catch {
         $_ | Out-String | Add-Content -LiteralPath $logPath
@@ -51,7 +51,7 @@ foreach ($name in @('PATH', 'GOPATH', 'GOCACHE', 'GOTOOLCHAIN', 'GOWORK', 'CGO_E
     $value = [Environment]::GetEnvironmentVariable($name)
     if ($null -ne $value) { $environment[$name] = $value }
 }
-@{ python = (Get-Command python).Source; environment = $environment } |
+@{ python = (Get-Command python).Source; environment = $environment; target = $Target; version = $Version } |
     ConvertTo-Json | Set-Content -LiteralPath $statePath
 
 # The hosted runner's enclosing Job can forbid CREATE_BREAKAWAY_FROM_JOB.

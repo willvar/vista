@@ -1,7 +1,9 @@
-name: Runner validation
-run-name: Validate runners at ${{ github.ref_name }}
+name: Build and release
+run-name: Validate and package ${{ github.ref_name }}
 
 on:
+  push:
+    tags: ['v*']
   workflow_dispatch:
     inputs:
       browser:
@@ -13,14 +15,15 @@ permissions:
   contents: read
 
 concurrency:
-  group: runner-validation-${{ github.ref }}-${{ inputs.browser }}
-  cancel-in-progress: true
+  group: vista-build-${{ github.ref }}-${{ github.event_name }}-${{ inputs.browser }}
+  cancel-in-progress: ${{ github.event_name != 'push' }}
 
 env:
   GOWORK: "off"
   CGO_ENABLED: "0"
   CI_GO_VERSION: "1.27.3"
   CI_NODE_VERSION: "26.4.0"
+  VISTA_BUILD_VERSION: ${{ github.ref_type == 'tag' && github.ref_name || 'dev' }}
   VISTA_NO_BROWSER: "1"
   VISTA_WEBSEARCH_EXA_ENDPOINT: http://127.0.0.1:1/exa
   VISTA_WEBSEARCH_FIRECRAWL_ENDPOINT: http://127.0.0.1:1/firecrawl
@@ -35,6 +38,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+          fetch-depth: 0
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version: ${{ env.CI_GO_VERSION }}
@@ -43,8 +47,16 @@ jobs:
           node-version: ${{ env.CI_NODE_VERSION }}
           cache: npm
           cache-dependency-path: web/package-lock.json
+      - name: Check release tag and artifact safeguards
+        run: |
+          python3 -m unittest discover -s scripts -p 'ci_*_test.py'
+          if [ "$GITHUB_REF_TYPE" = tag ]; then
+            python3 scripts/ci_release.py --version "$VISTA_BUILD_VERSION" --source "$GITHUB_SHA" --check-tag
+          fi
       - name: Check Go, race safety, frontend types and units
         run: make test go frontend
+      - name: Check bundled license notices
+        run: node scripts/update_licenses.mjs --check
       - name: Check generated frontend files
         run: git diff --exit-code
 
@@ -59,9 +71,15 @@ jobs:
           - runner: ubuntu-24.04
             target: linux/amd64
             artifact: linux-amd64
+          - runner: ubuntu-24.04-arm
+            target: linux/arm64
+            artifact: linux-arm64
           - runner: windows-2025
             target: windows/amd64
             artifact: windows-amd64
+          - runner: windows-11-arm
+            target: windows/arm64
+            artifact: windows-arm64
           - runner: macos-15-intel
             target: darwin/amd64
             artifact: darwin-amd64
@@ -82,11 +100,13 @@ jobs:
         if: runner.os != 'Windows'
         env:
           NATIVE_TARGET: ${{ matrix.target }}
-        run: python scripts/ci_native.py --target "$NATIVE_TARGET"
+        run: python scripts/ci_native.py --target "$NATIVE_TARGET" --version "$VISTA_BUILD_VERSION"
         shell: bash
       - name: Build, unpack and run the Windows desktop application
         if: runner.os == 'Windows'
-        run: ./scripts/ci_windows.ps1
+        env:
+          NATIVE_TARGET: ${{ matrix.target }}
+        run: ./scripts/ci_windows.ps1 -Target $env:NATIVE_TARGET -Version $env:VISTA_BUILD_VERSION
         shell: pwsh
       - name: Retain native evidence and validation archives
         if: ${{ !cancelled() }}
@@ -107,7 +127,7 @@ jobs:
 
   browser:
     name: Linux browser ${{ matrix.project }}
-    if: ${{ inputs.browser }}
+    if: ${{ github.event_name == 'push' || inputs.browser }}
     runs-on: ubuntu-24.04
     timeout-minutes: 35
     strategy:
@@ -158,3 +178,27 @@ jobs:
           include-hidden-files: true
           retention-days: 3
           if-no-files-found: warn
+
+  release:
+    name: Publish tested archives
+    if: ${{ github.event_name == 'push' && github.ref_type == 'tag' }}
+    needs: [core, native, browser]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: native-*
+          path: .vista/ci/artifacts
+      - name: Verify tested archives and combine checksums
+        run: python3 scripts/ci_release.py --version "$VISTA_BUILD_VERSION" --source "$GITHUB_SHA"
+      - name: Create release with the tag's notes
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$VISTA_BUILD_VERSION" .vista/ci/release/* --verify-tag --title "$VISTA_BUILD_VERSION" --notes-from-tag
