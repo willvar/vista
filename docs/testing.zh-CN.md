@@ -34,6 +34,24 @@ make test all
 
 Make 在 `.vista/test-state/bin` 构建隔离测试产物，使用独立配置和端口，不替换 `bin/vista` 或重启用户实例。浏览器状态、trace、截图和 HTML 报告位于 `web/.vista/test-state/`，见[前端检查](../web/README.zh-CN.md)。
 
+可用 `E2E_ARGS` 向 Playwright 传递选项，保留默认项目，例如 `make test e2e E2E_ARGS='--max-failures=1 --workers=2'`。
+
+## GitHub runner 验证
+
+[`validate.yml`](../.github/workflows/validate.yml) 仅接受手动 `workflow_dispatch` 运行，仓库权限只读，不发布 Release，也不响应 tag。
+可在 Actions → Runner validation 中运行，或执行 `gh workflow run validate.yml -f browser=true`。
+
+Go 单测／vet／竞态及前端检查在 Ubuntu 上运行。
+原生矩阵分别在 Linux x86-64、Windows x86-64、Intel macOS 和 Apple Silicon macOS 上构建并打包已提交源码。
+[`ci_native.py`](../scripts/ci_native.py) 拒绝交叉编译目标，校验源码／平台构建信息、压缩包内容及校验和，再用解压后的可执行文件运行现有应用、平台和 MCP host 测试。
+报告列出工具链、源码提交、二进制／压缩包哈希及跳过项，必要的应用及进程检查必须通过。
+脚本使用已提交的前端资源和许可声明，生成 `dev` 验证压缩包。
+也可在本地使用 Python 3.11+ 运行，例如 `python3 scripts/ci_native.py --target linux/amd64`；本地报告会明确记录未提交源码状态。
+
+可选的 Linux 浏览器任务安装与锁定 Playwright 包匹配的 Chromium，使用两个工作进程运行全部三个视口项目。
+原生报告、压缩包和浏览器结果摘要保留三天，浏览器 trace／截图仅在失败时上传。
+runner 结果只证明实际运行的检查：跳过的交互式 Windows 托盘测试仍未经验证，模拟模型端点也不证明真实服务商兼容性。
+
 ## 目标平台应用检查
 
 为目标操作系统构建应用，并在该平台运行应用测试：

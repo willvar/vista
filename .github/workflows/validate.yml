@@ -1,0 +1,144 @@
+name: Runner validation
+run-name: Validate runners at ${{ github.ref_name }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      browser:
+        description: Run the complete Linux browser suite
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: runner-validation-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  GOWORK: "off"
+  CGO_ENABLED: "0"
+  CI_GO_VERSION: "1.27.3"
+  CI_NODE_VERSION: "26.4.0"
+  VISTA_NO_BROWSER: "1"
+  VISTA_WEBSEARCH_EXA_ENDPOINT: http://127.0.0.1:1/exa
+  VISTA_WEBSEARCH_FIRECRAWL_ENDPOINT: http://127.0.0.1:1/firecrawl
+  VISTA_WEBSEARCH_PARALLEL_ENDPOINT: http://127.0.0.1:1/parallel
+
+jobs:
+  core:
+    name: Go and frontend checks
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: ${{ env.CI_GO_VERSION }}
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: ${{ env.CI_NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: Check Go, race safety, frontend types and units
+        run: make test go frontend
+      - name: Check generated frontend files
+        run: git diff --exit-code
+
+  native:
+    name: Native ${{ matrix.target }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            target: linux/amd64
+            artifact: linux-amd64
+          - runner: windows-2025
+            target: windows/amd64
+            artifact: windows-amd64
+          - runner: macos-15-intel
+            target: darwin/amd64
+            artifact: darwin-amd64
+          - runner: macos-15
+            target: darwin/arm64
+            artifact: darwin-arm64
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: ${{ env.CI_GO_VERSION }}
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.14"
+      - name: Build, unpack and run the native application
+        env:
+          NATIVE_TARGET: ${{ matrix.target }}
+        run: python scripts/ci_native.py --target "$NATIVE_TARGET"
+        shell: bash
+      - name: Retain native evidence and validation archives
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: native-${{ matrix.artifact }}
+          path: |
+            .vista/ci/native/*/report.json
+            .vista/ci/native/*/native-tests.jsonl
+            .vista/ci/native/*/dist/*
+          include-hidden-files: true
+          retention-days: 3
+          compression-level: 0
+          if-no-files-found: error
+
+  browser:
+    name: Linux browser checks
+    if: ${{ inputs.browser }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    env:
+      PLAYWRIGHT_JSON_OUTPUT_FILE: ${{ github.workspace }}/web/.vista/test-state/browser-report.json
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: ${{ env.CI_GO_VERSION }}
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: ${{ env.CI_NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: Install the locked browser runtime
+        working-directory: web
+        run: |
+          npm ci
+          npx playwright install --with-deps chromium
+          node --input-type=module -e 'import { chromium } from "@playwright/test"; console.log("VISTA_CHROME=" + chromium.executablePath())' >> "$GITHUB_ENV"
+      - name: Run all browser projects
+        run: make test e2e E2E_ARGS="--max-failures=1 --workers=2 --reporter=list,json --global-timeout=2400000"
+      - name: Retain the browser result summary
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: browser-results
+          path: web/.vista/test-state/browser-report.json
+          include-hidden-files: true
+          retention-days: 3
+          if-no-files-found: warn
+      - name: Retain failure traces and screenshots
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: browser-failures
+          path: web/.vista/test-state/e2e-results/
+          include-hidden-files: true
+          retention-days: 3
+          if-no-files-found: warn

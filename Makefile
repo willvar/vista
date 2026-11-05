@@ -12,6 +12,7 @@ TEST_E2E_BIN := $(TEST_STATE)/bin/vista-e2e
 TEST_MCP_FIXTURE := $(TEST_STATE)/bin/mcp-fixture
 TEST_ENV = VISTA_BIN="$(TEST_BIN)" VISTA_MCP_FIXTURE="$(TEST_MCP_FIXTURE)" VISTA_TEST_TMPDIR="$(TEST_STATE)"
 VISTA_CHROME ?= $(shell command -v google-chrome || command -v google-chrome-stable || command -v chromium || command -v chromium-browser)
+E2E_ARGS ?= --max-failures=1
 HARBOR_PYTHON ?= $(CURDIR)/.vista/benchmarks/harbor/venv/bin/python
 BENCHMARK_ARGS ?= --help
 
@@ -114,7 +115,7 @@ test-mcp-fixture:
 e2e: check-browser web
 	mkdir -p "$(TEST_STATE)/bin"
 	GOWORK=off CGO_ENABLED=0 go build -ldflags="$(BUILD_LDFLAGS)" -o "$(TEST_E2E_BIN)" ./cmd/vista
-	VISTA_BIN="$(TEST_E2E_BIN)" VISTA_CHROME="$(VISTA_CHROME)" npm --prefix web run test:e2e -- --max-failures=1
+	VISTA_BIN="$(TEST_E2E_BIN)" VISTA_CHROME="$(VISTA_CHROME)" npm --prefix web run test:e2e -- $(E2E_ARGS)
 
 integration: check-sqlite test-bin
 	VISTA_TEST_BINARY="$(TEST_BIN)" GOWORK=off CGO_ENABLED=0 go test ./cmd/vista -run '^TestNative(Application|ResetPort|WindowsDesktopLauncher|WindowsTray.*)$$' -count=1
