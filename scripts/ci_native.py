@@ -130,6 +130,11 @@ def main():
               "target": args.target, "go": go, "runner_os": os.environ.get("RUNNER_OS"),
               "runner_arch": os.environ.get("RUNNER_ARCH"), "status": "running"}
     try:
+        if sys.platform == "win32":
+            # Check the launch context before building. Both Actions and Task
+            # Scheduler can put processes in Jobs that forbid real detachment.
+            subprocess.run([sys.executable, "-c", "pass"], env=env, check=True,
+                           creationflags=subprocess.CREATE_BREAKAWAY_FROM_JOB)
         binary = output / ("vista.exe" if go["GOOS"] == "windows" else "vista")
         run(["go", "build", "-trimpath", "-ldflags=-s -w -X vista/internal/buildinfo.Version=" + args.version,
              "-o", str(binary), "./cmd/vista"], env)

@@ -56,18 +56,24 @@ if ($Bootstrap) {
     if ($null -ne $desktopWindow) {
         $desktopWindow.Document.Application.ShellExecute($powershell, $arguments, $root, 'open', 0)
     } else {
-        # Windows ARM runners may have no Explorer automation entry. An
-        # interactive task runs outside the runner Job without storing a password.
+        # Windows ARM runners may have no Explorer automation entry. Local WMI
+        # can create a process on the user's desktop outside the runner Job.
+        # A scheduled task cannot: its own Job also denies process breakaway.
         $state = Get-Content -LiteralPath $statePath -Raw | ConvertFrom-Json
         $state | Add-Member -NotePropertyName start_explorer -NotePropertyValue $true
         $state | ConvertTo-Json | Set-Content -LiteralPath $statePath
-        $action = New-ScheduledTaskAction -Execute $powershell -Argument $arguments -WorkingDirectory $root
-        $principal = New-ScheduledTaskPrincipal -UserId ([System.Security.Principal.WindowsIdentity]::GetCurrent().Name) `
-            -LogonType Interactive -RunLevel Limited
-        $settings = New-ScheduledTaskSettingsSet -ExecutionTimeLimit (New-TimeSpan -Minutes 22)
-        Register-ScheduledTask -TaskName $state.task_name -Action $action -Principal $principal -Settings $settings | Out-Null
-        Start-ScheduledTask -TaskName $state.task_name
-        Write-Output 'Launched native Windows checks through an interactive scheduled task.'
+        $startup = New-CimInstance -ClassName Win32_ProcessStartup -ClientOnly -Property @{
+            CreateFlags = [uint32]0x01000000 # CREATE_BREAKAWAY_FROM_JOB
+            ShowWindow = [uint16]0
+            WinstationDesktop = 'winsta0\default'
+        }
+        $created = Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments @{
+            CommandLine = '"' + $powershell + '" ' + $arguments
+            CurrentDirectory = $root
+            ProcessStartupInformation = $startup
+        }
+        if ($created.ReturnValue -ne 0) { throw "Local WMI desktop launch failed: $($created.ReturnValue)." }
+        Write-Output "Launched native Windows checks through local WMI: PID $($created.ProcessId)."
     }
     exit 0
 }
@@ -83,8 +89,7 @@ foreach ($name in @('PATH', 'GOPATH', 'GOCACHE', 'GOTOOLCHAIN', 'GOWORK', 'CGO_E
     $value = [Environment]::GetEnvironmentVariable($name)
     if ($null -ne $value) { $environment[$name] = $value }
 }
-$taskName = 'VistaNativeValidation-' + $PID
-@{ python = (Get-Command python).Source; environment = $environment; target = $Target; version = $Version; task_name = $taskName } |
+@{ python = (Get-Command python).Source; environment = $environment; target = $Target; version = $Version } |
     ConvertTo-Json | Set-Content -LiteralPath $statePath
 
 # The hosted runner's enclosing Job can forbid CREATE_BREAKAWAY_FROM_JOB.
@@ -119,11 +124,6 @@ try {
     }
 } finally {
     if (-not $bootstrapProcess.HasExited) { Stop-Process -Id $bootstrapProcess.Id -Force }
-    $scheduled = Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
-    if ($null -ne $scheduled) {
-        $scheduled | Stop-ScheduledTask -ErrorAction SilentlyContinue
-        $scheduled | Unregister-ScheduledTask -Confirm:$false
-    }
     Get-Content -LiteralPath $bootstrapLog, $bootstrapError -ErrorAction SilentlyContinue
 }
 Get-Content -LiteralPath $logPath | Select-Object -Skip $linesRead

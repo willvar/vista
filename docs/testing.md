@@ -48,8 +48,9 @@ The native matrix builds and packages committed source separately for x86-64 and
 Its report lists the toolchain, source commit, executable/archive hashes and skipped tests; mandatory application and process checks must pass.
 The script uses the committed frontend assets, UA versions and notices without rewriting them.
 It can also run locally with Python 3.11+, for example `python3 scripts/ci_native.py --target linux/amd64 --version dev`; local reports identify uncommitted source explicitly.
-On Windows, [`ci_windows.ps1`](../scripts/ci_windows.ps1) runs the checks through Explorer or an interactive scheduled task so the runner's enclosing process Job does not prevent detached application startup.
-When the runner lacks an Explorer desktop entry, the task starts Explorer and requires a ready taskbar before validation; desktop-launch, tray and native status tests must pass on both architectures.
+On Windows, [`ci_windows.ps1`](../scripts/ci_windows.ps1) runs the checks through Explorer or a local WMI desktop process so the runner's enclosing process Job does not prevent detached application startup.
+When the runner lacks an Explorer desktop entry, the process starts Explorer and requires a ready taskbar before validation; desktop-launch, tray and native status tests must pass on both architectures.
+The native script checks process-breakaway permission before building, without changing the application's launch flags.
 
 The Linux browser matrix installs the Chromium version matching the pinned Playwright package and runs each of the three viewport projects on a separate runner with two workers.
 Manual runs may disable it; pushed release tags always run it.
