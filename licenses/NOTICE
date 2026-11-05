@@ -592,7 +592,7 @@ models.dev@runtime catalog
   Source: https://github.com/anomalyco/models.dev
   LICENSE: dc2dc41c9fea2fd3c41c21c6f484844cab367800b88ff24781f980ad3a9d160a
 
-Go standard library@go1.27.3-X:nodwarf5
+Go standard library@go1.27.3
   Use: Runtime
   Source: https://go.dev/LICENSE
   LICENSE: 911f8f5782931320f5b8d1160a76365b83aea6447ee6c04fa6d5591467db9dad

@@ -128,7 +128,9 @@ async function goNotices() {
   // compiler's test fixtures or tools, which are not shipped with Vista.
   const stdlib = await licenseFiles(join(toolchain.GOROOT, 'src'), true)
   files.push(...stdlib.filter(item => !item.name.startsWith('cmd/') && !item.name.includes('/testdata/')))
-  entries.push({ name: 'Go standard library', version: toolchain.GOVERSION, scope: 'Runtime', source: 'https://go.dev/LICENSE', files })
+  // Compiler experiment suffixes do not change the standard library's source
+  // release. Keep its full license texts; build metadata records the toolchain.
+  entries.push({ name: 'Go standard library', version: toolchain.GOVERSION.split('-X:')[0], scope: 'Runtime', source: 'https://go.dev/LICENSE', files })
   return entries
 }
 
