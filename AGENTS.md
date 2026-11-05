@@ -72,4 +72,6 @@ Keep each commit focused on one related group. Implementation and directly relat
 
 The formal remote is [willvar/vista](https://github.com/willvar/vista).
 
+Use a temporary branch for iterative CI and cross-platform runner investigations. After validation, consolidate exploratory commits into focused, signed commits before merging into `main`; retain regression tests and diagnostics with lasting value.
+
 Commit or push only when the user explicitly requests that operation. Authorization to edit, build, or test does not authorize a commit or push. Keep all Git operations within the requested scope.
