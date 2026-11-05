@@ -160,6 +160,19 @@ if ($Desktop) {
         if ($state.start_explorer) {
             Initialize-TaskbarProbe
             [VistaCITaskbar]::Context() | Add-Content -LiteralPath $logPath
+            if ($env:GITHUB_ACTIONS -eq 'true' -and $state.target -eq 'windows/arm64') {
+                # Hosted ARM64 images can leave first-logon privacy setup over
+                # the desktop: actions/runner-images#14069. The policy prevents
+                # relaunch; WWAHost must also exit if the wizard is already open.
+                $policy = 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\OOBE'
+                New-Item -Path $policy -Force | Out-Null
+                New-ItemProperty -Path $policy -Name DisablePrivacyExperience -Value 1 -PropertyType DWord -Force | Out-Null
+                Get-Process -Name WWAHost -ErrorAction SilentlyContinue |
+                    Where-Object SessionId -EQ (Get-Process -Id $PID).SessionId | Stop-Process -Force
+                # Closing privacy setup can leave the full-screen Start menu.
+                (New-Object -ComObject WScript.Shell).SendKeys('{ESC}')
+                'Dismissed the hosted ARM64 first-logon privacy experience.' | Add-Content -LiteralPath $logPath
+            }
             if ([VistaCITaskbar]::FindWindow('Shell_TrayWnd', $null) -eq [IntPtr]::Zero) {
                 Start-Process -FilePath (Join-Path $env:WINDIR 'explorer.exe') -WindowStyle Normal
                 $shellDeadline = [DateTime]::UtcNow.AddSeconds(30)
