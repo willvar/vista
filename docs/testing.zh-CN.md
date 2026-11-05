@@ -47,6 +47,7 @@ Go 单测／vet／竞态及前端检查在 Ubuntu 上运行。
 报告列出工具链、源码提交、二进制／压缩包哈希及跳过项，必要的应用及进程检查必须通过。
 脚本使用已提交的前端资源和许可声明，生成 `dev` 验证压缩包。
 也可在本地使用 Python 3.11+ 运行，例如 `python3 scripts/ci_native.py --target linux/amd64`；本地报告会明确记录未提交源码状态。
+Windows 通过 [`ci_windows.ps1`](../scripts/ci_windows.ps1) 在交互式 Explorer 桌面中运行检查，避免 runner 外层的进程 Job 阻止应用脱离启动进程。
 
 可选的 Linux 浏览器任务安装与锁定 Playwright 包匹配的 Chromium，使用两个工作进程运行全部三个视口项目。
 原生报告、压缩包和浏览器结果摘要保留三天，浏览器 trace／截图仅在失败时上传。

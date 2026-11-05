@@ -79,10 +79,15 @@ jobs:
         with:
           python-version: "3.14"
       - name: Build, unpack and run the native application
+        if: runner.os != 'Windows'
         env:
           NATIVE_TARGET: ${{ matrix.target }}
         run: python scripts/ci_native.py --target "$NATIVE_TARGET"
         shell: bash
+      - name: Build, unpack and run the Windows desktop application
+        if: runner.os == 'Windows'
+        run: ./scripts/ci_windows.ps1
+        shell: pwsh
       - name: Retain native evidence and validation archives
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -92,6 +97,8 @@ jobs:
             .vista/ci/native/*/report.json
             .vista/ci/native/*/native-tests.jsonl
             .vista/ci/native/*/dist/*
+            .vista/ci/windows/desktop.log
+            .vista/ci/windows/result.json
           include-hidden-files: true
           retention-days: 3
           compression-level: 0

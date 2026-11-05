@@ -47,6 +47,7 @@ The native matrix builds and packages committed source separately on Linux x86-6
 Its report lists the toolchain, source commit, executable/archive hashes and skipped tests; mandatory application and process checks must pass.
 The script uses the committed frontend assets and notices and produces `dev` validation archives.
 It can also run locally with Python 3.11+, for example `python3 scripts/ci_native.py --target linux/amd64`; local reports identify uncommitted source explicitly.
+On Windows, [`ci_windows.ps1`](../scripts/ci_windows.ps1) runs the checks through the interactive Explorer desktop so the runner's enclosing process Job does not prevent detached application startup.
 
 The optional Linux browser job installs the Chromium version matching the pinned Playwright package and runs all three viewport projects with two workers.
 Native reports, archives and browser summaries are retained for three days; browser traces/screenshots are uploaded on failure only.
