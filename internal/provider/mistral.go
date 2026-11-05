@@ -221,7 +221,7 @@ type mistralCall struct {
 	args     strings.Builder
 }
 
-func parseMistralStreamWithReasoning(body io.Reader, onText, onReasoning func(string) error) (Turn, error) {
+func parseMistralStreamWithReasoning(body io.Reader, onText, onReasoning func(string) error) (result Turn, resultErr error) {
 	scanner := bufio.NewScanner(body)
 	scanner.Buffer(make([]byte, 4096), maxEventBytes)
 	var payload strings.Builder
@@ -252,6 +252,7 @@ func parseMistralStreamWithReasoning(body io.Reader, onText, onReasoning func(st
 	finish := ""
 	done := false
 	var usage *ModelUsage
+	defer retainUsage(&result, &usage)
 	consume := func(raw string) error {
 		if raw == "[DONE]" {
 			done = true
@@ -287,9 +288,6 @@ func parseMistralStreamWithReasoning(body io.Reader, onText, onReasoning func(st
 		if err := json.Unmarshal([]byte(raw), &event); err != nil {
 			return fmt.Errorf("invalid Mistral stream event: %w", err)
 		}
-		if len(event.Error) > 0 && string(event.Error) != "null" {
-			return modelStreamError("Mistral", event.Error)
-		}
 		if event.Usage != nil {
 			u := event.Usage
 			candidate := ModelUsage{InputTokens: u.PromptTokens, OutputTokens: u.CompletionTokens, CacheReadTokens: u.PromptTokensDetails.CachedTokens, ReasoningTokens: u.CompletionTokensDetail.ReasoningTokens}
@@ -297,6 +295,9 @@ func parseMistralStreamWithReasoning(body io.Reader, onText, onReasoning func(st
 				return errors.New("Mistral reported invalid token usage")
 			}
 			usage = &candidate
+		}
+		if len(event.Error) > 0 && string(event.Error) != "null" {
+			return modelStreamError("Mistral", event.Error)
 		}
 		if len(event.Choices) > 1 {
 			return errors.New("Mistral returned multiple choices")

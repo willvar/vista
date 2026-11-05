@@ -128,7 +128,7 @@ func parseCohereStream(body io.Reader, onText func(string) error) (Turn, error) 
 	return parseCohereStreamWithReasoning(body, onText, nil)
 }
 
-func parseCohereStreamWithReasoning(body io.Reader, onText, onReasoning func(string) error) (Turn, error) {
+func parseCohereStreamWithReasoning(body io.Reader, onText, onReasoning func(string) error) (result Turn, resultErr error) {
 	scanner := bufio.NewScanner(body)
 	scanner.Buffer(make([]byte, 4096), maxEventBytes)
 	var payload strings.Builder
@@ -141,6 +141,7 @@ func parseCohereStreamWithReasoning(body io.Reader, onText, onReasoning func(str
 	finished := false
 	finishReason := ""
 	var usage *ModelUsage
+	defer retainUsage(&result, &usage)
 	consume := func(data string) error {
 		var event struct {
 			Type  string `json:"type"`
@@ -253,9 +254,6 @@ func parseCohereStreamWithReasoning(body io.Reader, onText, onReasoning func(str
 			calls = append(calls, *pending)
 			pending = nil
 		case "message-end":
-			if pending != nil || event.Delta.FinishReason != "COMPLETE" && event.Delta.FinishReason != "STOP_SEQUENCE" && event.Delta.FinishReason != "TOOL_CALL" || event.Delta.FinishReason == "TOOL_CALL" && len(calls) == 0 {
-				return errors.New("Cohere stream ended with incomplete output")
-			}
 			if event.Delta.Usage != nil {
 				reported := event.Delta.Usage.Tokens
 				if reported != nil {
@@ -268,6 +266,9 @@ func parseCohereStreamWithReasoning(body io.Reader, onText, onReasoning func(str
 				if billed := event.Delta.Usage.BilledUnits; billed != nil && (!validReportedTokens(billed.InputTokens) || !validReportedTokens(billed.OutputTokens)) {
 					return errors.New("Cohere reported invalid billed token usage")
 				}
+			}
+			if pending != nil || event.Delta.FinishReason != "COMPLETE" && event.Delta.FinishReason != "STOP_SEQUENCE" && event.Delta.FinishReason != "TOOL_CALL" || event.Delta.FinishReason == "TOOL_CALL" && len(calls) == 0 {
+				return errors.New("Cohere stream ended with incomplete output")
 			}
 			finishReason = event.Delta.FinishReason
 			finished = true

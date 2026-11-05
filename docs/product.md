@@ -69,7 +69,7 @@ An open statistics view also updates at local hour/day boundaries without requir
 Each heatmap cell shows mean active minutes for that weekday/hour across observed local dates; inactive occurrences count as zero, while dates before collection and future hours are excluded.
 An active minute contains a click, typing, or scrolling; simultaneous interactions across clients count once, while idle pages and background execution do not count.
 The total uses upstream-reported input plus output tokens, counting cache and reasoning subsets only once, across conversations, child tasks, compaction, and title generation.
-Calls without reported usage are identified and excluded from the total.
+Successful calls without usable reported usage are identified and excluded from the total; failed requests without usable usage are not counted.
 The total is shown as an approximate comparison with familiar texts; hover, tap, or focus it for the original token count and a brief explanation. See [usage statistics](./usage-statistics.md) for the reference sources and conversion rules.
 Existing retained model-result records are imported once; the page identifies when complete collection began, and does not invent historical interaction activity.
 Records are kept for 90 days, matching the longest available view; selecting a shorter period does not shorten retention.

@@ -59,7 +59,7 @@ func geminiTurn(ctx context.Context, model modelcfg.Model, messages []ChatMessag
 	return geminiTurnWithReasoning(ctx, model, messages, schemas, onText, nil)
 }
 
-func geminiTurnWithReasoning(ctx context.Context, model modelcfg.Model, messages []ChatMessage, schemas []map[string]any, onText, onReasoning func(string) error) (Turn, error) {
+func geminiTurnWithReasoning(ctx context.Context, model modelcfg.Model, messages []ChatMessage, schemas []map[string]any, onText, onReasoning func(string) error) (result Turn, resultErr error) {
 	if err := validateImageMessages(messages); err != nil {
 		return Turn{}, err
 	}
@@ -150,6 +150,7 @@ func geminiTurnWithReasoning(ctx context.Context, model modelcfg.Model, messages
 	finished := false
 	finishReason := ""
 	var usage *ModelUsage
+	defer retainUsage(&result, &usage)
 	for scanner.Scan() {
 		line := scanner.Text()
 		if line != "" {
@@ -211,16 +212,6 @@ func geminiTurnWithReasoning(ctx context.Context, model modelcfg.Model, messages
 		if err := json.Unmarshal([]byte(raw), &chunk); err != nil {
 			return Turn{}, fmt.Errorf("invalid Gemini stream event: %w", err)
 		}
-		if len(chunk.Error) > 0 && string(chunk.Error) != "null" {
-			return Turn{}, modelStreamError("Gemini", chunk.Error)
-		}
-		if chunk.PromptFeedback.BlockReason != "" {
-			switch chunk.PromptFeedback.BlockReason {
-			case "SAFETY", "BLOCKLIST", "PROHIBITED_CONTENT", "IMAGE_SAFETY", "JAILBREAK", "OTHER":
-				return Turn{}, fmt.Errorf("Gemini blocked prompt: %s", chunk.PromptFeedback.BlockReason)
-			}
-			return Turn{}, errors.New("Gemini blocked prompt")
-		}
 		if chunk.UsageMetadata != nil {
 			u := chunk.UsageMetadata
 			if !validReportedTokens(u.PromptTokens) || !validReportedTokens(u.CandidateTokens) || !validReportedTokens(u.CachedTokens) || !validReportedTokens(u.ThoughtTokens) {
@@ -231,6 +222,16 @@ func geminiTurnWithReasoning(ctx context.Context, model modelcfg.Model, messages
 				return Turn{}, errors.New("Gemini reported invalid token usage")
 			}
 			usage = &candidate
+		}
+		if len(chunk.Error) > 0 && string(chunk.Error) != "null" {
+			return Turn{}, modelStreamError("Gemini", chunk.Error)
+		}
+		if chunk.PromptFeedback.BlockReason != "" {
+			switch chunk.PromptFeedback.BlockReason {
+			case "SAFETY", "BLOCKLIST", "PROHIBITED_CONTENT", "IMAGE_SAFETY", "JAILBREAK", "OTHER":
+				return Turn{}, fmt.Errorf("Gemini blocked prompt: %s", chunk.PromptFeedback.BlockReason)
+			}
+			return Turn{}, errors.New("Gemini blocked prompt")
 		}
 		if len(chunk.Candidates) > 1 {
 			return Turn{}, errors.New("Gemini returned multiple candidates")

@@ -326,7 +326,7 @@ func parseResponsesStream(body io.Reader, onText func(string) error) (Turn, erro
 	return parseResponsesStreamWithReasoning(body, onText, nil)
 }
 
-func parseResponsesStreamWithReasoning(body io.Reader, onText, onReasoning func(string) error) (Turn, error) {
+func parseResponsesStreamWithReasoning(body io.Reader, onText, onReasoning func(string) error) (result Turn, resultErr error) {
 	scanner := bufio.NewScanner(body)
 	scanner.Buffer(make([]byte, 4096), maxResponsesSnapshotEventBytes)
 	var data strings.Builder
@@ -402,6 +402,7 @@ func parseResponsesStreamWithReasoning(body io.Reader, onText, onReasoning func(
 	var final []responseItem
 	var finalRaw []json.RawMessage
 	var usage *ModelUsage
+	defer retainUsage(&result, &usage)
 	var sources citationSources
 	var doneMessageText strings.Builder
 	doneMessageIDs := map[string]bool{}
@@ -441,6 +442,15 @@ func parseResponsesStreamWithReasoning(body io.Reader, onText, onReasoning func(
 		}
 		if len(payload) > maxEventBytes && !snapshot {
 			return errors.New("OpenAI Responses event exceeds 128 KiB")
+		}
+		if event.Type == "response.completed" || event.Type == "response.failed" || event.Type == "response.incomplete" {
+			if event.Response.Usage != nil {
+				candidate := ModelUsage{InputTokens: event.Response.Usage.InputTokens, OutputTokens: event.Response.Usage.OutputTokens, CacheReadTokens: event.Response.Usage.InputDetails.CachedTokens, ReasoningTokens: event.Response.Usage.OutputDetails.ReasoningTokens}
+				if !validModelUsage(candidate) {
+					return errors.New("OpenAI Responses reported invalid token usage")
+				}
+				usage = &candidate
+			}
 		}
 		switch event.Type {
 		case "response.output_text.annotation.added":
@@ -606,13 +616,6 @@ func parseResponsesStreamWithReasoning(body io.Reader, onText, onReasoning func(
 		case "response.completed":
 			if event.Response.Status != "completed" {
 				return errors.New("OpenAI Responses completed with unexpected status")
-			}
-			if event.Response.Usage != nil {
-				candidate := ModelUsage{InputTokens: event.Response.Usage.InputTokens, OutputTokens: event.Response.Usage.OutputTokens, CacheReadTokens: event.Response.Usage.InputDetails.CachedTokens, ReasoningTokens: event.Response.Usage.OutputDetails.ReasoningTokens}
-				if !validModelUsage(candidate) {
-					return errors.New("OpenAI Responses reported invalid token usage")
-				}
-				usage = &candidate
 			}
 			final = final[:0]
 			for index, raw := range event.Response.Output {

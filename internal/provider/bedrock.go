@@ -269,7 +269,7 @@ func parseBedrockEvents(events <-chan types.ConverseStreamOutput, streamErr func
 	return parseBedrockEventsWithReasoning(events, streamErr, onText, nil)
 }
 
-func parseBedrockEventsWithReasoning(events <-chan types.ConverseStreamOutput, streamErr func() error, onText, onReasoning func(string) error) (Turn, error) {
+func parseBedrockEventsWithReasoning(events <-chan types.ConverseStreamOutput, streamErr func() error, onText, onReasoning func(string) error) (result Turn, resultErr error) {
 	var reply strings.Builder
 	var calls []ToolCall
 	var toolBytes toolCollectionBytes
@@ -284,6 +284,7 @@ func parseBedrockEventsWithReasoning(events <-chan types.ConverseStreamOutput, s
 	finished := false
 	finishReason := ""
 	var usage *ModelUsage
+	defer retainUsage(&result, &usage)
 	readMetadata := func(metadata types.ConverseStreamMetadataEvent) error {
 		if metadata.Usage == nil || metadata.Usage.InputTokens == nil || metadata.Usage.OutputTokens == nil {
 			return errors.New("Bedrock metadata lacks token usage")

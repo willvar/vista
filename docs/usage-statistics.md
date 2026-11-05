@@ -5,7 +5,8 @@
 Settings → Usage shows activity and token consumption over the selected 7/30/90-day period.
 The total counts provider-reported input plus output tokens without adding cache or reasoning subsets twice.
 Repeated processing of the same content still consumes tokens; this is not a count of unique text.
-Calls without reported usage are excluded and identified separately.
+Successful calls without usable reported usage are excluded from the total and identified separately.
+Failed or canceled requests without usable usage are excluded from accounting; valid usage already reported is retained.
 
 The summary compares cumulative processing volume with familiar texts.
 Hover, tap, or focus the comparison to see the original token count and a brief explanation.

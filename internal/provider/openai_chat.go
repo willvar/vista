@@ -124,7 +124,7 @@ func openAIChatTurn(ctx context.Context, model modelcfg.Model, messages []ChatMe
 	return openAIChatTurnWithReasoning(ctx, model, messages, schemas, onText, nil)
 }
 
-func openAIChatTurnWithReasoning(ctx context.Context, model modelcfg.Model, messages []ChatMessage, schemas []map[string]any, onText, onReasoning func(string) error) (Turn, error) {
+func openAIChatTurnWithReasoning(ctx context.Context, model modelcfg.Model, messages []ChatMessage, schemas []map[string]any, onText, onReasoning func(string) error) (result Turn, resultErr error) {
 	if err := validateImageMessages(messages); err != nil {
 		return Turn{}, err
 	}
@@ -404,6 +404,7 @@ func openAIChatTurnWithReasoning(ctx context.Context, model modelcfg.Model, mess
 	var sources citationSources
 	finishReason := ""
 	var usage *ModelUsage
+	defer retainUsage(&result, &usage)
 	done := false
 	for scanner.Scan() {
 		lineNumber++
@@ -466,6 +467,13 @@ func openAIChatTurnWithReasoning(ctx context.Context, model modelcfg.Model, mess
 			if err := json.Unmarshal([]byte(payload), &event); err != nil {
 				return Turn{}, fmt.Errorf("invalid model stream event: %w", err)
 			}
+			if event.Usage != nil {
+				candidate, err := chatModelUsage(event.Usage)
+				if err != nil {
+					return Turn{}, err
+				}
+				usage = &candidate
+			}
 			if len(event.Error) > 0 && string(event.Error) != "null" {
 				return Turn{}, modelStreamError("model", event.Error)
 			}
@@ -473,13 +481,6 @@ func openAIChatTurnWithReasoning(ctx context.Context, model modelcfg.Model, mess
 				if err := sources.add(source, "Chat"); err != nil {
 					return Turn{}, err
 				}
-			}
-			if event.Usage != nil {
-				candidate, err := chatModelUsage(event.Usage)
-				if err != nil {
-					return Turn{}, err
-				}
-				usage = &candidate
 			}
 			choices := event.Choices
 			if sapAI {

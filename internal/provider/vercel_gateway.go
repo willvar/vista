@@ -182,7 +182,7 @@ func gatewayModelUsage(reported *gatewayStreamUsage) (*ModelUsage, error) {
 	return usage, nil
 }
 
-func parseVercelGatewayStreamWithReasoning(body io.Reader, onText, onReasoning func(string) error) (Turn, error) {
+func parseVercelGatewayStreamWithReasoning(body io.Reader, onText, onReasoning func(string) error) (result Turn, resultErr error) {
 	scanner := bufio.NewScanner(body)
 	scanner.Buffer(make([]byte, 4096), maxEventBytes)
 	var payload strings.Builder
@@ -195,6 +195,7 @@ func parseVercelGatewayStreamWithReasoning(body io.Reader, onText, onReasoning f
 	finished := false
 	finishReason := ""
 	var usage *ModelUsage
+	defer retainUsage(&result, &usage)
 	reasoningBytes := 0
 	consume := func(data string) error {
 		var event struct {
@@ -266,13 +267,13 @@ func parseVercelGatewayStreamWithReasoning(body io.Reader, onText, onReasoning f
 			callIDs[call.ID] = true
 			delete(pending, call.ID)
 		case "finish":
-			if len(pending) != 0 || event.FinishReason.Unified != "stop" && event.FinishReason.Unified != "tool-calls" || event.FinishReason.Unified == "tool-calls" && len(calls) == 0 {
-				return errors.New("Vercel AI Gateway stream ended with incomplete output")
-			}
 			var err error
 			usage, err = gatewayModelUsage(event.Usage)
 			if err != nil {
 				return err
+			}
+			if len(pending) != 0 || event.FinishReason.Unified != "stop" && event.FinishReason.Unified != "tool-calls" || event.FinishReason.Unified == "tool-calls" && len(calls) == 0 {
+				return errors.New("Vercel AI Gateway stream ended with incomplete output")
 			}
 			finished = true
 			finishReason = event.FinishReason.Unified

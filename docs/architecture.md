@@ -108,6 +108,7 @@ Backend catalog scheduling, model discovery and upstream device-authorization po
 `provider.WithUsageRecorder` observes API attempts at the common dispatch boundary, including main/child requests, compaction, text/image title generation, and failures with reported partial usage.
 Workers emit bounded `token_usage` frames; the Server validates identities, commits the deduplicated record, then advances the `statistics` revision. Main-process titles use the same store directly.
 Only input plus output totals are saved; cache-read and reasoning subsets are not added again, and missing usage is nullable rather than an estimated zero.
+Failed or canceled attempts without usable usage emit no ledger record; stream failures retain valid usage already received without completing partial output.
 Initialization imports retained `model_result` usage once and records coverage timestamps; normal restarts do not reimport new dispatch records.
 Retention matches the longest available view of 90 days; initialization and either activity or usage writes clean expired records from both tables.
 The frontend coalesces trusted visible input minutes into bounded `POST /api/activity` reports after 15 seconds or on page exit/hiding; idle pages produce no reports, and overlapping clients deduplicate on the UTC-minute key.

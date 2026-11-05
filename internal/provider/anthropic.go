@@ -21,7 +21,7 @@ func AnthropicTurn(ctx context.Context, model modelcfg.Model, messages []ChatMes
 	return anthropicTurn(ctx, model, messages, schemas, nil, nil)
 }
 
-func anthropicTurn(ctx context.Context, model modelcfg.Model, messages []ChatMessage, schemas []map[string]any, onText, onReasoning func(string) error) (Turn, error) {
+func anthropicTurn(ctx context.Context, model modelcfg.Model, messages []ChatMessage, schemas []map[string]any, onText, onReasoning func(string) error) (result Turn, resultErr error) {
 	if err := validateImageMessages(messages); err != nil {
 		return Turn{}, err
 	}
@@ -161,6 +161,7 @@ func anthropicTurn(ctx context.Context, model modelcfg.Model, messages []ChatMes
 	stopReason := ""
 	stopped := false
 	var usage *ModelUsage
+	defer retainUsage(&result, &usage)
 	type usageEvent struct {
 		InputTokens         *int64 `json:"input_tokens"`
 		OutputTokens        *int64 `json:"output_tokens"`
@@ -406,24 +407,26 @@ func anthropicTurn(ctx context.Context, model modelcfg.Model, messages []ChatMes
 			completed[event.Index] = encoded
 			delete(blocks, event.Index)
 		case "message_delta":
+			if event.Usage != nil && (event.Usage.OutputTokens != nil || event.Usage.OutputTokenDetails.ThinkingTokens != nil) {
+				candidate := ModelUsage{}
+				if usage != nil {
+					candidate = *usage
+				}
+				if event.Usage.OutputTokens != nil {
+					candidate.OutputTokens = *event.Usage.OutputTokens
+				}
+				if event.Usage.OutputTokenDetails.ThinkingTokens != nil {
+					candidate.ReasoningTokens = *event.Usage.OutputTokenDetails.ThinkingTokens
+				}
+				if !validModelUsage(candidate) {
+					return Turn{}, errors.New("Anthropic reported invalid token usage")
+				}
+				usage = &candidate
+			}
 			if event.Delta.StopReason != "" {
 				stopReason = event.Delta.StopReason
 				if err := contextStopError("Anthropic", stopReason); err != nil {
 					return Turn{}, err
-				}
-			}
-			if event.Usage != nil && (event.Usage.OutputTokens != nil || event.Usage.OutputTokenDetails.ThinkingTokens != nil) {
-				if usage == nil {
-					usage = &ModelUsage{}
-				}
-				if event.Usage.OutputTokens != nil {
-					usage.OutputTokens = *event.Usage.OutputTokens
-				}
-				if event.Usage.OutputTokenDetails.ThinkingTokens != nil {
-					usage.ReasoningTokens = *event.Usage.OutputTokenDetails.ThinkingTokens
-				}
-				if !validModelUsage(*usage) {
-					return Turn{}, errors.New("Anthropic reported invalid token usage")
 				}
 			}
 		case "message_stop":
