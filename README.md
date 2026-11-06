@@ -26,6 +26,8 @@ Connect a model provider in Settings before sending the first message. Built-in 
 
 Closing the browser does not stop work. Closing a conversation stops its Worker and managed background work, while retaining its history; deleting it also removes its associated data. Restarting Vista records unfinished operations as interrupted and does not replay their side effects.
 
+About Vista → Restart Vista always asks for confirmation and restarts the Server process through the CLI restart flow, keeping data, browser drafts, the configuration directory and current listening port without opening another browser. It loads the current binary at the same executable path; running tasks and managed background processes are interrupted, not automatically resumed or replayed. See [service controls](./docs/product.md#about-vista-and-service-controls).
+
 To choose a persistent port, set `{"port":6186}` in `<configuration root>/server.json`. `VISTA_PORT` overrides that file, and `--port` on startup or restart overrides both. Ports must be 1–65535; Vista does not silently switch to another port. The change applies at the next start.
 
 ## Build from source

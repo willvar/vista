@@ -50,23 +50,28 @@ func newRootCommand() *cobra.Command {
 	// before RunE and would prevent double-click startup on Windows.
 	cobra.MousetrapHelpText = ""
 	var port int
-	root := &cobra.Command{Use: "vista", Short: "Vista local agent", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error { return start(port) }}
+	root := &cobra.Command{Use: "vista", Short: "Vista local agent", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error { return start(port, true) }}
 	root.CompletionOptions.DisableDefaultCmd = true
 	addPortFlag(root, &port)
-	startCommand := &cobra.Command{Use: "start", Args: cobra.NoArgs, RunE: func(*cobra.Command, []string) error { return start(port) }}
+	startCommand := &cobra.Command{Use: "start", Args: cobra.NoArgs, RunE: func(*cobra.Command, []string) error { return start(port, true) }}
 	addPortFlag(startCommand, &port)
 	root.AddCommand(startCommand)
 	root.AddCommand(&cobra.Command{Use: "stop", RunE: func(*cobra.Command, []string) error { return stop() }})
+	var noBrowser bool
 	restartCommand := &cobra.Command{Use: "restart", Args: cobra.NoArgs, RunE: func(*cobra.Command, []string) error {
 		if err := stop(); err != nil {
 			return err
 		}
-		return start(port)
+		return start(port, !noBrowser)
 	}}
+	restartCommand.Flags().BoolVar(&noBrowser, "no-browser", false, "Skip opening the browser for this restart")
+	_ = restartCommand.Flags().MarkHidden("no-browser")
 	addPortFlag(restartCommand, &port)
 	root.AddCommand(restartCommand)
 	root.AddCommand(&cobra.Command{Use: "status", RunE: func(*cobra.Command, []string) error { return status() }})
-	serveCommand := &cobra.Command{Use: "serve", Hidden: true, Args: cobra.NoArgs, RunE: func(*cobra.Command, []string) error { return server.Run(port, startDesktopControls) }}
+	serveCommand := &cobra.Command{Use: "serve", Hidden: true, Args: cobra.NoArgs, RunE: func(*cobra.Command, []string) error {
+		return server.Run(port, startDesktopControls, startProcessRestart)
+	}}
 	addPortFlag(serveCommand, &port)
 	root.AddCommand(serveCommand)
 	root.AddCommand(&cobra.Command{Use: "worker", Hidden: true, RunE: func(*cobra.Command, []string) error { return worker.Run() }})
@@ -119,7 +124,7 @@ func probe(dir string) (instance.Info, bool) {
 	defer resp.Body.Close()
 	return x, resp.StatusCode == 200
 }
-func start(portOverride int) error {
+func start(portOverride int, showBrowser bool) error {
 	configDir, err := appdirs.Config()
 	if err != nil {
 		return err
@@ -133,39 +138,63 @@ func start(portOverride int) error {
 		return err
 	}
 	if x, ok := probe(d); ok {
-		printStartupURL(x.Address + "/")
+		printStartupURL(x.Address+"/", showBrowser)
 		return nil
 	}
 	if err := os.MkdirAll(d, 0700); err != nil {
 		return err
 	}
-	exe, err := os.Executable()
+	proc, err := startDetached(nil, "serve", "--port", fmt.Sprint(config.Port))
 	if err != nil {
-		return err
-	}
-	log, err := os.OpenFile(filepath.Join(d, "server.log"), os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0600)
-	if err != nil {
-		return err
-	}
-	defer log.Close()
-	proc := exec.Command(exe, "serve", "--port", fmt.Sprint(config.Port))
-	proc.Stdin = nil
-	proc.Stdout = log
-	proc.Stderr = log
-	platform.Detach(proc)
-	if err := proc.Start(); err != nil {
 		return err
 	}
 	_ = proc.Process.Release()
 	for i := 0; i < 80; i++ {
 		if x, ok := probe(d); ok {
-			printStartupURL(x.Address + "/")
+			printStartupURL(x.Address+"/", showBrowser)
 			return nil
 		}
 		time.Sleep(100 * time.Millisecond)
 	}
 	return fmt.Errorf("Vista failed to start; see %s", filepath.Join(d, "server.log"))
 }
+
+// startDetached is shared by startup, WebUI restart and desktop controls. These
+// processes must survive the old Server, unlike managed Workers and their tools.
+func startDetached(env []string, args ...string) (*exec.Cmd, error) {
+	// os.Executable resolves the installed path even after Linux unlinks the
+	// running image during replacement; never execute /proc/self/exe instead.
+	exe, err := os.Executable()
+	if err != nil {
+		return nil, err
+	}
+	d, err := dir()
+	if err != nil {
+		return nil, err
+	}
+	output, err := os.OpenFile(filepath.Join(d, "server.log"), os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0600)
+	if err != nil {
+		return nil, err
+	}
+	defer output.Close()
+	cmd := exec.Command(exe, args...)
+	cmd.Env = env
+	cmd.Stdout, cmd.Stderr = output, output
+	platform.Detach(cmd)
+	if err := cmd.Start(); err != nil {
+		return nil, err
+	}
+	return cmd, nil
+}
+
+func startProcessRestart(port int) (func() error, error) {
+	cmd, err := startDetached(nil, "restart", "--port", fmt.Sprint(port), "--no-browser")
+	if err != nil {
+		return nil, err
+	}
+	return cmd.Wait, nil
+}
+
 func request(method, path string) (*http.Response, error) {
 	return requestContext(context.Background(), method, path)
 }
@@ -267,7 +296,9 @@ func openBrowser(url string) {
 	fmt.Fprintln(os.Stderr, "If no browser window opens, paste the URL above into your browser's address bar, not the terminal.")
 }
 
-func printStartupURL(url string) {
+func printStartupURL(url string, showBrowser bool) {
 	fmt.Println(url)
-	openBrowser(url)
+	if showBrowser {
+		openBrowser(url)
+	}
 }

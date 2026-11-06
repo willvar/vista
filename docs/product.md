@@ -70,7 +70,31 @@ Editing and withdrawing sent messages roll back conversation/model history only.
 - MCP and skills settings can import OpenCode v1/v2 configuration through an explicit read, selection, and confirmation. Existing entries are kept. Skill imports copy complete folders, including supporting and binary files; MCP imports save compatible configuration; enabled services connect asynchronously after import. Unsupported entries are shown with reasons. See [import contracts](./architecture.md#providers-and-tools).
 - Network Queries configures separate search and page-reading services, order, keys, and initial output lengths. Search returns sources and summaries; page reading retrieves a known public URL through Jina Reader or DeepSeek.
 
-With Debug mode enabled, About Vista offers a confirmed full reset. It stops running tasks, managed background processes and logins, then deletes all conversations, attached resources, connections and credentials, user skills, global instructions, memory and other Vista settings. Embedded system skills remain available. The current browser's Vista preferences and drafts are cleared, the runtime restarts, and the page opens the first-use screen at its new address. External files and services, including files previously changed by tools, are not reverted. The listener uses the default port after reset, or the port specified by the process environment; the previous launch port is discarded. Browser preferences in other clients and settings supplied through the process environment are outside this reset.
+## About Vista and service controls
+
+About Vista presents these sections in order:
+
+1. Brand, version, and introduction.
+2. The existing model catalog and client identity controls.
+3. Memory and capacity controls.
+4. The Debug mode toggle.
+5. Full reset, visible only in Debug mode.
+6. Restart Vista, visible whether or not Debug mode is enabled.
+7. Build information.
+
+Restart Vista is a regular secondary button and always opens a confirmation dialog.
+The dialog shows active-conversation and managed-background-process counts when available; unavailable counts are identified as unknown, not zero.
+Its warning explains that all running tasks and managed background processes stop, and interrupted work will not resume or be replayed automatically.
+Restart keeps conversations, resources, settings, browser preferences and drafts, the configuration directory and the actual listening port, without opening another browser.
+A control process independent of the old Server reuses the CLI restart flow: stop → wait for the instance lock to be released → start.
+It loads the current binary at the same executable path, which can activate a newer binary already placed there; it does not download or install updates or switch to another checkout.
+
+After confirmation, the dialog shows indeterminate restart/reconnection progress.
+Success requires the shared state SSE connection to be ready with an `instanceId` for a new Server process; HTTP 202 only acknowledges acceptance, and an internal App or SSE epoch change is not confirmation.
+A timeout or lost response leaves the result unconfirmed rather than automatically sending another restart request.
+Retry connection only reconnects to check the result; it does not send another restart POST or replay interrupted work.
+
+With Debug mode enabled, About Vista offers a confirmed full reset. It stops running tasks, managed background processes and logins, then deletes all conversations, attached resources, connections and credentials, user skills, global instructions, memory and other Vista settings. Embedded system skills remain available. The current browser's Vista preferences and drafts are cleared, the application runtime restarts inside the same Server process, and the page opens the first-use screen at its new address. External files and services, including files previously changed by tools, are not reverted. The listener uses the default port after reset, or the port specified by the process environment; the previous launch port is discarded. Browser preferences in other clients and settings supplied through the process environment are outside this reset.
 
 ## Activity and usage
 

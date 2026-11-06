@@ -18,6 +18,7 @@ import OMPCatalogSettings from '../OMPCatalogSettings.vue'
 import CapacitySettings from '../CapacitySettings.vue'
 import UserAgentSettings from '../UserAgentSettings.vue'
 import ResetVistaSettings from '../ResetVistaSettings.vue'
+import RestartVistaSettings from '../RestartVistaSettings.vue'
 import VistaMark from '../VistaMark.vue'
 import StatisticsSettings from '../StatisticsSettings.vue'
 import { BarChartOutlined, ClearOutlined } from '@antdv-next/icons'
@@ -87,6 +88,7 @@ const memoryModalOpen = ref(false)
 const searchModalOpen = ref(false)
 const storageModalOpen = ref(false)
 const resetModalOpen = ref(false)
+const restartModalOpen = ref(false)
 const statisticsModalOpen = ref(false)
 const providerImportOpen = ref(false)
 const providerImport = ref<InstanceType<typeof ConfigurationImport>>()
@@ -142,7 +144,7 @@ watch(() => route.fullPath, () => {
 <template>
 <WorkspaceModal ref="modal" :open="true" width="max-content" :title="settingsTitle" :page-class="settingsIndex ? 'settings-page settings-index' : 'settings-page'"
   :close-label="t('closeSettings')" :back-label="t(settingsIndex ? 'backToConversation' : 'backToSettings')"
-  :keyboard="!providerDisconnectTarget && !modelFormOpen && !providerImportOpen && !mcpModalOpen && !skillModalOpen && !memoryModalOpen && !searchModalOpen && !storageModalOpen && !resetModalOpen && !statisticsModalOpen && !instructionsEditorOpen" @cancel="backToWorkspace" @back="back">
+  :keyboard="!providerDisconnectTarget && !modelFormOpen && !providerImportOpen && !mcpModalOpen && !skillModalOpen && !memoryModalOpen && !searchModalOpen && !storageModalOpen && !resetModalOpen && !restartModalOpen && !statisticsModalOpen && !instructionsEditorOpen" @cancel="backToWorkspace" @back="back">
         <template #header-actions>
             <v-button v-if="canImport" variant="text" class="icon-button" :aria-label="t(importTitleKey)" :title="t(importTitleKey)" :disabled="importKind === 'providers' ? settingsBusy : headerAction?.disabled" @click="importedCount = 0; providerImport?.show()"><template #icon><ImportOutlined aria-hidden="true" /></template></v-button>
             <v-button v-if="headerAction" variant="text" class="icon-button" :aria-label="t(headerAction.label)" :title="t(headerAction.label)" :disabled="headerAction.disabled" :loading="headerAction.loading" @click="headerAction.run()">
@@ -256,11 +258,12 @@ watch(() => route.fullPath, () => {
             <h3>Vista<small v-if="serverStatus?.version" class="about-version">{{ serverStatus.version }}</small></h3>
             <p class="about-tagline">{{ t('vistaTagline') }}</p>
           </div>
-          <div class="debug-mode-setting general-setting"><div><label for="debug-mode">{{ t('debugMode') }}</label><p id="debug-mode-hint">{{ t('debugModeHint') }}</p></div><v-switch id="debug-mode" v-model:checked="debugMode" :aria-label="t('debugMode')" aria-describedby="debug-mode-hint" /></div>
-          <ResetVistaSettings v-if="debugMode" @modal-open="resetModalOpen = $event" />
           <OMPCatalogSettings ref="sectionActions" :client="workspace.client" />
           <UserAgentSettings :client="workspace.client" />
           <CapacitySettings :client="workspace.client" :status="serverStatus" />
+          <div class="debug-mode-setting general-setting"><div><label for="debug-mode">{{ t('debugMode') }}</label><p id="debug-mode-hint">{{ t('debugModeHint') }}</p></div><v-switch id="debug-mode" v-model:checked="debugMode" :aria-label="t('debugMode')" aria-describedby="debug-mode-hint" /></div>
+          <ResetVistaSettings v-if="debugMode" @modal-open="resetModalOpen = $event" />
+          <RestartVistaSettings @modal-open="restartModalOpen = $event" />
           <dl v-if="serverStatus" class="about-build-info">
             <template v-if="serverStatus.binaryHash">
               <dt>{{ t('binaryHash') }}</dt>

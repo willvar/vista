@@ -21,17 +21,19 @@ import (
 // appHandler keeps the listener and instance lock while replacing a generation
 // of user data. No request or background writer may outlive that generation.
 type appHandler struct {
-	mu          sync.Mutex
-	lifecycleMu sync.Mutex
-	requests    sync.WaitGroup
-	app         *App
-	next        http.Handler
-	open        func() (*App, error)
-	restart     func() (string, error)
-	resetting   bool
-	unavailable bool
-	appClosed   bool // Protected by lifecycleMu.
-	closed      bool // Protected by lifecycleMu.
+	mu           sync.Mutex
+	lifecycleMu  sync.Mutex
+	requests     sync.WaitGroup
+	app          *App
+	next         http.Handler
+	open         func() (*App, error)
+	restart      func() (string, error) // Reset-only listener reconfiguration.
+	startRestart func() (func() error, error)
+	restarting   bool
+	resetting    bool
+	unavailable  bool
+	appClosed    bool // Protected by lifecycleMu.
+	closed       bool // Protected by lifecycleMu.
 }
 
 func newAppHandler(app *App, open func() (*App, error)) *appHandler {
@@ -39,8 +41,12 @@ func newAppHandler(app *App, open func() (*App, error)) *appHandler {
 }
 
 func (h *appHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	if r.URL.Path == "/api/reset" {
+	switch r.URL.Path {
+	case "/api/reset":
 		h.reset(w, r)
+		return
+	case "/api/restart":
+		h.restartProcess(w, r)
 		return
 	}
 	h.mu.Lock()
@@ -114,26 +120,33 @@ func (h *appHandler) close() {
 	}
 }
 
-func (h *appHandler) reset(w http.ResponseWriter, r *http.Request) {
+func confirmAppChange(w http.ResponseWriter, r *http.Request, confirm, purpose string) bool {
 	w.Header().Set("Cache-Control", "no-store")
 	if r.Method != http.MethodPost {
 		w.Header().Set("Allow", http.MethodPost)
 		http.Error(w, "method", http.StatusMethodNotAllowed)
-		return
+		return false
 	}
 	var input struct {
 		Confirm string `json:"confirm"`
 	}
 	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 256))
 	decoder.DisallowUnknownFields()
-	if decoder.Decode(&input) != nil || decoder.Decode(new(any)) != io.EOF || input.Confirm != "reset-all" {
-		http.Error(w, "explicit confirmation is required to reset all Vista data", http.StatusBadRequest)
+	if decoder.Decode(&input) != nil || decoder.Decode(new(any)) != io.EOF || input.Confirm != confirm {
+		http.Error(w, "explicit confirmation is required to "+purpose, http.StatusBadRequest)
+		return false
+	}
+	return true
+}
+
+func (h *appHandler) reset(w http.ResponseWriter, r *http.Request) {
+	if !confirmAppChange(w, r, "reset-all", "reset all Vista data") {
 		return
 	}
 	h.mu.Lock()
-	if h.resetting {
+	if h.resetting || h.restarting {
 		h.mu.Unlock()
-		http.Error(w, "a reset is already in progress", http.StatusConflict)
+		http.Error(w, "a reset or restart is already in progress", http.StatusConflict)
 		return
 	}
 	h.resetting = true
@@ -196,6 +209,69 @@ func (h *appHandler) reset(w http.ResponseWriter, r *http.Request) {
 		Reset   bool   `json:"reset"`
 		Address string `json:"address,omitempty"`
 	}{Reset: true, Address: address})
+}
+
+// Start only the independent CLI controller here. Waiting in this request would
+// deadlock its stop -> instance-lock wait against the old Server's shutdown.
+func (h *appHandler) restartProcess(w http.ResponseWriter, r *http.Request) {
+	if !confirmAppChange(w, r, "restart", "restart Vista") {
+		return
+	}
+	h.mu.Lock()
+	if h.resetting || h.restarting {
+		h.mu.Unlock()
+		http.Error(w, "a reset or restart is already in progress", http.StatusConflict)
+		return
+	}
+	if h.unavailable {
+		h.mu.Unlock()
+		http.Error(w, "Vista is unavailable; retry reset or stop Vista", http.StatusServiceUnavailable)
+		return
+	}
+	h.restarting = true
+	h.mu.Unlock()
+	accepted := false
+	defer func() {
+		if !accepted {
+			h.mu.Lock()
+			h.restarting = false
+			h.mu.Unlock()
+		}
+	}()
+	h.lifecycleMu.Lock()
+	defer h.lifecycleMu.Unlock()
+	if h.closed || h.app.ctx.Err() != nil {
+		http.Error(w, "Vista is stopping", http.StatusServiceUnavailable)
+		return
+	}
+	if h.startRestart == nil {
+		http.Error(w, "process restart is unavailable", http.StatusServiceUnavailable)
+		return
+	}
+	wait, err := h.startRestart()
+	if err != nil {
+		http.Error(w, fmt.Sprintf("could not launch Vista restart: %v", err), http.StatusInternalServerError)
+		return
+	}
+	accepted = true
+	go func() {
+		if err := wait(); err != nil {
+			log.Printf("Vista restart controller failed: %v", err)
+			h.mu.Lock()
+			h.restarting = false
+			h.mu.Unlock()
+		}
+	}()
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusAccepted)
+	jsonOut(w, struct {
+		Accepted   bool   `json:"accepted"`
+		InstanceID string `json:"instanceId"`
+	}{Accepted: true, InstanceID: processInstanceID})
+	// Flush before shutdown can finish; the controller may already be stopping us.
+	if flush, ok := w.(http.Flusher); ok {
+		flush.Flush()
+	}
 }
 
 func validateResetDirectories(configDir, stateDir string) error {

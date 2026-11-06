@@ -16,7 +16,35 @@ Tray lifecycle commands run as explicitly detached processes, so Restart can fin
 
 Closing a Vista conversation stops its Worker. Switching pages or closing the browser does not.
 
-A confirmed full reset restarts the application runtime inside the Server process. `internal/server/reset.go` blocks new API work, cancels the old runtime context, drains requests and `App.background` work, stops Workers and verifies remaining ownership records before closing SQLite and deleting user data. All asynchronous operations which can write runtime files, credentials, or stored state must join `App.background` or be synchronously joined by a tracked caller. The instance lock stays held. After reopening fresh data, `runtimeListener` replaces the listening socket if the reset port changes; the old accepted reset request survives long enough to return the new address. A failure keeps other APIs unavailable while permitting reset retry and shutdown.
+## Server process restart
+
+The WebUI's Restart Vista action always requires confirmation and restarts the Server process, not just the App runtime, conversation Workers or browser view.
+A detached control process, independent of the old Server, reuses the CLI's `vista restart` flow: stop → wait for the instance lock to be released → start.
+It loads the current binary at the running Server's executable path, so it can activate a newer binary already placed at that path; it does not download or install updates or switch to another checkout.
+The current configuration directory and actual listening port are carried through, and no additional browser is opened.
+Browser suppression applies only to this restart command; the new Server retains the original environment so later tray actions keep their normal behavior.
+
+Conversations, resources, credentials, skills, memory, statistics and other settings remain, as do browser preferences and drafts.
+Workers for open conversations are recreated under the usual admission and health checks; unfinished executions, subtasks and managed background jobs are recorded as interrupted, not automatically resumed or replayed.
+External files and services are not reverted.
+
+`POST /api/restart` requires explicit JSON confirmation, `{"confirm":"restart"}`.
+Acceptance returns HTTP 202 with `{"accepted":true,"instanceId":"<old Server instanceId>"}`; this identifies the accepting Server process, not a completed restart.
+`GET /api/status` and shared state SSE use an `instanceId` unique to each Server process lifetime; an in-process full reset leaves it unchanged.
+The client sends one restart request after confirmation and confirms success only when shared state SSE is ready with an `instanceId` different from the pre-restart Server's.
+HTTP 202, the old Server becoming reachable, or an internal App/SSE epoch change is not sufficient evidence.
+A timeout or lost response leaves the outcome unconfirmed; automatic reconnect and Retry connection only re-establish the shared connection and never send another restart POST or replay work.
+
+## In-process full reset
+
+A confirmed full reset restarts the application runtime inside the Server process.
+`internal/server/reset.go` blocks new API work, cancels the old runtime context, drains requests and `App.background` work, stops Workers and verifies remaining ownership records before closing SQLite and deleting user data.
+All asynchronous operations which can write runtime files, credentials, or stored state must join `App.background` or be synchronously joined by a tracked caller.
+The instance lock stays held.
+After reopening fresh data, `runtimeListener` replaces the listening socket if the reset port changes; the old accepted reset request survives long enough to return the new address.
+A failure keeps other APIs unavailable while permitting reset retry and shutdown.
+
+## Shells and subtasks
 
 `shell` waits for a foreground command to finish, with a default timeout of 60 seconds and a maximum of 300 seconds.
 Timeout or cancellation terminates the command and its managed descendants; command completion also cleans up remaining descendants.

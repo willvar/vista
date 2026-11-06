@@ -9,7 +9,6 @@ import (
 	"log"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"runtime"
 	"strings"
 	"sync"
@@ -17,7 +16,6 @@ import (
 	"unsafe"
 
 	"golang.org/x/sys/windows"
-	"vista/internal/platform"
 )
 
 //go:embed assets/vista.ico
@@ -369,24 +367,8 @@ func (t *windowsTray) runAction(action string) {
 }
 
 func launchDesktopAction(action string) error {
-	exe, err := os.Executable()
+	cmd, err := startDetached(append(os.Environ(), "VISTA_DESKTOP_CONTROL=1"), action)
 	if err != nil {
-		return err
-	}
-	d, err := dir()
-	if err != nil {
-		return err
-	}
-	output, err := os.OpenFile(filepath.Join(d, "server.log"), os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0600)
-	if err != nil {
-		return err
-	}
-	defer output.Close()
-	cmd := exec.Command(exe, action)
-	cmd.Env = append(os.Environ(), "VISTA_DESKTOP_CONTROL=1")
-	cmd.Stdout, cmd.Stderr = output, output
-	platform.Detach(cmd)
-	if err := cmd.Start(); err != nil {
 		return err
 	}
 	// The child owns any native failure dialog; waiting here only debounces

@@ -115,7 +115,10 @@ type App struct {
 	searchConfig           searchSettingsConfig
 }
 
-func Run(portOverride int, onReady func(context.Context) func()) error {
+// A Server process keeps its identity when a full reset replaces its App.
+var processInstanceID = uuid.NewString()
+
+func Run(portOverride int, onReady func(context.Context) func(), startRestart func(port int) (wait func() error, err error)) error {
 	build, buildErr := buildinfo.Read()
 	if buildErr != nil {
 		log.Printf("binary hash unavailable: %v", buildErr)
@@ -171,6 +174,11 @@ func Run(portOverride int, onReady func(context.Context) func()) error {
 	}
 	handler := newAppHandler(app, open)
 	defer handler.close()
+	if startRestart != nil {
+		handler.startRestart = func() (func() error, error) {
+			return startRestart(listener.Addr().(*net.TCPAddr).Port)
+		}
+	}
 	srv := &http.Server{Handler: app.host(handler), ReadHeaderTimeout: 5 * time.Second, MaxHeaderBytes: 16 << 10}
 	handler.restart = func() (string, error) {
 		// The saved port was deleted. Resolve startup defaults and external
@@ -377,6 +385,9 @@ func (a *App) handler() http.Handler {
 }
 func (a *App) host(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/restart" || r.URL.Path == "/api/reset" {
+			w.Header().Set("Cache-Control", "no-store")
+		}
 		if r.Host == "" || (!strings.HasPrefix(r.Host, "127.0.0.1:") && !strings.HasPrefix(r.Host, "[::1]:")) {
 			http.Error(w, "invalid host", http.StatusForbidden)
 			return
@@ -396,6 +407,7 @@ func jsonOut(w http.ResponseWriter, v any) {
 	_ = json.NewEncoder(w).Encode(v)
 }
 func (a *App) status(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Cache-Control", "no-store")
 	if r.Method != "GET" {
 		http.Error(w, "method", 405)
 		return
@@ -449,7 +461,7 @@ func (a *App) statusSnapshot(ctx context.Context, host string) (map[string]any, 
 		pid, metrics := a.mcpHost.Status()
 		mcpHostStatus = map[string]any{"pid": pid, "memory": metrics}
 	}
-	return map[string]any{"state": "running", "version": buildinfo.Version, "binaryHash": a.buildInfo.BinaryHash, "sourceCommit": a.buildInfo.SourceCommit, "sourceModified": a.buildInfo.SourceModified, "hostOS": a.hostOS, "address": "http://" + host, "provider": providerName, "model": defaultModel.ID, "defaultModel": defaultModelLabel, "defaultModelKey": models.Default, "uptimeSeconds": int(time.Since(a.started).Seconds()), "sessions": map[string]int{"total": counts.Total, "open": counts.Open, "closed": counts.Total - counts.Open, "running": counts.Running, "idle": counts.Open - counts.Running, "unavailable": unavailable, "workers": count}, "managedBackgroundProcesses": counts.Jobs, "eventStreams": a.hub.subscriberCount() + a.updates.count(), "eventStreamLimit": maxEventStreams + maxStateEventStreams, "memory": map[string]uint64{"heapBytes": mem.HeapAlloc, "rssBytes": platform.RSS(), "peakRssBytes": platform.PeakRSS()}, "capacity": map[string]any{"config": a.memorySettings(), "residentBytes": residentBytes}, "workerMetrics": workerMetrics, "mcpHost": mcpHostStatus, "sampledAt": time.Now().UTC().Format(time.RFC3339Nano)}, nil
+	return map[string]any{"state": "running", "instanceId": processInstanceID, "pid": os.Getpid(), "version": buildinfo.Version, "binaryHash": a.buildInfo.BinaryHash, "sourceCommit": a.buildInfo.SourceCommit, "sourceModified": a.buildInfo.SourceModified, "hostOS": a.hostOS, "address": "http://" + host, "provider": providerName, "model": defaultModel.ID, "defaultModel": defaultModelLabel, "defaultModelKey": models.Default, "uptimeSeconds": int(time.Since(a.started).Seconds()), "sessions": map[string]int{"total": counts.Total, "open": counts.Open, "closed": counts.Total - counts.Open, "running": counts.Running, "idle": counts.Open - counts.Running, "unavailable": unavailable, "workers": count}, "managedBackgroundProcesses": counts.Jobs, "eventStreams": a.hub.subscriberCount() + a.updates.count(), "eventStreamLimit": maxEventStreams + maxStateEventStreams, "memory": map[string]uint64{"heapBytes": mem.HeapAlloc, "rssBytes": platform.RSS(), "peakRssBytes": platform.PeakRSS()}, "capacity": map[string]any{"config": a.memorySettings(), "residentBytes": residentBytes}, "workerMetrics": workerMetrics, "mcpHost": mcpHostStatus, "sampledAt": time.Now().UTC().Format(time.RFC3339Nano)}, nil
 }
 
 func (a *App) modelList(w http.ResponseWriter, r *http.Request) {

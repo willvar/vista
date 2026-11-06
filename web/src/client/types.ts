@@ -77,6 +77,8 @@ export type Artifact = { id: string; runId: string; callId?: string; taskId?: st
 export type OutputView = { content: string; offset: number; nextOffset: number; availableBytes: number; lastSequence?: number; complete?: boolean }
 export type MemoryConfig = { budgetMiB: number; workerMiB: number; concurrentRuns: number }
 export type ServerStatus = {
+  instanceId?: string // Server process identity; unchanged by an in-process reset.
+  pid?: number
   capacity?: { config: MemoryConfig; residentBytes: number }
   state: string
   version: string
