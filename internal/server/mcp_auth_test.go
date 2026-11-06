@@ -108,11 +108,13 @@ func TestMCPBrowserOAuthPublishesCredentialsAndChecksTools(t *testing.T) {
 	if mcpclient.OAuthConfigured(a.configDir, config) {
 		t.Fatal("authorization published before browser approval")
 	}
-	response, err := http.Get(login.AuthorizationURL)
+	client := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	response, err := client.Get(login.AuthorizationURL)
 	if err != nil {
 		t.Fatal(err)
 	}
 	response.Body.Close()
+	mcpAPI(t, a, "POST", "/mcp-auth/"+login.ID, map[string]string{"callbackUrl": response.Header.Get("Location")}, 200)
 	login = awaitMCPLogin(t, a, login.ID, func(value mcpLogin) bool { return !value.active() })
 	if login.Status != "connected" || login.AuthorizationURL != "" || !mcpclient.OAuthConfigured(a.configDir, config) {
 		t.Fatalf("login not committed: %+v", login)
@@ -163,11 +165,13 @@ func TestMCPBrowserOAuthRenameDuringAuthorizationPreservesLogin(t *testing.T) {
 	if view.Status != "pending" || view.ServerID != config.ID || view.AuthorizationURL != login.AuthorizationURL {
 		t.Fatalf("rename interrupted pending login: %+v", view)
 	}
-	response, err := http.Get(login.AuthorizationURL)
+	client := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	response, err := client.Get(login.AuthorizationURL)
 	if err != nil {
 		t.Fatal(err)
 	}
 	response.Body.Close()
+	mcpAPI(t, a, "POST", "/mcp-auth/"+login.ID, map[string]string{"callbackUrl": response.Header.Get("Location")}, 200)
 	select {
 	case <-authenticated:
 	case <-time.After(5 * time.Second):
@@ -195,11 +199,13 @@ func TestMCPBrowserOAuthCancelAndEditsNeverPublishLateTokens(t *testing.T) {
 			hold, authenticated := make(chan struct{}), make(chan struct{})
 			config := workerproto.MCPServer{ID: "oauth", Name: "OAuth display name", Transport: "http", Endpoint: mcpOAuthFixture(t, hold, authenticated), OAuth: true, ClientID: "vista-test"}
 			login := startMCPAuth(t, a, config)
-			response, err := http.Get(login.AuthorizationURL)
+			client := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+			response, err := client.Get(login.AuthorizationURL)
 			if err != nil {
 				t.Fatal(err)
 			}
 			response.Body.Close()
+			mcpAPI(t, a, "POST", "/mcp-auth/"+login.ID, map[string]string{"callbackUrl": response.Header.Get("Location")}, 200)
 			select {
 			case <-authenticated:
 			case <-time.After(5 * time.Second):

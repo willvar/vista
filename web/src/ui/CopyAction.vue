@@ -3,7 +3,7 @@ import { onBeforeUnmount, ref } from 'vue'
 import { CheckOutlined, CopyOutlined } from '@antdv-next/icons'
 import { useI18n } from 'vue-i18n'
 import Tooltip from './Tooltip.vue'
-const props = defineProps<{ text: string; fullText?: () => Promise<string> }>()
+const props = defineProps<{ text: string; label?: string; fullText?: () => Promise<string> }>()
 const { t } = useI18n()
 const copied = ref(false)
 const busy = ref(false)
@@ -23,7 +23,7 @@ async function copy() {
       input.style.cssText = 'position:fixed;inset:0 auto auto -9999px;opacity:0'
       document.body.append(input)
       input.select()
-      try { if (!document.execCommand('copy')) throw new Error(t('copyReply')) }
+      try { if (!document.execCommand('copy')) throw new Error(props.label || t('copyReply')) }
       finally { input.remove(); previous?.focus({ preventScroll: true }) }
     }
     copied.value = true
@@ -36,5 +36,5 @@ onBeforeUnmount(() => clearTimeout(timer))
 </script>
 
 <template>
-  <Tooltip :title="failure || t(copied ? 'copiedReply' : 'copyReply')"><button type="button" class="reply-action reply-copy" :aria-label="t('copyReply')" :disabled="busy" :aria-busy="busy || undefined" @click="copy"><CheckOutlined v-if="copied" /><CopyOutlined v-else /><span class="visually-hidden" aria-live="polite">{{ failure || (copied ? t('copiedReply') : '') }}</span></button></Tooltip>
+  <Tooltip :title="failure || (copied ? t('copiedReply') : label || t('copyReply'))"><button type="button" class="reply-action reply-copy" :aria-label="label || t('copyReply')" :disabled="busy" :aria-busy="busy || undefined" @click="copy"><CheckOutlined v-if="copied" /><CopyOutlined v-else /><span class="visually-hidden" aria-live="polite">{{ failure || (copied ? t('copiedReply') : '') }}</span></button></Tooltip>
 </template>

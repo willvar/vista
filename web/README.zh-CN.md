@@ -102,6 +102,25 @@ HTTP 初始化和 SSE 更新必须采用相同的视图范围；同时检查返�
 
 空状态使用 `src/ui/Empty.vue` 的共享图示，通过 `.vista-empty-state` 统一间距和字体；窄侧栏使用 `.vista-empty-state-compact`。加载中和错误状态与空结果分别呈现，保留各场景的提示文案，没有结果时隐藏分页控件。
 
+## MCP OAuth 回调提交
+
+`MCPSettings.vue` 通过 `POST /api/mcp-servers/{id}/login` 启动授权，再用 `GET /api/mcp-auth/{id}` 读取该次授权链接。
+打开或复制链接，在浏览器完成授权。授权后浏览器连接失败属于预期情况：复制地址栏中的完整回调 URL，回到 Vista，在弹框内粘贴并提交。
+授权 5 分钟后过期；关闭弹框通过 `DELETE /api/mcp-auth/{id}` 取消授权，迟于关闭返回的启动结果也会被取消。
+请勿将回调 URL 粘贴到聊天或日志中。
+
+只有 `pending` 可提交：向 `POST /api/mcp-auth/{id}` 发送 JSON `{ "callbackUrl": "完整 URL" }`。
+HTTP 200 返回 `status=exchanging` 且 `authorizationUrl` 为空的 Login；HTTP 400 保持 pending，可修改输入后重试；HTTP 409 表示尚未就绪、已提交或已终止，界面会单独读取该次授权以恢复状态。
+`starting`、`pending` 和 `exchanging` 均为活动态；请求发送中及 exchanging 阶段禁止重复提交，但仍可取消。
+共享 MCP 登录更新仅含 `id`、`status` 和可选 `error`，不携带授权链接或回调 URL。
+尝试 ID、代次、读取修订号及只前进的状态共同拒绝迟到响应，防止先到的 SSE 终态被后到的 POST 回执倒退。
+完成状态直接使用共享推送，不额外读取配置或登录状态。
+
+回调输入最多 8,192 个字符，仅保存在组件内存，关闭自动填充和拼写检查。
+取消、重新授权、卸载、提交被接受、进入 exchanging 及终态时清空；请求或输入校验出错且仍为 pending 时保留。
+界面只将它放入 Vista API 请求体，不打开或请求该 URL，不写日志或浏览器存储。
+全部维护语言同步指引与控件，中文地区词条通过下述生成器生成。
+
 ## 国际化
 
 语言注册与客户端匹配位于 `src/i18n/languages.ts`，地区选项位于 `src/i18n/regions.ts`。只列已维护的文字变体，不因 CLDR 地区或日期格式差异扩充列表。自动模式及单一地区语言隐藏地区控件。生效地区用于格式化及下一执行的默认回复语言，用户明确语言要求优先。

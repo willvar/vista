@@ -18,11 +18,13 @@ const test = base.extend<{}, { mockOrigin: string }>({
   }, { scope: 'worker' }],
 })
 
+type MockLogin = { id: string; serverId: string; name: string; status: string; expiresAt: string }
+
 async function mockMCP(page: Page, origin: string) {
   const fixture = {
     servers: [] as Record<string, any>[], writes: [] as Record<string, any>[], canceled: [] as string[],
     unexpected: [] as string[], failRead: false, failSave: false, checkError: '', checkDelay: 0, loginDelay: 0,
-    loginStatus: 'pending', logins: 0,
+    logins: 0, loginAttempts: new Map<string, MockLogin>(), callbackPosts: [] as { id: string; callbackUrl: string }[],
     tools: [
       { name: 'read_file', description: 'Read a local file.', inputSchema: { type: 'object', properties: { path: { type: 'string' } } } },
       { name: 'search_files', description: 'Find files by name.', inputSchema: { type: 'object' } },
@@ -38,7 +40,6 @@ async function mockMCP(page: Page, origin: string) {
     if (path === '/mcp-config') {
       if (method === 'GET') {
         if (fixture.failRead) return route.fulfill({ status: 500, body: 'Could not load MCP settings' })
-        if (fixture.loginStatus === 'connected') fixture.servers.forEach(server => { if (server.oauth) server.authorized = true })
         return reply({ servers: fixture.servers.map(({ token, clientSecret, ...server }) => ({ ...server, hasToken: !!token, hasClientSecret: !!clientSecret })), maxServers: 4, defaultDirectory: '/home/user/project' })
       }
       const body = request.postDataJSON()
@@ -69,17 +70,28 @@ async function mockMCP(page: Page, origin: string) {
       const server = fixture.servers.find(server => server.id === path.split('/')[2])
       if (!server) return route.fulfill({ status: 404, body: 'Unknown MCP server ID' })
       const id = `login-${++fixture.logins}`
+      const attempt = { id, serverId: server.id, name: server.name, status: 'starting', expiresAt: new Date(Date.now() + 300000).toISOString() }
+      fixture.loginAttempts.set(id, attempt)
       if (fixture.loginDelay) await new Promise(resolve => setTimeout(resolve, fixture.loginDelay))
-      return reply({ id, serverId: server.id, name: server.name, status: 'starting', expiresAt: new Date(Date.now() + 300000).toISOString() })
+      attempt.status = 'pending'
+      return reply({ ...attempt, status: 'starting' })
     }
     if (path.startsWith('/mcp-auth/')) {
       const id = path.split('/').at(-1)!
+      const attempt = fixture.loginAttempts.get(id)
+      if (!attempt) return route.fulfill({ status: 404, body: 'Unknown login ID' })
       if (method === 'DELETE') {
         fixture.canceled.push(id)
-        return reply({ id, status: 'canceled' })
+        if (['starting', 'pending', 'exchanging'].includes(attempt.status)) attempt.status = 'canceled'
+        return reply({ ...attempt, authorizationUrl: '' })
       }
-      if (fixture.loginStatus === 'connected') fixture.servers.forEach(server => { if (server.oauth) server.authorized = true })
-      return reply({ id, name: 'remote', status: fixture.loginStatus, authorizationUrl: 'https://auth.example/authorize', expiresAt: new Date(Date.now() + 300000).toISOString() })
+      if (method === 'POST') {
+        fixture.callbackPosts.push({ id, ...request.postDataJSON() })
+        if (attempt.status !== 'pending') return route.fulfill({ status: 409, body: 'Login is not ready' })
+        attempt.status = 'exchanging'
+        return reply({ ...attempt, authorizationUrl: '' })
+      }
+      return reply({ ...attempt, authorizationUrl: attempt.status === 'pending' ? 'https://auth.example/authorize' : '' })
     }
     if (method === 'GET') {
       if (path === '/preferences') return reply({ userId: 'mcp-settings-user', lastMode: 'manual', lastTier: 'speed', manualModelKey: '', reasoningByModelId: {}, feedbackInvitationSeen: true })
@@ -253,7 +265,7 @@ test('connection checks show tools, schemas, errors and retries, and canceled re
   expect(fixture.unexpected).toEqual([])
 })
 
-test('OAuth authorizes in browser, cancels active and late starts, and reports completion', async ({ page, mockOrigin }) => {
+test('OAuth submits pasted callbacks, cancels active and late starts, and reports completion', async ({ page, mockOrigin }) => {
   const fixture = await mockMCP(page, mockOrigin)
   const row = await addRemote(page, 'oauth')
   await expect(row).toContainText('Authorization required')
@@ -272,7 +284,12 @@ test('OAuth authorizes in browser, cancels active and late starts, and reports c
   fixture.loginDelay = 0
   await row.getByRole('button', { name: 'Authorize', exact: true }).click()
   await expect(link).toBeVisible()
-  fixture.loginStatus = 'connected'
+  const callback = 'http://127.0.0.1:5186/callback?code=example-code&state=example-state'
+  await dialog.getByRole('textbox', { name: 'Full callback URL', exact: true }).fill(callback)
+  await dialog.getByRole('button', { name: 'Submit callback URL', exact: true }).click()
+  await expect(dialog.getByRole('status')).toHaveText('Completing authorization…')
+  expect(fixture.callbackPosts).toEqual([{ id: 'login-3', callbackUrl: callback }])
+  fixture.loginAttempts.get('login-3')!.status = 'connected'
   fixture.servers.forEach(server => { if (server.oauth) server.authorized = true })
   const completionReads: string[] = []
   page.on('request', request => {
@@ -299,6 +316,13 @@ test('OAuth authorizes in browser, cancels active and late starts, and reports c
   expect(fixture.servers[0]!.authorized).toBe(true)
   await row.getByRole('button', { name: 'Reauthorize', exact: true }).click()
   const renamedLogin = page.getByRole('dialog', { name: 'Authorize 远程服务', exact: true })
+  await renamedLogin.getByRole('textbox', { name: 'Full callback URL', exact: true }).fill(callback)
+  await renamedLogin.getByRole('button', { name: 'Submit callback URL', exact: true }).click()
+  fixture.loginAttempts.get('login-4')!.status = 'connected'
+  await notifyState(page, ['mcp'], { mcp: {
+    servers: fixture.servers.map(({ token, clientSecret, ...server }) => ({ ...server, hasToken: !!token, hasClientSecret: !!clientSecret })),
+    maxServers: 4, defaultDirectory: '/home/user/project', logins: [{ id: 'login-4', status: 'connected' }],
+  } as MCPState })
   await expect(renamedLogin.getByRole('status')).toHaveText('Authorized. Ready for the next run.')
   await renamedLogin.locator('.mcp-form-actions').getByRole('button', { name: 'Close', exact: true }).click()
   expect(fixture.unexpected).toEqual([])

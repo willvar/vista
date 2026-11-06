@@ -102,6 +102,25 @@ Text actions use the shared `Button` at its default 36px height, including list 
 
 Empty views use `src/ui/Empty.vue`, with one shared illustration and spacing and typography in `.vista-empty-state`; narrow sidebars use `.vista-empty-state-compact`. Keep loading and errors separate from empty results, preserve context-specific descriptions, and omit pagination when no results exist.
 
+## MCP OAuth callback submission
+
+`MCPSettings.vue` starts an attempt with `POST /api/mcp-servers/{id}/login` and reads its authorization link through `GET /api/mcp-auth/{id}`.
+Open or copy that link and authorize in a browser. A browser connection error after authorization is expected: copy the complete callback URL from the address bar, return to Vista, paste it into the dialog, and submit it.
+Attempts expire after 5 minutes; closing the dialog cancels with `DELETE /api/mcp-auth/{id}`, including a start response that arrives after closing.
+Do not paste callback URLs into chats or logs.
+
+Submit only while `pending`: `POST /api/mcp-auth/{id}` with JSON `{ "callbackUrl": "complete URL" }`.
+HTTP 200 returns a Login in `exchanging` with an empty `authorizationUrl`; HTTP 400 leaves the attempt pending so the input can be corrected and retried; HTTP 409 means not ready, already submitted, or terminal and triggers an attempt-specific recovery read.
+`starting`, `pending`, and `exchanging` are active; submission is disabled while its request is in flight or while exchanging, but cancellation stays available.
+Shared MCP login updates contain only `id`, `status`, and optional `error`; they never carry authorization links or callback URLs.
+Attempt IDs, generations, read revisions, and forward-only phases reject late responses and prevent SSE completion from regressing when a POST response arrives later.
+Completion uses the shared state payload without another configuration or login read.
+
+The callback field is limited to 8,192 characters and lives only in component memory, with autocomplete and spellcheck disabled.
+Cancel, retry, unmount, accepted submission, exchanging, and terminal outcomes clear it; request or validation errors retain it while the attempt remains pending.
+The UI sends it only as the Vista API request body: it never opens or fetches that URL, logs it, or saves it to browser storage.
+All maintained languages share the instructions and controls; Chinese regional catalogs come from the generator below.
+
 ## Internationalization
 
 Language registration and client matching are in `src/i18n/languages.ts`; region choices are in `src/i18n/regions.ts`. Only maintained wording variants are offered, not every CLDR territory or differences in date formatting alone. Automatic mode and single-region languages hide the region selector. Effective region is used for formatting and the next run's default reply language; explicit user language requests take precedence.

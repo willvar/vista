@@ -109,13 +109,18 @@ func TestOAuthLoginPersistsAndRefreshesToken(t *testing.T) {
 	defer server.Close()
 	base = server.URL
 	config := Config{ID: "oauth-test", Name: "oauth-test", Transport: "http", Endpoint: base + "/mcp", OAuth: true, ClientID: "test-client"}
-	if err := Login(context.Background(), config, configDir, func(authURL string) {
-		response, err := http.Get(authURL)
+	if err := Login(context.Background(), config, configDir, func(ctx context.Context, authURL string) (string, error) {
+		client := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+		request, err := http.NewRequestWithContext(ctx, http.MethodGet, authURL, nil)
 		if err != nil {
-			t.Error(err)
-			return
+			return "", err
 		}
-		response.Body.Close()
+		response, err := client.Do(request)
+		if err != nil {
+			return "", err
+		}
+		defer response.Body.Close()
+		return response.Header.Get("Location"), nil
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -204,13 +209,18 @@ func TestOAuthDynamicClientRegistration(t *testing.T) {
 	defer server.Close()
 	base = server.URL
 	config := Config{ID: "dynamic", Name: "dynamic", Transport: "http", Endpoint: base + "/mcp", OAuth: true}
-	if err := Login(context.Background(), config, configDir, func(authURL string) {
-		response, err := http.Get(authURL)
+	if err := Login(context.Background(), config, configDir, func(ctx context.Context, authURL string) (string, error) {
+		client := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+		request, err := http.NewRequestWithContext(ctx, http.MethodGet, authURL, nil)
 		if err != nil {
-			t.Error(err)
-			return
+			return "", err
 		}
-		response.Body.Close()
+		response, err := client.Do(request)
+		if err != nil {
+			return "", err
+		}
+		defer response.Body.Close()
+		return response.Header.Get("Location"), nil
 	}); err != nil {
 		t.Fatal(err)
 	}

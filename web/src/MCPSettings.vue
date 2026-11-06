@@ -4,6 +4,7 @@ import { useI18n } from 'vue-i18n'
 import { Empty as VEmpty, Alert as VAlert, Button as VButton, Input as VInput, InputPassword as VInputPassword, Modal as VModal, Select as VSelect, Switch as VSwitch, TextArea as VTextarea } from './ui'
 import { EditOutlined, LinkOutlined, ReloadOutlined, DeleteOutlined } from '@antdv-next/icons'
 import ConfirmPopover from './ConfirmPopover.vue'
+import CopyAction from './ui/CopyAction.vue'
 import { VistaAPIError } from './client/vista'
 import { useWorkspace } from './composables/useWorkspace'
 import { formatDateTime } from './ui/datetime.ts'
@@ -178,9 +179,13 @@ const loginServer = ref<MCPServer | null>(null)
 const login = ref<Login | null>(null)
 const loginError = ref('')
 const loginStartFailed = ref(false)
+const callbackURL = ref('')
+const loginSubmitting = ref(false)
+const loginStages: Record<string, number> = { starting: 0, pending: 1, exchanging: 2 }
 let loginGeneration = 0
 let loginController: AbortController | undefined
-const loginActive = computed(() => login.value ? ['starting', 'pending'].includes(login.value.status) : !loginStartFailed.value)
+const loginActive = computed(() => login.value ? loginStages[login.value.status] !== undefined : !loginStartFailed.value)
+const canSubmitCallback = computed(() => login.value?.status === 'pending' && !loginSubmitting.value && !!callbackURL.value.trim() && callbackURL.value.length <= 8192)
 const authorizationURL = computed(() => {
   try {
     const url = new URL(login.value?.authorizationUrl || '')
@@ -194,6 +199,8 @@ function closeLogin() {
   if (login.value && loginActive.value) cancelLogin(login.value.id)
   loginServer.value = null
   login.value = null
+  callbackURL.value = ''
+  loginSubmitting.value = false
 }
 async function authorize(server: MCPServer) {
   closeTools()
@@ -221,14 +228,26 @@ async function authorize(server: MCPServer) {
   }
 }
 let loginReadRevision = 0
-async function receiveLogin(update: LoginUpdate, signal = loginController?.signal) {
-  if (!login.value || update.id !== login.value.id) return
+function acceptLogin(update: LoginUpdate & Partial<Login>) {
+  if (!login.value || update.id !== login.value.id) return false
+  const current = loginStages[login.value.status]
+  const next = loginStages[update.status]
+  // SSE may finish the attempt before an HTTP acknowledgement arrives.
+  // Terminal outcomes are immutable, and active phases only move forwards.
+  if (current === undefined || (next !== undefined && next < current)) return false
   loginReadRevision++
   login.value = { ...login.value, ...update }
   loginError.value = update.error || ''
   if (update.status === 'connected') saved.value = true
-  if (!['starting', 'pending'].includes(update.status)) login.value.authorizationUrl = ''
-  else if (update.status === 'pending' && !login.value.authorizationUrl) await readLogin(loginGeneration, signal, true)
+  if (update.status !== 'starting' && update.status !== 'pending') {
+    login.value.authorizationUrl = ''
+    callbackURL.value = ''
+  }
+  return true
+}
+async function receiveLogin(update: LoginUpdate, signal = loginController?.signal) {
+  if (!acceptLogin(update)) return
+  if (update.status === 'pending' && !login.value?.authorizationUrl) await readLogin(loginGeneration, signal, true)
 }
 async function readLogin(generation: number, signal = loginController?.signal, propagate = false) {
   const revision = ++loginReadRevision
@@ -236,15 +255,38 @@ async function readLogin(generation: number, signal = loginController?.signal, p
   if (!id || generation !== loginGeneration) return
   try {
     const result = await client.request<Login>(`/mcp-auth/${encodeURIComponent(id)}`, { signal })
-    if (lifetime.signal.aborted || signal?.aborted || generation !== loginGeneration || revision !== loginReadRevision) return
-    login.value = result
-    loginError.value = result.error || ''
-    if (result.status === 'connected') saved.value = true
+    if (lifetime.signal.aborted || signal?.aborted || generation !== loginGeneration || revision !== loginReadRevision || login.value?.id !== id) return
+    acceptLogin(result)
   } catch (cause) {
-    if (lifetime.signal.aborted || signal?.aborted || generation !== loginGeneration || revision !== loginReadRevision) return
+    if (lifetime.signal.aborted || signal?.aborted || generation !== loginGeneration || revision !== loginReadRevision || login.value?.id !== id) return
     loginError.value = String(cause)
-    if (cause instanceof VistaAPIError && cause.status === 404) { login.value = null; loginStartFailed.value = true; return }
+    if (cause instanceof VistaAPIError && cause.status === 404) { login.value = null; loginStartFailed.value = true; callbackURL.value = ''; return }
     if (propagate) throw cause
+  }
+}
+async function submitCallback() {
+  if (!canSubmitCallback.value || !login.value || !loginController) return
+  const generation = loginGeneration
+  const id = login.value.id
+  const signal = loginController.signal
+  const current = () => !lifetime.signal.aborted && !signal.aborted && generation === loginGeneration && login.value?.id === id
+  loginSubmitting.value = true
+  loginError.value = ''
+  try {
+    const result = await client.request<Login>(`/mcp-auth/${encodeURIComponent(id)}`, {
+      method: 'POST', body: JSON.stringify({ callbackUrl: callbackURL.value }), signal,
+    })
+    if (!current()) return
+    callbackURL.value = ''
+    acceptLogin(result)
+  } catch (cause) {
+    if (!current() || login.value?.status !== 'pending') return
+    // A conflict may be an accepted submission from another client. Recover
+    // its current phase without resending the callback or reopening the URL.
+    if (cause instanceof VistaAPIError && cause.status === 409) await readLogin(generation, signal)
+    if (current() && login.value?.status === 'pending') loginError.value = String(cause)
+  } finally {
+    if (current()) loginSubmitting.value = false
   }
 }
 const unsubscribe = stateSync.subscribe(['mcp'], async (_, signal, snapshots) => {
@@ -358,10 +400,17 @@ defineExpose({ imported: () => { saved.value = true }, headerAction: computed(()
   <v-modal :open="!!loginServer" centered :z-index="1200" width="min(480px, calc(100vw - 2rem))" :title="t('mcpLoginTitle', { name: loginServer?.name })" :footer="null" destroy-on-hidden :styles="{ body: { maxHeight: 'calc(100dvh - 10rem)', overflowY: 'auto', overscrollBehavior: 'contain' } }" @cancel="closeLogin">
     <div v-if="loginServer" class="mcp-login">
       <v-alert v-if="loginError" type="error" role="alert" :message="loginError" />
-      <p v-if="loginActive" role="status">{{ t(authorizationURL ? 'mcpLoginPending' : 'mcpLoginPreparing') }}</p>
-      <v-button v-if="authorizationURL && loginActive" variant="primary" :href="authorizationURL" target="_blank" rel="noopener noreferrer">{{ t('mcpOpenAuthorization') }}</v-button>
+      <p v-if="loginActive" role="status">{{ t(login?.status === 'exchanging' || loginSubmitting ? 'mcpLoginExchanging' : login?.status === 'pending' ? 'mcpLoginPending' : 'mcpLoginPreparing') }}</p>
+      <div v-if="authorizationURL && login?.status === 'pending'" class="mcp-authorization-actions">
+        <v-button :href="authorizationURL" target="_blank" rel="noopener noreferrer">{{ t('mcpOpenAuthorization') }}</v-button>
+        <CopyAction :text="authorizationURL" :label="t('mcpCopyAuthorization')" />
+      </div>
       <p v-if="login && !loginActive" role="status">{{ t(({ connected: 'mcpLoginSuccess', canceled: 'mcpLoginCanceled', expired: 'mcpLoginExpired', failed: 'mcpLoginFailed' } as Record<string, string>)[login.status] || 'mcpLoginFailed') }}</p>
-      <p v-if="loginActive" class="mcp-hint">{{ t('mcpLoginHint') }}</p>
+      <p v-if="loginActive" id="mcp-login-hint" class="mcp-hint">{{ t('mcpLoginHint') }}</p>
+      <form v-if="login?.status === 'pending' || login?.status === 'exchanging'" class="mcp-form" autocomplete="off" @submit.prevent="submitCallback">
+        <label for="mcp-callback-url">{{ t('mcpCallbackURL') }}<v-input id="mcp-callback-url" v-model:value="callbackURL" :aria-label="t('mcpCallbackURL')" aria-describedby="mcp-login-hint" type="text" autocomplete="off" autocapitalize="none" :spellcheck="false" :maxlength="8192" required :disabled="login.status !== 'pending' || loginSubmitting" /></label>
+        <div class="mcp-form-actions"><v-button type="submit" variant="primary" :loading="loginSubmitting" :disabled="!canSubmitCallback">{{ t('mcpSubmitCallback') }}</v-button></div>
+      </form>
       <div class="mcp-form-actions"><v-button v-if="!loginActive && login?.status !== 'connected'" @click="authorize(loginServer)">{{ t('retry') }}</v-button><v-button @click="closeLogin">{{ t(loginActive ? 'cancel' : 'close') }}</v-button></div>
     </div>
   </v-modal>
@@ -401,6 +450,7 @@ defineExpose({ imported: () => { saved.value = true }, headerAction: computed(()
 .mcp-tool pre { white-space: pre-wrap; overflow-wrap: anywhere; font-size: var(--font-size-small); margin-bottom: 0; }
 .mcp-login { display: flex; flex-direction: column; align-items: stretch; gap: 1rem; }
 .mcp-login p { margin: 0; }
+.mcp-authorization-actions { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; }
 @media (max-width: 480px) {
   .mcp-toolbar { flex-direction: column; gap: .7rem; }
   .mcp-server { padding: .8rem; }

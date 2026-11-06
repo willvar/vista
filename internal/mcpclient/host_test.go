@@ -1,6 +1,7 @@
 package mcpclient
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -51,7 +52,7 @@ func TestHostedOAuthSnapshotsPersistRotationAndPreserveNewerAuthorization(t *tes
 	if err := writeOAuth(oauthPath(staging, config.ID), original); err != nil {
 		t.Fatal(err)
 	}
-	if err := CommitOAuth(staging, dir, config); err != nil {
+	if err := CommitOAuth(context.Background(), staging, dir, config); err != nil {
 		t.Fatal(err)
 	}
 	for _, removed := range []bool{false, true} {

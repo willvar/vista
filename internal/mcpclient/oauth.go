@@ -2,14 +2,16 @@ package mcpclient
 
 import (
 	"context"
+	"crypto/subtle"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
-	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -38,7 +40,10 @@ func OAuthConfigured(dir string, config Config) bool {
 }
 
 // CommitOAuth publishes credentials from a completed, isolated login attempt.
-func CommitOAuth(staging, dir string, config Config) error {
+func CommitOAuth(ctx context.Context, staging, dir string, config Config) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	credential, err := readOAuth(oauthPath(staging, config.ID), config.Endpoint)
 	if err != nil {
 		return err
@@ -47,13 +52,13 @@ func CommitOAuth(staging, dir string, config Config) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
 		return err
 	}
-	unlock, err := lockOAuth(path)
+	unlock, err := lockOAuthContext(ctx, path)
 	if err != nil {
 		return err
 	}
 	defer unlock()
 	credential.Generation, credential.OriginPath = uuid.NewString(), ""
-	return writeOAuth(path, credential)
+	return writeOAuthContext(ctx, path, credential)
 }
 
 func RemoveOAuth(dir, id string) error {
@@ -101,6 +106,13 @@ func readOAuth(path, endpoint string) (oauthCredential, error) {
 }
 
 func writeOAuth(path string, value oauthCredential) error {
+	return writeOAuthContext(context.Background(), path, value)
+}
+
+func writeOAuthContext(ctx context.Context, path string, value oauthCredential) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
 		return err
 	}
@@ -130,6 +142,9 @@ func writeOAuth(path string, value oauthCredential) error {
 	if err := tmp.Close(); err != nil {
 		return err
 	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	return os.Rename(tmp.Name(), path)
 }
 
@@ -139,12 +154,20 @@ type storedTokenSource struct {
 }
 
 func lockOAuth(path string) (func(), error) {
+	return lockOAuthContext(context.Background(), path)
+}
+
+func lockOAuthContext(ctx context.Context, path string) (func(), error) {
 	lock, err := os.OpenFile(path+".lock", os.O_CREATE|os.O_RDWR, 0600)
 	if err != nil {
 		return nil, err
 	}
 	deadline := time.Now().Add(30 * time.Second)
 	for {
+		if err := ctx.Err(); err != nil {
+			lock.Close()
+			return nil, err
+		}
 		if err := platform.TryLock(lock); err == nil {
 			break
 		} else if !platform.IsLockBusy(err) {
@@ -155,7 +178,12 @@ func lockOAuth(path string) (func(), error) {
 			lock.Close()
 			return nil, errors.New("MCP OAuth credential lock timeout")
 		}
-		time.Sleep(20 * time.Millisecond)
+		select {
+		case <-ctx.Done():
+			lock.Close()
+			return nil, ctx.Err()
+		case <-time.After(20 * time.Millisecond):
+		}
 	}
 	return func() { _ = lock.Close() }, nil
 }
@@ -223,57 +251,77 @@ func oauthURLAllowed(raw string) bool {
 	return ValidateConfig(Config{ID: "oauth", Name: "oauth", Transport: "http", Endpoint: raw}) == nil
 }
 
-// Login performs the SDK's authorization-code and PKCE flow through a temporary
-// loopback callback. openURL presents the authorization URL to the user.
-func Login(ctx context.Context, config Config, configDir string, openURL func(string)) error {
+// The redirect is an OAuth protocol identifier, not a listening endpoint.
+const oauthRedirectURL = "http://127.0.0.1:5186/callback"
+
+// ValidateOAuthCallback checks a pasted response without visiting its URL or
+// exposing its code/state in errors. OAuth error responses can also be submitted.
+func ValidateOAuthCallback(authorizationURL, callbackURL string) error {
+	callbackURL = strings.TrimSpace(callbackURL)
+	if len(callbackURL) == 0 || len(callbackURL) > 8192 {
+		return errors.New("OAuth callback URL must contain at most 8192 bytes")
+	}
+	authorization, err := url.Parse(authorizationURL)
+	if err != nil {
+		return errors.New("OAuth login is not ready for a callback")
+	}
+	request, err := url.ParseQuery(authorization.RawQuery)
+	if err != nil || request.Get("redirect_uri") != oauthRedirectURL || request.Get("state") == "" {
+		return errors.New("OAuth login is not ready for a callback")
+	}
+	expected, _ := url.Parse(oauthRedirectURL)
+	callback, err := url.Parse(callbackURL)
+	if err != nil || callback.Opaque != "" || callback.User != nil || strings.Contains(callbackURL, "#") ||
+		callback.Scheme != expected.Scheme || callback.Host != expected.Host || callback.EscapedPath() != expected.EscapedPath() {
+		return errors.New("OAuth callback URL does not match this login's redirect address")
+	}
+	response, err := url.ParseQuery(callback.RawQuery)
+	if err != nil {
+		return errors.New("OAuth callback URL has invalid query parameters")
+	}
+	for _, values := range response {
+		if len(values) != 1 {
+			return errors.New("OAuth callback URL contains repeated query parameters")
+		}
+	}
+	if subtle.ConstantTimeCompare([]byte(response.Get("state")), []byte(request.Get("state"))) != 1 {
+		return errors.New("OAuth callback URL does not match this login's state")
+	}
+	if response.Has("code") && response.Has("error") || response.Get("code") == "" && response.Get("error") == "" {
+		return errors.New("OAuth callback URL must contain an authorization code or an OAuth error")
+	}
+	return nil
+}
+
+// Login uses the SDK's authorization-code and PKCE flow with a manually pasted
+// callback URL. fetchCallback presents the authorization URL and awaits input.
+func Login(ctx context.Context, config Config, configDir string, fetchCallback func(context.Context, string) (string, error)) error {
 	if err := ValidateConfig(config); err != nil {
 		return err
 	}
 	if !config.OAuth || config.Transport != "http" {
 		return errors.New("MCP server is not configured for OAuth")
 	}
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		return err
-	}
-	defer listener.Close()
-	redirectURL := "http://" + listener.Addr().String() + "/callback"
-	callback := make(chan *auth.AuthorizationResult, 1)
-	mux := http.NewServeMux()
-	mux.HandleFunc("/callback", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodGet || len(r.URL.RawQuery) > 4096 {
-			http.Error(w, "invalid OAuth callback", 400)
-			return
-		}
-		result := &auth.AuthorizationResult{Code: r.URL.Query().Get("code"), State: r.URL.Query().Get("state"), Iss: r.URL.Query().Get("iss")}
-		if result.Code == "" || result.State == "" {
-			http.Error(w, "OAuth login did not return a code and state", 400)
-			return
-		}
-		select {
-		case callback <- result:
-			_, _ = io.WriteString(w, "Vista MCP login received. You may close this tab.")
-		default:
-			http.Error(w, "OAuth callback already received", 409)
-		}
-	})
-	server := &http.Server{Handler: mux, ReadHeaderTimeout: 5 * time.Second}
-	go server.Serve(listener)
-	defer server.Close()
 	loginCtx, cancel := context.WithTimeout(ctx, 5*time.Minute)
 	defer cancel()
 	path := oauthPath(configDir, config.ID)
 	handlerConfig := &auth.AuthorizationCodeHandlerConfig{
-		RedirectURL: redirectURL,
+		RedirectURL: oauthRedirectURL,
 		Client:      &http.Client{Timeout: 20 * time.Second},
 		AuthorizationCodeFetcher: func(ctx context.Context, args *auth.AuthorizationArgs) (*auth.AuthorizationResult, error) {
-			openURL(args.URL)
-			select {
-			case result := <-callback:
-				return result, nil
-			case <-ctx.Done():
-				return nil, ctx.Err()
+			raw, err := fetchCallback(ctx, args.URL)
+			if err != nil {
+				return nil, err
 			}
+			if err := ValidateOAuthCallback(args.URL, raw); err != nil {
+				return nil, err
+			}
+			callback, _ := url.Parse(strings.TrimSpace(raw))
+			response := callback.Query()
+			if response.Get("error") != "" {
+				return nil, errors.New("MCP OAuth authorization was not granted; start again")
+			}
+			return &auth.AuthorizationResult{Code: response.Get("code"), State: response.Get("state"), Iss: response.Get("iss")}, nil
 		},
 		RequestRefreshToken: true,
 		NewTokenSource: func(_ context.Context, oauthConfig *oauth2.Config, token *oauth2.Token) (oauth2.TokenSource, error) {
@@ -292,7 +340,7 @@ func Login(ctx context.Context, config Config, configDir string, openURL func(st
 		handlerConfig.PreregisteredClient = client
 	} else {
 		handlerConfig.DynamicClientRegistrationConfig = &auth.DynamicClientRegistrationConfig{Metadata: &oauthex.ClientRegistrationMetadata{
-			RedirectURIs: []string{redirectURL}, TokenEndpointAuthMethod: "none", GrantTypes: []string{"authorization_code", "refresh_token"}, ResponseTypes: []string{"code"}, ClientName: "Vista",
+			RedirectURIs: []string{oauthRedirectURL}, TokenEndpointAuthMethod: "none", GrantTypes: []string{"authorization_code", "refresh_token"}, ResponseTypes: []string{"code"}, ClientName: "Vista",
 		}}
 	}
 	handler, err := auth.NewAuthorizationCodeHandler(handlerConfig)
