@@ -6,6 +6,27 @@ import { buildRunTrace, buildTraceAgentHierarchy, projectToolOutput, toolOperati
 const event = (sequence: number, kind: string, data: any = {}): StreamEvent => ({ sequence, kind, createdAt: '2026-10-03T00:00:00Z', data: { runId: 'run', taskId: 'main', ...data } })
 const options = { runId: 'run', active: true }
 
+test('retry history shows recovery without duplicating reasoning or tools', () => {
+  const retry = { attempt: 1, maxRetries: 3, retryAt: '2026-11-07T01:00:00Z', error: 'HTTP 502' }
+  const events = [event(1, 'model_request', { turn: 2 }), event(2, 'model_retry', { turn: 2, status: 'waiting', modelRetry: retry })]
+  let trace = buildRunTrace(events, options)
+  assert.equal(trace.nodes.length, 1)
+  assert.equal(trace.nodes[0]?.status, 'loading')
+  events.push(event(3, 'model_request', { turn: 2 }))
+  assert.equal(buildRunTrace(events, options).nodes[0]?.resultSummaryKey, 'modelRetryRequesting')
+  for (const status of ['canceled', 'interrupted']) {
+    const canceled = buildRunTrace([...events, event(4, 'run_finished', { status })], { ...options, active: false })
+    assert.equal(canceled.nodes[0]?.status, 'abort')
+    assert.equal(canceled.nodes[0]?.resultSummaryKey, 'statusInterrupted')
+  }
+  events.push(event(4, 'model_retry', { turn: 2, status: 'succeeded', modelRetry: { ...retry, retryAt: '' } }))
+  trace = buildRunTrace(events, options)
+  assert.equal(trace.nodes.length, 1)
+  assert.equal(trace.nodes[0]?.status, 'success')
+  assert.equal(trace.nodes[0]?.resultSummaryKey, 'modelRetryRecovered')
+  assert.equal(trace.nodes[0]?.body, 'HTTP 502')
+})
+
 test('memory operations identify their changes and show saved preferences without IDs', () => {
   assert.equal(toolOperationLabelKey('memory'), 'traceOpMemory')
   for (const [action, summary] of [['add', 'memoryAdded'], ['update', 'memoryUpdated'], ['remove', 'memoryRemoved']]) {

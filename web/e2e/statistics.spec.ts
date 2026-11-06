@@ -263,7 +263,7 @@ test.describe('missing usage',()=>{
 })
 
 test.describe('failed requests without usage',()=>{
-  test.use({modelFailure:{status:429,body:{error:{message:'Endpoint is unavailable'}}}})
+  test.use({modelFailure:{status:429,body:{error:{code:'insufficient_quota',message:'Account quota is exhausted'}}}})
   test('failed conversation requests do not appear as unreported consumption',async({page,vista})=>{
     const session=await vista.api('/sessions',{method:'POST',body:'{}'})
     await vista.api(`/sessions/${session.id}/messages`,{method:'POST',body:JSON.stringify({content:'Unavailable model fixture'})})

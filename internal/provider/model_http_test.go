@@ -86,7 +86,7 @@ func TestModelStreamIdleTimeoutAndCallerCancellation(t *testing.T) {
 	}
 }
 
-func TestModelHTTPFailureIsNotAutomaticallyReplayed(t *testing.T) {
+func TestModelHTTPFailureHasBoundedRetries(t *testing.T) {
 	for _, status := range []int{http.StatusTooManyRequests, http.StatusServiceUnavailable} {
 		t.Run(http.StatusText(status), func(t *testing.T) {
 			requests := 0
@@ -96,9 +96,10 @@ func TestModelHTTPFailureIsNotAutomaticallyReplayed(t *testing.T) {
 			}))
 			defer server.Close()
 			model := modelcfg.Model{Provider: "openai-chat", ID: "mock", BaseURL: server.URL, APIKey: "key"}
-			_, err := ModelTurn(context.Background(), model, []ChatMessage{{Role: "user", Content: "hello"}}, nil)
-			if err == nil || !strings.Contains(err.Error(), strconv.Itoa(status)) || requests != 1 {
-				t.Fatalf("HTTP failure was replayed or hidden: requests=%d, err=%v", requests, err)
+			ctx := context.WithValue(context.Background(), modelRetryDelayKey{}, time.Microsecond)
+			_, err := ModelTurn(ctx, model, []ChatMessage{{Role: "user", Content: "hello"}}, nil)
+			if err == nil || !strings.Contains(err.Error(), strconv.Itoa(status)) || requests != 1+MaxModelRetries {
+				t.Fatalf("HTTP retry budget or final error: requests=%d, err=%v", requests, err)
 			}
 		})
 	}

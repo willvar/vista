@@ -2,12 +2,53 @@ package store
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"path/filepath"
 	"testing"
 
 	"vista/internal/workerproto"
 )
+
+func TestConversationSnapshotRetainsRootRetryAcrossChildTraffic(t *testing.T) {
+	s := revertStore(t)
+	ctx := context.Background()
+	if _, _, err := s.BeginRun(ctx, "s", "r", "u", "question"); err != nil {
+		t.Fatal(err)
+	}
+	request, err := s.RecordModelRequest(ctx, "s", "r", "openai-chat", "model")
+	if err != nil {
+		t.Fatal(err)
+	}
+	retry := workerproto.Result{RunID: "r", Turn: 1, Status: "waiting", ModelRetry: &workerproto.ModelRetry{Attempt: 1, MaxRetries: 3, RetryAt: "2026-11-07T01:00:00Z", Error: "HTTP 502"}}
+	waiting, err := s.AppendRunEvent(ctx, "s", "r", "model_retry", retry)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 110; i++ {
+		if _, err := s.AppendModelDelta(ctx, "s", "r", 1, 1, fmt.Sprint(i)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	view, err := s.ConversationSnapshot(ctx, "s")
+	if err != nil || len(view.Events) != 102 || view.Events[0].Sequence != request.Sequence || view.Events[1].Sequence != waiting.Sequence || !view.Session.Executing {
+		t.Fatalf("retry progress lost from bounded snapshot: %+v err=%v", view, err)
+	}
+	overview, err := s.RunOverview(ctx, "s", "r")
+	if err != nil || overview.ModelCalls != 1 {
+		t.Fatalf("retry overview: %+v err=%v", overview, err)
+	}
+	for _, event := range overview.Events {
+		if event.Kind == "model_retry" {
+			var got workerproto.Result
+			if err := json.Unmarshal(event.Data, &got); err != nil || got.ModelRetry == nil || *got.ModelRetry != *retry.ModelRetry {
+				t.Fatalf("retry payload changed: %+v err=%v", got, err)
+			}
+			return
+		}
+	}
+	t.Fatal("retry missing from run overview")
+}
 
 func TestConversationSnapshotBoundariesAndRootProgress(t *testing.T) {
 	s := revertStore(t)

@@ -28,7 +28,8 @@ func bedrockTurnWithReasoning(ctx context.Context, model modelcfg.Model, message
 	if model.ID == "" || model.AWSRegion == "" || model.APIKey == "" && (model.AWSAccessID == "" || model.AWSSecret == "") {
 		return Turn{}, errors.New("Bedrock model, region, and credentials are required")
 	}
-	cfg := aws.Config{Region: model.AWSRegion, HTTPClient: bedrockHTTPClient}
+	// The shared request layer owns the bounded retry budget and diagnostics.
+	cfg := aws.Config{Region: model.AWSRegion, HTTPClient: bedrockHTTPClient, RetryMaxAttempts: 1}
 	// Keep the AWS SDK identity unless this connection explicitly overrides it.
 	for name, value := range model.Headers {
 		if strings.EqualFold(name, "User-Agent") {
@@ -466,6 +467,14 @@ func bedrockModelError(err error) error {
 	var apiError smithy.APIError
 	if errors.As(err, &apiError) && (apiError.ErrorCode() == "context_length_exceeded" || apiError.ErrorCode() == "ValidationException" && overflowText(apiError.ErrorMessage())) {
 		return &ModelHTTPError{Provider: "Bedrock", Code: "context_length_exceeded"}
+	}
+	var response *smithyhttp.ResponseError
+	if errors.As(err, &response) {
+		failure := &ModelHTTPError{Provider: "Bedrock", StatusCode: response.HTTPStatusCode(), RetryAfter: modelRetryAfter(response.HTTPResponse().Header)}
+		if apiError != nil {
+			failure.Code, failure.Message = apiError.ErrorCode(), apiError.ErrorMessage()
+		}
+		return failure
 	}
 	return fmt.Errorf("Bedrock: %w", err)
 }

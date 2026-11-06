@@ -968,13 +968,13 @@ a {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
-.run-failure-help {
+.run-failure-help, .run-failure-retry {
   color: var(--text-secondary);
   font-size: 14px;
   line-height: 1.6;
   overflow-wrap: anywhere;
 }
-.run-failure-help .ui-btn {
+.run-failure-help .ui-btn, .run-failure-retry .ui-btn {
   display: inline;
   height: auto;
   min-height: 0;

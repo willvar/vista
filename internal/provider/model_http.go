@@ -62,14 +62,7 @@ func ModelListHTTPError(response *http.Response, apiKey string, headers map[stri
 }
 
 func modelHTTPError(provider string, response *http.Response) error {
-	result := &ModelHTTPError{Provider: provider, StatusCode: response.StatusCode}
-	if seconds, err := strconv.Atoi(strings.TrimSpace(response.Header.Get("Retry-After"))); err == nil && seconds > 0 && seconds <= 86400 {
-		result.RetryAfter = time.Duration(seconds) * time.Second
-	} else if date, err := http.ParseTime(response.Header.Get("Retry-After")); err == nil {
-		if delay := time.Until(date); delay > 0 && delay <= 24*time.Hour {
-			result.RetryAfter = delay
-		}
-	}
+	result := &ModelHTTPError{Provider: provider, StatusCode: response.StatusCode, RetryAfter: modelRetryAfter(response.Header)}
 	// Error bodies are untrusted and may stream indefinitely. A short total
 	// deadline and byte cap keep this diagnostic path from blocking a turn.
 	done := make(chan []byte, 1)
@@ -92,6 +85,21 @@ func modelHTTPError(provider string, response *http.Response) error {
 		_ = response.Body.Close()
 	}
 	return result
+}
+
+func modelRetryAfter(headers http.Header) time.Duration {
+	if ms, err := strconv.ParseInt(strings.TrimSpace(headers.Get("Retry-After-Ms")), 10, 64); err == nil && ms > 0 {
+		return time.Duration(min(ms, int64((1<<63-1)/time.Millisecond))) * time.Millisecond
+	}
+	if seconds, err := strconv.ParseInt(strings.TrimSpace(headers.Get("Retry-After")), 10, 64); err == nil && seconds > 0 {
+		return time.Duration(min(seconds, int64((1<<63-1)/time.Second))) * time.Second
+	}
+	if date, err := http.ParseTime(headers.Get("Retry-After")); err == nil {
+		if delay := time.Until(date); delay > 0 {
+			return delay
+		}
+	}
+	return 0
 }
 
 func modelErrorCode(data []byte) string {

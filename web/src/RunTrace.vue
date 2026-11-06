@@ -102,6 +102,7 @@ function nodeTitle(node: RunTraceNode): string {
   if (node.kind === 'reasoning') return t('modelReasoning')
   if (node.kind === 'text') return t('modelOutput')
   if (node.kind === 'source') return t('sources')
+  if (node.kind === 'retry') return t('modelRequestRecovery')
   return ''
 }
 function taskStatus(task: RunTraceTask): string {
@@ -158,7 +159,7 @@ const modelName = computed(() => {
   if (!task?.modelId) return props.modelName || ''
   return historicalModelLabel({ key: task.modelKey, provider: task.modelProvider, id: task.modelId }) || props.modelName || ''
 })
-const latestEvent = computed(() => events.value.filter(event => ['tool', 'agent_task', 'model_request', 'model_result', 'model_delta', 'model_reasoning_delta', 'run_finished'].includes(event.kind) && event.data.purpose !== 'summary').at(-1))
+const latestEvent = computed(() => events.value.filter(event => ['tool', 'agent_task', 'model_request', 'model_retry', 'model_result', 'model_delta', 'model_reasoning_delta', 'run_finished'].includes(event.kind) && event.data.purpose !== 'summary').at(-1))
 const activityText = computed(() => {
   const event = latestEvent.value
   if (!event) return segmentActive.value ? props.status : ''
@@ -168,6 +169,7 @@ const activityText = computed(() => {
   }
   if (event.kind === 'agent_task') return `${compactTraceText(event.data.task?.title || t('traceMainTask'))} · ${executionStatus(event.data.task?.status)}`
   if (event.kind === 'run_finished') return executionStatus(event.data.status)
+  if (event.kind === 'model_retry') return t('modelRequestRecovery')
   return t(({ model_request: 'traceModelRequest', model_result: 'traceModelResult', model_delta: 'modelOutput', model_reasoning_delta: 'modelReasoning' } as Record<string, string>)[event.kind])
 })
 const lastActivityAt = computed(() => {

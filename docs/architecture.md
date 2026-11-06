@@ -153,6 +153,26 @@ The main agent's `memory` tool supports `list`, `add`, `update`, and `remove` fo
 
 Reply language is request metadata, inherited by child tasks and refreshed when an interjection supplies a new preference. The shared model-request entry point applies the policy from `internal/replylanguage` to a request-local copy before protocol conversion; conversation, title, and compaction prompts do not define separate language policies. Explicit user language requests override the default; absent a valid preference, the default follows the user's message. Token estimates use the same preparation path, and generated language instructions are not saved in model history or checkpoints.
 
+## Model request recovery
+
+`internal/provider/model_retry.go` owns one retry budget across protocol adapters, including Bedrock with SDK retries disabled.
+An eligible model request makes its initial attempt plus at most three additional attempts, with nominal 2/4/8-second delays and ±20% jitter.
+Eligibility covers HTTP 408/429/500/502/503/504/529 and pre-response network errors; known authentication, billing/quota, retired-model, and context-overflow errors are excluded.
+A valid `Retry-After-Ms` or `Retry-After` is a minimum wait; a required wait over one minute ends recovery rather than shortening that wait.
+Waiting and requests respect cancellation.
+The layer repeats the prepared messages, tools and model selection; it does not rerun local tools or choose another model.
+Stream/protocol errors and attempts that already emitted text/reasoning or returned tool calls, hosted calls or usage are not automatically replayed.
+Context-overflow compaction remains a separate mechanism.
+
+Each HTTP attempt has its own diagnostic record and usage observation; failed attempts without reported usage do not add consumption.
+Conversation retries persist bounded `model_retry` events before notifying the durable conversation stream; each additional attempt records a `model_request` with the same logical turn ID.
+The snapshot retains root retry progress even when child activity exceeds the recent event page.
+The UI coalesces the retry lifecycle into one recovery step per turn and restores waiting state after reload or reconnection.
+
+For the latest failed execution in an open, idle conversation, Continue execution sends an explicit localized continuation through the existing message endpoint, with the currently selected model.
+It retains tool history, unsent drafts, quotes and attachments; it neither withdraws the original message nor resends its entire request automatically.
+The continuation asks the model to reuse recorded results and verify uncertain effects before repeating an operation.
+
 ## Model HTTP diagnostics
 
 Debug mode opts new executions into model HTTP capture through the submitting browser's `vista-debug-mode` cookie.

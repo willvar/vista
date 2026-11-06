@@ -33,7 +33,7 @@ func TestUsageRecorderCoversPurposesFailuresAndMissingUsageOnce(t *testing.T) {
 			}))
 			defer server.Close()
 			calls := 0
-			ctx := WithUsageRecorder(context.Background(), func(id string, tokens *int64) {
+			ctx := WithUsageRecorder(fastModelRetryContext(), func(id string, tokens *int64) {
 				calls++
 				if _, err := uuid.Parse(id); err != nil {
 					t.Fatal(err)

@@ -6,7 +6,7 @@ export type TraceSearchOutput = { matches: { path: string; line?: number; text: 
 export type TraceInstructionOutput = { path: string; bytes?: number }[]
 export type TraceFileDiff = { path: string; created: boolean; unified: string; omitted?: 'too_large' | 'unavailable' }
 export type RunTraceNode = {
-  key: string; sequence: number; lastSequence: number; kind: 'tool' | 'reasoning' | 'text' | 'source'
+  key: string; sequence: number; lastSequence: number; kind: 'tool' | 'reasoning' | 'text' | 'source' | 'retry'
   taskId: string; parentTaskId?: string; title: string; summary?: string; body: string; status?: TraceStatus
   turn?: number; modelId?: string; reasoningEffort?: string; truncated?: boolean
   callId?: string; toolName?: string; outputRef?: ToolOutputRef; artifactIds: string[]; jobIds: string[]; eventData: any
@@ -212,6 +212,21 @@ export function buildRunTrace(events: readonly StreamEvent[], options: RunTraceR
       current.modelProvider = data.provider || current.modelProvider
       current.reasoningEffort = data.reasoningEffort
       models.set(turn, { id: data.id, reasoningEffort: data.reasoningEffort })
+      const retry = nodes.get(`retry/${turn}`)
+      if (retry?.status === 'loading') {
+        retry.resultSummaryKey = 'modelRetryRequesting'
+        retry.lastSequence = event.sequence
+      }
+    } else if (event.kind === 'model_retry' && data.modelRetry) {
+      const key = `retry/${turn}`
+      const previous = nodes.get(key)
+      nodes.set(key, { key, sequence: previous?.sequence ?? event.sequence, lastSequence: event.sequence, kind: 'retry',
+        taskId: id, turn: data.turn, title: '', body: data.modelRetry.error || '',
+        status: data.status === 'waiting' ? 'loading' : traceStatus(data.status),
+        resultSummaryKey: data.status === 'waiting' ? 'modelRetryWaiting' : data.status === 'succeeded' ? 'modelRetryRecovered' : 'modelRetryFailed',
+        resultSummaryParams: { attempt: data.modelRetry.attempt, maxRetries: data.modelRetry.maxRetries },
+        artifactIds: [], jobIds: [], eventData: data })
+      task(id, event)
     } else if (event.kind === 'tool' && data.tool) {
       const call = `${id}/${data.tool.callId || event.sequence}`
       let key = toolCalls.get(call)
@@ -283,6 +298,11 @@ export function buildRunTrace(events: readonly StreamEvent[], options: RunTraceR
     const owner = tasks.get(node.taskId)!
     if (node.status === 'loading' && ((!owner.background && (finished || !options.active)) || ['succeeded', 'failed', 'canceled', 'interrupted'].includes(owner.status))) {
       node.status = owner.status === 'canceled' || finished?.data.status === 'canceled' ? 'abort' : undefined
+      if (node.kind === 'retry') {
+        const stopped = node.status === 'abort' || owner.status === 'interrupted' || finished?.data.status === 'interrupted'
+        node.status = stopped ? 'abort' : undefined
+        node.resultSummaryKey = stopped ? 'statusInterrupted' : 'modelRetryFailed'
+      }
     }
     owner.nodes.push(node)
   }

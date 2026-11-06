@@ -108,7 +108,7 @@ func TestContextOverflowAdapters(t *testing.T) {
 			}))
 			defer server.Close()
 			model := modelcfg.Model{Provider: tc.protocol, ID: "mock", BaseURL: server.URL, APIKey: "local-fixture"}
-			_, err := ModelTurn(context.Background(), model, []ChatMessage{{Role: "user", Content: "small local fixture"}}, nil)
+			_, err := ModelTurn(fastModelRetryContext(), model, []ChatMessage{{Role: "user", Content: "small local fixture"}}, nil)
 			var typed *ModelHTTPError
 			detected := errors.As(err, &typed) && typed.Code == "context_length_exceeded"
 			t.Logf("current-overflow=%v error=%v", detected, err)

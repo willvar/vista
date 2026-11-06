@@ -7,6 +7,24 @@ const session: Session = { id: 'session-a', title: 'Example', modelKey: '', open
 const message = (id: string, sequence: number, runId: string, role = 'user'): Message => ({ id, sequence, runId, role, content: id, createdAt: '' })
 const event = (sequence: number, kind: string, data: unknown): StreamEvent => ({ sequence, kind, data })
 
+test('model retry progress survives event replay and remains cancellable execution', () => {
+  let state = createConversationState(session)
+  state = reduceConversationEvent(state, event(1, 'message', message('input', 1, 'run')))
+  const retry = event(2, 'model_retry', { runId: 'run', turn: 2, status: 'waiting', modelRetry: { attempt: 1, maxRetries: 3, retryAt: '2026-11-07T01:00:00Z' } })
+  state = reduceConversationEvent(state, retry)
+  assert.equal(state.runProgress?.phase, 'retry')
+  assert.equal(state.runProgress?.retry?.attempt, 1)
+  assert.equal(state.selected?.executing, true)
+  assert.equal(reduceConversationEvent(state, retry), state)
+  state = reduceConversationEvent(state, event(3, 'model_retry', { ...retry.data, taskId: 'child', depth: 1, modelRetry: { ...retry.data.modelRetry, attempt: 2 } }))
+  assert.equal(state.runProgress?.retry?.attempt, 1)
+  state = reduceConversationEvent(state, event(4, 'model_request', { runId: 'run', turn: 2, id: 'model' }))
+  assert.equal(state.runProgress?.phase, 'model')
+  state = reduceConversationEvent(state, event(5, 'run_finished', { runId: 'run', status: 'interrupted' }))
+  assert.equal(state.runProgress?.phase, 'finished')
+  assert.equal(state.selected?.executing, false)
+})
+
 test('hundreds of completed runs release bodies and usage outside the message window', () => {
   let state = createConversationState(session)
   for (let index = 0; index < 320; index++) {

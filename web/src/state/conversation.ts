@@ -147,7 +147,7 @@ export function reduceConversationEvent(state: ConversationState, event: StreamE
   const runId: string | undefined = data?.runId
   const depth = data?.depth || 0
   next.mainOutputs = reduceMainOutputEvent(state.mainOutputs, event, runId ? state.modelByRun[runId] : undefined)
-  if (['model_request', 'model_delta', 'model_reasoning_delta', 'model_result', 'tool', 'source', 'agent_task', 'checklist', 'artifact', 'job', 'context_notice', 'run_finished'].includes(event.kind)) next.processEvents = [...state.processEvents, event].slice(-1500)
+  if (['model_request', 'model_retry', 'model_delta', 'model_reasoning_delta', 'model_result', 'tool', 'source', 'agent_task', 'checklist', 'artifact', 'job', 'context_notice', 'run_finished'].includes(event.kind)) next.processEvents = [...state.processEvents, event].slice(-1500)
   if (event.kind === 'message' && data?.role === 'user' && runId && event.sequence >= state.activeRunSequence) {
     next.activeRunID = runId
     next.activeRunSequence = event.sequence
@@ -155,6 +155,7 @@ export function reduceConversationEvent(state: ConversationState, event: StreamE
     if (next.selected) next.selected = { ...next.selected, pendingReply: undefined, executing: true, latestRunStatus: 'running' }
   } else if (runId && runId === next.activeRunID && !depth && !next.finishedRuns[runId]) {
     if (event.kind === 'model_request' && !data?.purpose) next.runProgress = { runId, phase: 'model' }
+    else if (event.kind === 'model_retry' && data?.status === 'waiting' && data?.modelRetry) next.runProgress = { runId, phase: 'retry', retry: data.modelRetry }
     else if (event.kind === 'model_reasoning_delta') next.runProgress = { runId, phase: 'reasoning' }
     else if (event.kind === 'model_delta') next.runProgress = { runId, phase: 'response' }
     else if (event.kind === 'model_result') next.runProgress = { runId, phase: 'processing' }

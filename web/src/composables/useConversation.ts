@@ -200,6 +200,7 @@ export function useConversation({ client, sessions, modelCatalog, error, busy, r
     if (['connecting', 'recovering'].includes(synchronization.value.phase)) return t('conversationSynchronizing')
     if (compaction.value?.phase === 'compacting') return t('contextCompacting')
     const progress = runProgress.value?.runId === activeRunID.value ? runProgress.value : null
+    if (progress?.phase === 'retry' && progress.retry) return t('modelRetryWaiting', progress.retry)
     if (progress?.phase === 'tool') return t(toolOperationLabelKey(progress.tool)) + '…'
     const key = { model: 'agentWaitingModel', reasoning: 'agentReasoning', response: 'agentResponding', processing: 'agentProcessing' }[progress?.phase as 'model' | 'reasoning' | 'response' | 'processing']
     return t(key || 'agentStarting')
@@ -901,6 +902,27 @@ export function useConversation({ client, sessions, modelCatalog, error, busy, r
   }
   function submitMessage() { if (!busy.value && (!attachedImages.value.length || canAttachImage.value)) void send() }
   function submitAlternateMessage() { if (!busy.value && (!attachedImages.value.length || canAttachImage.value)) void send('later') }
+  function canRetryFailure(failure: FailureContext) {
+    return failure.kind === 'execution' && !!selected.value?.open && !selected.value.executing && !busy.value
+      && !manualCompacting.value && !compactionRequestPending.value && canAnalyzeFailure.value
+      && selected.value.latestRunStatus === 'failed' && failure.runId === activeRunID.value
+  }
+  async function retryFailure(failure: FailureContext) {
+    const scope = currentScope
+    if (!scope || !current(scope) || !canRetryFailure(failure)) return
+    const owner = startBusy()
+    try {
+      // A deliberate continuation keeps durable tool history and the user's
+      // unsent draft. Never withdraw/resend the original task or repeat tools.
+      const result = await request<SendMessageResult>(scope, `/sessions/${scope.id}/messages`, {
+        method: 'POST', body: JSON.stringify({ content: t('retryTaskPrompt'), images: [], mode: 'now',
+          selectionMode: selectionMode.value, selectionTier: selectionTier.value,
+          ...(selectionMode.value === 'manual' ? { modelKey: selectedModel.value, reasoningEffort: selectedReasoning.value } : {}) }),
+      })
+      await applySentMessage(scope, result)
+    } catch (failure) { report(scope, failure) }
+    finally { endBusy(scope, owner) }
+  }
   async function analyzeFailure(failure: FailureContext) {
     const scope = currentScope
     const source = selected.value
@@ -1082,7 +1104,7 @@ export function useConversation({ client, sessions, modelCatalog, error, busy, r
     draft, quotedText, quoteSelection, removeQuote, agentWorking, agentStatus, hasTaskDetails, chooseModel, recallLastUserMessage,
     synchronization, syncDiagnostics, viewRevision, resynchronize, renderFailure,
     selectSession, clearSession, refreshConversation, loadOlderActivity, showRecentActivity, loadOlder, loadNewer, markRead,
-    send, submitMessage, submitAlternateMessage, analyzingFailure, canAnalyzeFailure, analyzeFailure, submitQuestion, cancelExecution, readModelOutput, modelOutputLoading, modelOutputFailure,
+    send, submitMessage, submitAlternateMessage, analyzingFailure, canAnalyzeFailure, analyzeFailure, canRetryFailure, retryFailure, submitQuestion, cancelExecution, readModelOutput, modelOutputLoading, modelOutputFailure,
     fullMessageText, resultsForMessage, resultsForRun, resultsForTrace, traceSegment, runStartedAt, runReplyTurns, runActivityAnchor, firstRunSequence, liveDrafts,
     hasVisibleRun, chooseImages, addImages, pasteImages, dropImages, removeImage,
   }

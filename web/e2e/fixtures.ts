@@ -26,7 +26,7 @@ type ModelRequest = { model?: string; reasoning?: { effort?: string; summary?: s
   tool_call_id?: string
 }[] }
 type ProviderOutput = 'perplexity' | 'openrouter' | 'responses'
-type ModelFailure = { status: number; body: object; stream?: boolean }
+type ModelFailure = { status: number; body: object; stream?: boolean; attempts?: number; retryAfterMs?: number }
 
 export const test = base.extend<{ vista: VistaFixture; configuredProvider: boolean; imageModel: boolean; budgetModel: boolean; replyWithPrompt: boolean; followUpTool: boolean; questionTool: boolean; memoryTool: boolean; progressCalls: number; longProgress: boolean; terminalReasoning: boolean; emptyReply: boolean; detachedTask: boolean; backgroundProcess: boolean; fileChanges: boolean; providerOutput: ProviderOutput | undefined; modelFailure: ModelFailure | undefined }>({
   configuredProvider: [true, { option: true }],
@@ -105,18 +105,21 @@ export const test = base.extend<{ vista: VistaFixture; configuredProvider: boole
       }
       // A small upstream wait makes request timing measurable on fast loopback.
       await new Promise<void>(done => setTimeout(done, 40))
-      if (!titleRequest && modelFailure) {
+      if (!titleRequest && modelFailure && modelRequests.length <= (modelFailure.attempts ?? Infinity)) {
         if (modelFailure.stream) {
           const event = providerOutput === 'responses' ? { type: 'response.failed', response: modelFailure.body } : modelFailure.body
           response.writeHead(200, { 'Content-Type': 'text/event-stream' }).end(`data: ${JSON.stringify(event)}\n\n`)
         } else {
-          response.writeHead(modelFailure.status, { 'Content-Type': 'application/json' }).end(JSON.stringify(modelFailure.body))
+          response.writeHead(modelFailure.status, { 'Content-Type': 'application/json',
+            ...(modelFailure.retryAfterMs ? { 'Retry-After-Ms': String(modelFailure.retryAfterMs) } : {}),
+          }).end(JSON.stringify(modelFailure.body))
         }
         return
       }
       if (progressCalls && !titleRequest && input.messages?.filter(message => message.role === 'user').at(-1)?.content === 'Fail progress'
         && input.messages.some(message => message.role === 'tool')) {
-        response.writeHead(500, { 'Content-Type': 'application/json' }).end(JSON.stringify({ error: { message: 'Synthetic failure after saved progress' } }))
+        // This fixture exercises retained progress, not short transient recovery.
+        response.writeHead(500, { 'Content-Type': 'application/json', 'Retry-After': '3600' }).end(JSON.stringify({ error: { message: 'Synthetic failure after saved progress' } }))
         return
       }
       response.writeHead(200, { 'Content-Type': 'text/event-stream' })

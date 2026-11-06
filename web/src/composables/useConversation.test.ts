@@ -18,6 +18,38 @@ const session = (id: string): Session => ({ id, title: id, modelKey: 'example', 
 const message = (id: string, sequence: number, runId: string, role = 'user'): Message => ({ id, sequence, runId, role, content: id, createdAt: '' })
 const questionPending = (runId = 'question-run'): PendingReply => ({ runId, kind: 'question', content: 'Pick a choice', questions: [{ question: 'Pick a choice', options: [{ label: 'A' }, { label: 'B' }] }] })
 
+test('continuing a failed task preserves drafts and history and sends only once', async t => {
+  const pending = deferred<unknown>()
+  const posts: { path: string; body: any }[] = []
+  const f = fixture(t, (path, options) => {
+    if (path.endsWith('/messages') && options?.method === 'POST') {
+      posts.push({ path, body: JSON.parse(String(options.body)) })
+      return pending.promise
+    }
+  })
+  await f.conversation.selectSession(session('a'))
+  const failed = { ...message('failure', 3, 'failed', 'assistant'), failure: true }
+  f.conversation.messages.value = [message('original-task', 2, 'failed'), failed]
+  f.conversation.activeRunID.value = 'failed'
+  f.conversation.selected.value = { ...f.conversation.selected.value!, latestRunStatus: 'failed', executing: false }
+  f.conversation.draft.value = 'Keep this unsent draft'
+  const failure = { kind: 'execution' as const, runId: 'failed', error: 'HTTP 502' }
+  assert.equal(f.conversation.canRetryFailure({ ...failure, runId: 'older' }), false)
+  assert.equal(f.conversation.canRetryFailure(failure), true)
+  const first = f.conversation.retryFailure(failure)
+  await f.conversation.retryFailure(failure)
+  assert.equal(posts.length, 1)
+  assert.equal(posts[0]!.path, '/sessions/a/messages')
+  assert.equal(posts[0]!.body.content, 'retryTaskPrompt')
+  assert.equal(posts[0]!.body.replacesMessageId, undefined)
+  pending.resolve({ runId: 'continued', message: message('continue', 4, 'continued') })
+  await first
+  assert.equal(f.conversation.draft.value, 'Keep this unsent draft')
+  assert.deepEqual(f.conversation.messages.value.map(m => m.id), ['original-task', 'failure', 'continue'])
+  assert.equal(f.conversation.activeRunID.value, 'continued')
+  assert.equal(f.refreshes(), 0)
+})
+
 test('returning to an evicted window reloads indexes and ignores earlier in-flight bodies', async t => {
   const old = deferred<OutputView>(), fresh = deferred<OutputView>()
   let indexes = 0, bodies = 0

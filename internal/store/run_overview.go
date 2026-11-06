@@ -101,7 +101,7 @@ func (s *Store) RunOverviewRange(ctx context.Context, sessionID, runID string, a
     THEN json_set(data,'$.content',substr(json_extract(data,'$.content'),1,512),'$.tool.truncated',json('true'))
     ELSE data END AS BLOB) AS data`).
 			Where("sequence<=?", totals.ThroughSequence).
-			Where("kind IN ? OR sequence IN (?) OR sequence IN (?)", []string{"agent_task", "checklist", "model_request", "run_finished", "source", "context_notice"}, latestToolSequences, firstReasoningSequences).
+			Where("kind IN ? OR sequence IN (?) OR sequence IN (?)", []string{"agent_task", "checklist", "model_request", "model_retry", "run_finished", "source", "context_notice"}, latestToolSequences, firstReasoningSequences).
 			Order("sequence").Find(&events).Error; err != nil {
 			return err
 		}

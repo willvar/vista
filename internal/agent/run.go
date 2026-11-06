@@ -280,6 +280,16 @@ turnLoop:
 			return "", requestErr
 		}
 		requestCtx := withModelDiagnostics(ctx, modeltrace.Scope{Enabled: command.Debug, SessionID: command.SessionID, RunID: command.RunID, TaskID: command.TaskID, Turn: turnID, Purpose: "conversation"}, emit)
+		requestCtx = provider.WithModelRetryObserver(requestCtx, func(retry provider.ModelRetry) error {
+			if retry.Status == "requesting" {
+				return emit(workerproto.Result{RunID: command.RunID, Kind: "model_request", Turn: turnID, Depth: depth, ModelUse: &workerproto.ModelUse{Provider: providerID, ID: command.Model.ID, Key: command.Model.Key, ReasoningEffort: provider.ModelReasoningEffort(command.Model)}})
+			}
+			state := &workerproto.ModelRetry{Attempt: retry.Attempt, MaxRetries: retry.MaxRetries, Error: workerproto.TextPreview(retry.Error, workerproto.MaxErrorBytes)}
+			if !retry.RetryAt.IsZero() {
+				state.RetryAt = retry.RetryAt.Format(time.RFC3339Nano)
+			}
+			return emit(workerproto.Result{RunID: command.RunID, Kind: "model_retry", Turn: turnID, Depth: depth, Status: retry.Status, ModelRetry: state})
+		})
 		turn, err := provider.ModelTurnStreamWithReasoning(requestCtx, command.Model, requestMessages, offeredTools,
 			func(fragment string) error {
 				if firstTextMS == nil && strings.TrimSpace(fragment) != "" {

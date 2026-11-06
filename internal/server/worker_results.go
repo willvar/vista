@@ -8,12 +8,14 @@ import (
 	"log"
 	"net/url"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	"github.com/google/uuid"
 	"vista/internal/agentconfig"
 	modelcfg "vista/internal/model"
 	"vista/internal/modeltrace"
+	"vista/internal/provider"
 	"vista/internal/store"
 	"vista/internal/workerproto"
 )
@@ -236,6 +238,19 @@ func (c *workerResultConsumer) consume(result workerproto.Result) error {
 		}
 		if usage := metadata.Usage; usage != nil && !validReportedUsage(*usage) {
 			return errors.New("invalid model usage")
+		}
+		return c.append(result, result, "")
+	case "model_retry":
+		retry := result.ModelRetry
+		if result.RunID == "" || result.Turn <= 0 || retry == nil || retry.MaxRetries != provider.MaxModelRetries || retry.Attempt < 1 || retry.Attempt > retry.MaxRetries || len(retry.Error) > workerproto.MaxErrorBytes || !utf8.ValidString(retry.Error) || result.Content != "" {
+			return errors.New("invalid model retry")
+		}
+		if result.Status == "waiting" {
+			if _, err := time.Parse(time.RFC3339Nano, retry.RetryAt); err != nil {
+				return errors.New("invalid model retry deadline")
+			}
+		} else if (result.Status != "succeeded" && result.Status != "failed") || retry.RetryAt != "" {
+			return errors.New("invalid model retry status")
 		}
 		return c.append(result, result, "")
 	case "source":

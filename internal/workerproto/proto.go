@@ -112,6 +112,7 @@ type Result struct {
 	Artifact     *Artifact          `json:"artifact,omitempty"`
 	ModelUse     *ModelUse          `json:"modelUse,omitempty"`
 	ModelResult  *ModelResult       `json:"modelResult,omitempty"`
+	ModelRetry   *ModelRetry        `json:"modelRetry,omitempty"`
 	Checklist    *Checklist         `json:"checklist,omitempty"`
 	Pending      *PendingReply      `json:"pendingReply,omitempty"`
 	Metrics      *Metrics           `json:"metrics,omitempty"`
@@ -151,6 +152,12 @@ type ModelUse struct {
 	ID              string `json:"id"`
 	Key             string `json:"key,omitempty"`
 	Purpose         string `json:"purpose,omitempty"`
+}
+type ModelRetry struct {
+	Attempt    int    `json:"attempt"`
+	MaxRetries int    `json:"maxRetries"`
+	RetryAt    string `json:"retryAt,omitempty"`
+	Error      string `json:"error,omitempty"`
 }
 type ModelResult struct {
 	Purpose         string      `json:"purpose,omitempty"`

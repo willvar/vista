@@ -57,6 +57,8 @@ func TestWorkerResultConsumerRejectsMalformedFramesWithoutEffects(t *testing.T) 
 		"invalid status":   `{"runId":"run","status":"running"}`,
 		"invalid reply":    `{"runId":"run","kind":"input_poll","ackId":"poll","reply":{"turn":0,"fullBytes":5,"content":"hello"}}`,
 		"child reply":      `{"runId":"run","kind":"input_poll","ackId":"poll","depth":1,"reply":{"turn":1,"fullBytes":5,"content":"hello"}}`,
+		"invalid retry":    `{"runId":"run","kind":"model_retry","turn":1,"status":"waiting","modelRetry":{"attempt":4,"maxRetries":3,"retryAt":"2026-11-07T00:00:00Z"}}`,
+		"retry deadline":   `{"runId":"run","kind":"model_retry","turn":1,"status":"waiting","modelRetry":{"attempt":1,"maxRetries":3}}`,
 	} {
 		t.Run(name, func(t *testing.T) {
 			consumer, sequence := newResultConsumerTest(t)
@@ -72,6 +74,31 @@ func TestWorkerResultConsumerRejectsMalformedFramesWithoutEffects(t *testing.T) 
 			}
 			if runID, err := consumer.store.RunningRunID(consumer.ctx, consumer.sessionID); err != nil || runID != "run" {
 				t.Fatalf("invalid result changed execution status: run=%s error=%v", runID, err)
+			}
+		})
+	}
+}
+
+func TestWorkerResultConsumerPublishesRetryOnlyAfterCommit(t *testing.T) {
+	for _, failStore := range []bool{false, true} {
+		t.Run(fmt.Sprint(failStore), func(t *testing.T) {
+			consumer, sequence := newResultConsumerTest(t)
+			if failStore {
+				if err := consumer.store.Close(); err != nil {
+					t.Fatal(err)
+				}
+			}
+			notified := 0
+			consumer.notify = func() {
+				notified++
+				events, err := consumer.store.EventsAfter(consumer.ctx, consumer.sessionID, sequence, 100)
+				if err != nil || len(events) != 1 || events[0].Kind != "model_retry" {
+					t.Fatalf("notification before commit: %+v err=%v", events, err)
+				}
+			}
+			err := consumeTestResult(t, consumer, workerproto.Result{RunID: "run", Kind: "model_retry", Turn: 1, Status: "waiting", ModelRetry: &workerproto.ModelRetry{Attempt: 1, MaxRetries: 3, RetryAt: "2026-11-07T01:00:00Z", Error: "HTTP 502"}})
+			if (err != nil) != failStore || (notified == 0) != failStore {
+				t.Fatalf("notification on failed write: count=%d err=%v", notified, err)
 			}
 		})
 	}

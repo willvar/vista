@@ -131,7 +131,7 @@ func (s *Store) ConversationSnapshot(ctx context.Context, id string) (Conversati
  SELECT MAX(sequence) FROM events WHERE session_id=? AND json_extract(data,'$.runId')=?
  AND COALESCE(json_extract(data,'$.depth'),0)=0 AND COALESCE(json_extract(data,'$.taskId'),'main') IN ('','main')
  AND COALESCE(json_extract(data,'$.purpose'),'')=''
- AND kind IN ('model_request','model_delta','model_reasoning_delta','model_result','tool','run_finished')
+ AND kind IN ('model_request','model_retry','model_delta','model_reasoning_delta','model_result','tool','run_finished')
  GROUP BY kind='model_request') AND session_id=? ORDER BY sequence`, id, activeRun, id).Scan(&root).Error; err != nil {
 				return err
 			}
