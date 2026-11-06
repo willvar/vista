@@ -102,6 +102,11 @@ HTTP 初始化和 SSE 更新必须采用相同的视图范围；同时检查返�
 
 空状态使用 `src/ui/Empty.vue` 的共享图示，通过 `.vista-empty-state` 统一间距和字体；窄侧栏使用 `.vista-empty-state-compact`。加载中和错误状态与空结果分别呈现，保留各场景的提示文案，没有结果时隐藏分页控件。
 
+`TraceToolResult.vue` 通过 `FileDiffOutput.vue` 展示 `write_file` 的差异产物。
+差异记录已经提交的当次写入，不跟随当前文件内容变化；`RunToolOutput.vue` 仅在展开步骤时通过现有的限量输出缓存加载它。
+统一差异保留新旧行号、增删标记及转义文本；定高虚拟行控制 DOM 数量，横向滚动容纳长行。
+分别展示新建、内容未变及差异不可用状态，并兼容旧历史中只有元数据的写入结果。
+
 ## MCP OAuth 回调提交
 
 `MCPSettings.vue` 通过 `POST /api/mcp-servers/{id}/login` 启动授权，再用 `GET /api/mcp-auth/{id}` 读取该次授权链接。

@@ -191,6 +191,12 @@ OMP 和 models.dev 提供模型资料，Vista 负责路由与认证，自定义�
 `shell` 与 `start_background` 不再单独限制命令为 4 KiB，工具声明提示完整 JSON 预算。
 运行时参数长度错误在工具副作用发生前返回 `executed: false`、字段名、实际与最大字节数及恢复建议。
 
+`write_file` 在锁内校验 SHA-256 的同一次读取中保留有限原文，原子替换成功后生成统一差异。
+差异作为不可变会话产物保存；模型上下文及事件预览携带引用，不重复携带变更正文。
+界面区分新建、覆盖、空文件及内容未变；原文件超过 1 MiB 时省略差异，但不阻止合法替换。
+保存这份展示资料失败，不会把已经提交的写入改判为工具失败。
+Shell 与 MCP 的文件副作用不自动生成差异，Vista 不对其工作目录做快照。
+
 执行 `read_file`、`write_file`、`search`、文件路径形式的 `read_skill`／`read_resource`、`shell` 或 `start_background` 前，工具运行时按明确的目标路径或工作目录，从外到内发现祖先目录中的 `AGENTS.md`、`CLAUDE.md` 和 `.github/copilot-instructions.md`。
 没有规则，或模型保留上下文中已完整读取所有适用规则的当前版本时，直接执行原操作，省去单独发现规则的模型轮次。
 否则返回 `instructions_required`、`executed: false` 及未读文件的路径、大小和 SHA-256，原操作不产生副作用。

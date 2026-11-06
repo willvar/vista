@@ -191,6 +191,12 @@ Native tool arguments share a 256 KiB complete-JSON budget declared by `internal
 `shell` and `start_background` have no separate 4 KiB command cutoff; their schemas disclose the complete-JSON budget.
 Runtime input-size errors report `executed: false`, the field, actual and maximum bytes, and a recovery hint before tool side effects.
 
+`write_file` captures bounded original text during its locked SHA-256 verification and generates a unified diff only after the atomic replacement succeeds.
+The immutable diff is saved as a conversation artifact; model context and event previews carry its reference rather than the changed file contents.
+New files, replacements, empty files and unchanged content have explicit presentations; originals above 1 MiB omit the diff without blocking a valid replacement.
+Failure to save this optional presentation does not turn an already committed write into a tool failure.
+Shell and MCP file side effects have no automatic diff; Vista does not snapshot their working directories.
+
 Before `read_file`, `write_file`, `search`, filesystem `read_skill`/`read_resource`, `shell`, or `start_background`, the tool runtime discovers ancestor `AGENTS.md`, `CLAUDE.md`, and `.github/copilot-instructions.md` files from the explicit target path or working directory, ordered outer to nearest.
 When every applicable version is already fully read in the model's retained context, or no rules exist, the operation runs immediately without a separate discovery turn.
 Otherwise it returns `instructions_required` with `executed: false` and unread file paths, sizes and SHA-256 hashes; the original operation has no effects.

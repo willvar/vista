@@ -102,6 +102,11 @@ Text actions use the shared `Button` at its default 36px height, including list 
 
 Empty views use `src/ui/Empty.vue`, with one shared illustration and spacing and typography in `.vista-empty-state`; narrow sidebars use `.vista-empty-state-compact`. Keep loading and errors separate from empty results, preserve context-specific descriptions, and omit pagination when no results exist.
 
+`TraceToolResult.vue` renders `write_file` artifacts through `FileDiffOutput.vue`.
+The diff records the committed write, not current filesystem contents; `RunToolOutput.vue` loads it only when its step is expanded through the existing bounded output cache.
+Unified hunks retain old/new line numbers, insertion/deletion markers and escaped text; fixed-height virtual rows bound DOM size and horizontal scrolling contains long lines.
+Keep creation, unchanged-content and unavailable-diff states distinct, and preserve metadata-only results from older histories.
+
 ## MCP OAuth callback submission
 
 `MCPSettings.vue` starts an attempt with `POST /api/mcp-servers/{id}/login` and reads its authorization link through `GET /api/mcp-auth/{id}`.

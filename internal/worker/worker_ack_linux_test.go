@@ -141,6 +141,7 @@ func TestDiscoveredVLLMWaitsForToolAckAndContinues(t *testing.T) {
 		t.Fatal(err)
 	}
 	var ackID string
+	savedDiff := false
 	deadline := time.After(5 * time.Second)
 	for ackID == "" {
 		select {
@@ -148,7 +149,7 @@ func TestDiscoveredVLLMWaitsForToolAckAndContinues(t *testing.T) {
 			if !ok {
 				t.Fatalf("Worker closed before tool start: %s", stderr.String())
 			}
-			if result.Kind == "input_poll" || result.Kind == "agent_task" && result.AckID != "" {
+			if result.AckID != "" && !(result.Kind == "tool" && result.Status == "started") {
 				if err := json.NewEncoder(input).Encode(workerproto.Command{Action: "ack", RunID: result.RunID, AckID: result.AckID}); err != nil {
 					t.Fatal(err)
 				}
@@ -170,7 +171,14 @@ func TestDiscoveredVLLMWaitsForToolAckAndContinues(t *testing.T) {
 	for {
 		select {
 		case result, ok := <-results:
-			if result.Kind == "input_poll" || result.Kind == "agent_task" && result.AckID != "" {
+			if result.Kind == "artifact" && result.Status == "succeeded" {
+				data, err := os.ReadFile(result.Artifact.OutputPath)
+				if err != nil || !result.Artifact.Complete || !strings.Contains(string(data), "+created") {
+					t.Fatalf("write diff was not durable before acknowledgment: %q, %v", data, err)
+				}
+				savedDiff = true
+			}
+			if result.AckID != "" {
 				if err := json.NewEncoder(input).Encode(workerproto.Command{Action: "ack", RunID: result.RunID, AckID: result.AckID}); err != nil {
 					t.Fatal(err)
 				}
@@ -180,7 +188,7 @@ func TestDiscoveredVLLMWaitsForToolAckAndContinues(t *testing.T) {
 			}
 			if result.RunID == "ack-run" && result.Kind == "" && result.Status == "succeeded" {
 				data, err := os.ReadFile(path)
-				if err != nil || strings.TrimSpace(string(data)) != "created" {
+				if err != nil || strings.TrimSpace(string(data)) != "created" || !savedDiff {
 					t.Fatalf("file after ACK: %q %v", data, err)
 				}
 				return

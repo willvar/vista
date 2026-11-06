@@ -3,8 +3,9 @@ import { useI18n } from 'vue-i18n'
 import type { RunTraceNode } from './state/runTrace'
 import { renderMarkdown } from './ui/markdown'
 import PlainTextOutput from './PlainTextOutput.vue'
+import FileDiffOutput from './FileDiffOutput.vue'
 
-type ToolResult = Pick<RunTraceNode, 'body' | 'markdown' | 'search' | 'instructions' | 'truncated'> & {
+type ToolResult = Pick<RunTraceNode, 'body' | 'markdown' | 'search' | 'instructions' | 'diff' | 'truncated'> & {
   error?: string; resultSummaryKey?: string; resultSummaryParams?: Record<string, string | number>
 }
 withDefaults(defineProps<{ node: ToolResult; showError?: boolean }>(), { showError: true })
@@ -14,7 +15,8 @@ const { t } = useI18n()
 <template>
   <p v-if="showError && node.error" class="tool-output-error error">{{ node.error }}</p>
   <p v-if="node.resultSummaryKey && node.body && !node.search && !node.instructions" class="trace-result-summary">{{ t(node.resultSummaryKey, node.resultSummaryParams || {}) }}</p>
-  <template v-if="node.search">
+  <FileDiffOutput v-if="node.diff" :diff="node.diff" />
+  <template v-else-if="node.search">
     <p class="trace-result-summary">{{ t('traceSearchSummary', { matches: node.search.matches.length, files: node.search.filesScanned ?? '—' }) }}</p>
     <small v-if="!node.search.matches.length">{{ t('traceNoMatches') }}</small>
     <ul class="trace-search-results"><li v-for="(match, index) in node.search.matches" :key="index"><code>{{ match.path }}{{ match.line ? `:${match.line}` : '' }}</code><pre class="trace-output">{{ match.text }}</pre></li></ul>

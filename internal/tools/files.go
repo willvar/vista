@@ -70,114 +70,124 @@ func ReadFile(path string) (File, error) {
 // Shell commands and external processes can bypass the lock, so the digest is
 // an optimistic check rather than a guarantee against every external race.
 func WriteFile(ctx context.Context, stateDir, path, expectedSHA256, content string) (string, error) {
+	result, err := WriteFileWithDiff(ctx, stateDir, path, expectedSHA256, content)
+	return result.SHA256, err
+}
+
+func WriteFileWithDiff(ctx context.Context, stateDir, path, expectedSHA256, content string) (FileWrite, error) {
 	if err := ctx.Err(); err != nil {
-		return "", err
+		return FileWrite{}, err
 	}
 	path, err := absolute(path)
 	if err != nil {
-		return "", err
+		return FileWrite{}, err
 	}
 	if len(content) > maxFileBytes || !utf8.ValidString(content) {
-		return "", errors.New("new file exceeds 1 MiB or is not UTF-8 text")
+		return FileWrite{}, errors.New("new file exceeds 1 MiB or is not UTF-8 text")
 	}
 	if expectedSHA256 != "missing" {
 		if len(expectedSHA256) != 64 {
-			return "", errors.New("expected SHA-256 must be 64 hexadecimal characters or 'missing'")
+			return FileWrite{}, errors.New("expected SHA-256 must be 64 hexadecimal characters or 'missing'")
 		}
 		if _, err := hex.DecodeString(expectedSHA256); err != nil {
-			return "", errors.New("invalid expected SHA-256")
+			return FileWrite{}, errors.New("invalid expected SHA-256")
 		}
 	}
 	if stateDir == "" {
-		return "", errors.New("state directory is required")
+		return FileWrite{}, errors.New("state directory is required")
 	}
 	realDir, err := filepath.EvalSymlinks(filepath.Dir(path))
 	if err != nil {
-		return "", err
+		return FileWrite{}, err
 	}
 	path = filepath.Join(realDir, filepath.Base(path))
 	if actual, err := filepath.EvalSymlinks(path); err == nil {
 		path = actual
 	} else if !errors.Is(err, os.ErrNotExist) {
-		return "", err
+		return FileWrite{}, err
 	}
 	lockDir := filepath.Join(stateDir, "file-locks")
 	if err := os.MkdirAll(lockDir, 0700); err != nil {
-		return "", err
+		return FileWrite{}, err
 	}
 	lockHash := sha256.Sum256([]byte(path))
 	lock, err := os.OpenFile(filepath.Join(lockDir, hex.EncodeToString(lockHash[:])+".lock"), os.O_CREATE|os.O_RDWR, 0600)
 	if err != nil {
-		return "", err
+		return FileWrite{}, err
 	}
 	defer lock.Close()
 	for {
 		if err := platform.TryLock(lock); err == nil {
 			break
 		} else if !platform.IsLockBusy(err) {
-			return "", err
+			return FileWrite{}, err
 		}
 		select {
 		case <-ctx.Done():
-			return "", ctx.Err()
+			return FileWrite{}, ctx.Err()
 		case <-time.After(20 * time.Millisecond):
 		}
 	}
 	if err := ctx.Err(); err != nil {
-		return "", err
+		return FileWrite{}, err
 	}
-	current, err := fileDigest(ctx, path)
+	before := &diffCapture{}
+	current, err := fileDigestTo(ctx, path, before)
 	if expectedSHA256 == "missing" {
 		if err == nil {
-			return "", ErrConflict
+			return FileWrite{}, ErrConflict
 		}
 		if !errors.Is(err, os.ErrNotExist) {
-			return "", err
+			return FileWrite{}, err
 		}
 	} else {
 		if errors.Is(err, os.ErrNotExist) || (err == nil && current != expectedSHA256) {
-			return "", ErrConflict
+			return FileWrite{}, ErrConflict
 		}
 		if err != nil {
-			return "", err
+			return FileWrite{}, err
 		}
 	}
 	mode := os.FileMode(0600)
 	if expectedSHA256 != "missing" {
 		info, err := os.Stat(path)
 		if err != nil {
-			return "", err
+			return FileWrite{}, err
 		}
 		mode = info.Mode().Perm()
 	}
 	tmp, err := os.CreateTemp(realDir, ".vista-write-*")
 	if err != nil {
-		return "", err
+		return FileWrite{}, err
 	}
 	defer os.Remove(tmp.Name())
 	defer tmp.Close()
 	if err := tmp.Chmod(mode); err != nil {
-		return "", err
+		return FileWrite{}, err
 	}
 	if _, err := io.WriteString(tmp, content); err != nil {
-		return "", err
+		return FileWrite{}, err
 	}
 	if err := tmp.Sync(); err != nil {
-		return "", err
+		return FileWrite{}, err
 	}
 	if err := tmp.Close(); err != nil {
-		return "", err
+		return FileWrite{}, err
 	}
 	if err := os.Rename(tmp.Name(), path); err != nil {
-		return "", err
+		return FileWrite{}, err
 	}
 	newHash := sha256.Sum256([]byte(content))
-	return hex.EncodeToString(newHash[:]), nil
+	return FileWrite{Path: path, SHA256: hex.EncodeToString(newHash[:]), Diff: makeFileDiff(path, expectedSHA256 == "missing", before, content)}, nil
 }
 
 // Hash existing text without reintroducing a whole-file read limit when a
 // numbered page from a large file is used for an optimistic replacement.
 func fileDigest(ctx context.Context, path string) (string, error) {
+	return fileDigestTo(ctx, path, io.Discard)
+}
+
+func fileDigestTo(ctx context.Context, path string, capture io.Writer) (string, error) {
 	file, err := os.Open(path)
 	if err != nil {
 		return "", err
@@ -191,7 +201,7 @@ func fileDigest(ctx context.Context, path string) (string, error) {
 		return "", errors.New("file must be regular")
 	}
 	hash := sha256.New()
-	if err := scanText(ctx, io.TeeReader(file, hash), func([]byte, bool) error { return nil }); err != nil {
+	if err := scanText(ctx, io.TeeReader(file, io.MultiWriter(hash, capture)), func([]byte, bool) error { return nil }); err != nil {
 		return "", err
 	}
 	return hex.EncodeToString(hash.Sum(nil)), nil

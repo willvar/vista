@@ -1435,6 +1435,57 @@ test('webfetch artifacts preserve large page text including JSON fields after re
   expect(fixture.unexpected).toEqual([])
 })
 
+for (const theme of ['light', 'dark']) test(`write_file diffs load on expansion, preserve line changes and render bounded rows after refresh (${theme})`, async ({ page, mockOrigin }, testInfo) => {
+  await page.addInitScript(theme => localStorage.setItem('vista-appearance', theme), theme)
+  const runId = 'run-write-diff'
+  const unified = '--- source.ts\n+++ source.ts\n@@ -1,2 +1,4000 @@\n unchanged\n-previous 中文🙂\n' + Array.from({ length: 3999 }, (_, index) => `+${index === 0 ? '<script>window.diffExecuted = true</script>' : `new line ${index + 2}`}`).join('\n') + '\n'
+  const path = '/synthetic/source.ts'
+  const full = JSON.stringify({ path, sha256: 'saved-hash', diff: { path, created: false, unified } })
+  const events: StreamEvent[] = []
+  const add = (kind: string, data: object) => {
+    const sequence = events.length + 1
+    events.push({ sequence, kind, createdAt: new Date(Date.UTC(2026, 0, 1, 12) + sequence * 1000).toISOString(), data: { runId, taskId: 'main', ...data } })
+  }
+  add('message', { id: 'write-user', role: 'user', sequence: 1, content: 'Update the source file.', createdAt: '2026-01-01T12:00:00Z' })
+  add('model_request', { turn: 1, provider: 'openai-chat', key: 'replay-model', id: 'gpt-6-astra' })
+  const tool = { callId: 'write-source', name: 'write_file', summary: path, outputRef: { artifactId: 'write-diff', bytes: Buffer.byteLength(full) } }
+  add('tool', { turn: 1, status: 'started', tool, content: '' })
+  add('artifact', { id: 'write-diff', callId: tool.callId, status: 'succeeded', bytes: tool.outputRef.bytes, complete: true })
+  add('tool', { turn: 1, status: 'succeeded', tool, content: JSON.stringify({ path, sha256: 'saved-hash', artifactId: 'write-diff', bytes: tool.outputRef.bytes }) })
+  add('model_result', { turn: 1, modelResult: { provider: 'openai-chat', id: 'gpt-6-astra', finishReason: 'tool_calls' } })
+  const fullPath = '/sessions/execution-session/artifacts/write-diff/output'
+  const fixture = await mockExecution(page, mockOrigin, events, { outputContents: { [fullPath]: full } })
+  for (let pass = 0; pass < 2; pass++) {
+    if (pass) await page.reload()
+    const trace = page.locator(`.run-trace[data-run-id="${runId}"]`)
+    await processHeader(trace).getByRole('status').click()
+    expect(fixture.outputReads).toHaveLength(pass)
+    await nodeTitle(trace, runId, 'tool/main/write-source').click()
+    const diff = trace.locator('.file-diff')
+    await expect(diff.locator('.file-diff-heading')).toContainText('File updated')
+    await expect(diff.locator('.file-diff-remove')).toContainText('previous 中文🙂')
+    await expect(diff.locator('.file-diff-add').first()).toContainText('<script>window.diffExecuted = true</script>')
+    expect(await page.evaluate(() => (window as any).diffExecuted)).toBeUndefined()
+    expect(await diff.locator('.file-diff-line').count()).toBeLessThan(50)
+    expect(fixture.outputReads.filter(path => path === fullPath + '?full=1')).toHaveLength(pass + 1)
+    expect(await page.evaluate(() => document.documentElement.scrollWidth - innerWidth)).toBeLessThanOrEqual(2)
+    await diff.locator('.file-diff-viewport').evaluate(element => { element.scrollTop = element.scrollHeight })
+    await expect(diff.locator('.file-diff-line').last()).toContainText('new line 4000')
+    await diff.locator('.file-diff-viewport').evaluate(element => { element.scrollTop = 0 })
+    await expect(diff.locator('.file-diff-remove')).toBeVisible()
+    await page.screenshot({ path: testInfo.outputPath(`write-file-diff-${pass}.png`), animations: 'disabled' })
+  }
+  const partialTool = { callId: 'write-diff-unavailable', name: 'write_file', summary: path, outputRef: { artifactId: 'partial-write-diff', bytes: 4 } }
+  fixture.append('tool', { status: 'started', tool: partialTool, content: '' })
+  fixture.append('artifact', { id: 'partial-write-diff', callId: partialTool.callId, status: 'failed', bytes: 4, complete: false, error: 'Diff storage failed' })
+  fixture.append('tool', { status: 'succeeded', tool: partialTool, content: JSON.stringify({ path, sha256: 'committed-hash', diff: { path, created: true, unified: '', omitted: 'unavailable' } }) })
+  const trace = page.locator(`.run-trace[data-run-id="${runId}"]`)
+  await nodeTitle(trace, runId, 'tool/main/write-diff-unavailable').click()
+  await expect(trace.locator('.file-diff').last()).toContainText('The file was written, but the diff could not be saved.')
+  expect(fixture.outputReads.some(path => path.includes('partial-write-diff'))).toBe(false)
+  expect(fixture.unexpected).toEqual([])
+})
+
 test('execution tool results render once, keep useful summaries, and move metadata to one debug dialog', async ({ page, mockOrigin }, testInfo) => {
   await page.addInitScript(() => localStorage.setItem('vista-debug-mode', 'true'))
   const source = cleanToolOutputEvents()

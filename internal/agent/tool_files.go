@@ -165,11 +165,23 @@ func (r *toolRuntime) writeFile(ctx context.Context, call provider.ToolCall) (st
 	if err != nil {
 		return "", err
 	}
-	hash, err := tools.WriteFile(ctx, stateDir, input.Path, input.ExpectedSHA256, input.Content)
+	result, err := tools.WriteFileWithDiff(ctx, stateDir, input.Path, input.ExpectedSHA256, input.Content)
 	if err != nil {
 		return "", err
 	}
-	return marshalResult(map[string]any{"path": input.Path, "sha256": hash})
+	// Persist the diff independently of the bounded model/event summary. A
+	// presentation failure must not turn an already committed write into a
+	// retryable tool error (which could repeat the side effect).
+	if r.emit != nil {
+		ref, saveErr := recordToolOutputStream(ctx, r.parent.RunID, call.ID, func(w io.Writer) error {
+			return json.NewEncoder(w).Encode(result)
+		}, r.emit)
+		if saveErr == nil {
+			return marshalResult(map[string]any{"path": result.Path, "sha256": result.SHA256, "artifactId": ref.ArtifactID, "bytes": ref.Bytes})
+		}
+	}
+	result.Diff.Unified, result.Diff.Omitted = "", "unavailable"
+	return marshalResult(result)
 }
 
 // streamJSONString preserves the source exactly while bounding each escaped chunk.

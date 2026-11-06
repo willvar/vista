@@ -4,6 +4,7 @@ import { inRunTraceRange, type RunTraceRange } from './runTraceRange.ts'
 export type TraceStatus = 'loading' | 'success' | 'error' | 'abort'
 export type TraceSearchOutput = { matches: { path: string; line?: number; text: string }[]; filesScanned?: number; truncated: boolean }
 export type TraceInstructionOutput = { path: string; bytes?: number }[]
+export type TraceFileDiff = { path: string; created: boolean; unified: string; omitted?: 'too_large' | 'unavailable' }
 export type RunTraceNode = {
   key: string; sequence: number; lastSequence: number; kind: 'tool' | 'reasoning' | 'text' | 'source'
   taskId: string; parentTaskId?: string; title: string; summary?: string; body: string; status?: TraceStatus
@@ -12,7 +13,7 @@ export type RunTraceNode = {
   rawBody?: string; markdown?: boolean
   input?: { command: string; directory: string; timeoutSeconds: number }
   error?: string; resultSummaryKey?: string; resultSummaryParams?: Record<string, string | number>
-  search?: TraceSearchOutput; instructions?: TraceInstructionOutput
+  search?: TraceSearchOutput; instructions?: TraceInstructionOutput; diff?: TraceFileDiff
 }
 export type RunTraceTask = AgentTaskView & { sequence: number; lastSequence: number; background?: boolean; modelId?: string; modelKey?: string; modelProvider?: string; reasoningEffort?: string; nodes: RunTraceNode[] }
 export type TraceAgentHierarchyEntry = { task: RunTraceTask; number: number; depth: number; parentId?: string }
@@ -94,7 +95,7 @@ export function compactTraceText(text = '', limit = 110): string {
   const line = text.replace(/\s+/g, ' ').trim()
   return line.length > limit ? line.slice(0, limit - 1) + '…' : line
 }
-export function projectToolOutput(raw: string, toolName?: string): Pick<RunTraceNode, 'body' | 'rawBody' | 'markdown' | 'search' | 'instructions' | 'error' | 'resultSummaryKey' | 'resultSummaryParams'> {
+export function projectToolOutput(raw: string, toolName?: string): Pick<RunTraceNode, 'body' | 'rawBody' | 'markdown' | 'search' | 'instructions' | 'diff' | 'error' | 'resultSummaryKey' | 'resultSummaryParams'> {
   try {
     const value: unknown = JSON.parse(raw)
     if (Array.isArray(value) && toolOperationLabelKey(toolName) === 'traceOpFindInstructions') {
@@ -113,6 +114,12 @@ export function projectToolOutput(raw: string, toolName?: string): Pick<RunTrace
     const operation = toolOperationLabelKey(toolName)
     if (['traceOpAwaitAgent', 'traceOpCancelAgent'].includes(operation) && fields.status === 'canceled' && typeof fields.taskId === 'string') return { body: '', rawBody: raw, resultSummaryKey: 'traceAgentCanceled' }
     if (error) return { body: preview, error, rawBody: raw }
+    if (operation === 'traceOpWrite' && fields.diff && typeof fields.diff === 'object') {
+      const diff = fields.diff as Record<string, unknown>
+      if (typeof diff.path === 'string' && typeof diff.created === 'boolean' && typeof diff.unified === 'string') {
+        return { body: '', rawBody: raw, diff: { path: diff.path, created: diff.created, unified: diff.unified, omitted: diff.omitted === 'too_large' || diff.omitted === 'unavailable' ? diff.omitted : undefined } }
+      }
+    }
     if (fields.status === 'instructions_required' && fields.executed === false && Array.isArray(fields.instructions)) {
       return { body: '', rawBody: raw, resultSummaryKey: 'traceInstructionsRequired', instructions: fields.instructions.filter(item => item && typeof item.path === 'string').map(item => ({ path: item.path, bytes: typeof item.bytes === 'number' ? item.bytes : undefined })) }
     }
