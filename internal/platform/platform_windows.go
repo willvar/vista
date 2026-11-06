@@ -2,15 +2,12 @@ package platform
 
 import (
 	"context"
-	"encoding/base64"
-	"encoding/binary"
 	"errors"
 	"fmt"
 	"os"
 	"os/exec"
 	"sync"
 	"syscall"
-	"unicode/utf16"
 	"unsafe"
 
 	"golang.org/x/sys/windows"
@@ -53,18 +50,17 @@ func OpenBrowser(url string) error {
 	return nil
 }
 func Terminate(p *os.Process) error { return KillProcessGroup(p) }
-func ShellCommand(ctx context.Context, script string) *exec.Cmd {
+func shellScript(script string) (string, string) {
 	// PowerShell keeps Unicode text intact and supports multiline commands.
 	// Windows PowerShell serializes uncaught errors as CLIXML when invoked
-	// with EncodedCommand, even with OutputFormat=Text. Format caught errors
+	// even with OutputFormat=Text. Format caught errors
 	// explicitly so artifacts and model tool results contain readable text.
-	script = "[Console]::OutputEncoding = [Text.UTF8Encoding]::new($false); $OutputEncoding = [Console]::OutputEncoding; $ErrorActionPreference = 'Stop'; $ProgressPreference = 'SilentlyContinue'; try {\n" + script + "\nif ($LASTEXITCODE) { exit $LASTEXITCODE }\n} catch { [Console]::Error.WriteLine(($_ | Out-String)); exit 1 }"
-	units := utf16.Encode([]rune(script))
-	encoded := make([]byte, 2*len(units))
-	for i, unit := range units {
-		binary.LittleEndian.PutUint16(encoded[2*i:], unit)
-	}
-	cmd := exec.CommandContext(ctx, "powershell.exe", "-NoLogo", "-NoProfile", "-NonInteractive", "-InputFormat", "Text", "-OutputFormat", "Text", "-EncodedCommand", base64.StdEncoding.EncodeToString(encoded))
+	// The BOM makes Windows PowerShell read Unicode source as UTF-8.
+	return ".ps1", "\ufeff[Console]::OutputEncoding = [Text.UTF8Encoding]::new($false); $OutputEncoding = [Console]::OutputEncoding; $ErrorActionPreference = 'Stop'; $ProgressPreference = 'SilentlyContinue'; try {\n" + script + "\nif ($LASTEXITCODE) { exit $LASTEXITCODE }\n} catch { [Console]::Error.WriteLine(($_ | Out-String)); exit 1 }"
+}
+
+func shellFileCommand(ctx context.Context, path string) *exec.Cmd {
+	cmd := exec.CommandContext(ctx, "powershell.exe", "-NoLogo", "-NoProfile", "-NonInteractive", "-InputFormat", "Text", "-OutputFormat", "Text", "-ExecutionPolicy", "Bypass", "-File", path)
 	PrepareCommand(cmd)
 	cmd.Cancel = func() error { return KillProcessGroup(cmd.Process) }
 	return cmd

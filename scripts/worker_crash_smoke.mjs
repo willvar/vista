@@ -3,7 +3,7 @@ import { prepareVistaTestConfig, projectRulesFixture } from './test_config.mjs'
 import { createServer } from 'node:http'
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
-import { mkdtempSync, rmSync, existsSync, readFileSync, mkdirSync } from 'node:fs'
+import { mkdtempSync, rmSync, existsSync, readFileSync, mkdirSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
 
 // Linux-only, HTTP-only crash smoke. No browser is launched.
@@ -56,6 +56,8 @@ try {
   const serverPid = JSON.parse(readFileSync(join(state, 'vista', 'state', 'instance.json'), 'utf8')).pid
   const workerPid = (await api('/status')).workerMetrics.find(item => item.sessionId === session.id)?.pid
   if (!workerPid || !childPid) throw new Error(`missing process identities: worker=${workerPid} child=${childPid}`)
+  const scriptDirectory = join(state, 'vista', 'state', 'shell-scripts', String(workerPid))
+  if (readdirSync(scriptDirectory).length !== 1) throw new Error('active shell did not retain its private script')
   const masterCrash = process.env.VISTA_CRASH_MASTER === '1'
   process.kill(masterCrash ? serverPid : workerPid, 'SIGKILL')
   if (masterCrash) {
@@ -80,6 +82,7 @@ try {
     await new Promise(resolve => setTimeout(resolve, 50))
   }
   if (!recovered) throw new Error('Worker did not recover with run marked interrupted')
+  if (existsSync(scriptDirectory)) throw new Error('crashed Worker left command source on disk')
   let childAlive = true
   try { childAlive = !readFileSync(`/proc/${childPid}/status`, 'utf8').includes('State:\tZ') } catch { childAlive = false }
   if (childAlive || calls !== 1) throw new Error(`orphan child=${childAlive}, model calls=${calls}`)

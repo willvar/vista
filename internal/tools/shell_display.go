@@ -3,6 +3,7 @@ package tools
 import (
 	"regexp"
 	"strings"
+	"unicode/utf8"
 )
 
 var shellSecretPatterns = []*regexp.Regexp{
@@ -28,4 +29,18 @@ func DisplayShellCommand(command string, secrets []string) string {
 		command = pattern.ReplaceAllString(command, "${1}[redacted]")
 	}
 	return shellURLCredentials.ReplaceAllString(command, "${1}[redacted]${2}")
+}
+
+// Display metadata has its own bound; the full command remains execution input.
+// Even JSON's worst-case escaping leaves room for both fields in a Worker frame.
+func ShellCommandPreview(command string, secrets []string) string {
+	command = DisplayShellCommand(command, secrets)
+	if len(command) <= 4<<10 {
+		return command
+	}
+	end := 4 << 10
+	for end > 0 && !utf8.ValidString(command[:end]) {
+		end--
+	}
+	return command[:end] + "\n[Command preview truncated.]"
 }

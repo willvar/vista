@@ -4,13 +4,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strings"
 
 	"vista/internal/provider"
+	"vista/internal/toolinput"
 	"vista/internal/workerproto"
 )
 
-var delegateSchema = map[string]any{"type": "function", "function": map[string]any{"name": "delegate", "description": "Start a subagent for bounded independent work only when substantial parallel work is likely to reduce completion time or the user explicitly requests independent review. Handle short tasks and quick checks directly. Immediately returns its taskId. It inherits this model, MCP servers, and tools. The default join policy is required, so the runtime collects its report before the parent finalizes. Use best_effort when unfinished work can stop with this parent. Use detached for session-owned background work: it survives parent completion/cancellation and stops on explicit task cancellation, session close, or its own completion/failure.", "parameters": map[string]any{"type": "object", "properties": map[string]any{"task": map[string]any{"type": "string"}, "join": map[string]any{"type": "string", "enum": []string{"required", "best_effort", "detached"}}}, "required": []string{"task"}}}}
+var delegateSchema = map[string]any{"type": "function", "function": map[string]any{"name": "delegate", "description": "Start a subagent for bounded independent work only when substantial parallel work is likely to reduce completion time or the user explicitly requests independent review. Handle short tasks and quick checks directly. Immediately returns its taskId. It inherits this model, MCP servers, and tools. The default join policy is required, so the runtime collects its report before the parent finalizes. Use best_effort when unfinished work can stop with this parent. Use detached for session-owned background work: it survives parent completion/cancellation and stops on explicit task cancellation, session close, or its own completion/failure.", "parameters": map[string]any{"type": "object", "properties": map[string]any{"task": map[string]any{"type": "string", "description": fmt.Sprintf("Nonempty task instructions, at most %d UTF-8 bytes. Include the goal, scope and acceptance criteria; put longer supporting material in a file and ask the child to read it.", workerproto.MaxPromptBytes)}, "join": map[string]any{"type": "string", "enum": []string{"required", "best_effort", "detached"}}}, "required": []string{"task"}}}}
 
 func (r *toolRuntime) delegate(ctx context.Context, call provider.ToolCall) (string, error) {
 	if r.depth >= r.scope.delegationLimit() {
@@ -26,8 +26,8 @@ func (r *toolRuntime) delegate(ctx context.Context, call provider.ToolCall) (str
 	if err := decodeArguments(call.Function.Arguments, &input); err != nil {
 		return "", err
 	}
-	if strings.TrimSpace(input.Task) == "" || len(input.Task) > 2048 {
-		return "", errors.New("subagent task must be 1–2048 bytes")
+	if err := toolinput.CheckText("task", input.Task, workerproto.MaxPromptBytes, "Keep the goal, scope and acceptance criteria here; put longer supporting material in a file and ask the child to read it."); err != nil {
+		return "", err
 	}
 	if input.Join == "" {
 		input.Join = "required"

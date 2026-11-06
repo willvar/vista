@@ -3,15 +3,21 @@ package agent
 import (
 	"context"
 	"errors"
+	"fmt"
 	"time"
 
 	"vista/internal/instance"
 	"vista/internal/provider"
+	"vista/internal/toolinput"
 	"vista/internal/tools"
 	"vista/internal/workerproto"
 )
 
-var shellSchema = map[string]any{"type": "function", "function": map[string]any{"name": "shell", "description": "Run a foreground shell command in an explicit absolute directory and wait for it to finish. Timeout defaults to 60 seconds and is at most 300 seconds. Timeout or cancellation terminates the command and its managed descendants; remaining descendants are also cleaned up when the command ends. Use start_background for GUI applications, servers, watchers, or other programs that must keep running. Returns up to 8192 bytes of output plus artifactId, truncated, and nextOffset. Continue truncated output with read_tool_output; do not rerun the command just to see more output.", "parameters": map[string]any{"type": "object", "properties": map[string]any{"directory": map[string]any{"type": "string"}, "command": map[string]any{"type": "string"}, "timeoutSeconds": map[string]any{"type": "integer", "minimum": 1, "maximum": 300, "description": "Seconds to wait before terminating the command and its managed descendants; defaults to 60."}}, "required": []string{"directory", "command"}}}}
+func shellCommandParameter() map[string]any {
+	return map[string]any{"type": "string", "description": fmt.Sprintf("Nonempty script for the platform shell (POSIX sh or Windows PowerShell). Vista executes it from a private temporary file, so multiline scripts do not need a separate write_file call. The complete JSON arguments, including directory and escaping, must fit within %d UTF-8 bytes. For larger source, execute an existing script file by path.", toolinput.MaxArgumentsBytes)}
+}
+
+var shellSchema = map[string]any{"type": "function", "function": map[string]any{"name": "shell", "description": "Run a foreground shell command in an explicit absolute directory and wait for it to finish. Timeout defaults to 60 seconds and is at most 300 seconds. Timeout or cancellation terminates the command and its managed descendants; remaining descendants are also cleaned up when the command ends. Use start_background for GUI applications, servers, watchers, or other programs that must keep running. Returns up to 8192 bytes of output plus artifactId, truncated, and nextOffset. Continue truncated output with read_tool_output; do not rerun the command just to see more output.", "parameters": map[string]any{"type": "object", "properties": map[string]any{"directory": map[string]any{"type": "string"}, "command": shellCommandParameter(), "timeoutSeconds": map[string]any{"type": "integer", "minimum": 1, "maximum": 300, "description": "Seconds to wait before terminating the command and its managed descendants; defaults to 60."}}, "required": []string{"directory", "command"}}}}
 
 func (r *toolRuntime) shell(ctx context.Context, call provider.ToolCall) (string, error) {
 	var input struct {
@@ -61,7 +67,7 @@ func (r *toolRuntime) shell(ctx context.Context, call provider.ToolCall) (string
 	return marshalResult(result)
 }
 
-var startBackgroundSchema = map[string]any{"type": "function", "function": map[string]any{"name": "start_background", "description": "Start a Session-owned shell job in an explicit absolute directory. Use for GUI applications, servers, watchers, or other programs that must keep running after this reply or run cancellation. No timeout by default: the job runs until it exits, is stopped, or its Session Worker exits. Closing the conversation or stopping/restarting Vista terminates it. Writes bounded output to a local file. Returns jobId, status, and outputPath, plus expiresAt when a timeout is set. Return its job ID to the user.", "parameters": map[string]any{"type": "object", "properties": map[string]any{"directory": map[string]any{"type": "string"}, "command": map[string]any{"type": "string"}, "timeoutSeconds": map[string]any{"type": "integer", "minimum": 1, "description": "Optional positive number of seconds before terminating the command and its managed descendants; omit for no deadline."}}, "required": []string{"directory", "command"}}}}
+var startBackgroundSchema = map[string]any{"type": "function", "function": map[string]any{"name": "start_background", "description": "Start a Session-owned shell job in an explicit absolute directory. Use for GUI applications, servers, watchers, or other programs that must keep running after this reply or run cancellation. No timeout by default: the job runs until it exits, is stopped, or its Session Worker exits. Closing the conversation or stopping/restarting Vista terminates it. Writes bounded output to a local file. Returns jobId, status, and outputPath, plus expiresAt when a timeout is set. Return its job ID to the user.", "parameters": map[string]any{"type": "object", "properties": map[string]any{"directory": map[string]any{"type": "string"}, "command": shellCommandParameter(), "timeoutSeconds": map[string]any{"type": "integer", "minimum": 1, "description": "Optional positive number of seconds before terminating the command and its managed descendants; omit for no deadline."}}, "required": []string{"directory", "command"}}}}
 
 func (r *toolRuntime) startBackground(ctx context.Context, call provider.ToolCall) (string, error) {
 	if r.jobs == nil {

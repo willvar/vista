@@ -39,12 +39,7 @@ func OpenBrowser(url string) error {
 	go func() { _ = cmd.Wait() }()
 	return nil
 }
-func Terminate(p *os.Process) error { return p.Signal(syscall.SIGTERM) }
-func ShellCommand(ctx context.Context, script string) *exec.Cmd {
-	cmd := exec.CommandContext(ctx, "/bin/sh", "-c", script)
-	PrepareCommand(cmd)
-	return cmd
-}
+func Terminate(p *os.Process) error        { return p.Signal(syscall.SIGTERM) }
 func KillProcessGroup(p *os.Process) error { return unix.Kill(-p.Pid, unix.SIGKILL) }
 func ProcessSignal(state *os.ProcessState) string {
 	if state != nil {

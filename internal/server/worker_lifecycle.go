@@ -215,6 +215,9 @@ func (a *App) discardWorker(w *worker) {
 			log.Printf("worker startup ownership cleanup: %v", err)
 		}
 	}
+	if err := os.RemoveAll(platform.ShellScriptDirectory(a.dir, w.cmd.Process.Pid)); err != nil {
+		log.Printf("worker startup script cleanup: %v", err)
+	}
 	_ = w.cmd.Wait()
 }
 func (a *App) recoverWorker(id string) {

@@ -97,13 +97,17 @@ func TestNativeShell(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		script = "Write-Output 'Vista 中文'; exit 7"
 	}
-	cmd := ShellCommand(ctx, script)
+	cmd, cleanup, err := ShellCommand(ctx, t.TempDir(), script)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cleanup()
 	var output strings.Builder
 	cmd.Stdout, cmd.Stderr = &output, &output
 	if err := Start(cmd); err != nil {
 		t.Fatal(err)
 	}
-	err := cmd.Wait()
+	err = cmd.Wait()
 	_ = KillProcessGroup(cmd.Process)
 	if err == nil || cmd.ProcessState.ExitCode() != 7 || !strings.Contains(output.String(), "Vista 中文") {
 		t.Fatalf("exit=%v, output=%q, error=%v", cmd.ProcessState, output.String(), err)
@@ -117,13 +121,17 @@ func TestNativeShellErrorsRemainText(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		script = "Write-Error 'Vista tool failure'"
 	}
-	cmd := ShellCommand(ctx, script)
+	cmd, cleanup, err := ShellCommand(ctx, t.TempDir(), script)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cleanup()
 	var output strings.Builder
 	cmd.Stdout, cmd.Stderr = &output, &output
 	if err := Start(cmd); err != nil {
 		t.Fatal(err)
 	}
-	err := cmd.Wait()
+	err = cmd.Wait()
 	_ = KillProcessGroup(cmd.Process)
 	if err == nil || !strings.Contains(output.String(), "Vista tool failure") || strings.Contains(output.String(), "CLIXML") {
 		t.Fatalf("shell errors were lost or encoded: %q, %v", output.String(), err)

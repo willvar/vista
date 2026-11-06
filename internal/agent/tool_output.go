@@ -3,10 +3,12 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"unicode/utf8"
 
+	"vista/internal/toolinput"
 	"vista/internal/workerproto"
 )
 
@@ -165,6 +167,14 @@ func mergeToolError(output string, err error) string {
 		value = map[string]any{}
 	}
 	value["error"] = err.Error()
+	var inputError *toolinput.Error
+	if errors.As(err, &inputError) {
+		value["executed"] = false
+		value["field"] = inputError.Field
+		value["actualBytes"] = inputError.ActualBytes
+		value["maxBytes"] = inputError.MaxBytes
+		value["hint"] = inputError.Hint
+	}
 	encoded, _ := json.Marshal(value)
 	return string(encoded)
 }

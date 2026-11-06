@@ -7,12 +7,12 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strings"
 	"sync"
 	"time"
 
 	"github.com/google/uuid"
 	"vista/internal/platform"
+	"vista/internal/toolinput"
 )
 
 const maxBackgroundJobs = 4
@@ -59,8 +59,8 @@ func (m *BackgroundManager) Start(ctx context.Context, stateDir, runID, director
 	if err != nil {
 		return BackgroundJob{}, err
 	}
-	if strings.TrimSpace(script) == "" || len(script) > 4096 {
-		return BackgroundJob{}, errors.New("background command must be 1–4096 bytes")
+	if err := toolinput.CheckText("command", script, toolinput.MaxArgumentsBytes, "Reduce the complete JSON arguments; run an existing script file when the source is longer than the tool argument budget."); err != nil {
+		return BackgroundJob{}, err
 	}
 	if timeout < 0 {
 		return BackgroundJob{}, errors.New("background timeout must not be negative")
@@ -85,7 +85,7 @@ func (m *BackgroundManager) Start(ctx context.Context, stateDir, runID, director
 	}
 	// Job is the display/persistence projection. Keep execution input in local
 	// variables so no event, returned metadata, or later status bypasses redaction.
-	job := BackgroundJob{ID: uuid.NewString(), RunID: runID, Directory: DisplayShellCommand(directory, secrets), Command: DisplayShellCommand(script, secrets), OutputPath: file.Name(), Status: "starting", ExitCode: -1}
+	job := BackgroundJob{ID: uuid.NewString(), RunID: runID, Directory: ShellCommandPreview(directory, secrets), Command: ShellCommandPreview(script, secrets), OutputPath: file.Name(), Status: "starting", ExitCode: -1}
 	var deadline time.Time
 	if timeout > 0 {
 		deadline = time.Now().Add(timeout)
@@ -110,7 +110,9 @@ func (m *BackgroundManager) Start(ctx context.Context, stateDir, runID, director
 	}
 	m.active[job.ID] = process
 	m.mu.Unlock()
+	cleanupScript := func() {}
 	release := func() {
+		cleanupScript()
 		m.mu.Lock()
 		delete(m.active, job.ID)
 		m.mu.Unlock()
@@ -137,7 +139,16 @@ func (m *BackgroundManager) Start(ctx context.Context, stateDir, runID, director
 		cancel()
 	}
 	m.mu.Unlock()
-	cmd := platform.ShellCommand(jobCtx, script)
+	cmd, cleanup, err := platform.ShellCommand(jobCtx, stateDir, script)
+	if err != nil {
+		cancel()
+		job.Status, job.Error = "failed", err.Error()
+		_ = m.emit(context.Background(), job)
+		release()
+		file.Close()
+		return job, err
+	}
+	cleanupScript = cleanup
 	cmd.Dir = directory
 	cmd.WaitDelay = 2 * time.Second
 	changed := make(chan struct{}, 1)

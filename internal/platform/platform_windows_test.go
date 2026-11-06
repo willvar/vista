@@ -149,7 +149,12 @@ func TestWindowsNativeCommandExitCode(t *testing.T) {
 		{"cmd.exe /d /c 'exit 9'", 9},
 	} {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		cmd := ShellCommand(ctx, tc.script)
+		cmd, cleanup, err := ShellCommand(ctx, t.TempDir(), tc.script)
+		if err != nil {
+			cancel()
+			t.Fatal(err)
+		}
+		defer cleanup()
 		var output strings.Builder
 		cmd.Stdout, cmd.Stderr = &output, &output
 		if err := Start(cmd); err != nil {

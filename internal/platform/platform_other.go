@@ -3,7 +3,6 @@
 package platform
 
 import (
-	"context"
 	"os"
 	"os/exec"
 	"runtime"
@@ -19,9 +18,6 @@ func AttachToParent(*exec.Cmd)      {}
 func PrepareCommand(*exec.Cmd)      {}
 func Start(*exec.Cmd) error         { return ErrUnsupported }
 func Terminate(p *os.Process) error { return p.Kill() }
-func ShellCommand(ctx context.Context, script string) *exec.Cmd {
-	return exec.CommandContext(ctx, "/bin/sh", "-c", script)
-}
 func KillProcessGroup(p *os.Process) error   { return p.Kill() }
 func ProcessSignal(*os.ProcessState) string  { return "" }
 func KillSessionDescendants(int) error       { return ErrUnsupported }

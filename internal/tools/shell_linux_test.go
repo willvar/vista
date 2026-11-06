@@ -23,6 +23,7 @@ func TestRunShellCapturesOutputAndExit(t *testing.T) {
 	if result.Truncated || result.PreviewBytes != 5 || result.NextOffset != 5 {
 		t.Fatalf("short output pagination: %+v", result)
 	}
+	assertScriptsRemoved(t, filepath.Join(root, "state"))
 	data, err := os.ReadFile(result.OutputPath)
 	if err != nil || string(data) != "hello" {
 		t.Fatalf("saved output: %q %v", data, err)
@@ -67,6 +68,7 @@ func TestRunShellTimeoutKillsDescendantsAndLimitsOutput(t *testing.T) {
 	if !errors.Is(err, context.DeadlineExceeded) || !strings.Contains(err.Error(), "command terminated due to timeout") || !strings.Contains(err.Error(), "output was captured before termination") {
 		t.Fatalf("timeout did not explain termination and historical output: %v", err)
 	}
+	assertScriptsRemoved(t, filepath.Join(root, "state"))
 	pid, parseErr := strconv.Atoi(strings.TrimSpace(result.Preview))
 	if parseErr != nil {
 		t.Fatalf("child PID missing from preview %q: %v", result.Preview, parseErr)
@@ -86,6 +88,7 @@ func TestRunShellTimeoutKillsDescendantsAndLimitsOutput(t *testing.T) {
 	if !errors.Is(err, ErrOutputLimit) || result.Complete || result.Bytes != maxShellOutput {
 		t.Fatalf("output limit failed: %+v %v", result, err)
 	}
+	assertScriptsRemoved(t, filepath.Join(root, "state"))
 	info, err := os.Stat(result.OutputPath)
 	if err != nil || info.Size() != maxShellOutput {
 		t.Fatalf("partial output not saved: %+v %v", info, err)

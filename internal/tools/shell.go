@@ -13,6 +13,7 @@ import (
 
 	"github.com/google/uuid"
 	"vista/internal/platform"
+	"vista/internal/toolinput"
 )
 
 const maxShellOutput = 16 << 20
@@ -102,8 +103,8 @@ func RunShellRecorded(ctx context.Context, stateDir, directory, script string, t
 	if err != nil {
 		return ShellResult{}, err
 	}
-	if strings.TrimSpace(script) == "" || len(script) > 4096 {
-		return ShellResult{}, errors.New("shell command must be 1–4096 bytes")
+	if err := toolinput.CheckText("command", script, toolinput.MaxArgumentsBytes, "Reduce the complete JSON arguments; run an existing script file when the source is longer than the tool argument budget."); err != nil {
+		return ShellResult{}, err
 	}
 	if timeout <= 0 || timeout > 5*time.Minute {
 		return ShellResult{}, errors.New("shell timeout must be between 1 ns and 5 minutes")
@@ -142,7 +143,11 @@ func RunShellRecorded(ctx context.Context, stateDir, directory, script string, t
 	}
 	runCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	cmd := platform.ShellCommand(runCtx, script)
+	cmd, cleanup, err := platform.ShellCommand(runCtx, stateDir, script)
+	if err != nil {
+		return result, err
+	}
+	defer cleanup()
 	cmd.Dir = directory
 	cmd.WaitDelay = 2 * time.Second
 	writer := &shellWriter{file: file, preview: make([]byte, 0, maxShellPreview), cancel: cancel}

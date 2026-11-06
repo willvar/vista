@@ -15,6 +15,7 @@ import (
 
 	modelcfg "vista/internal/model"
 	"vista/internal/modeltrace"
+	"vista/internal/toolinput"
 )
 
 const maxEventBytes = 128 << 10
@@ -22,7 +23,7 @@ const maxReplyBytes = 256 << 10
 
 // A single tool may use the retained tool collection budget (for example when
 // writing a source file); do not impose a smaller unrelated per-call ceiling.
-const maxToolArgsBytes = maxReplyBytes
+const maxToolArgsBytes = toolinput.MaxArgumentsBytes
 
 type chatStreamUsage struct {
 	PromptTokens         int64  `json:"prompt_tokens"`

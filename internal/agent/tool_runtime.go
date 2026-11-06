@@ -10,6 +10,7 @@ import (
 
 	"vista/internal/provider"
 	"vista/internal/resources"
+	"vista/internal/toolinput"
 	"vista/internal/tools"
 	"vista/internal/workerproto"
 )
@@ -113,6 +114,9 @@ func (r *toolRuntime) execute(ctx context.Context, call provider.ToolCall) (stri
 }
 
 func decodeArguments(raw string, dst any) error {
+	if len(raw) > toolinput.MaxArgumentsBytes {
+		return &toolinput.Error{Field: "arguments", ActualBytes: len(raw), MaxBytes: toolinput.MaxArgumentsBytes, Hint: "Reduce the JSON arguments; put lengthy supporting material in a file and reference its path."}
+	}
 	decoder := json.NewDecoder(strings.NewReader(raw))
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(dst); err != nil {

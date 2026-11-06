@@ -14,8 +14,9 @@ import (
 
 func TestDelegateRetainsCompleteTaskInstructions(t *testing.T) {
 	const intro = "请检查实现并给出证据。\n逐项验证下面的任务说明：\n"
-	instructions := intro + strings.Repeat("检查中文、多行说明、事件开始与完成后的完整记录。\n", 20)
-	maximum := intro + strings.Repeat("x", 2048-len(intro))
+	instructions := intro + strings.Repeat("检查中文、多行说明、事件开始与完成后的完整记录。\n", 70)
+	maximum := intro + strings.Repeat("中", (workerproto.MaxPromptBytes-len(intro))/3)
+	maximum += strings.Repeat("x", workerproto.MaxPromptBytes-len(maximum))
 	for _, task := range []string{instructions, maximum} {
 		t.Run(strconv.Itoa(len(task)), func(t *testing.T) {
 			t.Setenv("XDG_CONFIG_HOME", t.TempDir())

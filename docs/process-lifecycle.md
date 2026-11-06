@@ -23,6 +23,12 @@ Timeout or cancellation terminates the command and its managed descendants; comm
 Timeout results explicitly report termination and identify saved output as having been captured before termination.
 Use `start_background` for GUI applications, servers, watchers, and other programs that must keep running.
 
+Shell source is written to private temporary scripts under `state/shell-scripts/<Worker PID>/`, avoiding OS command-line length limits.
+Linux/macOS use `/bin/sh`; Windows uses a UTF-8 BOM PowerShell script with readable text errors and native exit-code propagation.
+Foreground completion, failure and cancellation remove the script; a background script stays until its job exits or is stopped.
+Worker teardown removes its script directory, and Server startup discards abandoned scripts after recovering previous process ownership.
+Background state carries a redacted, bounded command preview; this display limit does not truncate the source being executed.
+
 Background shell jobs have no deadline by default and remain owned by their conversation Worker.
 An optional positive `timeoutSeconds` sets a termination deadline; only then do the tool result and process monitor include an expiry time.
 The existing concurrent-job and output limits still apply.

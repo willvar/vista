@@ -186,6 +186,11 @@ OMP 和 models.dev 提供模型资料，Vista 负责路由与认证，自定义�
 
 文件搜索在进入被忽略目录前应用祖先和嵌套 `.gitignore` 及例外规则；明确读取不受此限制。`read_file` 使用从 1 开始的 `startLine`、`lineCount`（默认 200），返回原行号及 `nextLine`，流式扫描完整原文件以计算哈希和总行数，选中行暂存到磁盘。过大的单行流式保存为产物，不整行载入内存。搜索覆盖超过 1 MiB 的文件，保持全局 32 MiB／10,000 文件／100 结果预算，并显式标明结果不完整；`read_tool_output` 仍按字节读取。
 
+原生工具参数共用 `internal/toolinput` 声明的 256 KiB 完整 JSON 预算，服务商适配器与运行时校验复用同一常量。
+`delegate.task` 使用 8 KiB 提示词预算；工具声明明确按 UTF-8 字节计算，并建议将更长的支持材料放入文件后引用。
+`shell` 与 `start_background` 不再单独限制命令为 4 KiB，工具声明提示完整 JSON 预算。
+运行时参数长度错误在工具副作用发生前返回 `executed: false`、字段名、实际与最大字节数及恢复建议。
+
 执行 `read_file`、`write_file`、`search`、文件路径形式的 `read_skill`／`read_resource`、`shell` 或 `start_background` 前，工具运行时按明确的目标路径或工作目录，从外到内发现祖先目录中的 `AGENTS.md`、`CLAUDE.md` 和 `.github/copilot-instructions.md`。
 没有规则，或模型保留上下文中已完整读取所有适用规则的当前版本时，直接执行原操作，省去单独发现规则的模型轮次。
 否则返回 `instructions_required`、`executed: false` 及未读文件的路径、大小和 SHA-256，原操作不产生副作用。

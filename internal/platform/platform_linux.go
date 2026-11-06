@@ -3,7 +3,6 @@
 package platform
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -47,11 +46,6 @@ func PrepareCommand(cmd *exec.Cmd) {
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true, Pdeathsig: syscall.SIGKILL}
 }
 func Terminate(p *os.Process) error { return p.Signal(syscall.SIGTERM) }
-func ShellCommand(ctx context.Context, script string) *exec.Cmd {
-	cmd := exec.CommandContext(ctx, "/bin/sh", "-c", script)
-	PrepareCommand(cmd)
-	return cmd
-}
 func KillProcessGroup(p *os.Process) error { return syscall.Kill(-p.Pid, syscall.SIGKILL) }
 
 func ProcessSignal(state *os.ProcessState) string {

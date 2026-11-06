@@ -8,6 +8,7 @@ import (
 	"errors"
 	"log"
 	"net/http"
+	"os"
 	"slices"
 	"strings"
 	"time"
@@ -463,6 +464,11 @@ func (a *App) readWorkerOutput(id string, w *worker, scanner *bufio.Scanner) {
 			log.Printf("worker %s descendant cleanup: %v", id, err)
 		} else if err := a.store.ClearWorkerOwner(context.Background(), w.owner); err != nil {
 			log.Printf("worker %s ownership record cleanup: %v", id, err)
+		}
+	}
+	if w.cmd.Process != nil {
+		if cleanupErr := os.RemoveAll(platform.ShellScriptDirectory(a.dir, w.cmd.Process.Pid)); cleanupErr != nil {
+			log.Printf("worker %s script cleanup: %v", id, cleanupErr)
 		}
 	}
 	err := w.cmd.Wait()

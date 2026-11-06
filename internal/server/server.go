@@ -255,6 +255,9 @@ func loadApp(parent context.Context, cancel context.CancelFunc, configDir, dir s
 	if err := os.RemoveAll(filepath.Join(dir, "inputs")); err != nil {
 		return nil, fmt.Errorf("discard interrupted image uploads: %w", err)
 	}
+	if err := os.RemoveAll(filepath.Join(dir, "shell-scripts")); err != nil {
+		return nil, fmt.Errorf("discard interrupted shell scripts: %w", err)
+	}
 	if _, err := st.InterruptRunning(context.Background(), ""); err != nil {
 		return nil, fmt.Errorf("reconcile interrupted executions: %w", err)
 	}

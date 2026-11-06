@@ -186,6 +186,11 @@ OMP and models.dev supply model metadata. Vista owns routing and authentication;
 
 File search applies ancestor/nested `.gitignore` rules, including exceptions, before scanning ignored subtrees. Explicit reads are unaffected. `read_file` uses 1-based `startLine` and `lineCount` (default 200), returns original line numbers and `nextLine`, and streams the full original file for SHA-256 and total line count while spooling selected lines to disk. Oversized lines use saved artifacts without a whole-line RAM allocation. Search includes files larger than 1 MiB, with a shared 32 MiB / 10,000-file / 100-result budget and an explicit incomplete-result flag. `read_tool_output` remains byte-based.
 
+Native tool arguments share a 256 KiB complete-JSON budget declared by `internal/toolinput` and reused by provider adapters and runtime validation.
+`delegate.task` accepts up to the 8 KiB prompt budget; its schema declares UTF-8 byte counting and suggests referencing files for longer supporting material.
+`shell` and `start_background` have no separate 4 KiB command cutoff; their schemas disclose the complete-JSON budget.
+Runtime input-size errors report `executed: false`, the field, actual and maximum bytes, and a recovery hint before tool side effects.
+
 Before `read_file`, `write_file`, `search`, filesystem `read_skill`/`read_resource`, `shell`, or `start_background`, the tool runtime discovers ancestor `AGENTS.md`, `CLAUDE.md`, and `.github/copilot-instructions.md` files from the explicit target path or working directory, ordered outer to nearest.
 When every applicable version is already fully read in the model's retained context, or no rules exist, the operation runs immediately without a separate discovery turn.
 Otherwise it returns `instructions_required` with `executed: false` and unread file paths, sizes and SHA-256 hashes; the original operation has no effects.
