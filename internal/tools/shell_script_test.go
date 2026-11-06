@@ -10,9 +10,11 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"vista/internal/platform"
 	"vista/internal/toolinput"
+	"vista/internal/workerproto"
 )
 
 func longTestScript() string {
@@ -65,6 +67,9 @@ func TestLongBackgroundScriptKeepsBoundedMetadataAndCleansOnClose(t *testing.T) 
 	dir := t.TempDir()
 	state := filepath.Join(dir, "state")
 	manager := NewBackgroundManager(func(_ context.Context, job BackgroundJob) error {
+		if len(job.Command) > workerproto.MaxCommandPreviewBytes || !utf8.ValidString(job.Command) {
+			t.Errorf("command preview violates the Worker contract: %d bytes", len(job.Command))
+		}
 		encoded, _ := json.Marshal(job)
 		if len(encoded) >= 16<<10 {
 			t.Errorf("long source leaked into background metadata: %d bytes", len(encoded))
@@ -102,4 +107,23 @@ func TestLongBackgroundScriptKeepsBoundedMetadataAndCleansOnClose(t *testing.T) 
 	}
 	manager.Close()
 	assertScriptsRemoved(t, state)
+}
+
+func TestShellCommandPreviewFitsWorkerBudget(t *testing.T) {
+	for _, script := range []string{
+		strings.Repeat("x", workerproto.MaxCommandPreviewBytes),
+		strings.Repeat("x", workerproto.MaxCommandPreviewBytes+1),
+		strings.Repeat("界🙂\x00", 1000),
+	} {
+		preview := ShellCommandPreview(script, nil)
+		if len(preview) > workerproto.MaxCommandPreviewBytes || !utf8.ValidString(preview) {
+			t.Fatalf("preview exceeds byte or UTF-8 bounds: %d bytes", len(preview))
+		}
+		if len(script) <= workerproto.MaxCommandPreviewBytes && preview != script {
+			t.Fatal("an in-budget command was altered")
+		}
+		if len(script) > workerproto.MaxCommandPreviewBytes && !strings.HasSuffix(preview, "\n[Command preview truncated.]") {
+			t.Fatal("truncation was not marked")
+		}
+	}
 }

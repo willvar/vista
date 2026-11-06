@@ -4,6 +4,8 @@ import (
 	"regexp"
 	"strings"
 	"unicode/utf8"
+
+	"vista/internal/workerproto"
 )
 
 var shellSecretPatterns = []*regexp.Regexp{
@@ -35,12 +37,13 @@ func DisplayShellCommand(command string, secrets []string) string {
 // Even JSON's worst-case escaping leaves room for both fields in a Worker frame.
 func ShellCommandPreview(command string, secrets []string) string {
 	command = DisplayShellCommand(command, secrets)
-	if len(command) <= 4<<10 {
+	if len(command) <= workerproto.MaxCommandPreviewBytes {
 		return command
 	}
-	end := 4 << 10
+	const suffix = "\n[Command preview truncated.]"
+	end := workerproto.MaxCommandPreviewBytes - len(suffix)
 	for end > 0 && !utf8.ValidString(command[:end]) {
 		end--
 	}
-	return command[:end] + "\n[Command preview truncated.]"
+	return command[:end] + suffix
 }

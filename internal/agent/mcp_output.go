@@ -65,10 +65,7 @@ func recordToolOutputStream(ctx context.Context, runID, callID string, write fun
 	status := "succeeded"
 	if writeErr != nil {
 		status = "failed"
-		artifact.Error = writeErr.Error()
-		if len(artifact.Error) > 512 {
-			artifact.Error = artifact.Error[:512]
-		}
+		artifact.Error = workerproto.TextPreview(writeErr.Error(), workerproto.MaxErrorBytes)
 	}
 	if err := emit(workerproto.Result{RunID: runID, Kind: "artifact", Status: status, Artifact: artifact}); err != nil {
 		return nil, fmt.Errorf("save tool output: %v; record artifact: %w", writeErr, err)

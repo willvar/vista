@@ -2,6 +2,7 @@ package server
 
 import (
 	"encoding/json"
+	"strings"
 	"unicode/utf8"
 
 	"github.com/google/uuid"
@@ -38,7 +39,7 @@ func validAgentTaskProgress(stateDir string, result workerproto.Result) bool {
 	task := result.Task
 	titleLimit := 300
 	if result.Depth > 0 && task != nil && task.ID != "main" {
-		titleLimit = 2048
+		titleLimit = workerproto.MaxPromptBytes
 	}
 	if result.RunID == "" || task == nil || task.ID == "" || !validTaskIdentity(task.ID, task.ParentID) || len(task.Title) > titleLimit || !utf8.ValidString(task.Title) || !validOutputReference(stateDir, result.RunID, task.Report) {
 		return false
@@ -67,7 +68,17 @@ func progressTextPrefix(text string, limit int) string {
 // Bound the encoded JSON too: control characters can expand sixfold in JSON.
 func prepareToolProgress(stateDir string, result workerproto.Result) (workerproto.Result, bool) {
 	tool := result.Tool
-	if result.RunID == "" || tool == nil || tool.CallID == "" || len(tool.CallID) > 1024 || len(tool.Name) > 128 || len(tool.Summary) > 300 || !utf8.ValidString(result.Content) || !validTaskIdentity(result.TaskID, result.ParentTaskID) || !validOutputReference(stateDir, result.RunID, tool.OutputRef) {
+	if tool == nil {
+		return result, false
+	}
+	name, callID := tool.Name, tool.CallID
+	if result.Depth > 0 {
+		// The agent qualifies child progress after the provider has validated
+		// the original name and call ID. Preserve these display identities.
+		name = strings.TrimPrefix(name, "subagent/")
+		callID = strings.TrimPrefix(callID, result.TaskID+"/")
+	}
+	if result.RunID == "" || tool.CallID == "" || len(callID) > 1024 || len(name) > 128 || len(tool.Summary) > 300 || !utf8.ValidString(result.Content) || !validTaskIdentity(result.TaskID, result.ParentTaskID) || !validOutputReference(stateDir, result.RunID, tool.OutputRef) {
 		return result, false
 	}
 	if result.Status != "started" && result.Status != "succeeded" && result.Status != "failed" {

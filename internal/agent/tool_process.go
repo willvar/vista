@@ -38,10 +38,7 @@ func (r *toolRuntime) shell(ctx context.Context, call provider.ToolCall) (string
 	artifactEvent := func(result tools.ShellResult, status string, cause error) error {
 		progress := workerproto.Result{RunID: r.parent.RunID, Kind: "artifact", Status: status, Artifact: &workerproto.Artifact{ID: result.ArtifactID, OutputPath: result.OutputPath, Bytes: result.Bytes, Complete: result.Complete}}
 		if cause != nil {
-			progress.Artifact.Error = cause.Error()
-			if len(progress.Artifact.Error) > 512 {
-				progress.Artifact.Error = progress.Artifact.Error[:512]
-			}
+			progress.Artifact.Error = workerproto.TextPreview(cause.Error(), workerproto.MaxErrorBytes)
 		}
 		return r.emit(progress)
 	}

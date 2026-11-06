@@ -23,6 +23,7 @@ import (
 	"vista/internal/instance"
 	"vista/internal/platform"
 	"vista/internal/store"
+	"vista/internal/workerproto"
 )
 
 // Run against the built application, including its real subprocess Workers.
@@ -52,7 +53,9 @@ func TestNativeApplication(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(config, "model-catalog-status.json"), []byte(status), 0600); err != nil {
 		t.Fatal(err)
 	}
-	var shellEvidence, runtimeEvidence atomic.Bool
+	var shellEvidence, runtimeEvidence, delegationEvidence, childToolEvidence atomic.Bool
+	longTask := strings.Repeat("界", workerproto.MaxPromptBytes/3)
+	longTask += strings.Repeat("x", workerproto.MaxPromptBytes-len(longTask))
 	model := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/v1/models" {
 			io.WriteString(w, `{"data":[{"id":"platform-fixture","input_modalities":["text"],"supports_tools":true}]}`)
@@ -66,10 +69,30 @@ func TestNativeApplication(t *testing.T) {
 			http.Error(w, "unexpected model request", 400)
 			return
 		}
+		last := request.Messages[len(request.Messages)-1]
+		if last.Role == "user" && strings.HasPrefix(last.Content, "provider-error-") {
+			message := strings.Repeat("upstream failure ", 1000)
+			if last.Content == "provider-error-unicode" {
+				message = strings.Repeat("上游返回较长的错误详情。", 1000)
+			}
+			w.WriteHeader(http.StatusBadRequest)
+			_ = json.NewEncoder(w).Encode(map[string]any{"error": map[string]string{"message": message}})
+			return
+		}
 		delta := map[string]any{"content": "Platform verified."}
 		finish := "stop"
-		last := request.Messages[len(request.Messages)-1]
-		if len(request.Tools) > 0 {
+		toolCall := func(name string, input any) {
+			args, _ := json.Marshal(input)
+			id := "call_" + last.Content
+			if len(id) > 256 {
+				id = "call_fixture"
+			}
+			delta = map[string]any{"tool_calls": []any{map[string]any{"index": 0, "id": id, "type": "function", "function": map[string]any{"name": name, "arguments": string(args)}}}}
+			finish = "tool_calls"
+		}
+		if last.Role == "user" && last.Content == "long-finish-reason" {
+			finish = strings.Repeat("upstream-reason-", 100)
+		} else if len(request.Tools) > 0 {
 			for _, message := range request.Messages {
 				if message.Role == "system" && strings.Contains(message.Content, "Runtime OS: "+runtime.GOOS+"; shell: "+platform.ShellName()) {
 					runtimeEvidence.Store(true)
@@ -77,8 +100,16 @@ func TestNativeApplication(t *testing.T) {
 				if message.Role == "tool" && strings.Contains(message.Content, "Vista 中文") && strings.Contains(message.Content, `"exitCode":7`) {
 					shellEvidence.Store(true)
 				}
+				if message.Role == "tool" && strings.Contains(message.Content, "unsupported tool") {
+					childToolEvidence.Store(true)
+				}
 			}
-			if last.Role == "user" {
+			if last.Role == "user" && last.Content == longTask {
+				delegationEvidence.Store(true)
+				// An unsupported call must return a tool error, including when
+				// the child prefix extends a maximum-length provider tool name.
+				toolCall(strings.Repeat("a", 128), map[string]any{})
+			} else if last.Role == "user" {
 				name, script := "shell", "printf 'Vista 中文'; exit 7"
 				if runtime.GOOS == "windows" {
 					script = "Write-Output 'Vista 中文'; exit 7"
@@ -87,15 +118,22 @@ func TestNativeApplication(t *testing.T) {
 					script = applicationSleepCommand(filepath.Join(root, last.Content+".pid"))
 					if strings.HasPrefix(last.Content, "background-") {
 						name = "start_background"
+						script = strings.Repeat("# 中文🙂\n", 600) + script
 					}
 				}
 				input := map[string]any{"directory": root, "command": script}
 				if name == "shell" {
 					input["timeoutSeconds"] = 60
 				}
-				args, _ := json.Marshal(input)
-				delta = map[string]any{"tool_calls": []any{map[string]any{"index": 0, "id": "call_" + last.Content, "type": "function", "function": map[string]any{"name": name, "arguments": string(args)}}}}
-				finish = "tool_calls"
+				if last.Content == "delegation-check" {
+					name, input = "delegate", map[string]any{"task": longTask}
+				}
+				toolCall(name, input)
+			} else if last.Role == "tool" {
+				var child struct{ TaskID, Status string }
+				if json.Unmarshal([]byte(last.Content), &child) == nil && child.TaskID != "" && child.Status == "running" {
+					toolCall("await_agent", map[string]any{"taskIds": []string{child.TaskID}})
+				}
 			}
 		}
 		w.Header().Set("Content-Type", "text/event-stream")
@@ -218,6 +256,65 @@ func TestNativeApplication(t *testing.T) {
 	if !shellEvidence.Load() || !runtimeEvidence.Load() {
 		t.Fatalf("model missed shell evidence=%v or runtime context=%v", shellEvidence.Load(), runtimeEvidence.Load())
 	}
+	// Cover the complete delegate registration/ACK, child request, terminal
+	// progress and report collection path with the largest permitted prompt.
+	api("PUT", "/agent-settings", map[string]any{"instructions": "Verified preference.", "delegationDepth": 1}, nil)
+	workerPID := func() int {
+		var status struct {
+			WorkerMetrics []struct {
+				SessionID string
+				PID       int
+			}
+		}
+		api("GET", "/status", nil, &status)
+		for _, worker := range status.WorkerMetrics {
+			if worker.SessionID == session.ID {
+				return worker.PID
+			}
+		}
+		t.Fatal("session Worker missing")
+		return 0
+	}
+	beforeDelegation := workerPID()
+	delegatedRun := submit("delegation-check")
+	waitRun(delegatedRun, "succeeded")
+	if !delegationEvidence.Load() || !childToolEvidence.Load() || workerPID() != beforeDelegation {
+		t.Fatal("long delegation lost prompt bytes or replaced its Worker")
+	}
+	var after int64
+	childStates := map[string]int{}
+	for {
+		var events []store.Event
+		api("GET", sessionPath+"/event-page?after="+strconv.FormatInt(after, 10), nil, &events)
+		if len(events) == 0 {
+			break
+		}
+		for _, event := range events {
+			after = event.Sequence
+			var result workerproto.Result
+			if event.Kind != "agent_task" || json.Unmarshal(event.Data, &result) != nil || result.RunID != delegatedRun || result.Depth != 1 {
+				continue
+			}
+			if result.Task == nil || result.Task.Title != longTask {
+				t.Fatalf("invalid persisted child progress: %+v", result.Task)
+			}
+			childStates[result.Task.Status]++
+		}
+	}
+	if childStates["started"] != 1 || childStates["succeeded"] != 1 || len(childStates) != 2 {
+		t.Fatalf("incomplete child lifecycle: %v", childStates)
+	}
+	for _, prompt := range []string{"provider-error-ascii", "provider-error-unicode"} {
+		waitRun(submit(prompt), "failed")
+		waitRun(submit("shell-check"), "succeeded")
+		if workerPID() != beforeDelegation {
+			t.Fatal("upstream error replaced the Worker instead of failing only its run")
+		}
+	}
+	waitRun(submit("long-finish-reason"), "failed")
+	if workerPID() != beforeDelegation {
+		t.Fatal("malformed upstream metadata replaced the Worker")
+	}
 	waitPID := func(prompt string) int {
 		t.Helper()
 		path := filepath.Join(root, prompt+".pid")
@@ -270,6 +367,9 @@ func TestNativeApplication(t *testing.T) {
 		}
 		if active.ID == "" {
 			t.Fatal("background job was lost at the reply boundary")
+		}
+		if len(active.Command) > workerproto.MaxCommandPreviewBytes || !strings.Contains(active.Command, "Command preview truncated.") {
+			t.Fatalf("invalid persisted long-command preview: %d bytes", len(active.Command))
 		}
 		if active.ExpiresAt != "" {
 			t.Fatalf("background job acquired an implicit deadline: %+v", active)

@@ -60,12 +60,11 @@ func Run() error {
 		return err
 	}
 	input := json.NewDecoder(os.Stdin)
-	out := json.NewEncoder(os.Stdout)
 	var outputMu sync.Mutex
 	emit := func(result workerproto.Result) error {
 		outputMu.Lock()
 		defer outputMu.Unlock()
-		return out.Encode(result)
+		return writeResult(os.Stdout, result)
 	}
 	var ackMu sync.Mutex
 	pendingAcks := map[string]chan workerproto.Command{}
@@ -120,6 +119,7 @@ func Run() error {
 	})
 	agents := agent.NewSession(sessionCtx)
 	jobs := tools.NewBackgroundManager(func(ctx context.Context, job tools.BackgroundJob) error {
+		job.Error = workerproto.TextPreview(job.Error, workerproto.MaxErrorBytes)
 		result := workerproto.Result{RunID: job.RunID, Kind: "job", Status: job.Status, TaskID: job.TaskID, ParentTaskID: job.ParentTaskID, Job: &workerproto.JobProgress{StartedAt: job.StartedAt, ExpiresAt: job.ExpiresAt, Signal: job.Signal, TerminationReason: job.TerminationReason, CallID: job.CallID, TaskID: job.TaskID, ParentTaskID: job.ParentTaskID, ID: job.ID, Directory: job.Directory, Command: job.Command, OutputPath: job.OutputPath, Bytes: job.Bytes, ExitCode: job.ExitCode, Complete: job.Complete, Error: job.Error}}
 		if job.Status == "starting" {
 			return emitPersisted(ctx, result)
@@ -225,9 +225,7 @@ func Run() error {
 					result.Status = "failed"
 					result.Content = err.Error()
 				}
-				if len(result.Content) > 8192 {
-					result.Content = result.Content[:8192]
-				}
+				result.Content = workerproto.TextPreview(result.Content, workerproto.MaxPromptBytes)
 				_ = emit(result)
 			})
 			continue
@@ -348,6 +346,7 @@ func Run() error {
 				result.Content = "Cancelled by user"
 			}
 			if result.Status != "succeeded" {
+				result.Content = workerproto.TextPreview(result.Content, workerproto.MaxPromptBytes)
 				result.Turn, result.FullBytes = 0, 0
 				result.Pending = nil
 			}

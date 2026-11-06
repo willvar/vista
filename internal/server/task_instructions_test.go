@@ -58,8 +58,10 @@ func TestTaskInstructionBoundsAndEncoding(t *testing.T) {
 		title string
 		valid bool
 	}{
-		{"child maximum", 1, "main/child", strings.Repeat("x", 2048), true},
-		{"child too long", 1, "main/child", strings.Repeat("x", 2049), false},
+		{"child maximum", 1, "main/child", strings.Repeat("x", workerproto.MaxPromptBytes), true},
+		{"child maximum escaped", 1, "main/child", strings.Repeat("\x00", workerproto.MaxPromptBytes), true},
+		{"child maximum Unicode", 1, "main/child", strings.Repeat("界", workerproto.MaxPromptBytes/3) + strings.Repeat("x", workerproto.MaxPromptBytes%3), true},
+		{"child too long", 1, "main/child", strings.Repeat("x", workerproto.MaxPromptBytes+1), false},
 		{"child invalid UTF8", 1, "main/child", string([]byte{0xff}), false},
 		{"root maximum", 0, "main", strings.Repeat("x", 300), true},
 		{"root too long", 0, "main", strings.Repeat("x", 301), false},
@@ -72,6 +74,10 @@ func TestTaskInstructionBoundsAndEncoding(t *testing.T) {
 			}
 			if valid := validAgentTaskProgress(t.TempDir(), result); valid != tc.valid {
 				t.Fatalf("task validation: got=%v want=%v", valid, tc.valid)
+			}
+			encoded, err := json.Marshal(result)
+			if tc.valid && (err != nil || len(encoded) > workerproto.MaxResultFrame) {
+				t.Fatalf("valid task exceeds the transport budget: %d bytes, %v", len(encoded), err)
 			}
 		})
 	}

@@ -105,7 +105,7 @@ func (c *workerResultConsumer) consume(result workerproto.Result) error {
 	case "token_usage":
 		return c.tokenUsage(result)
 	case "rpc":
-		if result.RPCID == "" || len(result.RPCID) > 64 || len(result.Content) > 8192 {
+		if result.RPCID == "" || len(result.RPCID) > 64 || len(result.Content) > workerproto.MaxPromptBytes {
 			return errors.New("invalid worker RPC result")
 		}
 		if c.rpc != nil {
@@ -310,7 +310,7 @@ func (c *workerResultConsumer) persisted(result workerproto.Result, event *store
 
 func (c *workerResultConsumer) job(result workerproto.Result) error {
 	job := result.Job
-	if result.RunID == "" || job == nil || len(job.Command) > 4096 || len(job.Directory) > 4096 || len(job.Error) > 512 || job.Bytes < 0 || (result.Status != "starting" && result.Status != "running" && result.Status != "succeeded" && result.Status != "failed" && result.Status != "interrupted") || (result.Status == "starting" && (result.AckID == "" || len(result.AckID) > 64)) {
+	if result.RunID == "" || job == nil || len(job.Command) > workerproto.MaxCommandPreviewBytes || len(job.Directory) > workerproto.MaxCommandPreviewBytes || len(job.Error) > workerproto.MaxErrorBytes || job.Bytes < 0 || (result.Status != "starting" && result.Status != "running" && result.Status != "succeeded" && result.Status != "failed" && result.Status != "interrupted") || (result.Status == "starting" && (result.AckID == "" || len(result.AckID) > 64)) {
 		return errors.New("invalid job progress")
 	}
 	if _, err := uuid.Parse(job.ID); err != nil {
@@ -335,7 +335,7 @@ func (c *workerResultConsumer) job(result workerproto.Result) error {
 
 func (c *workerResultConsumer) artifact(result workerproto.Result) error {
 	artifact := result.Artifact
-	if result.RunID == "" || artifact == nil || artifact.Bytes < 0 || len(artifact.Error) > 512 || (result.Status != "started" && result.Status != "succeeded" && result.Status != "failed") || (result.Status == "started" && (result.AckID == "" || len(result.AckID) > 64)) {
+	if result.RunID == "" || artifact == nil || artifact.Bytes < 0 || len(artifact.Error) > workerproto.MaxErrorBytes || (result.Status != "started" && result.Status != "succeeded" && result.Status != "failed") || (result.Status == "started" && (result.AckID == "" || len(result.AckID) > 64)) {
 		return errors.New("invalid artifact progress")
 	}
 	if _, err := uuid.Parse(artifact.ID); err != nil || !validOutputPath(c.stateDir, artifact.OutputPath) {
