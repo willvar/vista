@@ -92,7 +92,7 @@ func TestOpenAIResponsesStreamsWithoutContentType(t *testing.T) {
 	}
 }
 
-func TestResponsesHostedToolResultsAndLimits(t *testing.T) {
+func TestResponsesHostedToolResultsAndValidation(t *testing.T) {
 	completed := func(output []any) string {
 		event, _ := json.Marshal(map[string]any{"type": "response.completed", "response": map[string]any{"status": "completed", "output": output}})
 		return "data: " + string(event) + "\n\n"
@@ -106,24 +106,38 @@ func TestResponsesHostedToolResultsAndLimits(t *testing.T) {
 		t.Fatalf("hosted results: %+v, err=%v", turn.HostedCalls, err)
 	}
 	for _, check := range []struct {
-		name   string
-		output []any
+		name    string
+		output  []any
+		invalid bool
 	}{
-		{"large item", []any{map[string]any{"type": "mcp_call", "id": "large", "result": strings.Repeat("x", maxHostedResultBytes)}}},
-		{"event encoding", []any{map[string]any{"type": "mcp_call", "id": "escaped", "result": strings.Repeat("<", 3<<10)}}},
+		{"large item", []any{map[string]any{"type": "mcp_call", "id": "large", "result": strings.Repeat("x", 1<<20)}}, false},
+		{"event encoding", []any{map[string]any{"type": "mcp_call", "id": "escaped", "result": strings.Repeat("<", 3<<10)}}, false},
 		{"aggregate", func() []any {
 			items := make([]any, 5)
 			for i := range items {
 				items[i] = map[string]any{"type": "mcp_call", "id": fmt.Sprintf("item_%d", i), "result": strings.Repeat("x", 7<<10)}
 			}
 			return items
-		}()},
-		{"duplicate ID", []any{map[string]any{"type": "mcp_call", "id": "same"}, map[string]any{"type": "file_search_call", "id": "same"}}},
-		{"image output", []any{map[string]any{"type": "image_generation_call", "id": "image_1", "result": "aGVsbG8="}}},
+		}(), false},
+		{"duplicate ID", []any{map[string]any{"type": "mcp_call", "id": "same"}, map[string]any{"type": "file_search_call", "id": "same"}}, true},
+		{"image output", []any{map[string]any{"type": "image_generation_call", "id": "image_1", "result": "aGVsbG8="}}, true},
 	} {
 		t.Run(check.name, func(t *testing.T) {
-			if _, err := parseResponses(strings.NewReader(completed(check.output))); err == nil {
-				t.Fatal("unsupported or oversized hosted output was accepted")
+			turn, err := parseResponses(strings.NewReader(completed(check.output)))
+			if check.invalid {
+				if err == nil {
+					t.Fatal("invalid hosted output was accepted")
+				}
+				return
+			}
+			if err != nil || len(turn.HostedCalls) != len(check.output) {
+				t.Fatalf("hosted output: calls=%d err=%v", len(turn.HostedCalls), err)
+			}
+			for i, item := range check.output {
+				want, _ := json.Marshal(item)
+				if turn.HostedCalls[i].Result != string(want) {
+					t.Fatalf("hosted result %d changed: bytes=%d want=%d", i, len(turn.HostedCalls[i].Result), len(want))
+				}
 			}
 		})
 	}
@@ -519,10 +533,15 @@ func TestXAIResponsesRequestsEncryptedReasoningForToolContinuation(t *testing.T)
 	}
 }
 
-func TestOpenAIResponsesBoundsReasoningReplayItems(t *testing.T) {
-	tooLarge := responseItem{Type: "reasoning", ID: "rs_1", EncryptedContent: strings.Repeat("x", 65<<10)}
-	if _, err := responseReasoningItems([]responseItem{tooLarge}); err == nil || !strings.Contains(err.Error(), "limits") {
-		t.Fatalf("oversized encrypted state accepted: %v", err)
+func TestOpenAIResponsesPreservesLargeReasoningReplayItems(t *testing.T) {
+	large := responseItem{Type: "reasoning", ID: "rs_1", EncryptedContent: strings.Repeat("x", 200<<10)}
+	items, err := responseReasoningItems([]responseItem{large})
+	if err != nil || len(items) != 1 || !validResponseReasoningItem(items[0]) {
+		t.Fatalf("large encrypted state: items=%d err=%v", len(items), err)
+	}
+	var restored responseItem
+	if err := json.Unmarshal(items[0], &restored); err != nil || restored.EncryptedContent != large.EncryptedContent {
+		t.Fatalf("encrypted state changed: bytes=%d err=%v", len(restored.EncryptedContent), err)
 	}
 	malformed := responseItem{Type: "reasoning", ID: "rs_1"}
 	malformed.Summary = append(malformed.Summary, struct {
@@ -551,7 +570,7 @@ func TestOpenAIResponsesRejectsPartialCompletedToolOutput(t *testing.T) {
 	}
 }
 
-func TestOpenAIResponsesBoundsCumulativeReasoning(t *testing.T) {
+func TestOpenAIResponsesPreservesCumulativeReasoning(t *testing.T) {
 	delta := strings.Repeat("r", 90<<10)
 	var stream strings.Builder
 	for range 3 {
@@ -562,8 +581,9 @@ func TestOpenAIResponsesBoundsCumulativeReasoning(t *testing.T) {
 		fmt.Fprintf(&stream, "data: %s\n\n", item)
 	}
 	stream.WriteString(`data: {"type":"response.completed","response":{"status":"completed","output":[]}}` + "\n\n")
-	if _, err := parseResponsesStreamWithReasoning(strings.NewReader(stream.String()), nil, func(string) error { return nil }); err == nil || !strings.Contains(err.Error(), "reasoning delta exceeds") {
-		t.Fatalf("oversized Responses reasoning accepted: %v", err)
+	var reasoning strings.Builder
+	if _, err := parseResponsesStreamWithReasoning(strings.NewReader(stream.String()), nil, func(s string) error { reasoning.WriteString(s); return nil }); err != nil || reasoning.String() != strings.Repeat(delta, 3) {
+		t.Fatalf("cumulative Responses reasoning: bytes=%d err=%v", reasoning.Len(), err)
 	}
 }
 
@@ -576,7 +596,7 @@ func TestOpenAIResponsesLongStreamedAnswerWithCompletedEcho(t *testing.T) {
 		{name: "JSON escaped", unit: "<", chunk: 16 << 10},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			answer := strings.Repeat(test.unit, 200<<10)
+			answer := strings.Repeat(test.unit, 400<<10)
 			var stream strings.Builder
 			for offset := 0; offset < len(answer); offset += test.chunk {
 				end := min(offset+test.chunk, len(answer))
@@ -616,14 +636,16 @@ func TestOpenAIResponsesLongStreamedAnswerWithCompletedEcho(t *testing.T) {
 	}
 }
 
-func TestOpenAIResponsesStillRejectsOversizedOrdinaryEvent(t *testing.T) {
-	event, err := json.Marshal(map[string]any{"type": "response.output_text.delta", "item_id": "msg_1", "delta": strings.Repeat("x", 130<<10)})
+func TestOpenAIResponsesPreservesLargeOrdinaryEvent(t *testing.T) {
+	answer := strings.Repeat("x", 130<<10)
+	event, err := json.Marshal(map[string]any{"type": "response.output_text.delta", "item_id": "msg_1", "delta": answer})
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = parseResponses(strings.NewReader("data: " + string(event) + "\n\n"))
-	if err == nil || !strings.Contains(err.Error(), "event exceeds 128 KiB") {
-		t.Fatalf("oversized ordinary Responses event was accepted: %v", err)
+	stream := "data: " + string(event) + "\n\n" + `data: {"type":"response.completed","response":{"status":"completed","output":[]}}` + "\n\n"
+	turn, err := parseResponses(strings.NewReader(stream))
+	if err != nil || turn.Text != answer {
+		t.Fatalf("large ordinary Responses event: bytes=%d err=%v", len(turn.Text), err)
 	}
 }
 
@@ -651,12 +673,12 @@ func TestOpenAIResponsesDoesNotRetainLargeReasoningWithoutToolCall(t *testing.T)
 	}
 }
 
-func TestOpenAIResponsesRejectsIncompleteAndOversizedStreams(t *testing.T) {
+func TestOpenAIResponsesRejectsIncompleteStreamsRegardlessOfSize(t *testing.T) {
 	for _, test := range []struct{ name, stream, reason string }{
 		{"incomplete", "data: {\"type\":\"response.incomplete\",\"response\":{\"incomplete_details\":{\"reason\":\"max_output_tokens\"}}}\n\n", "incomplete"},
 		{"missing completion", "data: {\"type\":\"response.output_text.delta\",\"item_id\":\"msg\",\"delta\":\"partial\"}\n\n", "before completion"},
-		{"large text", strings.Repeat("data: {\"type\":\"response.output_text.delta\",\"item_id\":\"msg\",\"delta\":\""+strings.Repeat("x", 80<<10)+"\"}\n\n", 4), "exceeds 256 KiB"},
-		{"large done text", "data: {\"type\":\"response.output_item.done\",\"item\":{\"type\":\"message\",\"id\":\"msg\",\"content\":[{\"type\":\"output_text\",\"text\":\"" + strings.Repeat("x", maxReplyBytes+1) + "\"}]}}\n\n", "exceeds 256 KiB"},
+		{"large text", strings.Repeat("data: {\"type\":\"response.output_text.delta\",\"item_id\":\"msg\",\"delta\":\""+strings.Repeat("x", 80<<10)+"\"}\n\n", 4), "before completion"},
+		{"large done text", "data: {\"type\":\"response.output_item.done\",\"item\":{\"type\":\"message\",\"id\":\"msg\",\"content\":[{\"type\":\"output_text\",\"text\":\"" + strings.Repeat("x", 256<<10+1) + "\"}]}}\n\n", "before completion"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {

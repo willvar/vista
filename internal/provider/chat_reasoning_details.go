@@ -7,10 +7,8 @@ import (
 )
 
 // Chat-compatible gateways can send visible or opaque reasoning details.
-// Keep the supported wire objects for tool continuation, while limiting the
-// amount that one turn can retain and replay.
-const maxChatReasoningDetailsBytes = 64 << 10
-const maxChatReasoningDetailBlocks = 256
+// Preserve and merge supported wire objects for tool continuation. Their size
+// is governed by the conversation Worker, not a separate replay byte ceiling.
 
 type chatReasoningDetails struct {
 	items     []map[string]json.RawMessage
@@ -62,9 +60,6 @@ func chatMessagesWithReasoningDetails(messages []ChatMessage, providerID string)
 		if message.ReasoningText != "" {
 			if message.Role != "assistant" {
 				return nil, errors.New("reasoning replay text requires an assistant message")
-			}
-			if len(message.ReasoningText) > maxChatReasoningDetailsBytes {
-				return nil, errors.New("model reasoning replay text exceeds 64 KiB")
 			}
 			field, err := chatReasoningReplayField(providerID, message)
 			if err != nil {
@@ -179,13 +174,10 @@ func (d *chatReasoningDetails) add(raw json.RawMessage) (string, error) {
 			return "", errors.New("invalid model reasoning detail content")
 		}
 		if kind == "reasoning.text" || kind == "reasoning.summary" || kind == "summary" {
-			if len(content) > maxReplyBytes-len(visible) {
-				return "", errors.New("model reasoning exceeds 256 KiB")
-			}
 			visible += content
 		}
 		// A streamed delta is not an independent reasoning block. Merge before
-		// applying retained-history limits, without mutating accepted state on error.
+		// retaining history, without mutating accepted state on an encoding error.
 		target := d.mergeTarget(item)
 		candidate := item
 		oldBytes := 0
@@ -196,15 +188,10 @@ func (d *chatReasoningDetails) add(raw json.RawMessage) (string, error) {
 			}
 			mergeChatReasoningDetail(candidate, item)
 			oldBytes = d.sizes[target]
-		} else if len(d.items) >= maxChatReasoningDetailBlocks {
-			return "", errors.New("model reasoning_details exceed 256 independent blocks")
 		}
 		encoded, err := json.Marshal(candidate)
 		if err != nil {
 			return "", errors.New("invalid model reasoning detail")
-		}
-		if d.bytes-oldBytes+len(encoded) > maxChatReasoningDetailsBytes {
-			return "", errors.New("model reasoning_details exceed 64 KiB")
 		}
 		d.bytes += len(encoded) - oldBytes
 		if target >= 0 {

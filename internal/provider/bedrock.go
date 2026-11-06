@@ -189,22 +189,12 @@ func validBedrockEffort(value string) bool {
 }
 
 func bedrockReplayParts(parts []BedrockPart) ([]types.ContentBlock, error) {
-	nonToolBlocks := 0
 	content := make([]types.ContentBlock, 0, len(parts))
 	for _, part := range parts {
-		if part.Kind != "tool" {
-			nonToolBlocks++
-			if nonToolBlocks > 64 {
-				return nil, errors.New("Bedrock previous content has too many blocks")
-			}
-		}
 		switch part.Kind {
 		case "text":
 			content = append(content, &types.ContentBlockMemberText{Value: part.Text})
 		case "reasoning":
-			if len(part.Text) > 64<<10 || len(part.Signature) > 16<<10 || len(part.Redacted) > 64<<10 {
-				return nil, errors.New("Bedrock previous reasoning exceeds limits")
-			}
 			if part.Signature == "" && len(part.Redacted) == 0 {
 				// Unsigned reasoning from an interrupted turn cannot be replayed
 				// as a signed Bedrock block or exposed as user-facing text.
@@ -279,9 +269,6 @@ func parseBedrockEventsWithReasoning(events <-chan types.ConverseStreamOutput, s
 	closed := map[int32]bool{}
 	open := map[int32]bool{}
 	toolIDs := map[string]bool{}
-	nonToolBlocks := 0
-	reasoningBytes := 0
-	redactedBytes := 0
 	finished := false
 	finishReason := ""
 	var usage *ModelUsage
@@ -344,21 +331,12 @@ func parseBedrockEventsWithReasoning(events <-chan types.ConverseStreamOutput, s
 			if index == nil || *index < 0 || closed[*index] {
 				return Turn{}, errors.New("Bedrock content block index is missing")
 			}
-			if !open[*index] {
-				if nonToolBlocks >= 64 {
-					return Turn{}, errors.New("Bedrock content blocks exceed limits")
-				}
-				nonToolBlocks++
-			}
 			open[*index] = true
 			switch delta := value.Value.Delta.(type) {
 			case *types.ContentBlockDeltaMemberText:
 				part := parts[*index]
 				if part.Kind != "" && part.Kind != "text" || pending[*index] != nil {
 					return Turn{}, errors.New("Bedrock mixed content block types")
-				}
-				if reply.Len()+len(delta.Value) > maxReplyBytes {
-					return Turn{}, errors.New("Bedrock text exceeds 256 KiB")
 				}
 				reply.WriteString(delta.Value)
 				part.Kind = "text"
@@ -386,10 +364,9 @@ func parseBedrockEventsWithReasoning(events <-chan types.ConverseStreamOutput, s
 				part.Kind = "reasoning"
 				switch reasoning := delta.Value.(type) {
 				case *types.ReasoningContentBlockDeltaMemberText:
-					if len(part.Redacted) > 0 || reasoningBytes+len(reasoning.Value) > 64<<10 {
-						return Turn{}, errors.New("Bedrock reasoning exceeds 64 KiB")
+					if len(part.Redacted) > 0 {
+						return Turn{}, errors.New("Bedrock reasoning mixes text and redacted content")
 					}
-					reasoningBytes += len(reasoning.Value)
 					part.Text += reasoning.Value
 					if onReasoning != nil && reasoning.Value != "" {
 						if err := onReasoning(reasoning.Value); err != nil {
@@ -397,15 +374,14 @@ func parseBedrockEventsWithReasoning(events <-chan types.ConverseStreamOutput, s
 						}
 					}
 				case *types.ReasoningContentBlockDeltaMemberSignature:
-					if len(part.Redacted) > 0 || len(part.Signature)+len(reasoning.Value) > 16<<10 {
-						return Turn{}, errors.New("Bedrock reasoning signature exceeds limits")
+					if len(part.Redacted) > 0 {
+						return Turn{}, errors.New("Bedrock reasoning mixes a signature and redacted content")
 					}
 					part.Signature += reasoning.Value
 				case *types.ReasoningContentBlockDeltaMemberRedactedContent:
-					if part.Text != "" || part.Signature != "" || redactedBytes+len(reasoning.Value) > 64<<10 {
-						return Turn{}, errors.New("Bedrock redacted reasoning exceeds limits")
+					if part.Text != "" || part.Signature != "" {
+						return Turn{}, errors.New("Bedrock reasoning mixes redacted content with text or a signature")
 					}
-					redactedBytes += len(reasoning.Value)
 					part.Redacted = append(part.Redacted, reasoning.Value...)
 				default:
 					return Turn{}, errors.New("unsupported Bedrock reasoning delta")

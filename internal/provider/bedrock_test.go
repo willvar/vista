@@ -1,11 +1,9 @@
 package provider
 
 import (
-	"bufio"
 	"bytes"
 	"context"
 	"encoding/base64"
-	"encoding/binary"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -152,6 +150,7 @@ func TestBedrockConverseStreamToolContinuation(t *testing.T) {
 }
 
 func TestBedrockSignedReasoningContinuesWithTool(t *testing.T) {
+	signature := strings.Repeat("signed-token", 2048)
 	requests := 0
 	endpoint := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requests++
@@ -177,7 +176,7 @@ func TestBedrockSignedReasoningContinuesWithTool(t *testing.T) {
 			} else {
 				reasoning, _ := body.Messages[1].Content[0]["reasoningContent"].(map[string]any)
 				signed, _ := reasoning["reasoningText"].(map[string]any)
-				if signed["text"] != "first thought" || signed["signature"] != "signed-token" || body.Messages[1].Content[1]["toolUse"] == nil {
+				if signed["text"] != "first thought" || signed["signature"] != signature || body.Messages[1].Content[1]["toolUse"] == nil {
 					t.Errorf("Bedrock signed reasoning was not replayed before tool use: %+v", body.Messages[1].Content)
 				}
 			}
@@ -201,7 +200,7 @@ func TestBedrockSignedReasoningContinuesWithTool(t *testing.T) {
 		}
 		if requests == 1 {
 			send("contentBlockDelta", map[string]any{"contentBlockIndex": 0, "delta": map[string]any{"reasoningContent": map[string]any{"text": "first thought"}}})
-			send("contentBlockDelta", map[string]any{"contentBlockIndex": 0, "delta": map[string]any{"reasoningContent": map[string]any{"signature": "signed-token"}}})
+			send("contentBlockDelta", map[string]any{"contentBlockIndex": 0, "delta": map[string]any{"reasoningContent": map[string]any{"signature": signature}}})
 			send("contentBlockStop", map[string]any{"contentBlockIndex": 0})
 			send("contentBlockStart", map[string]any{"contentBlockIndex": 1, "start": map[string]any{"toolUse": map[string]any{"toolUseId": "call_1", "name": "read_file"}}})
 			send("contentBlockDelta", map[string]any{"contentBlockIndex": 1, "delta": map[string]any{"toolUse": map[string]any{"input": `{"path":"/work/a"}`}}})
@@ -229,7 +228,7 @@ func TestBedrockSignedReasoningContinuesWithTool(t *testing.T) {
 	}
 }
 
-func TestBedrockReasoningBoundsAndReplay(t *testing.T) {
+func TestBedrockLargeReasoningAndReplay(t *testing.T) {
 	parse := func(delta types.ContentBlockDelta, onReasoning func(string) error) (Turn, error) {
 		events := make(chan types.ConverseStreamOutput, 3)
 		events <- &types.ConverseStreamOutputMemberContentBlockDelta{Value: types.ContentBlockDeltaEvent{ContentBlockIndex: aws.Int32(0), Delta: delta}}
@@ -238,16 +237,17 @@ func TestBedrockReasoningBoundsAndReplay(t *testing.T) {
 		close(events)
 		return parseBedrockEventsWithReasoning(events, func() error { return nil }, nil, onReasoning)
 	}
-	if _, err := parse(&types.ContentBlockDeltaMemberReasoningContent{Value: &types.ReasoningContentBlockDeltaMemberText{Value: strings.Repeat("x", 64<<10+1)}}, nil); err == nil || !strings.Contains(err.Error(), "64 KiB") {
-		t.Fatalf("oversized Bedrock reasoning accepted: %v", err)
+	large := strings.Repeat("x", 270<<10)
+	if turn, err := parse(&types.ContentBlockDeltaMemberReasoningContent{Value: &types.ReasoningContentBlockDeltaMemberText{Value: large}}, nil); err != nil || len(turn.BedrockParts) != 1 || turn.BedrockParts[0].Text != large {
+		t.Fatalf("large Bedrock reasoning: parts=%d err=%v", len(turn.BedrockParts), err)
 	}
 	abort := fmt.Errorf("reasoning callback stopped")
 	if _, err := parse(&types.ContentBlockDeltaMemberReasoningContent{Value: &types.ReasoningContentBlockDeltaMemberText{Value: "thought"}}, func(string) error { return abort }); err != abort {
 		t.Fatalf("Bedrock reasoning callback error lost: %v", err)
 	}
-	turn, err := parse(&types.ContentBlockDeltaMemberReasoningContent{Value: &types.ReasoningContentBlockDeltaMemberRedactedContent{Value: []byte("opaque")}}, nil)
-	if err != nil || len(turn.BedrockParts) != 1 || string(turn.BedrockParts[0].Redacted) != "opaque" {
-		t.Fatalf("Bedrock redacted reasoning: %+v, err=%v", turn, err)
+	turn, err := parse(&types.ContentBlockDeltaMemberReasoningContent{Value: &types.ReasoningContentBlockDeltaMemberRedactedContent{Value: []byte(large)}}, nil)
+	if err != nil || len(turn.BedrockParts) != 1 || string(turn.BedrockParts[0].Redacted) != large {
+		t.Fatalf("Bedrock redacted reasoning: parts=%d err=%v", len(turn.BedrockParts), err)
 	}
 	parts, err := bedrockReplayParts(turn.BedrockParts)
 	if err != nil || len(parts) != 1 {
@@ -258,8 +258,8 @@ func TestBedrockReasoningBoundsAndReplay(t *testing.T) {
 		t.Fatalf("Bedrock redacted replay type: %T", parts[0])
 	}
 	redacted, ok := block.Value.(*types.ReasoningContentBlockMemberRedactedContent)
-	if !ok || string(redacted.Value) != "opaque" {
-		t.Fatalf("Bedrock redacted bytes changed: %+v", block.Value)
+	if !ok || string(redacted.Value) != large {
+		t.Fatal("Bedrock redacted bytes changed")
 	}
 	parts, err = bedrockReplayParts([]BedrockPart{{Kind: "reasoning", Text: "unsigned"}})
 	if err != nil || len(parts) != 0 {
@@ -267,17 +267,24 @@ func TestBedrockReasoningBoundsAndReplay(t *testing.T) {
 	}
 }
 
-func TestBedrockLimitsContentBlockCount(t *testing.T) {
-	events := make(chan types.ConverseStreamOutput, 65)
-	for index := int32(0); index < 65; index++ {
+func TestBedrockPreservesContentBlocksBeyond64(t *testing.T) {
+	events := make(chan types.ConverseStreamOutput, 2*100+1)
+	for index := int32(0); index < 100; index++ {
 		events <- &types.ConverseStreamOutputMemberContentBlockDelta{Value: types.ContentBlockDeltaEvent{
 			ContentBlockIndex: aws.Int32(index),
 			Delta:             &types.ContentBlockDeltaMemberText{Value: "x"},
 		}}
+		events <- &types.ConverseStreamOutputMemberContentBlockStop{Value: types.ContentBlockStopEvent{ContentBlockIndex: aws.Int32(index)}}
 	}
+	events <- &types.ConverseStreamOutputMemberMessageStop{Value: types.MessageStopEvent{StopReason: types.StopReasonEndTurn}}
 	close(events)
-	if _, err := parseBedrockEvents(events, func() error { return nil }, nil); err == nil || !strings.Contains(err.Error(), "content blocks exceed") {
-		t.Fatalf("Bedrock accepted more than 64 content blocks: %v", err)
+	turn, err := parseBedrockEvents(events, func() error { return nil }, nil)
+	if err != nil || turn.Text != strings.Repeat("x", 100) || len(turn.BedrockParts) != 100 {
+		t.Fatalf("Bedrock content blocks: parts=%d err=%v", len(turn.BedrockParts), err)
+	}
+	parts, err := bedrockReplayParts(turn.BedrockParts)
+	if err != nil || len(parts) != 100 {
+		t.Fatalf("Bedrock replay blocks: parts=%d err=%v", len(parts), err)
 	}
 }
 
@@ -369,18 +376,8 @@ func TestBedrockWireModelID(t *testing.T) {
 	}
 }
 
-func TestBedrockFrameLimitBeforeSDKDecode(t *testing.T) {
-	var prefix [4]byte
-	binary.BigEndian.PutUint32(prefix[:], maxBedrockFrameBytes+1)
-	input := io.NopCloser(bytes.NewReader(prefix[:]))
-	reader := &limitedBedrockBody{source: input, reader: bufio.NewReader(input)}
-	var out [16]byte
-	if _, err := reader.Read(out[:]); err == nil || !strings.Contains(err.Error(), "exceeds") {
-		t.Fatalf("oversized Bedrock frame passed to SDK: %v", err)
-	}
-}
-
 func TestBedrockTransportSendsLargeRequest(t *testing.T) {
+	responseBody := strings.Repeat("x", 2<<20)
 	requests := 0
 	endpoint := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requests++
@@ -388,6 +385,7 @@ func TestBedrockTransportSendsLargeRequest(t *testing.T) {
 		if err != nil || read != 1<<20 {
 			t.Errorf("request bytes=%d err=%v", read, err)
 		}
+		fmt.Fprint(w, responseBody)
 	}))
 	defer endpoint.Close()
 	request, err := http.NewRequest(http.MethodPost, endpoint.URL, bytes.NewReader(make([]byte, 1<<20)))
@@ -399,6 +397,10 @@ func TestBedrockTransportSendsLargeRequest(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer response.Body.Close()
+	got, err := io.ReadAll(response.Body)
+	if err != nil || string(got) != responseBody {
+		t.Fatalf("large Bedrock response: bytes=%d err=%v", len(got), err)
+	}
 	if requests != 1 {
 		t.Fatalf("large Bedrock request was not sent: %d", requests)
 	}

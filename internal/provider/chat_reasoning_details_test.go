@@ -13,7 +13,7 @@ import (
 	modelcfg "vista/internal/model"
 )
 
-func TestChatReasoningFragmentsMergeBeforeLimitsAndReplay(t *testing.T) {
+func TestChatReasoningFragmentsMergeAndReplay(t *testing.T) {
 	for _, providerID := range []string{"openrouter", "custom-relay"} {
 		t.Run(providerID, func(t *testing.T) {
 			requests := 0
@@ -68,29 +68,37 @@ func TestChatReasoningFragmentsMergeBeforeLimitsAndReplay(t *testing.T) {
 	}
 }
 
-func TestChatReasoningLimitsCountBlocksAndDoNotMutateRejectedMerge(t *testing.T) {
+func TestChatReasoningPreservesLargeHistoryAndRejectsMalformedMerge(t *testing.T) {
 	var details chatReasoningDetails
-	for i := range maxChatReasoningDetailBlocks {
+	for i := range 300 {
 		if _, err := details.add(json.RawMessage(fmt.Sprintf(`[{"type":"reasoning.text","index":%d,"text":"x"}]`, i))); err != nil {
 			t.Fatal(err)
 		}
 	}
 	if _, err := details.add(json.RawMessage(`[{"type":"reasoning.text","index":255,"text":"continued"}]`)); err != nil {
-		t.Fatalf("continuing existing block at cap: %v", err)
+		t.Fatalf("continuing existing block: %v", err)
 	}
-	if _, err := details.add(json.RawMessage(`[{"type":"reasoning.text","index":256,"text":"new"}]`)); err == nil || !strings.Contains(err.Error(), "256 independent blocks") {
-		t.Fatalf("block cap error: %v", err)
+	items, err := details.replay()
+	if err != nil || len(items) != 300 || !strings.Contains(string(items[255]), `"text":"xcontinued"`) {
+		t.Fatalf("independent blocks or continuation lost: blocks=%d err=%v", len(items), err)
 	}
 	var large chatReasoningDetails
 	first, _ := json.Marshal([]map[string]string{{"type": "reasoning.text", "text": strings.Repeat("a", 60<<10)}})
 	if _, err := large.add(first); err != nil {
 		t.Fatal(err)
 	}
-	before, _ := large.replay()
-	beforeBytes := large.bytes
 	more, _ := json.Marshal([]map[string]string{{"type": "reasoning.text", "text": strings.Repeat("b", 8<<10)}})
-	if _, err := large.add(more); err == nil || !strings.Contains(err.Error(), "64 KiB") {
-		t.Fatalf("byte cap error: %v", err)
+	if _, err := large.add(more); err != nil {
+		t.Fatal(err)
+	}
+	before, _ := large.replay()
+	var merged struct{ Text string }
+	if len(before) != 1 || json.Unmarshal(before[0], &merged) != nil || merged.Text != strings.Repeat("a", 60<<10)+strings.Repeat("b", 8<<10) {
+		t.Fatal("large merged reasoning changed")
+	}
+	beforeBytes := large.bytes
+	if _, err := large.add(json.RawMessage(`[{"type":"reasoning.text","text":123}]`)); err == nil {
+		t.Fatal("malformed merge accepted")
 	}
 	after, _ := large.replay()
 	if !reflect.DeepEqual(before, after) || large.bytes != beforeBytes {

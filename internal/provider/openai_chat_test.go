@@ -247,7 +247,7 @@ func TestOpenRouterReplaysReasoningDetailsWithToolResult(t *testing.T) {
 	}
 }
 
-func TestChatReasoningDetailsRejectMalformedAndOversized(t *testing.T) {
+func TestChatReasoningDetailsValidationAndLargeReplay(t *testing.T) {
 	for _, sample := range []struct{ raw, want string }{
 		{`[{"type":"unknown","text":"hidden"}]`, "unsupported"},
 		{`[{"type":"reasoning.encrypted","data":123}]`, "invalid"},
@@ -262,15 +262,15 @@ func TestChatReasoningDetailsRejectMalformedAndOversized(t *testing.T) {
 	var details chatReasoningDetails
 	for range 3 {
 		chunk, _ := json.Marshal([]map[string]string{{"type": "reasoning.text", "text": strings.Repeat("r", 25<<10)}})
-		_, err := details.add(chunk)
-		if err != nil {
-			if !strings.Contains(err.Error(), "64 KiB") {
-				t.Fatalf("wrong limit error: %v", err)
-			}
-			return
+		if _, err := details.add(chunk); err != nil {
+			t.Fatal(err)
 		}
 	}
-	t.Fatal("oversized reasoning details accepted")
+	replay, err := details.replay()
+	var item struct{ Text string }
+	if err != nil || len(replay) != 1 || json.Unmarshal(replay[0], &item) != nil || item.Text != strings.Repeat("r", 75<<10) {
+		t.Fatalf("large merged replay: blocks=%d bytes=%d err=%v", len(replay), len(item.Text), err)
+	}
 }
 
 func TestKimiReasoningDetailsMergeAndDropStreamIndex(t *testing.T) {
@@ -342,7 +342,7 @@ func TestMoonshotChatReplaysPlainReasoningWithToolResult(t *testing.T) {
 	}
 }
 
-func TestMoonshotChatRejectsOversizedPlainReasoningReplay(t *testing.T) {
+func TestMoonshotChatPreservesLargePlainReasoningReplay(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "text/event-stream")
 		chunk, _ := json.Marshal(map[string]any{"choices": []any{map[string]any{"delta": map[string]any{"reasoning_content": strings.Repeat("r", 65<<10)}}}})
@@ -351,9 +351,13 @@ func TestMoonshotChatRejectsOversizedPlainReasoningReplay(t *testing.T) {
 	}))
 	defer server.Close()
 	model := modelcfg.Model{Provider: "openai-chat", ProviderID: "moonshotai", ID: "kimi-k2.7-code", BaseURL: server.URL, APIKey: "key"}
-	_, err := ModelTurnStreamWithReasoning(context.Background(), model, []ChatMessage{{Role: "user", Content: "read"}}, nil, nil, func(string) error { return nil })
-	if err == nil || !strings.Contains(err.Error(), "replay text exceeds 64 KiB") {
-		t.Fatalf("oversized Moonshot reasoning was accepted for a tool continuation: %v", err)
+	turn, err := ModelTurnStreamWithReasoning(context.Background(), model, []ChatMessage{{Role: "user", Content: "read"}}, nil, nil, func(string) error { return nil })
+	if err != nil || len(turn.Calls) != 1 || turn.ReasoningText != strings.Repeat("r", 65<<10) {
+		t.Fatalf("large Moonshot reasoning: calls=%d bytes=%d err=%v", len(turn.Calls), len(turn.ReasoningText), err)
+	}
+	wire, err := chatMessagesWithReasoningDetails([]ChatMessage{turn.AssistantMessage(turn.Text)}, "moonshotai")
+	if err != nil || wire[0]["reasoning_content"] != turn.ReasoningText {
+		t.Fatalf("large Moonshot reasoning replay changed: %v", err)
 	}
 }
 
@@ -403,7 +407,7 @@ func TestChatReplaysObservedReasoningFieldAcrossToolTurn(t *testing.T) {
 	}
 }
 
-func TestOpenAIChatBoundsCumulativeReasoning(t *testing.T) {
+func TestOpenAIChatPreservesCumulativeReasoning(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "text/event-stream")
 		chunk, err := json.Marshal(map[string]any{"choices": []any{map[string]any{"delta": map[string]any{"reasoning_content": strings.Repeat("r", 90<<10)}}}})
@@ -418,8 +422,10 @@ func TestOpenAIChatBoundsCumulativeReasoning(t *testing.T) {
 	}))
 	defer server.Close()
 	model := modelcfg.Model{Provider: "openai-chat", ID: "mock", BaseURL: server.URL, APIKey: "key"}
-	if _, err := ModelTurnStreamWithReasoning(context.Background(), model, []ChatMessage{{Role: "user", Content: "solve"}}, nil, nil, func(string) error { return nil }); err == nil || !strings.Contains(err.Error(), "reasoning exceeds") {
-		t.Fatalf("oversized reasoning was accepted: %v", err)
+	var reasoning strings.Builder
+	turn, err := ModelTurnStreamWithReasoning(context.Background(), model, []ChatMessage{{Role: "user", Content: "solve"}}, nil, nil, func(s string) error { reasoning.WriteString(s); return nil })
+	if err != nil || turn.Text != "answer" || reasoning.String() != strings.Repeat("r", 270<<10) {
+		t.Fatalf("cumulative Chat reasoning: bytes=%d err=%v", reasoning.Len(), err)
 	}
 }
 
@@ -626,11 +632,11 @@ func TestChatFinishFailuresDoNotReturnPartialSuccess(t *testing.T) {
 	}
 }
 
-func TestOpenAIChatRejectsIncompleteToolAndOversizeStreams(t *testing.T) {
+func TestOpenAIChatRejectsIncompleteToolAndMalformedStreams(t *testing.T) {
 	for name, body := range map[string]string{
 		"incomplete":       "data: {\"choices\":[{\"delta\":{\"content\":\"partial\"}}]}\n\n",
 		"tool":             "data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"id\":\"call_1\"}]}}]}\n\ndata: [DONE]\n\n",
-		"oversize":         "data: " + strings.Repeat("x", maxEventBytes) + "\n\n",
+		"large malformed":  "data: " + strings.Repeat("x", 128<<10) + "\n\n",
 		"late content":     "data: {\"choices\":[{\"delta\":{\"content\":\"done\"},\"finish_reason\":\"stop\"}]}\n\ndata: {\"choices\":[{\"delta\":{\"reasoning_details\":[{\"type\":\"reasoning.text\",\"text\":\"late\"}]}}]}\n\ndata: [DONE]\n\n",
 		"multiple choices": "data: {\"choices\":[{\"delta\":{\"content\":\"one\"}},{\"delta\":{\"content\":\"two\"},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n",
 	} {

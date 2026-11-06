@@ -278,7 +278,7 @@ func (c *workerResultConsumer) consume(result workerproto.Result) error {
 func validCompletedReply(result workerproto.Result) bool {
 	reply := result.Reply
 	return reply == nil || result.Depth == 0 && (result.TaskID == "" || result.TaskID == "main") && result.ParentTaskID == "" &&
-		reply.Turn > 0 && reply.FullBytes > 0 && reply.FullBytes <= store.MaxModelOutputBytes &&
+		reply.Turn > 0 && reply.FullBytes > 0 &&
 		strings.TrimSpace(reply.Content) != "" && len(reply.Content) <= workerproto.MaxPromptBytes && utf8.ValidString(reply.Content)
 }
 
@@ -404,7 +404,7 @@ func (c *workerResultConsumer) checklist(result workerproto.Result) error {
 }
 
 func (c *workerResultConsumer) finish(result workerproto.Result) error {
-	if result.Kind != "" || result.RunID == "" || (result.Status != "succeeded" && result.Status != "failed" && result.Status != "interrupted") || len(result.Content) > workerproto.MaxPromptBytes || (result.FullBytes != 0 && (result.Status != "succeeded" || result.Turn <= 0 || result.FullBytes > store.MaxModelOutputBytes)) || (result.FullBytes == 0 && result.Turn != 0) || (result.Pending != nil && !validPendingResult(result)) {
+	if result.Kind != "" || result.RunID == "" || (result.Status != "succeeded" && result.Status != "failed" && result.Status != "interrupted") || len(result.Content) > workerproto.MaxPromptBytes || (result.FullBytes != 0 && (result.Status != "succeeded" || result.Turn <= 0 || result.FullBytes < 0)) || (result.FullBytes == 0 && result.Turn != 0) || (result.Pending != nil && !validPendingResult(result)) {
 		return errors.New("invalid result fields")
 	}
 	var output []store.ModelOutputRef

@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -59,6 +60,126 @@ func historyTextResponse(w http.ResponseWriter, text string) {
 	w.Header().Set("Content-Type", "text/event-stream")
 	chunk, _ := json.Marshal(map[string]any{"choices": []any{map[string]any{"delta": map[string]string{"content": text}, "finish_reason": "stop"}}})
 	fmt.Fprintf(w, "data: %s\n\ndata: [DONE]\n\n", chunk)
+}
+
+func TestLargeResponsesStateSurvivesToolExecutionAndSessionReload(t *testing.T) {
+	db, ctx := checkpointFixture(t)
+	const evidence = "LARGE_STATE_TOOL_EVIDENCE"
+	path := filepath.Join(t.TempDir(), "source.txt")
+	if err := os.WriteFile(path, []byte(evidence), 0600); err != nil {
+		t.Fatal(err)
+	}
+	// Exercise the former event, native-state, reasoning-count and part-count
+	// ceilings together, then verify the same state on both continuation paths.
+	var output []json.RawMessage
+	for i := range 17 {
+		summary := make([]map[string]string, 33)
+		for j := range summary {
+			summary[j] = map[string]string{"type": "summary_text", "text": fmt.Sprintf("step %d/%d", i, j)}
+		}
+		item, _ := json.Marshal(map[string]any{"type": "reasoning", "id": fmt.Sprintf("rs_%d", i), "summary": summary, "encrypted_content": strings.Repeat(fmt.Sprintf("opaque-%02d-", i), 14<<10)})
+		output = append(output, item)
+	}
+	content := make([]map[string]string, 33)
+	for i := range content {
+		content[i] = map[string]string{"type": "output_text", "text": "Checking. "}
+	}
+	message, _ := json.Marshal(map[string]any{"type": "message", "id": "progress", "role": "assistant", "content": content})
+	args, _ := json.Marshal(map[string]string{"path": path})
+	call, _ := json.Marshal(map[string]any{"type": "function_call", "id": "fc_1", "call_id": "read-once", "name": "read_file", "arguments": string(args)})
+	output = append(output, message, call)
+	completed, _ := json.Marshal(map[string]any{"type": "response.completed", "response": map[string]any{"status": "completed", "output": output}})
+	if len(completed) <= 2<<20 {
+		t.Fatal("fixture must exceed the former SSE snapshot ceiling")
+	}
+	answer := strings.Repeat("Final detail. ", 24<<10) // Also exceeds the former output-store ceiling.
+	var requests atomic.Int32
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var input struct {
+			Input []json.RawMessage `json:"input"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
+			t.Error(err)
+			return
+		}
+		n := requests.Add(1)
+		w.Header().Set("Content-Type", "text/event-stream")
+		if n == 1 {
+			fmt.Fprintf(w, "data: %s\n\n", completed)
+			return
+		}
+		var retained []json.RawMessage
+		results, answers := 0, 0
+		for _, raw := range input.Input {
+			var item struct {
+				ID      string          `json:"id"`
+				Type    string          `json:"type"`
+				CallID  string          `json:"call_id"`
+				Output  string          `json:"output"`
+				Role    string          `json:"role"`
+				Content json.RawMessage `json:"content"`
+			}
+			if err := json.Unmarshal(raw, &item); err != nil {
+				t.Error(err)
+			}
+			if item.Type == "reasoning" || item.Type == "function_call" || item.Type == "message" && item.ID == "progress" {
+				retained = append(retained, raw)
+			}
+			if item.Type == "function_call_output" && item.CallID == "read-once" && strings.Contains(item.Output, evidence) {
+				results++
+			}
+			if item.Role == "assistant" && string(item.Content) == strconv.Quote(answer) {
+				answers++
+			}
+		}
+		wantAnswers := 0
+		if n == 3 {
+			wantAnswers = 1
+		}
+		if !reflect.DeepEqual(retained, output) || results != 1 || answers != wantAnswers {
+			t.Errorf("native state, tool pairing or full answer changed: items=%d results=%d answers=%d request=%d", len(retained), results, answers, n)
+		}
+		text := answer
+		if n == 3 {
+			text = "Restored."
+		}
+		event, _ := json.Marshal(map[string]any{"type": "response.output_text.delta", "item_id": "answer", "delta": text})
+		fmt.Fprintf(w, "data: %s\n\n", event)
+		fmt.Fprint(w, `data: {"type":"response.completed","response":{"status":"completed","output":[]}}`+"\n\n")
+	}))
+	defer upstream.Close()
+	user, _, err := db.BeginRun(ctx, "session", "first", "u1", "Read the file.")
+	if err != nil {
+		t.Fatal(err)
+	}
+	command := workerproto.Command{SessionID: "session", RunID: "first", MessageSequence: user.Sequence, Prompt: user.Content,
+		Model: modelcfg.Model{Provider: "openai-responses", ID: "fixture", APIKey: "test", BaseURL: upstream.URL}}
+	var final store.ModelOutputRef
+	session := NewSession(ctx)
+	reply, err := session.Run(ctx, command, historyTestSink(db, command, &final), nil, nil)
+	session.Close()
+	if err != nil || final.Bytes != len(answer) || requests.Load() != 2 {
+		t.Fatalf("large-state first run: output=%d requests=%d err=%v", final.Bytes, requests.Load(), err)
+	}
+	if _, err := db.FinishRun(ctx, "session", "first", "a1", "succeeded", reply, final); err != nil {
+		t.Fatal(err)
+	}
+	// Removing the source proves that restored history supplies the original
+	// result; re-executing the read could no longer provide that evidence.
+	if err := os.Remove(path); err != nil {
+		t.Fatal(err)
+	}
+	user, _, err = db.BeginRun(ctx, "session", "second", "u2", "Continue from the recorded evidence.")
+	if err != nil {
+		t.Fatal(err)
+	}
+	command.RunID, command.MessageSequence, command.Prompt = "second", user.Sequence, user.Content
+	restored := NewSession(ctx)
+	defer restored.Close()
+	reply, err = restored.Run(ctx, command, historyTestSink(db, command, &final), nil, nil)
+	if err != nil || reply != "Restored." || requests.Load() != 3 {
+		t.Fatalf("large-state restoration: reply=%q requests=%d err=%v", reply, requests.Load(), err)
+	}
 }
 
 func TestCrossRunRequestsRetainToolEvidenceAfterSuccessFailureAndCancel(t *testing.T) {

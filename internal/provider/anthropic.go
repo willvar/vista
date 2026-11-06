@@ -1,7 +1,6 @@
 package provider
 
 import (
-	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -141,8 +140,7 @@ func anthropicTurn(ctx context.Context, model modelcfg.Model, messages []ChatMes
 	if !strings.HasPrefix(response.Header.Get("Content-Type"), "text/event-stream") {
 		return Turn{}, modelHTTPError("Anthropic (unexpected content type)", response)
 	}
-	scanner := bufio.NewScanner(response.Body)
-	scanner.Buffer(make([]byte, 4096), maxEventBytes)
+	scanner := newSSELines(response.Body)
 	var text strings.Builder
 	type block struct {
 		kind, id, name, data            string
@@ -150,12 +148,9 @@ func anthropicTurn(ctx context.Context, model modelcfg.Model, messages []ChatMes
 	}
 	blocks := map[int]*block{}
 	completed := map[int]json.RawMessage{}
-	completedBytes := 0
-	nonToolBlocks := 0
 	var calls []ToolCall
 	var toolBytes toolCollectionBytes
 	callIndices := map[string]int{}
-	reasoningBytes := 0
 	unsignedThinking := false
 	uncapturedText := false
 	stopReason := ""
@@ -172,7 +167,7 @@ func anthropicTurn(ctx context.Context, model modelcfg.Model, messages []ChatMes
 		} `json:"output_tokens_details"`
 	}
 	for {
-		payload, ok, err := nextSSEData(scanner, maxEventBytes)
+		payload, ok, err := nextSSEData(scanner)
 		if err != nil {
 			return Turn{}, fmt.Errorf("Anthropic stream read: %w", err)
 		}
@@ -250,13 +245,7 @@ func anthropicTurn(ctx context.Context, model modelcfg.Model, messages []ChatMes
 			_, active := blocks[event.Index]
 			_, finished := completed[event.Index]
 			if event.Index < 0 || active || finished {
-				return Turn{}, errors.New("Anthropic content blocks exceed limits")
-			}
-			if event.ContentBlock.Type != "tool_use" {
-				if nonToolBlocks >= 64 {
-					return Turn{}, errors.New("Anthropic content blocks exceed limits")
-				}
-				nonToolBlocks++
+				return Turn{}, errors.New("invalid or repeated Anthropic content block index")
 			}
 			item := &block{kind: event.ContentBlock.Type}
 			switch item.kind {
@@ -272,9 +261,6 @@ func anthropicTurn(ctx context.Context, model modelcfg.Model, messages []ChatMes
 					return Turn{}, err
 				}
 			case "text":
-				if text.Len()+len(event.ContentBlock.Text) > maxReplyBytes {
-					return Turn{}, errors.New("Anthropic reply exceeds 256 KiB")
-				}
 				text.WriteString(event.ContentBlock.Text)
 				item.text.WriteString(event.ContentBlock.Text)
 				if onText != nil && event.ContentBlock.Text != "" {
@@ -283,13 +269,9 @@ func anthropicTurn(ctx context.Context, model modelcfg.Model, messages []ChatMes
 					}
 				}
 			case "thinking":
-				if len(event.ContentBlock.Thinking) > maxReplyBytes-reasoningBytes {
-					return Turn{}, errors.New("Anthropic reasoning exceeds 256 KiB")
-				}
 				if event.ContentBlock.Thinking != "" && onReasoning == nil {
 					return Turn{}, errors.New("Anthropic reasoning stream requires a sink")
 				}
-				reasoningBytes += len(event.ContentBlock.Thinking)
 				item.thinking.WriteString(event.ContentBlock.Thinking)
 				if onReasoning != nil && event.ContentBlock.Thinking != "" {
 					if err := onReasoning(event.ContentBlock.Thinking); err != nil {
@@ -297,9 +279,6 @@ func anthropicTurn(ctx context.Context, model modelcfg.Model, messages []ChatMes
 					}
 				}
 			case "redacted_thinking":
-				if len(event.ContentBlock.Data) > maxReplyBytes {
-					return Turn{}, errors.New("Anthropic redacted reasoning exceeds 256 KiB")
-				}
 				item.data = event.ContentBlock.Data
 			default:
 				return Turn{}, errors.New("unsupported Anthropic content block")
@@ -310,9 +289,6 @@ func anthropicTurn(ctx context.Context, model modelcfg.Model, messages []ChatMes
 			case "text_delta":
 				if item := blocks[event.Index]; item != nil && item.kind != "text" {
 					return Turn{}, errors.New("Anthropic text delta has the wrong content block")
-				}
-				if text.Len()+len(event.Delta.Text) > maxReplyBytes {
-					return Turn{}, errors.New("Anthropic reply exceeds 256 KiB")
 				}
 				text.WriteString(event.Delta.Text)
 				if item := blocks[event.Index]; item != nil {
@@ -327,13 +303,12 @@ func anthropicTurn(ctx context.Context, model modelcfg.Model, messages []ChatMes
 				}
 			case "thinking_delta":
 				item := blocks[event.Index]
-				if item == nil || item.kind != "thinking" || len(event.Delta.Thinking) > maxReplyBytes-reasoningBytes {
-					return Turn{}, errors.New("Anthropic reasoning exceeds limits")
+				if item == nil || item.kind != "thinking" {
+					return Turn{}, errors.New("Anthropic reasoning delta has the wrong content block")
 				}
 				if event.Delta.Thinking != "" && onReasoning == nil {
 					return Turn{}, errors.New("Anthropic reasoning stream requires a sink")
 				}
-				reasoningBytes += len(event.Delta.Thinking)
 				item.thinking.WriteString(event.Delta.Thinking)
 				if onReasoning != nil && event.Delta.Thinking != "" {
 					if err := onReasoning(event.Delta.Thinking); err != nil {
@@ -342,8 +317,8 @@ func anthropicTurn(ctx context.Context, model modelcfg.Model, messages []ChatMes
 				}
 			case "signature_delta":
 				item := blocks[event.Index]
-				if item == nil || item.kind != "thinking" || item.signature.Len()+len(event.Delta.Signature) > 16<<10 {
-					return Turn{}, errors.New("Anthropic thinking signature exceeds limits")
+				if item == nil || item.kind != "thinking" {
+					return Turn{}, errors.New("Anthropic signature delta has the wrong content block")
 				}
 				item.signature.WriteString(event.Delta.Signature)
 			case "input_json_delta":
@@ -400,10 +375,6 @@ func anthropicTurn(ctx context.Context, model modelcfg.Model, messages []ChatMes
 			if err != nil {
 				return Turn{}, err
 			}
-			if len(encoded) > 1<<20-completedBytes {
-				return Turn{}, errors.New("Anthropic content blocks exceed 1 MiB")
-			}
-			completedBytes += len(encoded)
 			completed[event.Index] = encoded
 			delete(blocks, event.Index)
 		case "message_delta":
@@ -551,7 +522,7 @@ func anthropicMessages(messages []ChatMessage) (string, []map[string]any, error)
 		case "assistant":
 			if len(message.AnthropicBlocks) > 0 {
 				for _, block := range message.AnthropicBlocks {
-					if len(block) > maxReplyBytes || !json.Valid(block) {
+					if !json.Valid(block) {
 						return "", nil, errors.New("invalid previous Anthropic content block")
 					}
 				}

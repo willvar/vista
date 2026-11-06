@@ -1,7 +1,6 @@
 package provider
 
 import (
-	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -17,9 +16,6 @@ import (
 	"vista/internal/modeltrace"
 	"vista/internal/toolinput"
 )
-
-const maxEventBytes = 128 << 10
-const maxReplyBytes = 256 << 10
 
 // A single tool may use the retained tool collection budget (for example when
 // writing a source file); do not impose a smaller unrelated per-call ceiling.
@@ -115,7 +111,7 @@ func OpenAIChat(ctx context.Context, model modelcfg.Model, history []ChatMessage
 	return turn.Text, nil
 }
 
-// OpenAIChatTurn parses a single bounded Chat Completions stream. Tool calls
+// OpenAIChatTurn parses a single Chat Completions stream. Tool calls
 // are returned only after [DONE] and complete JSON arguments are validated.
 func OpenAIChatTurn(ctx context.Context, model modelcfg.Model, messages []ChatMessage, schemas []map[string]any) (Turn, error) {
 	return openAIChatTurn(ctx, model, messages, schemas, nil)
@@ -384,8 +380,7 @@ func openAIChatTurnWithReasoning(ctx context.Context, model modelcfg.Model, mess
 	if ct := resp.Header.Get("Content-Type"); !strings.HasPrefix(ct, "text/event-stream") {
 		return Turn{}, modelHTTPError("model (unexpected content type)", resp)
 	}
-	scanner := bufio.NewScanner(resp.Body)
-	scanner.Buffer(make([]byte, 4096), maxEventBytes)
+	scanner := newSSELines(resp.Body)
 	var reply strings.Builder
 	reasoningBytes := 0
 	var reasoningText strings.Builder
@@ -556,9 +551,6 @@ func openAIChatTurnWithReasoning(ctx context.Context, model modelcfg.Model, mess
 						reasoning = visible
 					}
 				}
-				if len(reasoning) > maxReplyBytes-reasoningBytes {
-					return Turn{}, errors.New("model reasoning exceeds 256 KiB")
-				}
 				if reasoning != "" && onReasoning == nil {
 					return Turn{}, errors.New("model reasoning stream requires a sink")
 				}
@@ -568,9 +560,6 @@ func openAIChatTurnWithReasoning(ctx context.Context, model modelcfg.Model, mess
 					if err := onReasoning(reasoning); err != nil {
 						return Turn{}, err
 					}
-				}
-				if reply.Len()+len(choice.Delta.Content)+len(choice.Delta.Refusal) > maxReplyBytes {
-					return Turn{}, errors.New("model reply exceeds 256 KiB")
 				}
 				reply.WriteString(choice.Delta.Content)
 				reply.WriteString(choice.Delta.Refusal)
@@ -639,9 +628,6 @@ func openAIChatTurnWithReasoning(ctx context.Context, model modelcfg.Model, mess
 			if sawData {
 				separator = 1
 			}
-			if data.Len()+len(fragment)+separator > maxEventBytes {
-				return Turn{}, errors.New("model stream event exceeds 128 KiB")
-			}
 			if separator != 0 {
 				data.WriteByte('\n')
 			}
@@ -674,9 +660,6 @@ func openAIChatTurnWithReasoning(ctx context.Context, model modelcfg.Model, mess
 	if len(details) > 0 || len(parts) > 0 && reasoningText.Len() > 0 {
 		turn.ReasoningText = reasoningText.String()
 		turn.ReasoningField = observedReasoningField
-		if len(turn.ReasoningText) > maxChatReasoningDetailsBytes {
-			return Turn{}, errors.New("model reasoning replay text exceeds 64 KiB")
-		}
 	}
 	if len(parts) == 0 {
 		if finishReason != "stop" && finishReason != "end" {

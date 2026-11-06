@@ -98,7 +98,7 @@ func (s *Store) DeliverInput(ctx context.Context, sessionID, runID, inputID, mes
 	}
 	if len(replies) == 1 {
 		reply := replies[0]
-		if reply.ID == "" || strings.TrimSpace(reply.Content) == "" || len(reply.Content) > 8192 || !utf8.ValidString(reply.Content) || reply.Output.Turn <= 0 || reply.Output.Bytes <= 0 || reply.Output.Bytes > MaxModelOutputBytes {
+		if reply.ID == "" || strings.TrimSpace(reply.Content) == "" || len(reply.Content) > 8192 || !utf8.ValidString(reply.Content) || reply.Output.Turn <= 0 || reply.Output.Bytes <= 0 {
 			return nil, errors.New("invalid completed reply")
 		}
 	}

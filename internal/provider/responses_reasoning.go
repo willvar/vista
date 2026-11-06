@@ -5,12 +5,6 @@ import (
 	"errors"
 )
 
-const maxResponseReasoningBytes = 64 << 10
-const maxResponseOutputBytes = 96 << 10
-
-const maxHostedResultBytes = 8 << 10
-const maxHostedResultsBytes = 32 << 10
-
 var responseHostedTools = map[string]string{
 	"file_search_call":      "file_search",
 	"code_interpreter_call": "code_interpreter",
@@ -20,7 +14,6 @@ var responseHostedTools = map[string]string{
 
 func responseHostedCalls(items []json.RawMessage) ([]HostedCall, error) {
 	var calls []HostedCall
-	bytes := 0
 	seen := map[string]bool{}
 	for _, raw := range items {
 		var item struct {
@@ -36,33 +29,26 @@ func responseHostedCalls(items []json.RawMessage) ([]HostedCall, error) {
 		if name == "" {
 			continue
 		}
-		if item.ID == "" || len(item.ID) > 256 || seen[item.ID] || len(raw) > maxHostedResultBytes || len(raw) > maxHostedResultsBytes-bytes {
-			return nil, errors.New("OpenAI Responses hosted tool result exceeds limits")
+		if item.ID == "" || len(item.ID) > 256 || seen[item.ID] {
+			return nil, errors.New("invalid or repeated OpenAI Responses hosted tool ID")
 		}
 		seen[item.ID] = true
-		bytes += len(raw)
 		failure := item.Status != "" && item.Status != "completed" || len(item.Error) > 0 && string(item.Error) != "null"
 		result := string(raw)
 		if failure {
 			result = `{"error":"Provider-hosted tool failed"}`
-		}
-		encodedResult, err := json.Marshal(result)
-		if err != nil || len(encodedResult) > 16<<10 {
-			return nil, errors.New("OpenAI Responses hosted tool result exceeds event limit")
 		}
 		calls = append(calls, HostedCall{ID: item.ID, Name: name, Result: result, Failure: failure})
 	}
 	return calls, nil
 }
 
-func validResponseOutput(items []json.RawMessage, maxBytes int, replay bool) bool {
-	bytes := 0
+func validResponseOutput(items []json.RawMessage, replay bool) bool {
 	var hosted []json.RawMessage
 	for _, raw := range items {
-		if len(raw) == 0 || len(raw) > maxBytes-bytes {
+		if len(raw) == 0 {
 			return false
 		}
-		bytes += len(raw)
 		var item struct {
 			Type string `json:"type"`
 		}
@@ -81,7 +67,7 @@ func validResponseOutput(items []json.RawMessage, maxBytes int, replay bool) boo
 					Type string `json:"type"`
 				} `json:"content"`
 			}
-			if json.Unmarshal(raw, &message) != nil || message.Role != "assistant" || len(message.Content) > 32 {
+			if json.Unmarshal(raw, &message) != nil || message.Role != "assistant" {
 				return false
 			}
 			for _, part := range message.Content {
@@ -110,13 +96,12 @@ func validResponseOutput(items []json.RawMessage, maxBytes int, replay bool) boo
 
 func responseReasoningItems(items []responseItem) ([]json.RawMessage, error) {
 	var output []json.RawMessage
-	bytes := 0
 	for _, item := range items {
 		if item.Type != "reasoning" {
 			continue
 		}
-		if item.ID == "" || len(item.ID) > 256 || len(item.EncryptedContent) > maxResponseReasoningBytes || len(item.Summary) > 32 {
-			return nil, errors.New("OpenAI Responses reasoning item exceeds limits")
+		if item.ID == "" || len(item.ID) > 256 {
+			return nil, errors.New("invalid OpenAI Responses reasoning item ID")
 		}
 		summary := make([]map[string]string, 0, len(item.Summary))
 		for _, part := range item.Summary {
@@ -130,17 +115,16 @@ func responseReasoningItems(items []responseItem) ([]json.RawMessage, error) {
 			value["encrypted_content"] = item.EncryptedContent
 		}
 		encoded, err := json.Marshal(value)
-		if err != nil || len(encoded) > maxResponseReasoningBytes-bytes || len(output) >= 16 {
-			return nil, errors.New("OpenAI Responses reasoning items exceed 64 KiB")
+		if err != nil {
+			return nil, errors.New("invalid OpenAI Responses reasoning item")
 		}
-		bytes += len(encoded)
 		output = append(output, encoded)
 	}
 	return output, nil
 }
 
 func validResponseReasoningItem(raw json.RawMessage) bool {
-	if len(raw) == 0 || len(raw) > maxResponseReasoningBytes {
+	if len(raw) == 0 {
 		return false
 	}
 	var item struct {
@@ -152,7 +136,7 @@ func validResponseReasoningItem(raw json.RawMessage) bool {
 		} `json:"summary"`
 		EncryptedContent string `json:"encrypted_content"`
 	}
-	if json.Unmarshal(raw, &item) != nil || item.Type != "reasoning" || item.ID == "" || len(item.ID) > 256 || len(item.Summary) > 32 || len(item.EncryptedContent) > maxResponseReasoningBytes {
+	if json.Unmarshal(raw, &item) != nil || item.Type != "reasoning" || item.ID == "" || len(item.ID) > 256 {
 		return false
 	}
 	for _, part := range item.Summary {

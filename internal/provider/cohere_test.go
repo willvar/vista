@@ -89,7 +89,7 @@ func TestCohereStreamsThinkingSeparately(t *testing.T) {
 	}
 }
 
-func TestCohereBoundsCumulativeThinking(t *testing.T) {
+func TestCoherePreservesCumulativeThinking(t *testing.T) {
 	delta := strings.Repeat("r", 90<<10)
 	var stream strings.Builder
 	for range 3 {
@@ -100,8 +100,9 @@ func TestCohereBoundsCumulativeThinking(t *testing.T) {
 		fmt.Fprintf(&stream, "data: %s\n\n", item)
 	}
 	stream.WriteString(`data: {"type":"message-end","delta":{"finish_reason":"COMPLETE"}}` + "\n\n")
-	if _, err := parseCohereStreamWithReasoning(strings.NewReader(stream.String()), nil, func(string) error { return nil }); err == nil || !strings.Contains(err.Error(), "reasoning exceeds") {
-		t.Fatalf("oversized Cohere reasoning accepted: %v", err)
+	var reasoning strings.Builder
+	if _, err := parseCohereStreamWithReasoning(strings.NewReader(stream.String()), nil, func(s string) error { reasoning.WriteString(s); return nil }); err != nil || reasoning.String() != strings.Repeat(delta, 3) {
+		t.Fatalf("cumulative Cohere reasoning: bytes=%d err=%v", reasoning.Len(), err)
 	}
 }
 
@@ -114,14 +115,15 @@ func TestCoherePreservesFinishAndReportedUsage(t *testing.T) {
 	}
 }
 
-func TestCohereStreamBoundsCumulativeText(t *testing.T) {
+func TestCohereStreamPreservesCumulativeText(t *testing.T) {
 	delta := strings.Repeat("x", 90<<10)
 	encoded, err := json.Marshal(map[string]any{"type": "content-delta", "delta": map[string]any{"message": map[string]any{"content": map[string]any{"text": delta}}}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	stream := strings.Repeat(fmt.Sprintf("data: %s\n\n", encoded), 3)
-	if _, err := parseCohereStream(strings.NewReader(stream), nil); err == nil || !strings.Contains(err.Error(), "exceeds") {
-		t.Fatalf("oversized Cohere reply accepted: %v", err)
+	stream := strings.Repeat(fmt.Sprintf("data: %s\n\n", encoded), 3) + `data: {"type":"message-end","delta":{"finish_reason":"COMPLETE"}}` + "\n\n"
+	turn, err := parseCohereStream(strings.NewReader(stream), nil)
+	if err != nil || turn.Text != strings.Repeat(delta, 3) {
+		t.Fatalf("cumulative Cohere reply: bytes=%d err=%v", len(turn.Text), err)
 	}
 }

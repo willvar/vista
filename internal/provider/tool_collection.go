@@ -16,7 +16,7 @@ func (b *toolCollectionBytes) set(key string, payloadBytes int) error {
 		b.sizes = make(map[string]int)
 	}
 	size := len(key) + payloadBytes + 64
-	if size > maxReplyBytes || b.total-b.sizes[key] > maxReplyBytes-size {
+	if size > maxToolArgsBytes || b.total-b.sizes[key] > maxToolArgsBytes-size {
 		return errors.New("model tool data exceeds 256 KiB")
 	}
 	b.total += size - b.sizes[key]

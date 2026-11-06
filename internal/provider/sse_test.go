@@ -1,9 +1,10 @@
 package provider
 
 import (
-	"bufio"
 	"context"
+	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -35,18 +36,16 @@ func TestSSEDataAcceptsOptionalSpace(t *testing.T) {
 
 func TestSSEKeepaliveAppliesToCompleteEvent(t *testing.T) {
 	input := "data:null\n\ndata:: keepalive\n\ndata:null\ndata:{}\n\n"
-	scanner := bufio.NewScanner(strings.NewReader(input))
-	scanner.Buffer(make([]byte, 4096), maxEventBytes)
-	data, ok, err := nextSSEData(scanner, maxEventBytes)
+	scanner := newSSELines(strings.NewReader(input))
+	data, ok, err := nextSSEData(scanner)
 	if err != nil || !ok || data != "null\n{}" {
 		t.Fatalf("joined SSE event: data=%q ok=%v err=%v", data, ok, err)
 	}
 }
 
 func TestSSEEmptyFirstDataFieldKeepsNewline(t *testing.T) {
-	scanner := bufio.NewScanner(strings.NewReader("data:\ndata:{}\n\n"))
-	scanner.Buffer(make([]byte, 4096), maxEventBytes)
-	data, ok, err := nextSSEData(scanner, maxEventBytes)
+	scanner := newSSELines(strings.NewReader("data:\ndata:{}\n\n"))
+	data, ok, err := nextSSEData(scanner)
 	if err != nil || !ok || data != "\n{}" {
 		t.Fatalf("joined SSE event: data=%q ok=%v err=%v", data, ok, err)
 	}
@@ -101,23 +100,62 @@ func TestPinnedProvidersRejectMalformedMultilineSSE(t *testing.T) {
 	}
 }
 
-func TestNoSpaceSSEStillRejectsOversizedChatEvent(t *testing.T) {
+func TestNoSpaceSSERejectsMalformedLargeChatEvent(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "text/event-stream")
-		fmt.Fprint(w, "data:"+strings.Repeat("x", maxEventBytes)+"\n\n")
+		fmt.Fprint(w, "data:"+strings.Repeat("x", 128<<10)+"\n\n")
 	}))
 	defer server.Close()
 	model := modelcfg.Model{Provider: "openai-chat", ID: "mock", BaseURL: server.URL, APIKey: "key"}
 	if _, err := ModelTurn(context.Background(), model, []ChatMessage{{Role: "user", Content: "hello"}}, nil); err == nil {
-		t.Fatal("oversized no-space SSE event accepted")
+		t.Fatal("malformed no-space SSE event accepted")
 	}
 }
 
-func TestSSEMultilineEventHonorsCumulativeLimit(t *testing.T) {
-	input := "data:" + strings.Repeat("x", 80<<10) + "\n" + "data:" + strings.Repeat("x", 80<<10) + "\n\n"
-	scanner := bufio.NewScanner(strings.NewReader(input))
-	scanner.Buffer(make([]byte, 4096), maxEventBytes)
-	if _, _, err := nextSSEData(scanner, maxEventBytes); err == nil || !strings.Contains(err.Error(), "exceeds limit") {
-		t.Fatalf("oversized multiline event accepted: %v", err)
+func TestSSEPreservesLargeMultilineEventAndFinalLine(t *testing.T) {
+	part := strings.Repeat("x", 2<<20)
+	input := "data:" + part + "\r\n" + "data:" + part
+	scanner := newSSELines(strings.NewReader(input))
+	data, ok, err := nextSSEData(scanner)
+	if err != nil || !ok || data != part+"\n"+part {
+		t.Fatalf("large multiline event: bytes=%d ok=%v err=%v", len(data), ok, err)
+	}
+	if _, ok, err := nextSSEData(scanner); ok || err != nil {
+		t.Fatalf("after final line: ok=%v err=%v", ok, err)
+	}
+}
+
+type failingSSEReader struct{ err error }
+
+func (reader failingSSEReader) Read([]byte) (int, error) { return 0, reader.err }
+
+func TestSSEPropagatesReadFailure(t *testing.T) {
+	want := errors.New("upstream disconnected")
+	reader := io.MultiReader(strings.NewReader("data: partial"), failingSSEReader{want})
+	if _, ok, err := nextSSEData(newSSELines(reader)); ok || !errors.Is(err, want) {
+		t.Fatalf("read error: ok=%v err=%v", ok, err)
+	}
+}
+
+func TestPinnedProvidersPreserveLargeSSEEvent(t *testing.T) {
+	answer := strings.Repeat("长", (2<<20)/3+1)
+	for _, check := range pinnedSSEStreams {
+		t.Run(check.name, func(t *testing.T) {
+			stream := strings.Replace(check.stream, check.want, answer, 1)
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.Header().Set("Content-Type", "text/event-stream")
+				fmt.Fprint(w, stream)
+			}))
+			defer server.Close()
+			model := modelcfg.Model{Provider: check.protocol, ID: "mock", BaseURL: server.URL, APIKey: "key"}
+			var streamed strings.Builder
+			turn, err := ModelTurnStream(context.Background(), model, []ChatMessage{{Role: "user", Content: "hello"}}, nil, func(delta string) error {
+				streamed.WriteString(delta)
+				return nil
+			})
+			if err != nil || turn.Text != answer || streamed.String() != answer {
+				t.Fatalf("large SSE event: bytes=%d streamed=%d err=%v", len(turn.Text), streamed.Len(), err)
+			}
+		})
 	}
 }

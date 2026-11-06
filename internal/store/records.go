@@ -294,7 +294,7 @@ func (s *Store) FinishRunWithPending(ctx context.Context, sessionID, runID, mess
 			return nil, err
 		}
 	}
-	if len(output) > 1 || (len(output) == 1 && (status != "succeeded" || output[0].Turn <= 0 || output[0].Bytes <= 0 || output[0].Bytes > MaxModelOutputBytes)) {
+	if len(output) > 1 || (len(output) == 1 && (status != "succeeded" || output[0].Turn <= 0 || output[0].Bytes <= 0)) {
 		return nil, errors.New("invalid full model output reference")
 	}
 	tx, err := s.db.BeginTx(ctx, nil)

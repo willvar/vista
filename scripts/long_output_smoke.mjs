@@ -27,7 +27,9 @@ const stateParent = join(process.cwd(), '.vista', 'test-state')
 mkdirSync(stateParent, { recursive: true })
 const state = mkdtempSync(join(stateParent, 'vista-long-output-'))
 const responses = process.env.VISTA_LONG_OUTPUT_RESPONSES === '1'
-const answer = responses ? '<'.repeat(200 << 10) : 'x'.repeat(64 << 10)
+// Cross the former 128 KiB delta, 256 KiB output and 2 MiB encoded-snapshot
+// ceilings while keeping Worker IPC frames and output pages bounded.
+const answer = responses ? '<'.repeat(400 << 10) : 'x'.repeat(400 << 10)
 let calls = 0
 const provider = createServer(async (request, response) => {
   for await (const _ of request) {}

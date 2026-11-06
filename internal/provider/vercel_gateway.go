@@ -1,7 +1,6 @@
 package provider
 
 import (
-	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -183,8 +182,7 @@ func gatewayModelUsage(reported *gatewayStreamUsage) (*ModelUsage, error) {
 }
 
 func parseVercelGatewayStreamWithReasoning(body io.Reader, onText, onReasoning func(string) error) (result Turn, resultErr error) {
-	scanner := bufio.NewScanner(body)
-	scanner.Buffer(make([]byte, 4096), maxEventBytes)
+	scanner := newSSELines(body)
 	var payload strings.Builder
 	sawData := false
 	var reply strings.Builder
@@ -196,7 +194,6 @@ func parseVercelGatewayStreamWithReasoning(body io.Reader, onText, onReasoning f
 	finishReason := ""
 	var usage *ModelUsage
 	defer retainUsage(&result, &usage)
-	reasoningBytes := 0
 	consume := func(data string) error {
 		var event struct {
 			Type             string `json:"type"`
@@ -220,21 +217,20 @@ func parseVercelGatewayStreamWithReasoning(body io.Reader, onText, onReasoning f
 		}
 		switch event.Type {
 		case "text-delta":
-			if event.ID == "" || reply.Len()+len(event.Delta) > maxReplyBytes {
-				return errors.New("Vercel AI Gateway text delta exceeds limits")
+			if event.ID == "" {
+				return errors.New("Vercel AI Gateway text delta lacks an ID")
 			}
 			reply.WriteString(event.Delta)
 			if onText != nil && event.Delta != "" {
 				return onText(event.Delta)
 			}
 		case "reasoning-delta":
-			if event.ID == "" || len(event.Delta) > maxReplyBytes-reasoningBytes {
-				return errors.New("Vercel AI Gateway reasoning delta exceeds limits")
+			if event.ID == "" {
+				return errors.New("Vercel AI Gateway reasoning delta lacks an ID")
 			}
 			if event.Delta != "" && onReasoning == nil {
 				return errors.New("Vercel AI Gateway reasoning stream requires a sink")
 			}
-			reasoningBytes += len(event.Delta)
 			if onReasoning != nil && event.Delta != "" {
 				return onReasoning(event.Delta)
 			}
@@ -307,9 +303,6 @@ func parseVercelGatewayStreamWithReasoning(body io.Reader, onText, onReasoning f
 			separator := 0
 			if sawData {
 				separator = 1
-			}
-			if payload.Len()+len(fragment)+separator > maxEventBytes {
-				return Turn{}, errors.New("Vercel AI Gateway event exceeds 128 KiB")
 			}
 			if separator != 0 {
 				payload.WriteByte('\n')

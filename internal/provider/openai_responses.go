@@ -80,10 +80,6 @@ type responseCall struct {
 	args strings.Builder
 }
 
-// Full snapshots can repeat a 256 KiB answer with JSON escaping overhead.
-// Decoded text, reasoning and tool data retain their own aggregate limits.
-const maxResponsesSnapshotEventBytes = 2 << 20
-
 func openAIResponsesRouteDefaults(model modelcfg.Model) bool {
 	if model.Provider == "bedrock-mantle-responses" {
 		return true
@@ -154,7 +150,7 @@ func openAIResponsesTurnWithReasoning(ctx context.Context, model modelcfg.Model,
 				return Turn{}, err
 			}
 			if message.Role == "assistant" && len(message.ResponseOutput) > 0 {
-				if !validResponseOutput(message.ResponseOutput, maxResponseOutputBytes, true) {
+				if !validResponseOutput(message.ResponseOutput, true) {
 					return Turn{}, errors.New("invalid previous OpenAI Responses output items")
 				}
 				for _, raw := range message.ResponseOutput {
@@ -327,12 +323,10 @@ func parseResponsesStream(body io.Reader, onText func(string) error) (Turn, erro
 }
 
 func parseResponsesStreamWithReasoning(body io.Reader, onText, onReasoning func(string) error) (result Turn, resultErr error) {
-	scanner := bufio.NewScanner(body)
-	scanner.Buffer(make([]byte, 4096), maxResponsesSnapshotEventBytes)
+	scanner := newSSELines(body)
 	var data strings.Builder
 	sawData := false
 	var text strings.Builder
-	reasoningBytes := 0
 	type reasoningKey struct {
 		itemID string
 		index  int
@@ -361,9 +355,6 @@ func parseResponsesStreamWithReasoning(body io.Reader, onText, onReasoning func(
 			}
 			value = value[previous.Len():]
 		}
-		if len(value) > maxReplyBytes-reasoningBytes {
-			return errors.New("OpenAI Responses reasoning delta exceeds limits")
-		}
 		if value == "" {
 			return nil
 		}
@@ -374,7 +365,6 @@ func parseResponsesStreamWithReasoning(body io.Reader, onText, onReasoning func(
 			return err
 		}
 		previous.WriteString(value)
-		reasoningBytes += len(value)
 		return nil
 	}
 	emitSummary := func(item responseItem) error {
@@ -433,16 +423,6 @@ func parseResponsesStreamWithReasoning(body io.Reader, onText, onReasoning func(
 		} else if event.Type == "response.output_item.done" && event.Item.ID == "" {
 			event.Item.ID = event.ItemID
 		}
-		snapshot := false
-		switch event.Type {
-		case "response.completed", "response.output_text.done", "response.refusal.done", "response.content_part.done", "response.reasoning_summary_text.done", "response.reasoning_text.done":
-			snapshot = true
-		case "response.output_item.done":
-			snapshot = event.Item.Type == "message" || event.Item.Type == "reasoning"
-		}
-		if len(payload) > maxEventBytes && !snapshot {
-			return errors.New("OpenAI Responses event exceeds 128 KiB")
-		}
 		if event.Type == "response.completed" || event.Type == "response.failed" || event.Type == "response.incomplete" {
 			if event.Response.Usage != nil {
 				candidate := ModelUsage{InputTokens: event.Response.Usage.InputTokens, OutputTokens: event.Response.Usage.OutputTokens, CacheReadTokens: event.Response.Usage.InputDetails.CachedTokens, ReasoningTokens: event.Response.Usage.OutputDetails.ReasoningTokens}
@@ -463,9 +443,6 @@ func parseResponsesStreamWithReasoning(body io.Reader, onText, onReasoning func(
 		case "response.output_text.delta", "response.refusal.delta":
 			if event.ItemID == "" {
 				return errors.New("OpenAI Responses text delta lacks item ID")
-			}
-			if text.Len()+len(event.Delta) > maxReplyBytes {
-				return errors.New("OpenAI Responses reply exceeds 256 KiB")
 			}
 			text.WriteString(event.Delta)
 			if onText != nil && event.Delta != "" {
@@ -556,14 +533,8 @@ func parseResponsesStreamWithReasoning(body io.Reader, onText, onReasoning func(
 							return err
 						}
 						if part.Type == "output_text" {
-							if doneMessageText.Len()+len(part.Text) > maxReplyBytes {
-								return errors.New("OpenAI Responses reply exceeds 256 KiB")
-							}
 							doneMessageText.WriteString(part.Text)
 						} else if part.Type == "refusal" {
-							if doneMessageText.Len()+len(part.Refusal) > maxReplyBytes {
-								return errors.New("OpenAI Responses reply exceeds 256 KiB")
-							}
 							doneMessageText.WriteString(part.Refusal)
 						}
 					}
@@ -585,8 +556,8 @@ func parseResponsesStreamWithReasoning(body io.Reader, onText, onReasoning func(
 					envelope.Item["id"], _ = json.Marshal(event.Item.ID)
 					delete(envelope.Item, "item_id")
 					raw, err := json.Marshal(envelope.Item)
-					if err != nil || len(raw) > maxHostedResultBytes {
-						return errors.New("OpenAI Responses hosted tool result exceeds limits")
+					if err != nil {
+						return errors.New("invalid OpenAI Responses hosted tool result")
 					}
 					if previous, ok := hostedOutput[event.Item.ID]; ok {
 						if !bytes.Equal(previous, raw) {
@@ -686,9 +657,6 @@ func parseResponsesStreamWithReasoning(body io.Reader, onText, onReasoning func(
 			if sawData {
 				separator = 1
 			}
-			if data.Len()+len(fragment)+separator > maxResponsesSnapshotEventBytes {
-				return Turn{}, errors.New("OpenAI Responses event exceeds 2 MiB")
-			}
 			if separator != 0 {
 				data.WriteByte('\n')
 			}
@@ -720,9 +688,6 @@ func parseResponsesStreamWithReasoning(body io.Reader, onText, onReasoning func(
 			}
 			if part.Type == "output_text" || part.Type == "refusal" {
 				hasCompletedText = true
-				if completedText.Len()+len(value) > maxReplyBytes {
-					return Turn{}, errors.New("OpenAI Responses reply exceeds 256 KiB")
-				}
 				completedText.WriteString(value)
 			}
 		}
@@ -811,12 +776,8 @@ func parseResponsesStreamWithReasoning(body io.Reader, onText, onReasoning func(
 			return Turn{}, errors.New("OpenAI Responses completed output omits a hosted tool item")
 		}
 	}
-	outputLimit := maxResponsesSnapshotEventBytes
-	if len(calls) > 0 {
-		outputLimit = maxResponseOutputBytes
-	}
-	if !validResponseOutput(finalRaw, outputLimit, len(calls) > 0) {
-		return Turn{}, errors.New("OpenAI Responses output items exceed limits or contain unsupported types")
+	if !validResponseOutput(finalRaw, len(calls) > 0) {
+		return Turn{}, errors.New("OpenAI Responses output items are invalid or contain unsupported types")
 	}
 	turn := Turn{Text: text.String(), Sources: sources.urls, FinishReason: "completed", Usage: usage}
 	hostedCalls, err := responseHostedCalls(finalRaw)
@@ -825,9 +786,6 @@ func parseResponsesStreamWithReasoning(body io.Reader, onText, onReasoning func(
 	}
 	turn.HostedCalls = hostedCalls
 	if len(calls) > 0 || len(hostedCalls) > 0 && strings.TrimSpace(turn.Text) == "" {
-		if !validResponseOutput(finalRaw, maxResponseOutputBytes, true) {
-			return Turn{}, errors.New("OpenAI Responses continuation output exceeds limits")
-		}
 		reasoningItems, err := responseReasoningItems(final)
 		if err != nil {
 			return Turn{}, err

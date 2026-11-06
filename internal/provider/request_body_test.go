@@ -73,8 +73,12 @@ func TestBedrockReplayAllowsLongTextAndStillValidatesReasoning(t *testing.T) {
 	if err != nil || len(parts) != 1 {
 		t.Fatalf("long replay rejected: parts=%d err=%v", len(parts), err)
 	}
-	_, err = bedrockReplayParts([]BedrockPart{{Kind: "reasoning", Text: strings.Repeat("r", (64<<10)+1), Signature: "signature"}})
+	parts, err = bedrockReplayParts([]BedrockPart{{Kind: "reasoning", Text: strings.Repeat("r", 270<<10), Signature: strings.Repeat("s", 32<<10)}})
+	if err != nil || len(parts) != 1 {
+		t.Fatalf("long signed reasoning rejected: parts=%d err=%v", len(parts), err)
+	}
+	_, err = bedrockReplayParts([]BedrockPart{{Kind: "reasoning", Text: "text", Signature: "signature", Redacted: []byte("mixed")}})
 	if err == nil {
-		t.Fatal("oversized reasoning field accepted")
+		t.Fatal("mixed signed/redacted reasoning accepted")
 	}
 }

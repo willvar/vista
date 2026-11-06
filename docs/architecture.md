@@ -180,7 +180,9 @@ Queued inputs retain that choice; child tasks inherit it, and title and compacti
 `internal/modeltrace` observes inference after credential refresh and authentication/signing, excluding login and token exchanges.
 It records request URLs, headers and consumed body bytes, HTTP status, response headers and consumed response bytes, receive timings, completion/errors, and available parser counters.
 Chat diagnostics include the current SSE line/event, observed reasoning fields, fragment count, merged block count, and retained byte count.
-The Chat adapter merges compatible reasoning fragments before enforcing its 64 KiB and 256-independent-block retention limits; opaque blocks and incompatible signatures remain separate.
+The Chat adapter merges compatible reasoning fragments; opaque blocks and incompatible signatures remain separate.
+Upstream SSE events, complete model text, and native replay state have no Vista byte or block-count ceiling; protocol validation and required completion events still apply.
+Conversation Workers receive and retain that data under the existing soft memory guards. Small IPC frames, UI previews, paged output reads, tool-input budgets, and diagnostic capture limits do not cap the canonical model response.
 
 Records are written after a request completes or fails under `state/model-diagnostics/<session>/<run>/`, with credentials redacted before writing.
 They include prompt and response content; they are separate from model history and are not sent back to the model.

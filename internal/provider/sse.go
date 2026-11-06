@@ -2,12 +2,46 @@ package provider
 
 import (
 	"bufio"
-	"errors"
+	"io"
 	"strings"
 )
 
+// Upstream model events can contain complete answers and opaque reasoning
+// snapshots. Read lines without Scanner's token ceiling; response allocations
+// belong to the conversation Worker and its memory budget, not an SSE byte cap.
+type sseLines struct {
+	reader *bufio.Reader
+	line   string
+	err    error
+}
+
+func newSSELines(reader io.Reader) *sseLines {
+	return &sseLines{reader: bufio.NewReader(reader)}
+}
+
+func (lines *sseLines) Scan() bool {
+	if lines.err != nil {
+		return false
+	}
+	lines.line, lines.err = lines.reader.ReadString('\n')
+	if lines.line == "" {
+		return false
+	}
+	lines.line = strings.TrimSuffix(strings.TrimSuffix(lines.line, "\n"), "\r")
+	return true
+}
+
+func (lines *sseLines) Text() string { return lines.line }
+
+func (lines *sseLines) Err() error {
+	if lines.err == io.EOF {
+		return nil
+	}
+	return lines.err
+}
+
 // SSE permits one optional space after the data field's colon. Keep the
-// payload otherwise unchanged so each protocol can enforce its own bounds.
+// payload otherwise unchanged for protocol validation.
 func sseDataLine(line string) (string, bool) {
 	data, ok := strings.CutPrefix(line, "data:")
 	if !ok {
@@ -25,7 +59,7 @@ func sseKeepalive(data string) bool {
 
 // nextSSEData assembles one event from one or more data fields. It is used by
 // protocols that consume complete SSE events rather than individual deltas.
-func nextSSEData(scanner *bufio.Scanner, limit int) (string, bool, error) {
+func nextSSEData(scanner *sseLines) (string, bool, error) {
 	var data strings.Builder
 	sawData := false
 	for scanner.Scan() {
@@ -44,14 +78,7 @@ func nextSSEData(scanner *bufio.Scanner, limit int) (string, bool, error) {
 		if !ok {
 			continue
 		}
-		separator := 0
 		if sawData {
-			separator = 1
-		}
-		if data.Len()+separator+len(fragment) > limit {
-			return "", false, errors.New("SSE event exceeds limit")
-		}
-		if separator != 0 {
 			data.WriteByte('\n')
 		}
 		data.WriteString(fragment)

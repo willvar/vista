@@ -1,7 +1,6 @@
 package provider
 
 import (
-	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -222,8 +221,7 @@ type mistralCall struct {
 }
 
 func parseMistralStreamWithReasoning(body io.Reader, onText, onReasoning func(string) error) (result Turn, resultErr error) {
-	scanner := bufio.NewScanner(body)
-	scanner.Buffer(make([]byte, 4096), maxEventBytes)
+	scanner := newSSELines(body)
 	var payload strings.Builder
 	sawData := false
 	var answer strings.Builder
@@ -238,9 +236,6 @@ func parseMistralStreamWithReasoning(body io.Reader, onText, onReasoning func(st
 			return nil
 		}
 		if len(parts) == 0 || parts[len(parts)-1].kind != kind {
-			if len(parts) >= 256 {
-				return errors.New("Mistral content parts exceed limits")
-			}
 			parts = append(parts, &partBuilder{kind: kind})
 		}
 		parts[len(parts)-1].text.WriteString(fragment)
@@ -373,9 +368,6 @@ func parseMistralStreamWithReasoning(body io.Reader, onText, onReasoning func(st
 			for _, part := range segments {
 				fragment := part.text
 				if part.thinking {
-					if len(fragment) > maxReplyBytes-reasoningBytes {
-						return errors.New("Mistral reasoning exceeds 256 KiB")
-					}
 					if fragment != "" && onReasoning == nil {
 						return errors.New("Mistral reasoning stream requires a sink")
 					}
@@ -389,9 +381,6 @@ func parseMistralStreamWithReasoning(body io.Reader, onText, onReasoning func(st
 						}
 					}
 					continue
-				}
-				if answer.Len()+len(fragment) > maxReplyBytes {
-					return errors.New("Mistral reply exceeds 256 KiB")
 				}
 				answer.WriteString(fragment)
 				if err := appendPart("text", fragment); err != nil {
@@ -478,13 +467,6 @@ func parseMistralStreamWithReasoning(body io.Reader, onText, onReasoning func(st
 			continue
 		}
 		if fragment, ok := sseDataLine(line); ok {
-			separator := 0
-			if sawData {
-				separator = 1
-			}
-			if payload.Len()+len(fragment)+separator > maxEventBytes {
-				return Turn{}, errors.New("Mistral stream event exceeds 128 KiB")
-			}
 			if sawData {
 				payload.WriteByte('\n')
 			}

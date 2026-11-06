@@ -11,7 +11,6 @@ import (
 	"vista/internal/agentconfig"
 )
 
-const MaxModelOutputBytes = 256 << 10
 const MaxModelOutputPageBytes = 32 << 10
 
 var ErrModelOutputRange = errors.New("invalid model output offset")
@@ -52,9 +51,6 @@ func (s *Store) AppendModelDelta(ctx context.Context, sessionID, runID string, t
 	var offset int64
 	if err := tx.QueryRowContext(ctx, "SELECT COALESCE(MAX(offset+length),0) FROM model_output_chunks WHERE session_id=? AND run_id=? AND turn=?", sessionID, runID, turn).Scan(&offset); err != nil {
 		return nil, err
-	}
-	if offset+int64(len(content)) > MaxModelOutputBytes {
-		return nil, errors.New("model output exceeds 256 KiB")
 	}
 	data := map[string]any{"runId": runID, "turn": turn, "depth": depth, "content": content}
 	if len(taskIDs) > 0 && taskIDs[0] != "" {

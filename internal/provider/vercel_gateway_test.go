@@ -73,7 +73,7 @@ func TestVercelGatewayStreamRejectsIncompleteAndErrorOutput(t *testing.T) {
 	}
 }
 
-func TestVercelGatewayStreamBoundsCumulativeText(t *testing.T) {
+func TestVercelGatewayStreamPreservesCumulativeText(t *testing.T) {
 	delta := strings.Repeat("x", 90<<10)
 	var stream strings.Builder
 	for range 3 {
@@ -86,8 +86,9 @@ func TestVercelGatewayStreamBoundsCumulativeText(t *testing.T) {
 		stream.WriteString("\n\n")
 	}
 	stream.WriteString(`data: {"type":"finish","finishReason":{"unified":"stop"}}` + "\n\n")
-	if _, err := parseVercelGatewayStream(strings.NewReader(stream.String()), nil); err == nil || !strings.Contains(err.Error(), "exceeds limits") {
-		t.Fatalf("oversized gateway text accepted: %v", err)
+	turn, err := parseVercelGatewayStream(strings.NewReader(stream.String()), nil)
+	if err != nil || turn.Text != strings.Repeat(delta, 3) {
+		t.Fatalf("cumulative gateway text: bytes=%d err=%v", len(turn.Text), err)
 	}
 }
 
@@ -130,7 +131,7 @@ func TestVercelGatewayV3FinishUsage(t *testing.T) {
 	}
 }
 
-func TestVercelGatewayBoundsCumulativeReasoning(t *testing.T) {
+func TestVercelGatewayPreservesCumulativeReasoning(t *testing.T) {
 	delta := strings.Repeat("x", 90<<10)
 	var stream strings.Builder
 	for range 3 {
@@ -143,7 +144,8 @@ func TestVercelGatewayBoundsCumulativeReasoning(t *testing.T) {
 		stream.WriteString("\n\n")
 	}
 	stream.WriteString(`data: {"type":"finish","finishReason":{"unified":"stop"}}` + "\n\n")
-	if _, err := parseVercelGatewayStreamWithReasoning(strings.NewReader(stream.String()), nil, func(string) error { return nil }); err == nil || !strings.Contains(err.Error(), "reasoning delta exceeds limits") {
-		t.Fatalf("oversized reasoning was accepted: %v", err)
+	var reasoning strings.Builder
+	if _, err := parseVercelGatewayStreamWithReasoning(strings.NewReader(stream.String()), nil, func(s string) error { reasoning.WriteString(s); return nil }); err != nil || reasoning.String() != strings.Repeat(delta, 3) {
+		t.Fatalf("cumulative gateway reasoning: bytes=%d err=%v", reasoning.Len(), err)
 	}
 }

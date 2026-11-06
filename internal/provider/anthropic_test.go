@@ -14,6 +14,8 @@ import (
 )
 
 func TestAnthropicThinkingAndSignedToolContinuation(t *testing.T) {
+	signature := strings.Repeat("signed-token", 2048)
+	opaque := strings.Repeat("opaque-token", 100<<10)
 	requests := 0
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requests++
@@ -26,7 +28,7 @@ func TestAnthropicThinkingAndSignedToolContinuation(t *testing.T) {
 			if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
 				t.Error(err)
 			}
-			if len(request.Messages) != 3 || !strings.Contains(string(request.Messages[1].Content), `"signature":"signed-token"`) || !strings.Contains(string(request.Messages[1].Content), `"thinking":"Check."`) || !strings.Contains(string(request.Messages[1].Content), `"data":"opaque-token"`) {
+			if len(request.Messages) != 3 || !strings.Contains(string(request.Messages[1].Content), `"signature":"`+signature+`"`) || !strings.Contains(string(request.Messages[1].Content), `"thinking":"Check."`) || !strings.Contains(string(request.Messages[1].Content), `"data":"`+opaque+`"`) {
 				t.Errorf("signed assistant content was not replayed: %+v", request.Messages)
 			} else {
 				var blocks []struct {
@@ -39,11 +41,11 @@ func TestAnthropicThinkingAndSignedToolContinuation(t *testing.T) {
 		}
 		w.Header().Set("Content-Type", "text/event-stream")
 		if requests == 1 {
-			fmt.Fprint(w, `data: {"type":"content_block_start","index":0,"content_block":{"type":"redacted_thinking","data":"opaque-token"}}`+"\n\n")
+			fmt.Fprint(w, `data: {"type":"content_block_start","index":0,"content_block":{"type":"redacted_thinking","data":"`+opaque+`"}}`+"\n\n")
 			fmt.Fprint(w, `data: {"type":"content_block_stop","index":0}`+"\n\n")
 			fmt.Fprint(w, `data: {"type":"content_block_start","index":1,"content_block":{"type":"thinking","thinking":""}}`+"\n\n")
 			fmt.Fprint(w, `data: {"type":"content_block_delta","index":1,"delta":{"type":"thinking_delta","thinking":"Check."}}`+"\n\n")
-			fmt.Fprint(w, `data: {"type":"content_block_delta","index":1,"delta":{"type":"signature_delta","signature":"signed-token"}}`+"\n\n")
+			fmt.Fprint(w, `data: {"type":"content_block_delta","index":1,"delta":{"type":"signature_delta","signature":"`+signature+`"}}`+"\n\n")
 			fmt.Fprint(w, `data: {"type":"content_block_stop","index":1}`+"\n\n")
 			fmt.Fprint(w, `data: {"type":"content_block_start","index":2,"content_block":{"type":"tool_use","id":"call-1","name":"read_file","input":{}}}`+"\n\n")
 			fmt.Fprint(w, `data: {"type":"content_block_delta","index":2,"delta":{"type":"input_json_delta","partial_json":"{\"path\":\"/tmp/a\"}"}}`+"\n\n")
@@ -258,7 +260,7 @@ func TestZAIMessagesAllowsUnsignedThinkingToolContinuation(t *testing.T) {
 	}
 }
 
-func TestAnthropicThinkingBoundsAndSinkErrors(t *testing.T) {
+func TestAnthropicLargeThinkingAndSinkErrors(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "text/event-stream")
 		fmt.Fprint(w, `data: {"type":"content_block_start","index":0,"content_block":{"type":"thinking"}}`+"\n\n")
@@ -273,8 +275,9 @@ func TestAnthropicThinkingBoundsAndSinkErrors(t *testing.T) {
 	defer server.Close()
 	model := modelcfg.Model{Provider: "anthropic", ID: "mock", BaseURL: server.URL, APIKey: "key"}
 	messages := []ChatMessage{{Role: "user", Content: "solve"}}
-	if _, err := ModelTurnStreamWithReasoning(context.Background(), model, messages, nil, nil, func(string) error { return nil }); err == nil || !strings.Contains(err.Error(), "reasoning exceeds") {
-		t.Fatalf("oversized reasoning accepted: %v", err)
+	var reasoning strings.Builder
+	if _, err := ModelTurnStreamWithReasoning(context.Background(), model, messages, nil, nil, func(s string) error { reasoning.WriteString(s); return nil }); err != nil || reasoning.String() != strings.Repeat("r", 270<<10) {
+		t.Fatalf("large reasoning: bytes=%d err=%v", reasoning.Len(), err)
 	}
 	if _, err := ModelTurn(context.Background(), model, messages, nil); err == nil || !strings.Contains(err.Error(), "requires a sink") {
 		t.Fatalf("reasoning silently dropped: %v", err)

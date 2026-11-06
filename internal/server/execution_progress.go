@@ -6,7 +6,6 @@ import (
 	"unicode/utf8"
 
 	"github.com/google/uuid"
-	"vista/internal/store"
 	"vista/internal/workerproto"
 )
 
@@ -29,7 +28,7 @@ func validOutputReference(stateDir, runID string, ref *workerproto.OutputRef) bo
 			return false
 		}
 	}
-	if ref.RunID != "" && (ref.RunID != runID || ref.Turn <= 0 || ref.Bytes > store.MaxModelOutputBytes) {
+	if ref.RunID != "" && (ref.RunID != runID || ref.Turn <= 0) {
 		return false
 	}
 	return ref.ArtifactID != "" || ref.OutputPath != "" || ref.RunID != ""

@@ -76,16 +76,17 @@ func TestMistralStreamsStructuredThinkingSeparately(t *testing.T) {
 	}
 }
 
-func TestMistralBoundsCumulativeThinking(t *testing.T) {
+func TestMistralPreservesCumulativeThinking(t *testing.T) {
 	var stream strings.Builder
 	for range 3 {
 		chunk, _ := json.Marshal(map[string]any{"choices": []any{map[string]any{"delta": map[string]any{"content": []any{map[string]any{"type": "thinking", "thinking": []any{map[string]any{"text": strings.Repeat("r", 90<<10)}}}}}}}})
 		fmt.Fprintf(&stream, "data: %s\n\n", chunk)
 	}
-	stream.WriteString("data: [DONE]\n\n")
-	_, err := parseMistralStreamWithReasoning(strings.NewReader(stream.String()), nil, func(string) error { return nil })
-	if err == nil || !strings.Contains(err.Error(), "reasoning exceeds") {
-		t.Fatalf("oversized Mistral thinking accepted: %v", err)
+	stream.WriteString(`data: {"choices":[{"delta":{},"finish_reason":"stop"}]}` + "\n\ndata: [DONE]\n\n")
+	var reasoning strings.Builder
+	_, err := parseMistralStreamWithReasoning(strings.NewReader(stream.String()), nil, func(s string) error { reasoning.WriteString(s); return nil })
+	if err != nil || reasoning.String() != strings.Repeat("r", 270<<10) {
+		t.Fatalf("cumulative Mistral thinking: bytes=%d err=%v", reasoning.Len(), err)
 	}
 }
 

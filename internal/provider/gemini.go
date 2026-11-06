@@ -1,7 +1,6 @@
 package provider
 
 import (
-	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -138,14 +137,12 @@ func geminiTurnWithReasoning(ctx context.Context, model modelcfg.Model, messages
 	if !strings.HasPrefix(response.Header.Get("Content-Type"), "text/event-stream") {
 		return Turn{}, modelHTTPError("Gemini (unexpected content type)", response)
 	}
-	scanner := bufio.NewScanner(response.Body)
-	scanner.Buffer(make([]byte, 4096), maxEventBytes)
+	scanner := newSSELines(response.Body)
 	var payload strings.Builder
 	sawData := false
 	var text strings.Builder
 	var calls []ToolCall
 	var toolBytes toolCollectionBytes
-	reasoningBytes := 0
 	pendingSignature := ""
 	finished := false
 	finishReason := ""
@@ -155,13 +152,6 @@ func geminiTurnWithReasoning(ctx context.Context, model modelcfg.Model, messages
 		line := scanner.Text()
 		if line != "" {
 			if fragment, ok := sseDataLine(line); ok {
-				separator := 0
-				if sawData {
-					separator = 1
-				}
-				if payload.Len()+len(fragment)+separator > maxEventBytes {
-					return Turn{}, errors.New("Gemini stream event exceeds 128 KiB")
-				}
 				if sawData {
 					payload.WriteByte('\n')
 				}
@@ -239,28 +229,21 @@ func geminiTurnWithReasoning(ctx context.Context, model modelcfg.Model, messages
 		for _, candidate := range chunk.Candidates {
 			for _, part := range candidate.Content.Parts {
 				if part.Thought {
-					if part.FunctionCall != nil || len(part.Text) > maxReplyBytes-reasoningBytes {
-						return Turn{}, errors.New("Gemini reasoning exceeds limits")
+					if part.FunctionCall != nil {
+						return Turn{}, errors.New("Gemini reasoning part contains a function call")
 					}
 					if part.Text != "" && onReasoning == nil {
 						return Turn{}, errors.New("Gemini reasoning stream requires a sink")
 					}
-					reasoningBytes += len(part.Text)
 					if onReasoning != nil && part.Text != "" {
 						if err := onReasoning(part.Text); err != nil {
 							return Turn{}, err
 						}
 					}
-					if len(part.ThoughtSignature) > 8192 {
-						return Turn{}, errors.New("Gemini thought signature exceeds limits")
-					}
 					if part.ThoughtSignature != "" {
 						pendingSignature = part.ThoughtSignature
 					}
 					continue
-				}
-				if text.Len()+len(part.Text) > maxReplyBytes {
-					return Turn{}, errors.New("Gemini reply exceeds 256 KiB")
 				}
 				text.WriteString(part.Text)
 				if onText != nil && part.Text != "" {
@@ -271,7 +254,7 @@ func geminiTurnWithReasoning(ctx context.Context, model modelcfg.Model, messages
 				if part.FunctionCall == nil {
 					continue
 				}
-				if part.FunctionCall.Name == "" || len(part.FunctionCall.Name) > 128 || len(part.ThoughtSignature) > 8192 {
+				if part.FunctionCall.Name == "" || len(part.FunctionCall.Name) > 128 {
 					return Turn{}, errors.New("Gemini function call exceeds limits")
 				}
 				arguments := part.FunctionCall.Args
@@ -296,7 +279,7 @@ func geminiTurnWithReasoning(ctx context.Context, model modelcfg.Model, messages
 				pendingSignature = ""
 				var call ToolCall
 				call.ID, call.Type, call.Function.Name, call.Function.Arguments, call.ThoughtSignature, call.GeminiID = id, "function", part.FunctionCall.Name, string(arguments), signature, part.FunctionCall.ID
-				if err := toolBytes.set(fmt.Sprint(len(calls)), len(id)+len(call.Function.Name)+len(arguments)+len(signature)+len(call.GeminiID)); err != nil {
+				if err := toolBytes.set(fmt.Sprint(len(calls)), len(id)+len(call.Function.Name)+len(arguments)+len(call.GeminiID)); err != nil {
 					return Turn{}, err
 				}
 				calls = append(calls, call)

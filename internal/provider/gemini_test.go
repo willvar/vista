@@ -134,23 +134,26 @@ func TestGeminiSendsThinkingLevelForGeminiThree(t *testing.T) {
 	}
 }
 
-func TestGeminiBoundsCumulativeVisibleThoughts(t *testing.T) {
+func TestGeminiPreservesCumulativeVisibleThoughts(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "text/event-stream")
 		for range 3 {
 			chunk, _ := json.Marshal(map[string]any{"candidates": []any{map[string]any{"content": map[string]any{"parts": []any{map[string]any{"thought": true, "text": strings.Repeat("r", 90<<10)}}}}}})
 			fmt.Fprintf(w, "data: %s\n\n", chunk)
 		}
+		fmt.Fprint(w, `data: {"candidates":[{"content":{"parts":[{"text":"answer"}]},"finishReason":"STOP"}]}`+"\n\n")
 	}))
 	defer server.Close()
 	model := modelcfg.Model{Provider: "gemini", ID: "mock", BaseURL: server.URL, APIKey: "key"}
-	_, err := ModelTurnStreamWithReasoning(context.Background(), model, []ChatMessage{{Role: "user", Content: "solve"}}, nil, nil, func(string) error { return nil })
-	if err == nil || !strings.Contains(err.Error(), "reasoning exceeds") {
-		t.Fatalf("oversized Gemini thoughts accepted: %v", err)
+	var reasoning strings.Builder
+	turn, err := ModelTurnStreamWithReasoning(context.Background(), model, []ChatMessage{{Role: "user", Content: "solve"}}, nil, nil, func(s string) error { reasoning.WriteString(s); return nil })
+	if err != nil || turn.Text != "answer" || reasoning.String() != strings.Repeat("r", 270<<10) {
+		t.Fatalf("cumulative Gemini thoughts: bytes=%d err=%v", reasoning.Len(), err)
 	}
 }
 
 func TestGeminiNativeTextAndFunctionTurn(t *testing.T) {
+	signature := strings.Repeat("opaque-signature", 20<<10)
 	requests := 0
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requests++
@@ -185,10 +188,10 @@ func TestGeminiNativeTextAndFunctionTurn(t *testing.T) {
 			if len(body.Contents) != 1 || body.Contents[0].Role != "user" {
 				t.Errorf("initial contents: %+v", body.Contents)
 			}
-			fmt.Fprint(w, "data: {\"candidates\":[{\"content\":{\"parts\":[{\"thought\":true,\"thoughtSignature\":\"opaque-signature\"},{\"functionCall\":{\"id\":\"google-call-1\",\"name\":\"lookup\",\"args\":{\"query\":\"hello\"}}}]},\"finishReason\":\"STOP\"}]}\n\n")
+			fmt.Fprint(w, "data: {\"candidates\":[{\"content\":{\"parts\":[{\"thought\":true,\"thoughtSignature\":\""+signature+"\"},{\"functionCall\":{\"id\":\"google-call-1\",\"name\":\"lookup\",\"args\":{\"query\":\"hello\"}}}]},\"finishReason\":\"STOP\"}]}\n\n")
 			return
 		}
-		if len(body.Contents) != 3 || body.Contents[1].Role != "model" || body.Contents[1].Parts[0]["thoughtSignature"] != "opaque-signature" || body.Contents[1].Parts[0]["functionCall"].(map[string]any)["id"] != "google-call-1" || body.Contents[2].Role != "user" || body.Contents[2].Parts[0]["functionResponse"].(map[string]any)["id"] != "google-call-1" {
+		if len(body.Contents) != 3 || body.Contents[1].Role != "model" || body.Contents[1].Parts[0]["thoughtSignature"] != signature || body.Contents[1].Parts[0]["functionCall"].(map[string]any)["id"] != "google-call-1" || body.Contents[2].Role != "user" || body.Contents[2].Parts[0]["functionResponse"].(map[string]any)["id"] != "google-call-1" {
 			t.Errorf("function roundtrip missing: %+v", body.Contents)
 		}
 		fmt.Fprint(w, "data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"Found it.\"}]},\"finishReason\":\"STOP\"}],\"usageMetadata\":{\"promptTokenCount\":31,\"candidatesTokenCount\":7,\"cachedContentTokenCount\":5,\"thoughtsTokenCount\":3}}\n\n")
@@ -198,7 +201,7 @@ func TestGeminiNativeTextAndFunctionTurn(t *testing.T) {
 	schemas := []map[string]any{{"type": "function", "function": map[string]any{"name": "lookup", "description": "Find a thing", "parameters": map[string]any{"type": "object", "properties": map[string]any{"query": map[string]any{"type": "string"}}, "required": []string{"query"}}}}}
 	messages := []ChatMessage{{Role: "system", Content: "use tools"}, {Role: "user", Content: "hello"}}
 	first, err := ModelTurn(context.Background(), model, messages, schemas)
-	if err != nil || len(first.Calls) != 1 || first.Calls[0].Function.Name != "lookup" || first.Calls[0].ThoughtSignature != "opaque-signature" || first.Calls[0].GeminiID != "google-call-1" {
+	if err != nil || len(first.Calls) != 1 || first.Calls[0].Function.Name != "lookup" || first.Calls[0].ThoughtSignature != signature || first.Calls[0].GeminiID != "google-call-1" {
 		t.Fatalf("function turn: %+v %v", first, err)
 	}
 	messages = append(messages, ChatMessage{Role: "assistant", ToolCalls: first.Calls}, ChatMessage{Role: "tool", ToolCallID: first.Calls[0].ID, Content: `{"result":"hello"}`})

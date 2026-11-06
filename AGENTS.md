@@ -15,6 +15,7 @@ Reuse synchronized snapshots when opening a view, deduplicate concurrent reads, 
 Scope data to the active view: the workspace synchronizes open session summaries and aggregate counts; load closed summaries only while the session manager is open, and release its subscription when it closes.
 Apply the same scope to HTTP responses and SSE payloads; fewer requests must not hide unnecessary preloading or broadcasts.
 Keep large logs, diagnostic bodies, images, and older history as bounded, on-demand HTTP reads; push their availability or lightweight indexes rather than their contents.
+Preserve complete upstream model text and native replay state through receipt, persistence, restoration, and replay. Do not impose arbitrary field-size or block-count ceilings on that canonical data or reuse IPC, preview, or diagnostic limits as model-response limits. Keep protocol validation and tool-input budgets separate.
 Retain revision checks and authoritative snapshot recovery for initial loading, reconnects, missed events, and oversized payloads.
 Do not replace these safeguards with periodic HTTP polling or broadcast credentials and login authorization URLs through shared state.
 Background synchronization must preserve active editors and reject stale responses.

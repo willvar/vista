@@ -77,8 +77,8 @@ func TestLongModelOutputPersistsByPageAndStaysInSession(t *testing.T) {
 		t.Fatal(err)
 	}
 	fragment := strings.Repeat("甲", 500)
-	full := strings.Repeat(fragment, 8)
-	for range 8 {
+	full := strings.Repeat(fragment, 200)
+	for range 200 {
 		if event, err := s.AppendModelDelta(ctx, session, "run-1", 2, 0, fragment); err != nil || event == nil || event.Kind != "model_delta" {
 			t.Fatalf("append model output: %+v %v", event, err)
 		}

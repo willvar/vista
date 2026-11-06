@@ -1,7 +1,6 @@
 package provider
 
 import (
-	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -129,12 +128,10 @@ func parseCohereStream(body io.Reader, onText func(string) error) (Turn, error) 
 }
 
 func parseCohereStreamWithReasoning(body io.Reader, onText, onReasoning func(string) error) (result Turn, resultErr error) {
-	scanner := bufio.NewScanner(body)
-	scanner.Buffer(make([]byte, 4096), maxEventBytes)
+	scanner := newSSELines(body)
 	var payload strings.Builder
 	sawData := false
 	var reply strings.Builder
-	reasoningBytes := 0
 	var calls []ToolCall
 	var toolBytes toolCollectionBytes
 	var pending *ToolCall
@@ -192,13 +189,9 @@ func parseCohereStreamWithReasoning(body io.Reader, onText, onReasoning func(str
 					}
 					delta = block.Text
 				}
-				if len(delta) > maxReplyBytes-reasoningBytes {
-					return errors.New("Cohere reasoning exceeds 256 KiB")
-				}
 				if delta != "" && onReasoning == nil {
 					return errors.New("Cohere reasoning stream requires a sink")
 				}
-				reasoningBytes += len(delta)
 				if onReasoning != nil && delta != "" {
 					if err := onReasoning(delta); err != nil {
 						return err
@@ -207,9 +200,6 @@ func parseCohereStreamWithReasoning(body io.Reader, onText, onReasoning func(str
 				return nil
 			}
 			delta := event.Delta.Message.Content.Text
-			if reply.Len()+len(delta) > maxReplyBytes {
-				return errors.New("Cohere text exceeds 256 KiB")
-			}
 			reply.WriteString(delta)
 			if onText != nil && delta != "" {
 				return onText(delta)
@@ -304,9 +294,6 @@ func parseCohereStreamWithReasoning(body io.Reader, onText, onReasoning func(str
 			separator := 0
 			if sawData {
 				separator = 1
-			}
-			if payload.Len()+len(fragment)+separator > maxEventBytes {
-				return Turn{}, errors.New("Cohere event exceeds 128 KiB")
 			}
 			if separator != 0 {
 				payload.WriteByte('\n')
