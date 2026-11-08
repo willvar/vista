@@ -51,6 +51,7 @@ type PendingReply struct {
 
 type Message struct {
 	Failure        bool   `json:"failure,omitempty"`
+	ContextSummary bool   `json:"contextSummary,omitempty"` // Display projection of a committed compaction event, not additional model history.
 	ID             string `json:"id"`
 	SessionID      string `json:"sessionId"`
 	RunID          string `json:"runId"`

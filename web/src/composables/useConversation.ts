@@ -182,7 +182,7 @@ export function useConversation({ client, sessions, modelCatalog, error, busy, r
   }
   async function rateMessage(message: Message, value: 'up' | 'down') {
     const scope = currentScope
-    if (!scope || !current(scope) || feedbackBusy.value[message.id]) return
+    if (!scope || !current(scope) || message.contextSummary || feedbackBusy.value[message.id]) return
     feedbackBusy.value = { ...feedbackBusy.value, [message.id]: true }
     try {
       const next = feedback.value[message.id] === value ? null : value
@@ -205,7 +205,7 @@ export function useConversation({ client, sessions, modelCatalog, error, busy, r
     const key = { model: 'agentWaitingModel', reasoning: 'agentReasoning', response: 'agentResponding', processing: 'agentProcessing' }[progress?.phase as 'model' | 'reasoning' | 'response' | 'processing']
     return t(key || 'agentStarting')
   })
-  const hasTaskDetails = computed(() => !!(state.contextNotices.length || olderActivity.value.some(event => !hasVisibleRun(event.data?.runId)) || hasOlderActivity.value))
+  const hasTaskDetails = computed(() => !!(olderActivity.value.some(event => !hasVisibleRun(event.data?.runId)) || hasOlderActivity.value))
   let inputRevision = 0
   let currentScope: Scope | null = null
   let generation = 0
@@ -456,7 +456,7 @@ export function useConversation({ client, sessions, modelCatalog, error, busy, r
   watch([interactionPreferences.ready, rememberedModel, lastMode, lastTier, modelCatalog], initializeWelcomeSelection, { flush: 'sync', immediate: true })
 
   // Index loading is independent of the trace and of virtual row mounting.
-  watch(() => [...new Set(messages.value.map(message => message.runId))], runs => {
+  watch(() => [...new Set(messages.value.filter(message => !message.contextSummary).map(message => message.runId))], runs => {
     const scope = currentScope
     if (!scope || !current(scope)) return
     const retained = new Set(runs)
@@ -593,7 +593,7 @@ export function useConversation({ client, sessions, modelCatalog, error, busy, r
       const page = await request<StreamEvent[]>(scope, `/sessions/${scope.id}/event-page?before=${olderActivityCursor}`)
       if (!current(scope)) return
       olderActivityCursor = page[0]?.sequence || olderActivityCursor
-      olderActivity.value = page.filter(event => ['tool', 'run_finished', 'context_notice'].includes(event.kind))
+      olderActivity.value = page.filter(event => ['tool', 'run_finished'].includes(event.kind))
       hasOlderActivity.value = page.length === 100
     } catch (failure) { report(scope, failure) }
     finally { if (current(scope)) activityPaging.value = false }

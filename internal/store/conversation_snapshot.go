@@ -80,7 +80,7 @@ func (s *Store) ConversationSnapshot(ctx context.Context, id string) (Conversati
 		if snapshot.SyncCheckpoint, err = view.checkpoint(ctx, id); err != nil {
 			return err
 		}
-		if snapshot.Messages, err = view.MessagesBefore(ctx, id, 0, 100); err != nil {
+		if snapshot.Messages, err = view.DisplayMessagesBefore(ctx, id, 0, 100); err != nil {
 			return err
 		}
 		if snapshot.Events, err = view.EventsBefore(ctx, id, 0, 100); err != nil {
@@ -97,7 +97,7 @@ func (s *Store) ConversationSnapshot(ctx context.Context, id string) (Conversati
 			if message.Role == "user" {
 				activeRun = message.RunID
 			}
-			if message.Role != "assistant" {
+			if message.Role != "assistant" || message.ContextSummary {
 				continue
 			}
 			messageIDs = append(messageIDs, message.ID)

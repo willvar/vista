@@ -194,11 +194,39 @@ test('a new user message updates execution state before the next status poll', (
   assert.deepEqual(state.runProgress, { runId: 'run-a', phase: 'starting' })
 })
 
-test('execution compaction preserves its summary without requiring a historical sequence', () => {
+test('execution compaction projects one ordinary assistant message without ending the run or repeating trace usage', () => {
   let state = createConversationState(session)
-  state = reduceConversationEvent(state, event(1, 'context_notice', { runId: 'run-a', message: 'Completed execution history was compacted', summary: 'Completed changes and unresolved work.', turn: 0, depth: 0 }))
-  assert.equal(state.contextNotices[0].summary, 'Completed changes and unresolved work.')
-  assert.equal(state.contextNotices[0].runId, 'run-a')
+  state = reduceConversationEvent(state, event(1, 'message', message('user-a', 1, 'run-a')))
+  state = reduceConversationEvent(state, event(2, 'model_result', { runId: 'run-a', turn: 1, modelResult: { provider: 'custom', id: 'model' } }))
+  const notice = { ...event(3, 'context_notice', { runId: 'run-a', summary: 'Completed changes and unresolved work.', depth: 0 }), createdAt: '2026-11-08T00:00:00Z' }
+  state = reduceConversationEvent(state, notice)
+  const summary = state.messages[1]!
+  assert.deepEqual(summary, {
+    id: 'context-summary/3', runId: 'run-a', role: 'assistant', content: notice.data.summary,
+    sequence: 3, createdAt: notice.createdAt, contextSummary: true, modelResults: [],
+  })
+  assert.equal(reduceConversationEvent(state, notice), state)
+  assert.equal(state.activeRunID, 'run-a')
+  assert.equal(state.selected?.executing, true)
+  assert.equal(state.selected?.latestReplySequence || 0, 0)
+  assert.equal(state.processEvents.some(item => item.kind === 'context_notice'), false)
+  assert.deepEqual(messageResults(summary, state.modelResults), [])
+  const reply = message('reply', 5, 'run-a', 'assistant')
+  const segments = replyTraceSegments([...state.messages, reply], 'run-a')
+  assert.equal(segments.get(summary.id), undefined)
+  assert.equal(segments.get(reply.id)?.anchorId, 'user-a')
+  assert.equal(messageResults(reply, state.modelResults).length, 1)
+  // Replaying a recent event after loading its message from the snapshot is idempotent.
+  const restored = createConversationState(session)
+  restored.messages = [summary]
+  assert.equal(reduceConversationEvent(restored, notice).messages.length, 1)
+})
+
+test('child compaction and empty summaries do not add chat messages', () => {
+  let state = createConversationState(session)
+  state = reduceConversationEvent(state, event(1, 'context_notice', { runId: 'run-a', summary: 'child', depth: 1 }))
+  state = reduceConversationEvent(state, event(2, 'context_notice', { runId: 'run-a', summary: '  ', depth: 0 }))
+  assert.deepEqual(state.messages, [])
 })
 
 test('long live runs preserve cumulative usage through completion and reload', () => {
@@ -221,9 +249,9 @@ test('long live runs preserve cumulative usage through completion and reload', (
 
 test('partial input status events preserve content and ordering, and queue resume clears pause', () => {
   let state = createConversationState(session)
-  state.queuedInputs = [{ id: 'first', mode: 'later', status: 'queued', content: 'Preserve me', imageCount: 1 }, { id: 'second', mode: 'now', status: 'queued', content: 'Next' }]
+  state.queuedInputs = [{ id: 'first', status: 'queued', content: 'Preserve me', imageCount: 1 }, { id: 'second', status: 'queued', content: 'Next' }]
   state = reduceConversationEvent(state, { sequence: 1, kind: 'input_status', data: { id: 'first', status: 'paused' } })
-  assert.deepEqual(state.queuedInputs[0], { id: 'first', mode: 'later', status: 'paused', content: 'Preserve me', imageCount: 1 })
+  assert.deepEqual(state.queuedInputs[0], { id: 'first', status: 'paused', content: 'Preserve me', imageCount: 1 })
   state = reduceConversationEvent(state, { sequence: 2, kind: 'input_queue_state', data: { paused: true } })
   assert.equal(state.selected?.inputQueuePaused, true)
   assert.equal(state.queuedInputs[1].status, 'queued')

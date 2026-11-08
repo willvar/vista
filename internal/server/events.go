@@ -39,7 +39,7 @@ func (a *App) messagesWithResults(r *http.Request, id string, items []store.Mess
 	var runIDs, messageIDs []string
 	seen := map[string]bool{}
 	for _, item := range items {
-		if item.Role != "assistant" || item.RunID == "" {
+		if item.Role != "assistant" || item.ContextSummary || item.RunID == "" {
 			continue
 		}
 		messageIDs = append(messageIDs, item.ID)
@@ -69,7 +69,7 @@ func messagesWithResultData(items []store.Message, events []store.Event, boundar
 	for index, item := range items {
 		out[index] = messageWithResults{Message: item}
 		out[index].ResultsAfter = boundaries[item.ID]
-		if item.Role == "assistant" && item.RunID != "" {
+		if item.Role == "assistant" && !item.ContextSummary && item.RunID != "" {
 			runs[item.RunID] = append(runs[item.RunID], index)
 		}
 	}
@@ -182,7 +182,7 @@ func (a *App) messages(w http.ResponseWriter, r *http.Request, id string) {
 			http.Error(w, err.Error(), 400)
 			return
 		}
-		items, err := a.store.MessagesAfter(r.Context(), id, after, 100)
+		items, err := a.store.DisplayMessagesAfter(r.Context(), id, after, 100)
 		if err != nil {
 			http.Error(w, err.Error(), 500)
 			return
@@ -204,7 +204,7 @@ func (a *App) messages(w http.ResponseWriter, r *http.Request, id string) {
 		}
 		before = n
 	}
-	items, err := a.store.MessagesBefore(r.Context(), id, before, 100)
+	items, err := a.store.DisplayMessagesBefore(r.Context(), id, before, 100)
 	if err != nil {
 		http.Error(w, err.Error(), 500)
 		return

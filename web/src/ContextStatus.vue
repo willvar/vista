@@ -1,8 +1,8 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { Button, Popover } from './ui'
-import { LoadingOutlined, CheckCircleOutlined, ExclamationCircleOutlined, UpOutlined, CodeOutlined } from '@antdv-next/icons'
+import { LoadingOutlined, ExclamationCircleOutlined, UpOutlined, CodeOutlined } from '@antdv-next/icons'
 import { useEscapeDismiss } from './composables/useEscape'
 import MessageActions from './MessageActions.vue'
 import FailureHelp from './FailureHelp.vue'
@@ -19,23 +19,23 @@ const emit = defineEmits<{ cancel: []; openProcesses: [] }>()
 const { t } = useI18n()
 const open = ref(false)
 useEscapeDismiss(open)
-const phase = computed(() => props.compacting ? 'compacting' : props.status?.phase)
-const statusLabel = computed(() => phase.value ? t(phase.value === 'compacting' ? 'contextCompacting' : phase.value === 'compacted' ? 'contextCompactionDone' : 'contextUnavailable') : '')
+const phase = computed(() => props.compacting ? 'compacting' : props.status?.phase === 'failed' ? 'failed' : undefined)
+const statusLabel = computed(() => phase.value ? t(phase.value === 'compacting' ? 'contextCompacting' : 'contextUnavailable') : '')
+watch(phase, value => { if (!value) open.value = false })
 </script>
 <template>
-  <div v-if="status || compacting || hasJobs" class="context-status-panel" :class="[phase, { 'compaction-progress': compacting }]">
-    <Popover v-if="status || compacting" v-model:open="open" trigger="click" placement="topLeft" root-class="context-status-popover"
+  <div v-if="phase || hasJobs" class="context-status-panel" :class="[phase, { 'compaction-progress': compacting }]">
+    <Popover v-if="phase" v-model:open="open" trigger="click" placement="topLeft" root-class="context-status-popover"
       :styles="{ root: { maxWidth: 'calc(100vw - 2rem)' } }">
       <template #content>
         <div class="context-status-detail" role="status">
           <p v-if="phase"><strong>{{ statusLabel }}</strong></p>
           <p v-if="compacting">{{ t(manual ? 'manualCompactionProgress' : 'autoCompactionProgress') }}</p>
-          <p v-else-if="phase === 'compacted'">{{ t(status?.manual ? 'manualCompactionDone' : 'autoCompactionDone') }}</p>
           <template v-else-if="status?.error"><pre class="compaction-error">{{ status.error }}</pre><MessageActions :text="status.error" /><FailureHelp :failure="{ kind: 'compaction', runId: status.runId, sequence: status.sequence, error: status.error }" /></template>
         </div>
       </template>
       <button type="button" class="context-status" :aria-label="statusLabel" :aria-expanded="open" :title="t('contextDetails')">
-        <span class="context-icon" aria-hidden="true"><LoadingOutlined v-if="compacting" /><CheckCircleOutlined v-else-if="phase === 'compacted'" /><ExclamationCircleOutlined v-else-if="phase === 'failed'" /></span>
+        <span class="context-icon" aria-hidden="true"><LoadingOutlined v-if="compacting" /><ExclamationCircleOutlined v-else-if="phase === 'failed'" /></span>
         <span class="context-copy" role="status" aria-live="polite" aria-atomic="true">
           <span class="context-summary">
             <span v-if="phase" class="context-title">{{ statusLabel }}</span>
@@ -59,7 +59,6 @@ const statusLabel = computed(() => phase.value ? t(phase.value === 'compacting' 
 .context-status:focus-visible,.compaction-cancel.ui-btn:focus-visible{outline:var(--focus-outline, 2px solid var(--accent));outline-offset:2px}
 .context-icon{display:grid;place-items:center;flex:none;width:20px;height:20px;font-size:16px}
 .compacting .context-icon{width:34px;height:34px;border-radius:10px;background:var(--accent-soft);color:var(--accent);font-size:18px}
-.compacted .context-icon{color:var(--success)}
 .failed .context-icon{color:var(--warning)}
 .context-copy{flex:1;min-width:0;line-height:1.5;overflow-wrap:anywhere}
 .context-summary{display:flex;align-items:baseline;flex-wrap:wrap;gap:.15rem .8rem}

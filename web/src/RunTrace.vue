@@ -1,11 +1,11 @@
 <script setup lang="ts">
 import { computed, nextTick, onScopeDispose, reactive, ref, watch, type Component } from 'vue'
-import { useI18n } from 'vue-i18n'
+import { Translation as I18nT, useI18n } from 'vue-i18n'
 import { Alert, Button } from './ui'
 import { BugOutlined, CheckOutlined, ClockCircleOutlined, ExclamationCircleOutlined, LoadingOutlined, MinusOutlined, StopOutlined } from '@antdv-next/icons'
 import Think from './ui/Think.vue'
 import type { TraceNodeView as Node } from './ui/traceTypes'
-import type { ContextNotice, ModelResultView, StreamEvent } from './client/types'
+import type { ModelResultView, StreamEvent } from './client/types'
 import { useWorkspace } from './composables/useWorkspace'
 import { useRunHistory } from './composables/useRunHistory'
 import { useScrollbarDrag } from './composables/useScrollbarDrag'
@@ -20,7 +20,7 @@ const props = defineProps<{
   sessionId: string; runId: string; events: StreamEvent[]; active: boolean; status: string; before: number; first: number
   after?: number; through?: number
   replyTurns?: number[]; startedAt?: string; modelName?: string
-  modelResults?: ModelResultView[]; contextNotices?: ContextNotice[]
+  modelResults?: ModelResultView[]
   viewState?: RunTraceViewState
 }>()
 const emit = defineEmits<{ inspect: [] }>()
@@ -144,15 +144,7 @@ const checklist = computed(() => {
   return items.map(item => item.status === 'in_progress' ? { ...item, status: stoppedStatus } : item)
 })
 const completedItems = computed(() => checklist.value.filter(item => item.status === 'done').length)
-const contextNotices = computed(() => {
-  const notices = new Map<number, ContextNotice>()
-  for (const notice of props.contextNotices || []) if (inRunTraceRange(notice.sequence, props)) notices.set(notice.sequence, notice)
-  for (const event of events.value) if (event.kind === 'context_notice' && !event.data.depth) notices.set(event.sequence, {
-    sequence: event.sequence, message: event.data.message, summary: event.data.summary,
-  })
-  return [...notices.values()].sort((a, b) => a.sequence - b.sequence)
-})
-const hasDetails = computed(() => emptyReply.value || trace.value.nodes.length > 0 || agents.value.some(agent => agent.task.id !== 'main') || contextNotices.value.length > 0)
+const hasDetails = computed(() => emptyReply.value || trace.value.nodes.length > 0 || agents.value.some(agent => agent.task.id !== 'main'))
 const rootTask = computed(() => trace.value.tasks.find(task => task.id === 'main'))
 const modelName = computed(() => {
   const task = rootTask.value
@@ -160,18 +152,6 @@ const modelName = computed(() => {
   return historicalModelLabel({ key: task.modelKey, provider: task.modelProvider, id: task.modelId }) || props.modelName || ''
 })
 const latestEvent = computed(() => events.value.filter(event => ['tool', 'agent_task', 'model_request', 'model_retry', 'model_result', 'model_delta', 'model_reasoning_delta', 'run_finished'].includes(event.kind) && event.data.purpose !== 'summary').at(-1))
-const activityText = computed(() => {
-  const event = latestEvent.value
-  if (!event) return segmentActive.value ? props.status : ''
-  if (event.kind === 'tool') {
-    const node = [...trace.value.nodes].reverse().find(node => node.kind === 'tool' && node.callId === event.data.tool?.callId && node.taskId === (event.data.taskId || 'main'))
-    return node ? nodeTitle(node) : compactTraceText(event.data.tool?.summary || event.data.tool?.name)
-  }
-  if (event.kind === 'agent_task') return `${compactTraceText(event.data.task?.title || t('traceMainTask'))} · ${executionStatus(event.data.task?.status)}`
-  if (event.kind === 'run_finished') return executionStatus(event.data.status)
-  if (event.kind === 'model_retry') return t('modelRequestRecovery')
-  return t(({ model_request: 'traceModelRequest', model_result: 'traceModelResult', model_delta: 'modelOutput', model_reasoning_delta: 'modelReasoning' } as Record<string, string>)[event.kind])
-})
 const lastActivityAt = computed(() => {
   const eventTime = latestEvent.value && traceEventTime(latestEvent.value)
   const snapshotTime = overview.value?.lastActivityAt
@@ -253,7 +233,7 @@ watch(() => [props.sessionId, props.runId, props.after], () => {
             <span>{{ item.text }}</span><small>{{ statusLabel(item.status) }}</small>
           </li>
         </ul>
-        <p v-if="segmentActive && activityText" class="trace-last-activity"><span>{{ t('traceLastActivity', { activity: activityText }) }}</span><time v-if="lastActivityAt" :datetime="lastActivityAt" :title="localTime(lastActivityAt)">{{ localTime(lastActivityAt) }}</time><small v-if="activityAge">{{ t('traceActivityAge', { elapsed: activityAge }) }}</small></p>
+        <p v-if="segmentActive && lastActivityAt" class="trace-last-activity"><I18nT keypath="traceLastActivity" tag="span" scope="global"><template #activity><time :datetime="lastActivityAt" :title="localTime(lastActivityAt)">{{ localTime(lastActivityAt) }}</time></template></I18nT><small v-if="activityAge">{{ t('traceActivityAge', { elapsed: activityAge }) }}</small></p>
       </template>
       <Alert v-if="failure" type="error" :message="failure" show-icon />
       <Button v-if="failure" :loading="loading" @click="retryPage">{{ t('retry') }}</Button>
@@ -273,7 +253,6 @@ watch(() => [props.sessionId, props.runId, props.after], () => {
           </TraceSteps>
         </Think>
       </div>
-      <div v-for="notice in contextNotices" :key="notice.sequence" class="activity context-notice"><p>{{ t('contextCompacted') }}</p><details v-if="notice.summary"><summary>{{ t('contextSummaryPreview') }}</summary><pre>{{ notice.summary }}</pre></details></div>
       <slot />
     </Think>
   </section>
@@ -296,7 +275,7 @@ watch(() => [props.sessionId, props.runId, props.after], () => {
 .trace-last-activity time{font-size:14px}.trace-checklist{font-size:16px;line-height:1.65;margin:.55rem 0 0;overflow-wrap:anywhere}.trace-checklist small{flex:none;font-size:14px}
 .trace-checklist-icon{display:inline-flex;align-items:center;justify-content:center;align-self:flex-start;flex:none;width:1em;height:1.65em}
 .trace-overview-error{display:flex;align-items:center;gap:.5rem;margin-top:.35rem}
-.trace-loading{font-size:15px;color:var(--muted)}.context-notice{font-size:15px;margin:.75rem 0}.context-notice pre{white-space:pre-wrap;overflow-wrap:anywhere}.context-notice summary{cursor:pointer}
+.trace-loading{font-size:15px;color:var(--muted)}
 .trace-task{margin:.65rem 0;min-width:0}.trace-agent-group{margin-left:var(--agent-indent);padding:.65rem .8rem;border-left:2px solid var(--border);border-radius:0 8px 8px 0;background:var(--surface-subtle)}.trace-agent-group[data-agent-depth="2"],.trace-agent-group[data-agent-depth="3"]{border-left-color:var(--accent)}.trace-agent-group :deep(.ui-think-status-wrapper){align-items:flex-start;width:100%}.trace-agent-group :deep(.ui-think-status-text){flex:1}.trace-task-group :deep(.ui-thought-chain-node-title){font-size:15px;line-height:1.5;color:var(--text-secondary)}.trace-task-group :deep(.ui-thought-chain-node-description){font-size:15px;line-height:1.6;color:var(--muted)}.trace-details{margin-top:.5rem;font-size:15px;color:var(--muted)}
 .trace-details summary{cursor:pointer}.trace-details dl{display:grid;grid-template-columns:auto minmax(0,1fr);gap:.2rem .7rem}.trace-details dd{margin:0;overflow-wrap:anywhere}
 @media(max-width:600px){.trace-overview :deep(.trace-process-header){padding:.4rem .5rem}.trace-checklist li{flex-wrap:wrap}.trace-checklist small{margin-left:1rem}.trace-last-activity time{display:block}}

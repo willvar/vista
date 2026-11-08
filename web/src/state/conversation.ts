@@ -1,4 +1,4 @@
-import type { Artifact, ContextNotice, Job, Message, ModelDraft, ModelInfo, ModelResultView, OutputView, QueuedInput, RunProgress, Session, StreamEvent } from '../client/types'
+import type { Artifact, Job, Message, ModelDraft, ModelInfo, ModelResultView, OutputView, QueuedInput, RunProgress, Session, StreamEvent } from '../client/types'
 import { jobActive } from './jobs.ts'
 import { reduceMainOutputEvent, type MainOutputRecord } from './mainOutputs.ts'
 
@@ -20,7 +20,7 @@ export type ReplyTraceSegment = {
 export function replyTraceSegments(messages: readonly Message[], activeRunId = '', hasNewer = false): Map<string, ReplyTraceSegment> {
   const byRun = new Map<string, Message[]>()
   for (const message of messages) {
-    if (!message.runId) continue
+    if (!message.runId || message.contextSummary) continue
     const run = byRun.get(message.runId) || []
     run.push(message)
     byRun.set(message.runId, run)
@@ -64,7 +64,6 @@ export type ConversationState = {
   mainOutputs: MainOutputRecord[]
   modelResults: ModelResultView[]
   modelOutput: Record<string, OutputView>
-  contextNotices: ContextNotice[]
   queuedInputs: QueuedInput[]
   activeRunID: string
   activeRunSequence: number
@@ -82,7 +81,7 @@ export type ConversationState = {
 export function createConversationState(selected: Session | null = null): ConversationState {
   return {
     selected, messages: [], processEvents: [], modelDrafts: [], mainOutputs: [], modelResults: [], modelOutput: {},
-    contextNotices: [], queuedInputs: [], activeRunID: '', activeRunSequence: 0,
+    queuedInputs: [], activeRunID: '', activeRunSequence: 0,
     runProgress: null, jobs: [], artifacts: [], modelByRun: {},
     lastEvent: 0, latestMessageSequence: 0, hasOlder: false, hasNewer: false, finishedRuns: {},
   }
@@ -112,7 +111,7 @@ export function pruneConversationWindow(state: ConversationState): ConversationS
 export function appendMessage(state: ConversationState, message: Message | null | undefined): ConversationState {
   if (!message) return state
   const next = { ...state, latestMessageSequence: Math.max(state.latestMessageSequence, message.sequence) }
-  if (message.role === 'assistant' && next.selected) next.selected = { ...next.selected,
+  if (message.role === 'assistant' && !message.contextSummary && next.selected) next.selected = { ...next.selected,
     latestReplySequence: Math.max(next.selected.latestReplySequence || 0, message.sequence) }
   if (message.role === 'assistant' && message.outputTurn) {
     next.mainOutputs = next.mainOutputs.map(output => output.runId === message.runId && output.turn === message.outputTurn ? { ...output, complete: true } : output)
@@ -125,7 +124,7 @@ export function appendMessage(state: ConversationState, message: Message | null 
 }
 
 export function messageResults(message: Message, modelResults: readonly ModelResultView[]): ModelResultView[] {
-  if (message.role !== 'assistant' || !message.runId) return []
+  if (message.role !== 'assistant' || message.contextSummary || !message.runId) return []
   return runResults(message.runId, [message], modelResults)
     .filter(result => result.sequence > (message.resultsAfter || 0) && result.sequence <= message.sequence)
 }
@@ -147,7 +146,7 @@ export function reduceConversationEvent(state: ConversationState, event: StreamE
   const runId: string | undefined = data?.runId
   const depth = data?.depth || 0
   next.mainOutputs = reduceMainOutputEvent(state.mainOutputs, event, runId ? state.modelByRun[runId] : undefined)
-  if (['model_request', 'model_retry', 'model_delta', 'model_reasoning_delta', 'model_result', 'tool', 'source', 'agent_task', 'checklist', 'artifact', 'job', 'context_notice', 'run_finished'].includes(event.kind)) next.processEvents = [...state.processEvents, event].slice(-1500)
+  if (['model_request', 'model_retry', 'model_delta', 'model_reasoning_delta', 'model_result', 'tool', 'source', 'agent_task', 'checklist', 'artifact', 'job', 'run_finished'].includes(event.kind)) next.processEvents = [...state.processEvents, event].slice(-1500)
   if (event.kind === 'message' && data?.role === 'user' && runId && event.sequence >= state.activeRunSequence) {
     next.activeRunID = runId
     next.activeRunSequence = event.sequence
@@ -195,7 +194,10 @@ export function reduceConversationEvent(state: ConversationState, event: StreamE
   }
   if (event.kind.startsWith('input_') && next.selected) next.selected = { ...next.selected,
     pendingInputCount: next.queuedInputs.filter(input => ['queued', 'paused'].includes(input.status)).length }
-  if (event.kind === 'context_notice' && !depth) next.contextNotices = [...next.contextNotices, { sequence: event.sequence, runId, message: data.message, summary: data.summary }].slice(-10)
+  if (event.kind === 'context_notice' && !depth && typeof data.summary === 'string' && data.summary.trim()) next = appendMessage(next, {
+    id: `context-summary/${event.sequence}`, runId: runId || '', sequence: event.sequence, createdAt: event.createdAt || '',
+    role: 'assistant', content: data.summary, contextSummary: true,
+  })
   if (event.kind === 'job' && data?.id) next.jobs = [data as Job, ...next.jobs.filter(item => item.id !== data.id)].sort((a, b) => Number(jobActive(b)) - Number(jobActive(a))).slice(0, 200)
   if (event.kind === 'job_output' && data?.id && Number.isSafeInteger(data.bytes) && data.bytes >= 0) next.jobs = next.jobs.map(job => job.id === data.id ? { ...job, bytes: Math.max(job.bytes, data.bytes) } : job)
   if (event.kind === 'artifact' && data?.id) next.artifacts = [data as Artifact, ...next.artifacts.filter(item => item.id !== data.id)].slice(0, 200)

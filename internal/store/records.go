@@ -663,7 +663,7 @@ func (s *Store) MessagesAfter(ctx context.Context, sessionID string, after int64
 	if limit < 1 || limit > 200 {
 		return nil, errors.New("invalid message page size")
 	}
-	rows, err := s.db.QueryContext(ctx, "SELECT id,run_id,sequence,role,content,created_at,provider_id,model_id,model_key,output_turn,output_bytes,(SELECT COUNT(*) FROM message_resources WHERE message_id=messages.id),(SELECT COALESCE(SUM(r.bytes),0) FROM message_resources JOIN resources r USING(hash) WHERE message_id=messages.id),EXISTS(SELECT 1 FROM events e WHERE e.session_id=messages.session_id AND e.sequence=messages.sequence AND e.kind='run_finished' AND json_extract(e.data,'$.status')='failed') FROM messages WHERE session_id=? AND sequence>? ORDER BY sequence LIMIT ?", sessionID, after, limit)
+	rows, err := s.reader().QueryContext(ctx, "SELECT id,run_id,sequence,role,content,created_at,provider_id,model_id,model_key,output_turn,output_bytes,(SELECT COUNT(*) FROM message_resources WHERE message_id=messages.id),(SELECT COALESCE(SUM(r.bytes),0) FROM message_resources JOIN resources r USING(hash) WHERE message_id=messages.id),EXISTS(SELECT 1 FROM events e WHERE e.session_id=messages.session_id AND e.sequence=messages.sequence AND e.kind='run_finished' AND json_extract(e.data,'$.status')='failed') FROM messages WHERE session_id=? AND sequence>? ORDER BY sequence LIMIT ?", sessionID, after, limit)
 	if err != nil {
 		return nil, err
 	}

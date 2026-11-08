@@ -56,7 +56,7 @@ export type CatalogCheckRecord = Pick<OMPCatalogInfo, 'revision' | 'modelsDevRev
   changed: boolean
   error?: string
 }
-export type Message = { failure?: boolean; id: string; runId: string; provider?: string; modelId?: string; modelKey?: string; outputTurn?: number; outputBytes?: number; imageCount?: number; sequence: number; resultsAfter?: number; role: string; content: string; createdAt: string; modelResults?: ModelResultView[] }
+export type Message = { failure?: boolean; contextSummary?: boolean; id: string; runId: string; provider?: string; modelId?: string; modelKey?: string; outputTurn?: number; outputBytes?: number; imageCount?: number; sequence: number; resultsAfter?: number; role: string; content: string; createdAt: string; modelResults?: ModelResultView[] }
 export type StreamEvent = { sequence: number; kind: string; createdAt?: string; data: any }
 export type SyncCheckpoint = { throughSequence: number; revertedSequence?: number; session: Session }
 export type ConversationSnapshot = SyncCheckpoint & { messages: Message[]; events: StreamEvent[]; hasOlder: boolean; hasOlderEvents: boolean; eventsBefore?: number }
@@ -66,7 +66,6 @@ export type RunOverview = { modelCalls: number; firstSequence?: number; throughS
 export type ModelDraft = { runId: string; turn: number; depth: number; sequence: number; content: string; finished: boolean }
 export type MainOutput = { runId: string; taskId: string; turn: number; sequence: number; lastSequence: number; createdAt: string; provider?: string; modelId?: string; modelKey?: string; bytes: number; complete: boolean }
 export type ModelResultView = { sequence: number; runId: string; turn: number; depth: number; createdAt?: string; taskId?: string; parentTaskId?: string; purpose?: string; provider: string; id: string; finishReason: string; reasoningEffort?: string; durationMs?: number; usage?: { inputTokens: number; outputTokens: number; cacheReadTokens: number; reasoningTokens: number } }
-export type ContextNotice = { sequence: number; runId?: string; message: string; summary?: string }
 export type CompactionStatus = { runId: string; phase: 'compacting' | 'compacted' | 'failed'; manual: boolean; error?: string; sequence?: number }
 export type ContextUsage = { tokens: number; sequence: number; runId?: string }
 export type ChecklistItem = { text: string; status: 'pending' | 'in_progress' | 'done' | 'blocked' }
