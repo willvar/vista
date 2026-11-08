@@ -34,7 +34,7 @@ func TestImagesPersistAcrossRunsWithoutEnteringEvents(t *testing.T) {
 	if err != nil || message.ImageCount != 3 || message.ImageBytes != 3*len(image.Data) || bytes.Contains(event.Data, image.Data) || len(event.Data) > 1024 {
 		t.Fatalf("image metadata/event: %+v %+v %v", message, event, err)
 	}
-	queued, queuedEvent, err := s.QueueInputWithImages(ctx, session, "queued-now", "now", "and this", []Image{image, image, image})
+	queued, queuedEvent, err := s.QueueInputWithImages(ctx, session, "queued-now", "and this", []Image{image, image, image})
 	if err != nil || queued.ImageCount != 3 || len(queuedEvent.Data) > 1024 {
 		t.Fatalf("queued image metadata/event: %+v %+v %v", queued, queuedEvent, err)
 	}
@@ -52,7 +52,7 @@ func TestImagesPersistAcrossRunsWithoutEnteringEvents(t *testing.T) {
 	if _, _, err := s.BeginRun(ctx, session, "run-2", "message-3", "next"); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := s.QueueInputWithImages(ctx, session, "queued-later", "later", "", []Image{image, image, image}); err != nil {
+	if _, _, err := s.QueueInputWithImages(ctx, session, "queued-later", "", []Image{image, image, image}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := s.FinishRun(ctx, session, "run-2", "answer-2", "succeeded", "ready"); err != nil {

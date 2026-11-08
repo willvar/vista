@@ -105,7 +105,7 @@ func TestWithdrawnAndDiscardedInputResourcesRemainSessionOwned(t *testing.T) {
 		image := fixtureImage(t)
 		image.Data = append(image.Data, byte(index))
 		image.Name = id + ".png"
-		if _, _, err := s.QueueInputWithImages(ctx, "session", id, "later", "keep", []Image{image}); err != nil {
+		if _, _, err := s.QueueInputWithImages(ctx, "session", id, "keep", []Image{image}); err != nil {
 			t.Fatal(err)
 		}
 		_, refs, _, err := s.RemoveInput(ctx, "session", id, withdraw)
@@ -222,7 +222,7 @@ func TestResourceCleanupSerializesWithReferenceCommit(t *testing.T) {
 			for i := 0; i < 12; i++ {
 				var err error
 				if upload {
-					_, _, err = s.QueueInputWithImages(ctx, "session", strings.Repeat("q", i+1), "later", "", []Image{image})
+					_, _, err = s.QueueInputWithImages(ctx, "session", strings.Repeat("q", i+1), "", []Image{image})
 				} else {
 					_, _, err = s.CleanResources(ctx, nil)
 				}

@@ -1,13 +1,13 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import { Button, TextArea } from './ui'
-import { DeleteOutlined, EditOutlined, RollbackOutlined, ArrowUpOutlined, PlayCircleOutlined } from '@antdv-next/icons'
+import { DeleteOutlined, EditOutlined, RollbackOutlined, PlayCircleOutlined } from '@antdv-next/icons'
 import { useI18n } from 'vue-i18n'
 import ConfirmPopover from './ConfirmPopover.vue'
 import type { QueuedInput } from './client/types'
 const props = defineProps<{
   items: QueuedInput[]; paused: boolean; busy: Record<string, boolean>
-  mutate: (input: QueuedInput, action: 'edit' | 'delete' | 'withdraw', patch?: { content?: string; mode?: 'now' | 'later' }) => Promise<boolean>
+  mutate: (input: QueuedInput, action: 'edit' | 'delete' | 'withdraw', patch?: { content?: string }) => Promise<boolean>
 }>()
 const emit = defineEmits<{ resume: [] }>()
 const { t } = useI18n()
@@ -34,7 +34,7 @@ async function remove(item: QueuedInput) {
     <div class="pending-inputs-heading"><span>{{ allPaused ? t('pendingPaused') : t('pendingInput') }} <small>{{ items.length }}</small></span><Button v-if="paused" :aria-label="t('resumePending')" variant="text" @click="emit('resume')"><PlayCircleOutlined />{{ t('resumePending') }}</Button></div>
     <div class="pending-input-list">
       <div v-for="item in items" :key="item.id" class="pending-input" :data-input-id="item.id">
-        <div class="pending-input-label"><span>{{ item.status === 'paused' ? t('pendingPausedItem') : item.mode === 'now' ? t('waitingToSteer') : t('waitingToQueue') }}</span><small v-if="item.imageCount">{{ t('imageCount', { count: item.imageCount }) }}</small></div>
+        <div class="pending-input-label"><span>{{ item.status === 'paused' ? t('pendingPausedItem') : t('waitingToSteer') }}</span><small v-if="item.imageCount">{{ t('imageCount', { count: item.imageCount }) }}</small></div>
         <form v-if="editing === item.id" class="pending-input-edit" @submit.prevent="save(item)">
           <TextArea v-model:value="content" :auto-size="{ minRows: 1, maxRows: 4 }" :aria-label="t('editPending')" :disabled="busy[item.id]" />
           <div class="actions"><Button type="submit" :disabled="busy[item.id] || (!content.trim() && !item.imageCount)">{{ t('saveChanges') }}</Button><Button variant="text" @click="editing = ''">{{ t('cancel') }}</Button></div>
@@ -44,7 +44,6 @@ async function remove(item: QueuedInput) {
           <div class="pending-input-actions">
             <Button class="icon-button" variant="text" :title="t('editPending')" :aria-label="t('editPending')" :disabled="busy[item.id] || item.status === 'delivering'" @click="deleting = ''; editing = item.id; content = item.content"><EditOutlined /></Button>
             <Button class="icon-button" variant="text" :title="t('withdrawPending')" :aria-label="t('withdrawPending')" :disabled="busy[item.id] || item.status === 'delivering'" @click="mutate(item, 'withdraw')"><RollbackOutlined /></Button>
-            <Button class="icon-button" v-if="item.mode === 'later'" variant="text" :title="t('promotePending')" :aria-label="t('promotePending')" :disabled="busy[item.id] || item.status === 'delivering'" @click="mutate(item, 'edit', { mode: 'now' })"><ArrowUpOutlined /></Button>
             <ConfirmPopover :show="deleting === item.id" :message="t('deletePendingConfirm', { content: item.content || t('attachedImage') })" :cancel-text="t('cancel')" :confirm-text="t('delete')" :busy="busy[item.id]" popover-class="pending-delete-popover" @update:show="deleting = $event ? item.id : ''" @confirm="remove(item)">
               <template #trigger><Button class="icon-button" variant="text" :title="t('deletePending')" :aria-label="t('deletePending')" :disabled="busy[item.id] || item.status === 'delivering'"><DeleteOutlined /></Button></template>
             </ConfirmPopover>

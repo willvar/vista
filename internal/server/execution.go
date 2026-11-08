@@ -42,7 +42,7 @@ func (a *App) submitMessage(w http.ResponseWriter, r *http.Request, sessionID st
 	var input struct {
 		ReplacesMessageID string          `json:"replacesMessageId"`
 		Content           string          `json:"content"`
-		Mode              string          `json:"mode"`
+		Mode              string          `json:"mode"` // Legacy immediate sends remain accepted.
 		ModelKey          string          `json:"modelKey"`
 		ReasoningEffort   string          `json:"reasoningEffort"`
 		SelectionMode     string          `json:"selectionMode"`
@@ -82,11 +82,8 @@ func (a *App) submitMessage(w http.ResponseWriter, r *http.Request, sessionID st
 		}
 	}
 
-	if input.Mode == "" {
-		input.Mode = "now"
-	}
-	if input.Mode != "now" && input.Mode != "later" {
-		http.Error(w, "mode must be now or later", 400)
+	if input.Mode != "" && input.Mode != "now" {
+		http.Error(w, "deferred sending is not supported", http.StatusBadRequest)
 		return
 	}
 	item, err := a.store.Get(r.Context(), sessionID)
@@ -103,8 +100,8 @@ func (a *App) submitMessage(w http.ResponseWriter, r *http.Request, sessionID st
 			http.Error(w, "a question reply cannot replace a message", 400)
 			return
 		}
-		if input.Content != "" || len(input.Images) != 0 || input.Mode != "now" {
-			http.Error(w, "submit a question reply without additional content, images, or queue mode", http.StatusBadRequest)
+		if input.Content != "" || len(input.Images) != 0 {
+			http.Error(w, "submit a question reply without additional content or images", http.StatusBadRequest)
 			return
 		}
 		if item.Pending == nil || item.Pending.Kind != "question" || input.QuestionReply.RunID == "" || item.Pending.RunID != input.QuestionReply.RunID {
@@ -218,11 +215,7 @@ func (a *App) submitMessage(w http.ResponseWriter, r *http.Request, sessionID st
 		if len(images) > 0 {
 			allowed := false
 			for _, entry := range catalog.Models {
-				matches := entry.Key == key || mode == "auto" && input.Mode == "later"
-				if input.Mode == "now" && runningErr == nil {
-					matches = entry.Key == item.ModelKey
-				}
-				if matches && slices.Contains(entry.EffectiveInputModalities(), "image") && supportsImageInput(entry.Provider) {
+				if entry.Key == item.ModelKey && slices.Contains(entry.EffectiveInputModalities(), "image") && supportsImageInput(entry.Provider) {
 					allowed = true
 					break
 				}
@@ -232,7 +225,7 @@ func (a *App) submitMessage(w http.ResponseWriter, r *http.Request, sessionID st
 				return
 			}
 		}
-		queued, event, queueErr := a.store.QueueInputWithDiagnostics(r.Context(), sessionID, messageID, input.Mode, input.Content, images, debug, key, effort, mode, tier)
+		queued, event, queueErr := a.store.QueueInputWithDiagnostics(r.Context(), sessionID, messageID, input.Content, images, debug, key, effort, mode, tier)
 		if queueErr == nil {
 			a.notifySession(sessionID, "sessions")
 			w.WriteHeader(202)

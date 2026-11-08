@@ -318,7 +318,7 @@ func TestInterjectedRepliesAndLongToolHistoryRestoreInOrder(t *testing.T) {
 			return nil, nil
 		}
 		interjected = true
-		if _, _, err := db.QueueInput(ctx, "session", "follow-up", "now", "Add the new constraint."); err != nil {
+		if _, _, err := db.QueueInput(ctx, "session", "follow-up", "Add the new constraint."); err != nil {
 			return nil, err
 		}
 		message, err := db.DeliverInput(ctx, "session", "first", "follow-up", "u2", store.CompletedReply{ID: "a1", Content: reply.Content, Output: store.ModelOutputRef{Turn: reply.Turn, Bytes: reply.FullBytes}})

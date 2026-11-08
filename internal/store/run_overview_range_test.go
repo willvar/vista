@@ -37,7 +37,7 @@ func TestRunOverviewRangeSeparatesRepliesToolsAndChecklists(t *testing.T) {
 	if _, err := st.AppendModelDelta(ctx, "session", "run", 1, 0, firstAnswer); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := st.QueueInput(ctx, "session", "follow-up", "now", "Check another price."); err != nil {
+	if _, _, err := st.QueueInput(ctx, "session", "follow-up", "Check another price."); err != nil {
 		t.Fatal(err)
 	}
 	followup, err := st.DeliverInput(ctx, "session", "run", "follow-up", "second-user", CompletedReply{ID: "first-reply", Content: firstAnswer, Output: ModelOutputRef{Turn: 1, Bytes: len(firstAnswer)}})

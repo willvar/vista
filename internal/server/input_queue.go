@@ -82,27 +82,19 @@ func (a *App) inputQueue(w http.ResponseWriter, r *http.Request, sessionID strin
 		r.Body = http.MaxBytesReader(w, r.Body, 64<<10)
 		var update struct {
 			Content *string `json:"content"`
-			Mode    *string `json:"mode"`
 		}
 		decoder := json.NewDecoder(r.Body)
 		decoder.DisallowUnknownFields()
-		if decoder.Decode(&update) != nil || decoder.Decode(new(any)) != io.EOF || update.Content == nil && update.Mode == nil {
+		if decoder.Decode(&update) != nil || decoder.Decode(new(any)) != io.EOF || update.Content == nil {
 			http.Error(w, "invalid input update", http.StatusBadRequest)
 			return
 		}
-		if update.Content != nil {
-			trimmed := strings.TrimSpace(*update.Content)
-			update.Content = &trimmed
-			if len(trimmed) > workerproto.MaxPromptBytes {
-				http.Error(w, "input text exceeds 8192 bytes", http.StatusBadRequest)
-				return
-			}
-		}
-		if update.Mode != nil && *update.Mode != "now" && *update.Mode != "later" {
-			http.Error(w, "mode must be now or later", http.StatusBadRequest)
+		content := strings.TrimSpace(*update.Content)
+		if len(content) > workerproto.MaxPromptBytes {
+			http.Error(w, "input text exceeds 8192 bytes", http.StatusBadRequest)
 			return
 		}
-		input, event, err := a.store.UpdateInput(r.Context(), sessionID, id.String(), update.Content, update.Mode)
+		input, event, err := a.store.UpdateInput(r.Context(), sessionID, id.String(), content)
 		if err != nil {
 			inputHTTPError(w, err)
 			return

@@ -128,7 +128,7 @@ func TestRevertRemovesFutureContextAndPreservesSequence(t *testing.T) {
 	s.RecordModelHistory(ctx, "s", workerproto.Result{RunID: "r2", Turn: 1, Status: "assistant", History: &workerproto.ModelHistory{Path: "discard.gob"}})
 	s.AppendRunEvent(ctx, "s", "r2", "context_notice", map[string]any{"depth": 0, "checkpoint": workerproto.ContextCheckpoint{Path: "future-checkpoint.gob", ThroughSequence: target.Sequence}})
 	s.ReplaceChecklist(ctx, "s", "r2", []ChecklistItem{{Text: "future checklist", Status: "done"}})
-	s.QueueInput(ctx, "s", "queue", "later", "discard queued input")
+	s.QueueInput(ctx, "s", "queue", "discard queued input")
 	s.FinishRun(ctx, "s", "r2", "a2", "succeeded", "future answer")
 	before, _ := s.EventsAfter(ctx, "s", 0, 200)
 	event, err := s.Revert(ctx, "s", target.ID, target.Sequence)
@@ -178,7 +178,7 @@ func TestRevertInterjectionKeepsEarlierReplyAndOutput(t *testing.T) {
 	s.BeginRun(ctx, "s", "run", "original", "first")
 	s.AppendModelDelta(ctx, "s", "run", 1, 0, "first answer")
 	s.RecordModelHistory(ctx, "s", workerproto.Result{RunID: "run", Turn: 1, Status: "assistant", History: &workerproto.ModelHistory{Path: "first.gob"}})
-	s.QueueInput(ctx, "s", "input", "now", "second")
+	s.QueueInput(ctx, "s", "input", "second")
 	target, err := s.DeliverInput(ctx, "s", "run", "input", "interjection", CompletedReply{ID: "first-reply", Content: "first answer", Output: ModelOutputRef{Turn: 1, Bytes: 12}})
 	if err != nil || target == nil {
 		t.Fatal(err)

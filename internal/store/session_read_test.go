@@ -28,7 +28,7 @@ func TestSessionListSummarizesRepliesQueueAndLatestRun(t *testing.T) {
 	if _, err := s.FinishRunWithPending(ctx, "question", "question-run", "question-reply", "succeeded", pending.Content, pending); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := s.QueueInput(ctx, "failed", "queued", "later", "follow-up"); err != nil {
+	if _, _, err := s.QueueInput(ctx, "failed", "queued", "follow-up"); err != nil {
 		t.Fatal(err)
 	}
 	for _, id := range []string{"failed", "empty"} {

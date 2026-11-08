@@ -199,7 +199,7 @@ test('quoted selections preserve the draft and become ordinary persisted user co
   assert.equal(conversation.draft.value, 'Explain this part.')
   assert.deepEqual(JSON.parse(saved.get(quoteStoragePrefix + 'a')!), conversation.quotedText.value)
   await conversation.send()
-  assert.deepEqual(sent, [{ content: '> First line\n> 第二行 café 🙂\n\nExplain this part.', mode: 'now',
+  assert.deepEqual(sent, [{ content: '> First line\n> 第二行 café 🙂\n\nExplain this part.',
     modelKey: 'example', reasoningEffort: 'low', selectionMode: 'manual', selectionTier: 'speed', images: [] }])
   assert.equal(conversation.messages.value.at(-1)?.content, sent[0]!.content)
   assert.equal(conversation.quotedText.value, null)
@@ -283,7 +283,7 @@ for (const fail of [false, true]) {
     busy.value = true
     assert.equal(signal?.aborted, true)
     if (fail) load.reject(new Error('old A failure'))
-    else load.resolve([{ id: 'old-a-input', mode: 'now', status: 'queued', content: 'old' }])
+    else load.resolve([{ id: 'old-a-input', status: 'queued', content: 'old' }])
     await oldSelection
     assert.equal(conversation.selected.value?.id, 'b')
     assert.deepEqual(conversation.messages.value.map(item => item.id), ['b-history'])
@@ -380,7 +380,7 @@ test('selecting the same session again still rejects the previous generation', a
   conversation.draft.value = 'new generation draft'
   busy.value = true
   error.value = 'current generation error'
-  oldInputs.resolve([{ id: 'old-generation-input', mode: 'now', status: 'queued', content: 'old' }])
+  oldInputs.resolve([{ id: 'old-generation-input', status: 'queued', content: 'old' }])
   await firstLoad
   assert.equal(oldSignal?.aborted, true)
   assert.equal(conversation.draft.value, 'new generation draft')
@@ -625,8 +625,8 @@ test('hiding the only selected model clears selection across mode changes and re
 
 test('queued inputs are not clipped and withdrawing appends to the existing draft', async t => {
   const { conversation } = fixture(t, (path, options) => {
-    if (path.endsWith('/inputs')) return Promise.resolve(Array.from({ length: 30 }, (_, index) => ({ id: 'pending-' + index, mode: 'later', status: 'queued', content: 'Pending ' + index })))
-    if (path.endsWith('/withdraw') && options?.method === 'POST') return Promise.resolve({ input: { id: 'pending-0', mode: 'later', status: 'withdrawn', content: 'Restored note' }, images: [] })
+    if (path.endsWith('/inputs')) return Promise.resolve(Array.from({ length: 30 }, (_, index) => ({ id: 'pending-' + index, status: 'queued', content: 'Pending ' + index })))
+    if (path.endsWith('/withdraw') && options?.method === 'POST') return Promise.resolve({ input: { id: 'pending-0', status: 'withdrawn', content: 'Restored note' }, images: [] })
   })
   await conversation.selectSession(session('a'))
   assert.equal(conversation.pendingInputs.value.length, 30)
@@ -637,7 +637,7 @@ test('queued inputs are not clipped and withdrawing appends to the existing draf
 })
 
 test('withdrawing a multi-image input retains all images alongside an existing attachment draft', async t => {
-  const input = { id: 'pictures', mode: 'later' as const, status: 'queued', content: '', imageCount: 4 }
+  const input = { id: 'pictures', status: 'queued', content: '', imageCount: 4 }
   const { conversation, error, client } = fixture(t, (path, options) => {
     if (path.endsWith('/inputs')) return Promise.resolve([input])
     if (path.endsWith('/withdraw') && options?.method === 'POST') return Promise.resolve({
@@ -665,7 +665,7 @@ test('withdrawing a multi-image input retains all images alongside an existing a
 for (const fail of [false, true]) {
   test(`a late withdrawn resource ${fail ? 'failure' : 'success'} cannot affect the next session`, async t => {
     const image = deferred<Blob>(), started = deferred<void>()
-    const input = { id: 'pictures', mode: 'later' as const, status: 'queued', content: 'Image note', imageCount: 1 }
+    const input = { id: 'pictures', status: 'queued', content: 'Image note', imageCount: 1 }
     const { conversation, client, error } = fixture(t, (path, options) => {
       if (path.endsWith('/inputs')) return Promise.resolve([input])
       if (path.endsWith('/withdraw') && options?.method === 'POST') return Promise.resolve({
@@ -709,7 +709,7 @@ test('feedback belongs to the reply and can be changed and removed without chang
 test('late input snapshot cannot resurrect a pending message already delivered by SSE', async t => {
   const delayed = deferred<unknown>()
   let reads = 0
-  const queued = { id: 'pending', mode: 'now', status: 'queued', content: 'Deliver once' }
+  const queued = { id: 'pending', status: 'queued', content: 'Deliver once' }
   const { conversation, streams } = fixture(t, path => {
     if (path.endsWith('/inputs')) return ++reads === 1 ? Promise.resolve([queued]) : delayed.promise
   })
@@ -951,7 +951,7 @@ test('the first welcome send creates one session and sends the exact chosen mode
   assert.deepEqual(posts.map(item => item.path), ['/sessions', '/sessions/first/resources?name=welcome.png', '/sessions/first/messages'])
   assert.deepEqual(posts[1].body, { name: 'welcome.png', bytes: 3 })
   assert.deepEqual(posts[2].body, {
-    content: 'Exact first message', images: [{ hash: 'a'.repeat(64), mediaType: 'image/png', name: 'welcome.png', bytes: 3 }], mode: 'now',
+    content: 'Exact first message', images: [{ hash: 'a'.repeat(64), mediaType: 'image/png', name: 'welcome.png', bytes: 3 }],
     modelKey: 'second', reasoningEffort: 'high', selectionMode: 'manual', selectionTier: 'speed',
   })
   assert.deepEqual(destinations, ['first'])
@@ -1012,7 +1012,7 @@ test('failure analysis sends once into a new conversation with the current selec
   await opening
   assert.deepEqual(posts.map(item => item.path), ['/sessions', '/sessions/analysis/messages'])
   assert.deepEqual({ ...posts[1]!.body, content: undefined }, {
-    content: undefined, images: [], mode: 'now', modelKey: 'example', reasoningEffort: 'high', selectionMode: 'manual', selectionTier: 'speed',
+    content: undefined, images: [], modelKey: 'example', reasoningEffort: 'high', selectionMode: 'manual', selectionTier: 'speed',
   })
   assert.ok(String(posts[1]!.body.content).startsWith('failureAnalysisPrompt'))
   assert.ok(!String(posts[1]!.body.content).includes('<|start|>'))
@@ -1138,7 +1138,7 @@ test('the initial automatic send carries mode and tier while keeping remembered 
   conversation.chooseSelectionTier('quality')
   conversation.draft.value = 'Automatically select'
   await conversation.send()
-  assert.deepEqual(submitted, { content: 'Automatically select', images: [], mode: 'now', selectionMode: 'auto', selectionTier: 'quality' })
+  assert.deepEqual(submitted, { content: 'Automatically select', images: [], selectionMode: 'auto', selectionTier: 'quality' })
   assert.equal(saved.get('vista-last-model'), remembered)
 })
 
@@ -1515,10 +1515,10 @@ test('editing submits one replacement request and reloads authoritative history'
   await conversation.selectSession(session('a'))
   await conversation.beginEditMessage(original)
   conversation.draft.value = 'Edited question'
-  await conversation.send('later')
+  await conversation.send()
   assert.equal(sent.length, 1)
   assert.equal(sent[0]!.replacesMessageId, original.id)
-  assert.equal(sent[0]!.mode, 'now')
+  assert.equal('mode' in sent[0]!, false)
   assert.equal(conversation.editingMessage.value, null)
   assert.equal(conversation.messages.value[0]?.id, replacement.id)
   assert.equal(conversation.draft.value, '')

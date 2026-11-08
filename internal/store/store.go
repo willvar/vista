@@ -94,7 +94,6 @@ type QueuedInput struct {
 	ReasoningEffort string `json:"reasoningEffort,omitempty"`
 	SelectionMode   string `json:"selectionMode,omitempty"`
 	SelectionTier   string `json:"selectionTier,omitempty"`
-	Mode            string `json:"mode"`
 	Status          string `json:"status"`
 	Content         string `json:"content"`
 	ImageCount      int    `json:"imageCount,omitempty"`

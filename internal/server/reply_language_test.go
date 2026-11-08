@@ -40,7 +40,7 @@ func TestReplyLanguageReachesRunDispatchAndQueuedInterjection(t *testing.T) {
 	if err := json.NewDecoder(sink).Decode(&command); err != nil || command.ReplyLanguage != "pt-PT" {
 		t.Fatalf("dispatch: %+v %v", command, err)
 	}
-	if _, _, err := app.store.QueueInput(app.ctx, session, "queued", "now", "Continue"); err != nil {
+	if _, _, err := app.store.QueueInput(app.ctx, session, "queued", "Continue"); err != nil {
 		t.Fatal(err)
 	}
 	if !save("de-CH") {

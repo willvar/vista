@@ -12,15 +12,15 @@ import (
 var ErrNotRunning = errors.New("session has no running execution")
 var ErrInputConsumed = errors.New("input has already been delivered or removed")
 
-func (s *Store) QueueInput(ctx context.Context, sessionID, inputID, mode, content string, modelKey ...string) (QueuedInput, Event, error) {
-	return s.QueueInputWithImages(ctx, sessionID, inputID, mode, content, nil, modelKey...)
+func (s *Store) QueueInput(ctx context.Context, sessionID, inputID, content string, modelKey ...string) (QueuedInput, Event, error) {
+	return s.QueueInputWithImages(ctx, sessionID, inputID, content, nil, modelKey...)
 }
 
-func (s *Store) QueueInputWithImages(ctx context.Context, sessionID, inputID, mode, content string, images []Image, modelKey ...string) (QueuedInput, Event, error) {
-	return s.QueueInputWithDiagnostics(ctx, sessionID, inputID, mode, content, images, false, modelKey...)
+func (s *Store) QueueInputWithImages(ctx context.Context, sessionID, inputID, content string, images []Image, modelKey ...string) (QueuedInput, Event, error) {
+	return s.QueueInputWithDiagnostics(ctx, sessionID, inputID, content, images, false, modelKey...)
 }
 
-func (s *Store) QueueInputWithDiagnostics(ctx context.Context, sessionID, inputID, mode, content string, images []Image, debug bool, modelKey ...string) (QueuedInput, Event, error) {
+func (s *Store) QueueInputWithDiagnostics(ctx context.Context, sessionID, inputID, content string, images []Image, debug bool, modelKey ...string) (QueuedInput, Event, error) {
 	unlock, lockErr := s.lockImages(ctx, images)
 	if lockErr != nil {
 		return QueuedInput{}, Event{}, lockErr
@@ -28,9 +28,6 @@ func (s *Store) QueueInputWithDiagnostics(ctx context.Context, sessionID, inputI
 	defer unlock()
 	if err := ValidateImages(images); err != nil {
 		return QueuedInput{}, Event{}, err
-	}
-	if mode != "now" && mode != "later" {
-		return QueuedInput{}, Event{}, errors.New("invalid input delivery mode")
 	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -57,7 +54,7 @@ func (s *Store) QueueInputWithDiagnostics(ctx context.Context, sessionID, inputI
 	if compacting {
 		return QueuedInput{}, Event{}, ErrBusy
 	}
-	input := QueuedInput{Debug: debug, ID: inputID, SessionID: sessionID, RunID: runID, Mode: mode, Status: "queued", Content: content, ImageCount: len(images), CreatedAt: time.Now().UTC().Format(time.RFC3339Nano)}
+	input := QueuedInput{Debug: debug, ID: inputID, SessionID: sessionID, RunID: runID, Status: "queued", Content: content, ImageCount: len(images), CreatedAt: time.Now().UTC().Format(time.RFC3339Nano)}
 	if len(modelKey) > 0 {
 		input.ModelKey = modelKey[0]
 	}
@@ -70,7 +67,8 @@ func (s *Store) QueueInputWithDiagnostics(ctx context.Context, sessionID, inputI
 	if len(modelKey) > 3 {
 		input.SelectionTier = modelKey[3]
 	}
-	if _, err := tx.ExecContext(ctx, "INSERT INTO queued_inputs(id,session_id,run_id,model_key,reasoning_effort,selection_mode,selection_tier,mode,status,content,image_count,created_at,debug) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)", input.ID, input.SessionID, input.RunID, input.ModelKey, input.ReasoningEffort, input.SelectionMode, input.SelectionTier, input.Mode, input.Status, input.Content, input.ImageCount, input.CreatedAt, input.Debug); err != nil {
+	// Keep writing the retired column for compatibility with existing databases.
+	if _, err := tx.ExecContext(ctx, "INSERT INTO queued_inputs(id,session_id,run_id,model_key,reasoning_effort,selection_mode,selection_tier,mode,status,content,image_count,created_at,debug) VALUES(?,?,?,?,?,?,?,'now',?,?,?,?,?)", input.ID, input.SessionID, input.RunID, input.ModelKey, input.ReasoningEffort, input.SelectionMode, input.SelectionTier, input.Status, input.Content, input.ImageCount, input.CreatedAt, input.Debug); err != nil {
 		return QueuedInput{}, Event{}, err
 	}
 	if err := s.writeImages(ctx, tx, sessionID, "queued_input_resources", "input_id", input.ID, images); err != nil {
@@ -108,8 +106,8 @@ func (s *Store) DeliverInput(ctx context.Context, sessionID, runID, inputID, mes
 	}
 	defer tx.Rollback()
 	var input QueuedInput
-	err = tx.QueryRowContext(ctx, "SELECT id,session_id,run_id,model_key,reasoning_effort,selection_mode,selection_tier,mode,status,content,image_count,created_at,debug FROM queued_inputs WHERE id=? AND session_id=?", inputID, sessionID).Scan(&input.ID, &input.SessionID, &input.RunID, &input.ModelKey, &input.ReasoningEffort, &input.SelectionMode, &input.SelectionTier, &input.Mode, &input.Status, &input.Content, &input.ImageCount, &input.CreatedAt, &input.Debug)
-	if errors.Is(err, sql.ErrNoRows) || (err == nil && (input.RunID != runID || input.Mode != "now" || input.Status != "queued")) {
+	err = tx.QueryRowContext(ctx, "SELECT id,session_id,run_id,model_key,reasoning_effort,selection_mode,selection_tier,status,content,image_count,created_at,debug FROM queued_inputs WHERE id=? AND session_id=?", inputID, sessionID).Scan(&input.ID, &input.SessionID, &input.RunID, &input.ModelKey, &input.ReasoningEffort, &input.SelectionMode, &input.SelectionTier, &input.Status, &input.Content, &input.ImageCount, &input.CreatedAt, &input.Debug)
+	if errors.Is(err, sql.ErrNoRows) || (err == nil && (input.RunID != runID || input.Status != "queued")) {
 		return nil, nil
 	}
 	if err != nil {
@@ -196,7 +194,7 @@ func appendCompletedReply(ctx context.Context, tx *sql.Tx, sessionID, runID stri
 
 func (s *Store) NextQueuedInput(ctx context.Context, sessionID string) (*QueuedInput, error) {
 	var input QueuedInput
-	err := s.db.QueryRowContext(ctx, "SELECT q.id,q.session_id,q.run_id,q.model_key,q.reasoning_effort,q.selection_mode,q.selection_tier,q.mode,q.status,q.content,q.image_count,q.created_at,q.debug FROM queued_inputs q JOIN sessions s ON s.id=q.session_id WHERE q.session_id=? AND q.status='queued' AND s.pending_kind<>'question' ORDER BY q.created_at,q.id LIMIT 1", sessionID).Scan(&input.ID, &input.SessionID, &input.RunID, &input.ModelKey, &input.ReasoningEffort, &input.SelectionMode, &input.SelectionTier, &input.Mode, &input.Status, &input.Content, &input.ImageCount, &input.CreatedAt, &input.Debug)
+	err := s.db.QueryRowContext(ctx, "SELECT q.id,q.session_id,q.run_id,q.model_key,q.reasoning_effort,q.selection_mode,q.selection_tier,q.status,q.content,q.image_count,q.created_at,q.debug FROM queued_inputs q JOIN sessions s ON s.id=q.session_id WHERE q.session_id=? AND q.status='queued' AND s.pending_kind<>'question' ORDER BY q.created_at,q.id LIMIT 1", sessionID).Scan(&input.ID, &input.SessionID, &input.RunID, &input.ModelKey, &input.ReasoningEffort, &input.SelectionMode, &input.SelectionTier, &input.Status, &input.Content, &input.ImageCount, &input.CreatedAt, &input.Debug)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
@@ -213,7 +211,7 @@ func (s *Store) BeginQueuedRun(ctx context.Context, sessionID, inputID, runID, m
 	}
 	defer tx.Rollback()
 	var input QueuedInput
-	err = tx.QueryRowContext(ctx, "SELECT id,session_id,run_id,model_key,reasoning_effort,selection_mode,selection_tier,mode,status,content,image_count,created_at,debug FROM queued_inputs WHERE id=? AND session_id=?", inputID, sessionID).Scan(&input.ID, &input.SessionID, &input.RunID, &input.ModelKey, &input.ReasoningEffort, &input.SelectionMode, &input.SelectionTier, &input.Mode, &input.Status, &input.Content, &input.ImageCount, &input.CreatedAt, &input.Debug)
+	err = tx.QueryRowContext(ctx, "SELECT id,session_id,run_id,model_key,reasoning_effort,selection_mode,selection_tier,status,content,image_count,created_at,debug FROM queued_inputs WHERE id=? AND session_id=?", inputID, sessionID).Scan(&input.ID, &input.SessionID, &input.RunID, &input.ModelKey, &input.ReasoningEffort, &input.SelectionMode, &input.SelectionTier, &input.Status, &input.Content, &input.ImageCount, &input.CreatedAt, &input.Debug)
 	if err != nil {
 		return nil, err
 	}
@@ -272,7 +270,7 @@ func (s *Store) BeginQueuedRun(ctx context.Context, sessionID, inputID, runID, m
 	if _, err := tx.ExecContext(ctx, "UPDATE queued_inputs SET status='delivered',run_id=? WHERE id=?", runID, inputID); err != nil {
 		return nil, err
 	}
-	if _, err := tx.ExecContext(ctx, "UPDATE queued_inputs SET run_id=? WHERE session_id=? AND status='queued' AND mode='now'", runID, sessionID); err != nil {
+	if _, err := tx.ExecContext(ctx, "UPDATE queued_inputs SET run_id=? WHERE session_id=? AND status='queued'", runID, sessionID); err != nil {
 		return nil, err
 	}
 	if _, err := appendEvent(ctx, tx, sessionID, "message", message); err != nil {
@@ -359,7 +357,7 @@ func syncInputQueueState(ctx context.Context, tx *sql.Tx, sessionID string) erro
 }
 
 func (s *Store) RecentInputs(ctx context.Context, sessionID string) ([]QueuedInput, error) {
-	rows, err := s.db.QueryContext(ctx, "SELECT id,session_id,run_id,model_key,reasoning_effort,selection_mode,selection_tier,mode,status,content,image_count,created_at,debug FROM queued_inputs WHERE session_id=? AND (status IN ('queued','paused') OR id IN (SELECT id FROM queued_inputs WHERE session_id=? AND status NOT IN ('queued','paused') ORDER BY created_at DESC,id DESC LIMIT 20)) ORDER BY created_at,id", sessionID, sessionID)
+	rows, err := s.db.QueryContext(ctx, "SELECT id,session_id,run_id,model_key,reasoning_effort,selection_mode,selection_tier,status,content,image_count,created_at,debug FROM queued_inputs WHERE session_id=? AND (status IN ('queued','paused') OR id IN (SELECT id FROM queued_inputs WHERE session_id=? AND status NOT IN ('queued','paused') ORDER BY created_at DESC,id DESC LIMIT 20)) ORDER BY created_at,id", sessionID, sessionID)
 	if err != nil {
 		return nil, err
 	}
@@ -367,7 +365,7 @@ func (s *Store) RecentInputs(ctx context.Context, sessionID string) ([]QueuedInp
 	out := []QueuedInput{}
 	for rows.Next() {
 		var input QueuedInput
-		if err := rows.Scan(&input.ID, &input.SessionID, &input.RunID, &input.ModelKey, &input.ReasoningEffort, &input.SelectionMode, &input.SelectionTier, &input.Mode, &input.Status, &input.Content, &input.ImageCount, &input.CreatedAt, &input.Debug); err != nil {
+		if err := rows.Scan(&input.ID, &input.SessionID, &input.RunID, &input.ModelKey, &input.ReasoningEffort, &input.SelectionMode, &input.SelectionTier, &input.Status, &input.Content, &input.ImageCount, &input.CreatedAt, &input.Debug); err != nil {
 			return nil, err
 		}
 		out = append(out, input)
@@ -377,10 +375,10 @@ func (s *Store) RecentInputs(ctx context.Context, sessionID string) ([]QueuedInp
 
 func (s *Store) NextInterjection(ctx context.Context, sessionID, runID string) (*QueuedInput, error) {
 	var input QueuedInput
-	err := s.db.QueryRowContext(ctx, `SELECT q.id,q.session_id,q.run_id,q.model_key,q.reasoning_effort,q.selection_mode,q.selection_tier,q.mode,q.status,q.content,q.image_count,q.created_at,q.debug
+	err := s.db.QueryRowContext(ctx, `SELECT q.id,q.session_id,q.run_id,q.model_key,q.reasoning_effort,q.selection_mode,q.selection_tier,q.status,q.content,q.image_count,q.created_at,q.debug
  FROM queued_inputs q JOIN runs r ON r.id=q.run_id
- WHERE q.session_id=? AND q.run_id=? AND q.mode='now' AND q.status='queued' AND r.status='running'
- ORDER BY q.created_at,q.id LIMIT 1`, sessionID, runID).Scan(&input.ID, &input.SessionID, &input.RunID, &input.ModelKey, &input.ReasoningEffort, &input.SelectionMode, &input.SelectionTier, &input.Mode, &input.Status, &input.Content, &input.ImageCount, &input.CreatedAt, &input.Debug)
+ WHERE q.session_id=? AND q.run_id=? AND q.status='queued' AND r.status='running'
+ ORDER BY q.created_at,q.id LIMIT 1`, sessionID, runID).Scan(&input.ID, &input.SessionID, &input.RunID, &input.ModelKey, &input.ReasoningEffort, &input.SelectionMode, &input.SelectionTier, &input.Status, &input.Content, &input.ImageCount, &input.CreatedAt, &input.Debug)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
@@ -401,7 +399,7 @@ func (s *Store) QueuedInputImages(ctx context.Context, sessionID, inputID string
 
 // UpdateInput and delivery each own a database transaction, so an acknowledged
 // edit or withdrawal cannot race a Worker into executing an older copy.
-func (s *Store) UpdateInput(ctx context.Context, sessionID, inputID string, content, mode *string) (QueuedInput, Event, error) {
+func (s *Store) UpdateInput(ctx context.Context, sessionID, inputID, content string) (QueuedInput, Event, error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return QueuedInput{}, Event{}, err
@@ -414,28 +412,18 @@ func (s *Store) UpdateInput(ctx context.Context, sessionID, inputID string, cont
 	if input.Status != "queued" && input.Status != "paused" {
 		return QueuedInput{}, Event{}, ErrInputConsumed
 	}
-	if content != nil {
-		input.Content = *content
-	}
-	if mode != nil {
-		if *mode != "now" && *mode != "later" {
-			return QueuedInput{}, Event{}, errors.New("invalid input delivery mode")
-		}
-		input.Mode = *mode
-	}
+	input.Content = content
 	if input.Content == "" && input.ImageCount == 0 || len(input.Content) > 8<<10 {
 		return QueuedInput{}, Event{}, errors.New("input must have text or an image; text is limited to 8192 bytes")
 	}
-	if input.Mode == "now" {
-		var running string
-		err := tx.QueryRowContext(ctx, "SELECT id FROM runs WHERE session_id=? AND status='running'", sessionID).Scan(&running)
-		if err == nil {
-			input.RunID = running
-		} else if !errors.Is(err, sql.ErrNoRows) {
-			return QueuedInput{}, Event{}, err
-		}
+	var running string
+	err = tx.QueryRowContext(ctx, "SELECT id FROM runs WHERE session_id=? AND status='running'", sessionID).Scan(&running)
+	if err == nil {
+		input.RunID = running
+	} else if !errors.Is(err, sql.ErrNoRows) {
+		return QueuedInput{}, Event{}, err
 	}
-	if _, err := tx.ExecContext(ctx, "UPDATE queued_inputs SET content=?,mode=?,run_id=? WHERE id=?", input.Content, input.Mode, input.RunID, input.ID); err != nil {
+	if _, err := tx.ExecContext(ctx, "UPDATE queued_inputs SET content=?,run_id=? WHERE id=?", input.Content, input.RunID, input.ID); err != nil {
 		return QueuedInput{}, Event{}, err
 	}
 	event, err := appendEvent(ctx, tx, sessionID, "input_updated", input)
@@ -447,7 +435,7 @@ func (s *Store) UpdateInput(ctx context.Context, sessionID, inputID string, cont
 
 func readInput(ctx context.Context, tx *sql.Tx, sessionID, inputID string) (QueuedInput, error) {
 	var input QueuedInput
-	err := tx.QueryRowContext(ctx, "SELECT id,session_id,run_id,model_key,reasoning_effort,selection_mode,selection_tier,mode,status,content,image_count,created_at,debug FROM queued_inputs WHERE id=? AND session_id=?", inputID, sessionID).Scan(&input.ID, &input.SessionID, &input.RunID, &input.ModelKey, &input.ReasoningEffort, &input.SelectionMode, &input.SelectionTier, &input.Mode, &input.Status, &input.Content, &input.ImageCount, &input.CreatedAt, &input.Debug)
+	err := tx.QueryRowContext(ctx, "SELECT id,session_id,run_id,model_key,reasoning_effort,selection_mode,selection_tier,status,content,image_count,created_at,debug FROM queued_inputs WHERE id=? AND session_id=?", inputID, sessionID).Scan(&input.ID, &input.SessionID, &input.RunID, &input.ModelKey, &input.ReasoningEffort, &input.SelectionMode, &input.SelectionTier, &input.Status, &input.Content, &input.ImageCount, &input.CreatedAt, &input.Debug)
 	return input, err
 }
 
@@ -524,7 +512,7 @@ func (s *Store) ResumeInputs(ctx context.Context, sessionID string) (Event, erro
 		return Event{}, err
 	}
 	// Rebind interjections when a resumed queue joins an execution started later.
-	if _, err := tx.ExecContext(ctx, "UPDATE queued_inputs SET run_id=(SELECT id FROM runs WHERE session_id=? AND status='running') WHERE session_id=? AND status='queued' AND mode='now' AND EXISTS(SELECT 1 FROM runs WHERE session_id=? AND status='running')", sessionID, sessionID, sessionID); err != nil {
+	if _, err := tx.ExecContext(ctx, "UPDATE queued_inputs SET run_id=(SELECT id FROM runs WHERE session_id=? AND status='running') WHERE session_id=? AND status='queued' AND EXISTS(SELECT 1 FROM runs WHERE session_id=? AND status='running')", sessionID, sessionID, sessionID); err != nil {
 		return Event{}, err
 	}
 	event, err := appendEvent(ctx, tx, sessionID, "input_queue_state", map[string]bool{"paused": false})

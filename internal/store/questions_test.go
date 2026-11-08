@@ -23,7 +23,7 @@ func TestQuestionPersistenceAndAtomicAnswers(t *testing.T) {
 	if _, _, err := db.BeginRun(ctx, "session", "ask", "input", "start"); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := db.QueueInput(ctx, "session", "queued", "later", "Follow-up after the question"); err != nil {
+	if _, _, err := db.QueueInput(ctx, "session", "queued", "Follow-up after the question"); err != nil {
 		t.Fatal(err)
 	}
 	questions := []question.Question{{Question: "Which path?", Options: []question.Option{{Label: "src", Description: "Source files"}, {Label: "web"}}}}

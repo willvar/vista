@@ -4,7 +4,7 @@ import type { Page } from '@playwright/test'
 import type { Message } from '../src/client/types'
 import { test, expect } from './fixtures'
 
-type Submission = { content: string; mode: 'now' | 'later' }
+type Submission = { content: string }
 type FixtureAPI = {
   origin: string
   modelId: string
@@ -37,7 +37,7 @@ async function mockConversation(page: Page, vista: FixtureAPI, options: { cancel
       const input = request.postDataJSON() as Submission
       sent.push(input)
       if (executing) return route.fulfill({ json: {
-        input: { id: `follow-up-input-${sent.length}`, mode: input.mode, status: 'queued', content: input.content },
+        input: { id: `follow-up-input-${sent.length}`, status: 'queued', content: input.content },
       } })
       return route.fulfill({ json: {
         message: { ...user, id: `idle-input-${sent.length}`, sequence: sent.length + 3, content: input.content },
@@ -78,7 +78,7 @@ async function mockConversation(page: Page, vista: FixtureAPI, options: { cancel
 }
 
 async function assertSend(
-  page: Page, sent: Submission[], content: string, mode: Submission['mode'], action: 'click' | 'Enter' | 'Control+Enter' | 'alternate',
+  page: Page, sent: Submission[], content: string, action: 'click' | 'Enter' | 'Control+Enter' | 'Meta+Enter',
 ) {
   const previous = sent.length
   const textarea = page.locator('.sender-card textarea')
@@ -86,15 +86,15 @@ async function assertSend(
   const send = page.getByRole('button', { name: 'Send', exact: true })
   await expect(send).toBeEnabled()
   if (action === 'click') await send.click()
-  else if (action === 'alternate') await page.locator('.alternate-delivery').click()
   else await textarea.press(action)
   await expect.poll(() => sent.length).toBe(previous + 1)
-  expect(sent.at(-1)).toMatchObject({ content, mode })
+  expect(sent.at(-1)).toMatchObject({ content })
+  expect(sent.at(-1)).not.toHaveProperty('mode')
   await expect(textarea).toHaveValue('')
   await expect(page.locator('.error')).toHaveCount(0)
 }
 
-test('running sends default to Steer, with Queue as the one-message override', async ({ page, vista }) => {
+test('all running send controls deliver at the next decision boundary', async ({ page, vista }) => {
   const fixture = await mockConversation(page, vista)
   const textarea = page.locator('.sender-card textarea')
   await textarea.fill('First line')
@@ -106,12 +106,11 @@ test('running sends default to Steer, with Queue as the one-message override', a
 
   const send = page.getByRole('button', { name: 'Send', exact: true })
   await expect(send).toHaveAttribute('title', /steer/i)
-  await expect(page.locator('.alternate-delivery')).toHaveText('Queue')
-  await expect(page.locator('.alternate-delivery')).toHaveAttribute('title', /Ctrl\/Cmd\+Enter/i)
-  await assertSend(page, fixture.sent, 'Default Send steers', 'now', 'click')
-  await assertSend(page, fixture.sent, 'Default Enter steers', 'now', 'Enter')
-  await assertSend(page, fixture.sent, 'Keyboard queues this message', 'later', 'Control+Enter')
-  await assertSend(page, fixture.sent, 'Alternate button queues this message', 'later', 'alternate')
+  await expect(page.getByRole('button', { name: 'Queue', exact: true })).toHaveCount(0)
+  await assertSend(page, fixture.sent, 'Default Send steers', 'click')
+  await assertSend(page, fixture.sent, 'Default Enter steers', 'Enter')
+  await assertSend(page, fixture.sent, 'Control Enter sends immediately', 'Control+Enter')
+  await assertSend(page, fixture.sent, 'Command Enter sends immediately', 'Meta+Enter')
   expect(fixture.cancellations()).toBe(0)
 })
 
@@ -131,7 +130,7 @@ test('sending from older history returns the conversation to the latest position
   await page.locator('.sender-card textarea').fill('Return to the newest message')
   await page.getByRole('button', { name: 'Send', exact: true }).click()
   await expect.poll(() => distance()).toBeLessThanOrEqual(3)
-  expect(fixture.sent.at(-1)).toMatchObject({ content: 'Return to the newest message', mode: 'now' })
+  expect(fixture.sent.at(-1)).toMatchObject({ content: 'Return to the newest message' })
 })
 
 test('stale Queue preferences cannot change Send or Enter after refresh', async ({ page, vista }) => {
@@ -153,10 +152,10 @@ test('stale Queue preferences cannot change Send or Enter after refresh', async 
   await page.goto(`${vista.origin}/settings/general?session=${fixture.session.id}`)
   await expect(page.getByRole('combobox', { name: 'Follow-up behavior', exact: true })).toHaveCount(0)
   await closeSettings(page)
-  await assertSend(page, fixture.sent, 'Send still inserts', 'now', 'click')
-  await assertSend(page, fixture.sent, 'Enter still inserts', 'now', 'Enter')
-  await assertSend(page, fixture.sent, 'Explicit Queue still queues', 'later', 'alternate')
-  await assertSend(page, fixture.sent, 'Shortcut still queues', 'later', 'Control+Enter')
+  await assertSend(page, fixture.sent, 'Send still inserts', 'click')
+  await assertSend(page, fixture.sent, 'Enter still inserts', 'Enter')
+  await expect(page.getByRole('button', { name: 'Queue', exact: true })).toHaveCount(0)
+  await assertSend(page, fixture.sent, 'Shortcut also sends immediately', 'Control+Enter')
   expect(preferenceWrites.every(patch => !('followUpBehavior' in patch))).toBe(true)
   expect(fixture.cancellations()).toBe(0)
 })
@@ -182,9 +181,9 @@ test('empty running composer only stops, and idle shortcuts start immediately', 
   await expect(textarea).toHaveValue('Idle line one\nIdle line two')
   expect(fixture.sent).toHaveLength(0)
   await expect(page.locator('.alternate-delivery')).toHaveCount(0)
-  await assertSend(page, fixture.sent, 'Idle Send starts immediately', 'now', 'click')
-  await assertSend(page, fixture.sent, 'Idle Enter starts immediately', 'now', 'Enter')
-  await assertSend(page, fixture.sent, 'Idle Ctrl+Enter starts immediately', 'now', 'Control+Enter')
+  await assertSend(page, fixture.sent, 'Idle Send starts immediately', 'click')
+  await assertSend(page, fixture.sent, 'Idle Enter starts immediately', 'Enter')
+  await assertSend(page, fixture.sent, 'Idle Ctrl+Enter starts immediately', 'Control+Enter')
   await expect(page.locator('.alternate-delivery')).toHaveCount(0)
   expect(fixture.cancellations()).toBe(1)
 })
@@ -216,6 +215,7 @@ test('Escape stops only the current running session, preserves drafts, and ignor
     await expect.poll(fixture.cancellations).toBe(before + 1)
     await expect(page.locator('.alternate-delivery')).toHaveCount(0)
     await expect(page.getByRole('button', { name: 'Stop current execution', exact: true })).toHaveCount(0)
+    await expect(page.locator('.sender-state')).toBeEmpty()
     await expect(textarea).toHaveValue(draft)
     await expect(original).toHaveText('Controlled follow-up fixture')
     await textarea.press('Escape')
@@ -235,7 +235,7 @@ test('Escape dismisses a dropdown, settings, context popup, or title editor befo
     if (fixture.cancellations()) {
       fixture.setExecuting(true)
       await page.reload()
-      await expect(page.locator('.alternate-delivery')).toBeVisible()
+      await expect(page.locator('.sender-state')).not.toBeEmpty()
     }
     const draft = `Preserve draft while closing ${overlay}`
     await textarea.fill(draft)

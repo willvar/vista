@@ -37,7 +37,7 @@ func TestManualCompactionExcludesOtherRunsAndInterruptsWithoutReply(t *testing.T
 			if _, _, err := db.BeginCompaction(ctx, "session", "twice"); !errors.Is(err, ErrBusy) {
 				t.Fatalf("duplicate compact: %v", err)
 			}
-			if _, _, err := db.QueueInputWithImages(ctx, "session", "queued", "now", "draft", nil); !errors.Is(err, ErrBusy) {
+			if _, _, err := db.QueueInputWithImages(ctx, "session", "queued", "draft", nil); !errors.Is(err, ErrBusy) {
 				t.Fatalf("interjection: %v", err)
 			}
 			if stop == "finish" {
@@ -150,7 +150,7 @@ func TestManualCompactionPreservesPausedInputs(t *testing.T) {
 				t.Fatal(err)
 			}
 			if hasPending {
-				if _, _, err := db.QueueInput(ctx, "session", "pending", "later", "another task"); err != nil {
+				if _, _, err := db.QueueInput(ctx, "session", "pending", "another task"); err != nil {
 					t.Fatal(err)
 				}
 			}

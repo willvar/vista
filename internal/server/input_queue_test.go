@@ -35,6 +35,61 @@ func inputQueueFixture(t *testing.T) (*App, string) {
 	return &App{ctx: context.Background(), store: db, dir: stateDir, workers: map[string]*worker{}}, id
 }
 
+func TestRunningMessageHasOnlyImmediateDelivery(t *testing.T) {
+	for _, mode := range []string{"", "now", "later", "invalid"} {
+		t.Run("mode="+mode, func(t *testing.T) {
+			app, session := inputQueueFixture(t)
+			app.models = modelCatalog{Default: "test", Models: []configuredModel{{Key: "test", Provider: "openai-chat", ID: "test", APIKey: "mock"}}}
+			body := map[string]string{"content": "handle this next"}
+			if mode != "" {
+				body["mode"] = mode
+			}
+			data, err := json.Marshal(body)
+			if err != nil {
+				t.Fatal(err)
+			}
+			response := httptest.NewRecorder()
+			app.submitMessage(response, httptest.NewRequest(http.MethodPost, "/messages", bytes.NewReader(data)), session)
+			inputs, err := app.store.RecentInputs(app.ctx, session)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if mode == "later" || mode == "invalid" {
+				if response.Code != http.StatusBadRequest || len(inputs) != 0 {
+					t.Fatalf("accepted a removed delivery mode: %d %s %+v", response.Code, response.Body.String(), inputs)
+				}
+				return
+			}
+			if response.Code != http.StatusAccepted || len(inputs) != 1 || strings.Contains(response.Body.String(), `"mode"`) {
+				t.Fatalf("submission: %d %s %+v", response.Code, response.Body.String(), inputs)
+			}
+			command, err := app.pullInterjection(app.ctx, session, "run")
+			if err != nil || command == nil || command.RunID != "run" || command.Prompt != "handle this next" {
+				t.Fatalf("not available during the active execution: %+v %v", command, err)
+			}
+		})
+	}
+}
+
+func TestPendingInputCannotBeChangedToDeferredDelivery(t *testing.T) {
+	app, session := inputQueueFixture(t)
+	const id = "00000000-0000-4000-8000-000000000058"
+	if _, _, err := app.store.QueueInput(app.ctx, session, id, "original"); err != nil {
+		t.Fatal(err)
+	}
+	for _, body := range []string{`{"mode":"later"}`, `{"content":"changed","mode":"later"}`} {
+		response := httptest.NewRecorder()
+		app.session(response, httptest.NewRequest(http.MethodPatch, "/api/sessions/"+session+"/inputs/"+id, strings.NewReader(body)))
+		if response.Code != http.StatusBadRequest {
+			t.Fatalf("deferred edit accepted: %d %s", response.Code, response.Body.String())
+		}
+	}
+	command, err := app.pullInterjection(app.ctx, session, "run")
+	if err != nil || command == nil || command.Prompt != "original" {
+		t.Fatalf("rejected edit changed delivery: %+v %v", command, err)
+	}
+}
+
 func TestWorkerPullReadsLatestInputAndCommitsBeforeAcknowledgment(t *testing.T) {
 	app, session := inputQueueFixture(t)
 	const answer = "answer before follow-up"
@@ -42,11 +97,11 @@ func TestWorkerPullReadsLatestInputAndCommitsBeforeAcknowledgment(t *testing.T) 
 		t.Fatal(err)
 	}
 	const id = "00000000-0000-4000-8000-000000000056"
-	if _, _, err := app.store.QueueInputWithImages(app.ctx, session, id, "later", "original", []store.Image{{MediaType: "image/png", Data: testPNG(t)}}); err != nil {
+	if _, _, err := app.store.QueueInputWithImages(app.ctx, session, id, "original", []store.Image{{MediaType: "image/png", Data: testPNG(t)}}); err != nil {
 		t.Fatal(err)
 	}
-	content, mode := "edited before boundary", "now"
-	if _, _, err := app.store.UpdateInput(app.ctx, session, id, &content, &mode); err != nil {
+	content := "edited before boundary"
+	if _, _, err := app.store.UpdateInput(app.ctx, session, id, content); err != nil {
 		t.Fatal(err)
 	}
 	sink := &contextNoticeAckSink{beforeWrite: func(data []byte) error {
@@ -85,7 +140,7 @@ func TestWorkerPullReadsLatestInputAndCommitsBeforeAcknowledgment(t *testing.T) 
 func TestInputQueueHTTPPreservesPauseAttachmentsAndConflicts(t *testing.T) {
 	app, session := inputQueueFixture(t)
 	const id = "00000000-0000-4000-8000-000000000057"
-	if _, _, err := app.store.QueueInputWithImages(app.ctx, session, id, "later", "keep", []store.Image{{MediaType: "image/png", Data: testPNG(t)}}); err != nil {
+	if _, _, err := app.store.QueueInputWithImages(app.ctx, session, id, "keep", []store.Image{{MediaType: "image/png", Data: testPNG(t)}}); err != nil {
 		t.Fatal(err)
 	}
 	call := func(method, suffix, body string) *httptest.ResponseRecorder {
@@ -96,7 +151,7 @@ func TestInputQueueHTTPPreservesPauseAttachmentsAndConflicts(t *testing.T) {
 	if err := app.store.MarkQueuedInputs(app.ctx, session, "", "interrupted"); err != nil {
 		t.Fatal(err)
 	}
-	if got := call(http.MethodPatch, id, `{"content":"paused edit","mode":"now"}`); got.Code != 200 {
+	if got := call(http.MethodPatch, id, `{"content":"paused edit"}`); got.Code != 200 {
 		t.Fatalf("edit: %d %s", got.Code, got.Body.String())
 	}
 	if input, err := app.pullInterjection(app.ctx, session, "run"); err != nil || input != nil {
@@ -143,7 +198,7 @@ func TestNewMessageAfterFailureDoesNotResumeOldInputs(t *testing.T) {
 				sink := &imageCommandSink{}
 				app.workers[session] = &worker{input: sink}
 				if hasPending {
-					if _, _, err := app.store.QueueInputWithImages(app.ctx, session, "old", "later", "old pending task", []store.Image{{MediaType: "image/png", Data: testPNG(t)}}); err != nil {
+					if _, _, err := app.store.QueueInputWithImages(app.ctx, session, "old", "old pending task", []store.Image{{MediaType: "image/png", Data: testPNG(t)}}); err != nil {
 						t.Fatal(err)
 					}
 				}
@@ -197,7 +252,7 @@ func TestNewMessageAfterFailureDoesNotResumeOldInputs(t *testing.T) {
 
 func TestCancelPersistsQueuePauseBeforeSendingWorkerCommand(t *testing.T) {
 	app, session := inputQueueFixture(t)
-	if _, _, err := app.store.QueueInputWithImages(app.ctx, session, "image-input", "later", "keep", []store.Image{{MediaType: "image/png", Data: testPNG(t)}}); err != nil {
+	if _, _, err := app.store.QueueInputWithImages(app.ctx, session, "image-input", "keep", []store.Image{{MediaType: "image/png", Data: testPNG(t)}}); err != nil {
 		t.Fatal(err)
 	}
 	sink := &contextNoticeAckSink{beforeWrite: func(data []byte) error {
@@ -236,7 +291,7 @@ func TestQueuedRunUsesCurrentSelectionInsteadOfOldSubmissionPreferences(t *testi
 			if _, err := app.store.PatchSessionSelection(app.ctx, session, store.SessionSelectionPatch{SelectionMode: &mode, SelectionTier: &speed, ManualModelKey: &first, ManualReasoningEffort: &low}); err != nil {
 				t.Fatal(err)
 			}
-			if _, _, err := app.store.QueueInput(app.ctx, session, "later", "later", "follow up", first, low, mode, speed); err != nil {
+			if _, _, err := app.store.QueueInput(app.ctx, session, "later", "follow up", first, low, mode, speed); err != nil {
 				t.Fatal(err)
 			}
 			if _, err := app.store.PatchSessionSelection(app.ctx, session, store.SessionSelectionPatch{SelectionTier: &quality, ManualModelKey: &latest, ManualReasoningEffort: &high}); err != nil {

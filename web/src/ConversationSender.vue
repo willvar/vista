@@ -18,7 +18,7 @@ const { draft, quotedText, removeQuote, agentWorking, agentStatus, selectionMode
   editingMessage, cancelEditMessage,
   selectedModel, selectedReasoning, reasoningChoices, chooseModel,
   canAttachImage, attachedImages, attachedPreviewURLs, chooseImages, pasteImages, dropImages, removeImage,
-  submitMessage, submitAlternateMessage, cancelExecution, recallLastUserMessage,
+  submitMessage, cancelExecution, recallLastUserMessage,
   jobs, compaction, contextUsage, canCompact, compactSession, manualCompacting, compactionRequestPending, continueAfterCompaction, fillContinueDraft, feedbackInvitationOpen } = conversation
 const runningJobs = computed(() => jobs.value.filter(jobActive).length)
 const compacting = computed(() => manualCompacting.value || compactionRequestPending.value
@@ -104,10 +104,6 @@ function sendMessage() {
   notifySend()
   submitMessage()
 }
-function sendAlternateMessage() {
-  notifySend()
-  submitAlternateMessage()
-}
 async function recallMessage(input: HTMLTextAreaElement) {
   const sessionId = selected.value?.id
   if (!await recallLastUserMessage()) return
@@ -129,13 +125,12 @@ function senderKeyDown(event: KeyboardEvent) {
     return false
   }
   if (event.key !== 'Enter' || event.shiftKey || event.altKey) return
-  if (event.defaultPrevented || event.isComposing || event.keyCode === 229 || composing || performance.now() - compositionEndedAt < 200) return false
+  if (event.defaultPrevented || event.isComposing || event.keyCode === 229 || composing) return false
   event.preventDefault()
   event.stopPropagation()
   // Use the same submission guard for text, quotes, and attachment-only drafts.
   if (!event.repeat && !senderDisabled.value) {
-    if (event.ctrlKey || event.metaKey) sendAlternateMessage()
-    else sendMessage()
+    sendMessage()
   }
   return false
 }
@@ -190,7 +185,6 @@ onUnmounted(() => {
                 <v-button class="icon-button" variant="text" :aria-label="t('conversationOptions')" :title="t('conversationOptions')"><MoreOutlined /></v-button>
               </v-dropdown>
               <span v-if="!compacting" class="sender-state" role="status" aria-live="polite" :title="agentWorking ? agentStatus : undefined">{{ agentWorking ? agentStatus : '' }}</span>
-              <v-button v-if="agentWorking && (draft.trim() || attachedImages.length)" class="alternate-delivery" variant="text" :title="t('alternateQueueHint')" :disabled="busy || senderDisabled || (!!attachedImages.length && !canAttachImage)" @click="sendAlternateMessage">{{ t('queue') }}</v-button>
               <v-tooltip v-if="canAttachImage" :title="t('addImagesHint')"><span class="sender-attach">
                 <v-button class="icon-button" variant="text" :aria-label="t('addImage')" :disabled="imageInputDisabled" @click="imageInput?.click()"><PictureOutlined /><span class="sender-attach-label">{{ t('addImage') }}</span></v-button>
                 <input ref="imageInput" type="file" accept="image/png,image/jpeg,image/webp,image/gif" multiple tabindex="-1" aria-hidden="true" :aria-label="t('addImage')" :disabled="imageInputDisabled" @change="chooseImages">

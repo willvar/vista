@@ -71,7 +71,7 @@ func TestModelDiagnosticsAPIIndependentReadAndRunOwnership(t *testing.T) {
 
 func TestDebugPreferenceTravelsWithQueuedInput(t *testing.T) {
 	app, session := inputQueueFixture(t)
-	input, _, err := app.store.QueueInputWithDiagnostics(app.ctx, session, uuid.NewString(), "now", "capture this", nil, true)
+	input, _, err := app.store.QueueInputWithDiagnostics(app.ctx, session, uuid.NewString(), "capture this", nil, true)
 	if err != nil || !input.Debug {
 		t.Fatalf("queue preference: %+v %v", input, err)
 	}
@@ -79,7 +79,7 @@ func TestDebugPreferenceTravelsWithQueuedInput(t *testing.T) {
 	if err != nil || command == nil || !command.Debug {
 		t.Fatalf("interjection preference: %+v %v", command, err)
 	}
-	input, _, err = app.store.QueueInputWithDiagnostics(app.ctx, session, uuid.NewString(), "later", "later debug request", nil, true)
+	input, _, err = app.store.QueueInputWithDiagnostics(app.ctx, session, uuid.NewString(), "later debug request", nil, true)
 	if err != nil {
 		t.Fatal(err)
 	}

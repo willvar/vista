@@ -14,7 +14,7 @@ import (
 func TestResourceStorageHTTPScansAndCleansInBackground(t *testing.T) {
 	app, session := inputQueueFixture(t)
 	image := store.Image{MediaType: "image/png", Name: "picture.png", Data: testPNG(t)}
-	if _, _, err := app.store.QueueInputWithImages(app.ctx, session, "image", "later", "", []store.Image{image}); err != nil {
+	if _, _, err := app.store.QueueInputWithImages(app.ctx, session, "image", "", []store.Image{image}); err != nil {
 		t.Fatal(err)
 	}
 	call := func(method, body string) (*httptest.ResponseRecorder, resourceStorageStatus) {

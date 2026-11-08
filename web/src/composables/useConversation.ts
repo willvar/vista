@@ -821,7 +821,7 @@ export function useConversation({ client, sessions, modelCatalog, error, busy, r
     if (result.input) state.queuedInputs = [...state.queuedInputs.filter(input => input.id !== result.input!.id), result.input]
     error.value = ''
   }
-  async function send(requestedMode: 'now' | 'later' = 'now') {
+  async function send() {
     if (busy.value || manualCompacting.value || compactionRequestPending.value || (!draft.value.trim() && !attachedImages.value.length)) return
     let scope = currentScope
     let session = selected.value
@@ -832,7 +832,6 @@ export function useConversation({ client, sessions, modelCatalog, error, busy, r
     const content = formatQuotedReply(text, quote)
     const files = [...attachedImages.value]
     const edited = editingMessage.value
-    const mode = session?.executing && !edited ? requestedMode : 'now'
     const modeChoice = selectionMode.value
     const tierChoice = selectionTier.value
     const modelKey = modeChoice === 'manual' ? selectedModel.value : undefined
@@ -872,7 +871,7 @@ export function useConversation({ client, sessions, modelCatalog, error, busy, r
         }))
         if (!current(scope)) return
       }
-      const result = await request<SendMessageResult>(scope, `/sessions/${scope.id}/messages`, { method: 'POST', body: JSON.stringify({ content, images, mode, modelKey, reasoningEffort, selectionMode: modeChoice, selectionTier: tierChoice, ...(edited ? { replacesMessageId: edited.id } : {}) }) })
+      const result = await request<SendMessageResult>(scope, `/sessions/${scope.id}/messages`, { method: 'POST', body: JSON.stringify({ content, images, modelKey, reasoningEffort, selectionMode: modeChoice, selectionTier: tierChoice, ...(edited ? { replacesMessageId: edited.id } : {}) }) })
       if (!current(scope)) return
       if (draft.value === text) draft.value = ''
       if (quotedText.value === quote) quotedText.value = null
@@ -901,7 +900,6 @@ export function useConversation({ client, sessions, modelCatalog, error, busy, r
     }
   }
   function submitMessage() { if (!busy.value && (!attachedImages.value.length || canAttachImage.value)) void send() }
-  function submitAlternateMessage() { if (!busy.value && (!attachedImages.value.length || canAttachImage.value)) void send('later') }
   function canRetryFailure(failure: FailureContext) {
     return failure.kind === 'execution' && !!selected.value?.open && !selected.value.executing && !busy.value
       && !manualCompacting.value && !compactionRequestPending.value && canAnalyzeFailure.value
@@ -915,7 +913,7 @@ export function useConversation({ client, sessions, modelCatalog, error, busy, r
       // A deliberate continuation keeps durable tool history and the user's
       // unsent draft. Never withdraw/resend the original task or repeat tools.
       const result = await request<SendMessageResult>(scope, `/sessions/${scope.id}/messages`, {
-        method: 'POST', body: JSON.stringify({ content: t('retryTaskPrompt'), images: [], mode: 'now',
+        method: 'POST', body: JSON.stringify({ content: t('retryTaskPrompt'), images: [],
           selectionMode: selectionMode.value, selectionTier: selectionTier.value,
           ...(selectionMode.value === 'manual' ? { modelKey: selectedModel.value, reasoningEffort: selectedReasoning.value } : {}) }),
       })
@@ -948,7 +946,7 @@ export function useConversation({ client, sessions, modelCatalog, error, busy, r
         // Send before navigating. The destination's normal snapshot/stream
         // recovers the reply even if it arrives before that view opens.
         await request<SendMessageResult>(scope, `/sessions/${created.id}/messages`, {
-          method: 'POST', body: JSON.stringify({ content, images: [], mode: 'now', ...choice }),
+          method: 'POST', body: JSON.stringify({ content, images: [], ...choice }),
         })
         try { localStorage.removeItem(draftStoragePrefix + created.id) } catch { /* A sent message is still durable. */ }
       } catch (cause) { deliveryFailure = cause }
@@ -998,7 +996,7 @@ export function useConversation({ client, sessions, modelCatalog, error, busy, r
     } catch (failure) { report(scope, failure) }
     finally { endBusy(scope, owner) }
   }
-  async function mutateInput(input: QueuedInput, action: 'edit' | 'delete' | 'withdraw', patch?: { content?: string; mode?: 'now' | 'later' }) {
+  async function mutateInput(input: QueuedInput, action: 'edit' | 'delete' | 'withdraw', patch?: { content?: string }) {
     const scope = currentScope
     if (!scope || !current(scope) || pendingBusy.value[input.id]) return false
     pendingBusy.value = { ...pendingBusy.value, [input.id]: true }
@@ -1104,7 +1102,7 @@ export function useConversation({ client, sessions, modelCatalog, error, busy, r
     draft, quotedText, quoteSelection, removeQuote, agentWorking, agentStatus, hasTaskDetails, chooseModel, recallLastUserMessage,
     synchronization, syncDiagnostics, viewRevision, resynchronize, renderFailure,
     selectSession, clearSession, refreshConversation, loadOlderActivity, showRecentActivity, loadOlder, loadNewer, markRead,
-    send, submitMessage, submitAlternateMessage, analyzingFailure, canAnalyzeFailure, analyzeFailure, canRetryFailure, retryFailure, submitQuestion, cancelExecution, readModelOutput, modelOutputLoading, modelOutputFailure,
+    send, submitMessage, analyzingFailure, canAnalyzeFailure, analyzeFailure, canRetryFailure, retryFailure, submitQuestion, cancelExecution, readModelOutput, modelOutputLoading, modelOutputFailure,
     fullMessageText, resultsForMessage, resultsForRun, resultsForTrace, traceSegment, runStartedAt, runReplyTurns, runActivityAnchor, firstRunSequence, liveDrafts,
     hasVisibleRun, chooseImages, addImages, pasteImages, dropImages, removeImage,
   }

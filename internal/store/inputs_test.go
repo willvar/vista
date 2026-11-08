@@ -25,10 +25,10 @@ func TestQueuedInputsDeliverInOrderAndSurviveInterruption(t *testing.T) {
 	if _, _, err := s.BeginRun(ctx, sessionID, "run-1", "msg-1", "start"); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := s.QueueInput(ctx, sessionID, "now-1", "now", "change direction"); err != nil {
+	if _, _, err := s.QueueInput(ctx, sessionID, "now-1", "change direction"); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := s.QueueInput(ctx, sessionID, "later-1", "later", "next task", "zen", "high"); err != nil {
+	if _, _, err := s.QueueInput(ctx, sessionID, "follow-up", "next task"); err != nil {
 		t.Fatal(err)
 	}
 	message, err := s.DeliverInput(ctx, sessionID, "run-1", "now-1", "msg-2")
@@ -38,16 +38,27 @@ func TestQueuedInputsDeliverInOrderAndSurviveInterruption(t *testing.T) {
 	if duplicate, err := s.DeliverInput(ctx, sessionID, "run-1", "now-1", "msg-duplicate"); err != nil || duplicate != nil {
 		t.Fatalf("duplicate input delivery: %+v %v", duplicate, err)
 	}
+	input, err := s.NextInterjection(ctx, sessionID, "run-1")
+	if err != nil || input == nil || input.ID != "follow-up" {
+		t.Fatalf("follow-up waited for the run to finish: %+v %v", input, err)
+	}
+	if delivered, err := s.DeliverInput(ctx, sessionID, "run-1", input.ID, "follow-up-message"); err != nil || delivered == nil || delivered.RunID != "run-1" {
+		t.Fatalf("follow-up did not join the active run: %+v %v", delivered, err)
+	}
+	// A send can arrive after the final input check but before run completion.
+	if _, _, err := s.QueueInput(ctx, sessionID, "last-boundary", "one more task", "zen", "high"); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := s.FinishRun(ctx, sessionID, "run-1", "msg-3", "succeeded", "first answer"); err != nil {
 		t.Fatal(err)
 	}
 	queued, err := s.NextQueuedInput(ctx, sessionID)
-	if err != nil || queued == nil || queued.ID != "later-1" || queued.ModelKey != "zen" || queued.ReasoningEffort != "high" {
+	if err != nil || queued == nil || queued.ID != "last-boundary" || queued.ModelKey != "zen" || queued.ReasoningEffort != "high" {
 		t.Fatalf("next queued input: %+v %v", queued, err)
 	}
 	message, err = s.BeginQueuedRun(ctx, sessionID, queued.ID, "run-2", "msg-4")
-	if err != nil || message == nil || message.Content != "next task" {
-		t.Fatalf("deferred delivery: %+v %v", message, err)
+	if err != nil || message == nil || message.Content != "one more task" {
+		t.Fatalf("delivery after the last boundary: %+v %v", message, err)
 	}
 	if _, err := s.FinishRun(ctx, sessionID, "run-2", "msg-5", "succeeded", "second answer"); err != nil {
 		t.Fatal(err)
@@ -55,7 +66,7 @@ func TestQueuedInputsDeliverInOrderAndSurviveInterruption(t *testing.T) {
 	if _, _, err := s.BeginRun(ctx, sessionID, "run-3", "msg-6", "again"); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := s.QueueInput(ctx, sessionID, "later-2", "later", "keep me visible"); err != nil {
+	if _, _, err := s.QueueInput(ctx, sessionID, "later-2", "keep me visible"); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := s.FinishRun(ctx, sessionID, "run-3", "", "interrupted", "cancelled"); err != nil {
@@ -65,8 +76,71 @@ func TestQueuedInputsDeliverInOrderAndSurviveInterruption(t *testing.T) {
 		t.Fatalf("interrupted input was replayable: %+v %v", queued, err)
 	}
 	inputs, err := s.RecentInputs(ctx, sessionID)
-	if err != nil || len(inputs) != 3 || inputs[2].ID != "later-2" || inputs[2].Status != "paused" {
+	if err != nil || len(inputs) != 4 || inputs[3].ID != "later-2" || inputs[3].Status != "paused" {
 		t.Fatalf("visible input status: %+v %v", inputs, err)
+	}
+}
+
+func TestLegacyDeferredInputsUseUnifiedDeliveryAfterReopen(t *testing.T) {
+	for _, paused := range []bool{false, true} {
+		t.Run(map[bool]string{false: "pending", true: "paused"}[paused], func(t *testing.T) {
+			ctx := context.Background()
+			path := filepath.Join(t.TempDir(), "vista.db")
+			s, err := Open(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { _ = s.Close() })
+			if _, err := s.Create(ctx, "session", "legacy input"); err != nil {
+				t.Fatal(err)
+			}
+			if _, _, err := s.BeginRun(ctx, "session", "run", "first", "start"); err != nil {
+				t.Fatal(err)
+			}
+			if _, _, err := s.QueueInput(ctx, "session", "legacy", "keep this message"); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := s.db.ExecContext(ctx, "UPDATE queued_inputs SET mode='later' WHERE id='legacy'"); err != nil {
+				t.Fatal(err)
+			}
+			if paused {
+				if _, err := s.FinishRun(ctx, "session", "run", "failure", "failed", "upstream error"); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if err := s.Close(); err != nil {
+				t.Fatal(err)
+			}
+			s, err = Open(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			runID := "run"
+			if paused {
+				runID = "new-run"
+				if _, _, err := s.BeginRun(ctx, "session", runID, "new-user", "new task"); err != nil {
+					t.Fatal(err)
+				}
+				if input, err := s.NextInterjection(ctx, "session", runID); err != nil || input != nil {
+					t.Fatalf("paused legacy input resumed without consent: %+v %v", input, err)
+				}
+				if _, err := s.ResumeInputs(ctx, "session"); err != nil {
+					t.Fatal(err)
+				}
+			}
+			input, err := s.NextInterjection(ctx, "session", runID)
+			if err != nil || input == nil || input.ID != "legacy" || input.Content != "keep this message" {
+				t.Fatalf("legacy delivery was still deferred: %+v %v", input, err)
+			}
+			data, err := json.Marshal(input)
+			if err != nil || bytes.Contains(data, []byte(`"mode"`)) {
+				t.Fatalf("retired mode exposed to clients: %s %v", data, err)
+			}
+			message, err := s.DeliverInput(ctx, "session", runID, input.ID, "delivered")
+			if err != nil || message == nil || message.RunID != runID || message.Content != input.Content {
+				t.Fatalf("legacy input lost on delivery: %+v %v", message, err)
+			}
+		})
 	}
 }
 
@@ -85,7 +159,7 @@ func TestQueuedInputsHaveNoCountLimitAndAllPendingRemainVisible(t *testing.T) {
 		t.Fatal(err)
 	}
 	for i := range 40 {
-		if _, _, err := s.QueueInput(ctx, sessionID, string(rune('a'+i)), "later", "later"); err != nil {
+		if _, _, err := s.QueueInput(ctx, sessionID, string(rune('a'+i)), "later"); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -112,7 +186,7 @@ func TestInterjectionCommitsCompletedReplyBeforeUserMessage(t *testing.T) {
 	if _, err := s.AppendModelDelta(ctx, "session", "run", 1, 0, answer); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := s.QueueInput(ctx, "session", "follow-up", "now", "continue"); err != nil {
+	if _, _, err := s.QueueInput(ctx, "session", "follow-up", "continue"); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := s.DeliverInput(ctx, "session", "run", "follow-up", "incomplete-follow-up", CompletedReply{
@@ -177,12 +251,12 @@ func TestInputEditWithdrawAndDeliveryAreMutuallyExclusive(t *testing.T) {
 		t.Fatal(err)
 	}
 	image := fixtureImage(t)
-	if _, _, err := s.QueueInputWithImages(ctx, "session", "edit", "later", "old", []Image{image}, "model", "high"); err != nil {
+	if _, _, err := s.QueueInputWithImages(ctx, "session", "edit", "old", []Image{image}, "model", "high"); err != nil {
 		t.Fatal(err)
 	}
-	content, mode := "latest", "now"
-	updated, _, err := s.UpdateInput(ctx, "session", "edit", &content, &mode)
-	if err != nil || updated.Content != content || updated.Mode != mode || updated.ImageCount != 1 || updated.ModelKey != "model" || updated.ReasoningEffort != "high" {
+	content := "latest"
+	updated, _, err := s.UpdateInput(ctx, "session", "edit", content)
+	if err != nil || updated.Content != content || updated.ImageCount != 1 || updated.ModelKey != "model" || updated.ReasoningEffort != "high" {
 		t.Fatalf("edit lost metadata: %+v %v", updated, err)
 	}
 	withdrawn, images, _, err := s.RemoveInput(ctx, "session", "edit", true)
@@ -196,13 +270,13 @@ func TestInputEditWithdrawAndDeliveryAreMutuallyExclusive(t *testing.T) {
 	if delivered, err := s.DeliverInput(ctx, "session", "run", "edit", "removed"); err != nil || delivered != nil {
 		t.Fatalf("withdrawn input executed: %+v %v", delivered, err)
 	}
-	if _, _, err := s.QueueInput(ctx, "session", "delivered", "now", "accepted"); err != nil {
+	if _, _, err := s.QueueInput(ctx, "session", "delivered", "accepted"); err != nil {
 		t.Fatal(err)
 	}
 	if message, err := s.DeliverInput(ctx, "session", "run", "delivered", "accepted-message"); err != nil || message == nil {
 		t.Fatalf("delivery: %+v %v", message, err)
 	}
-	if _, _, err := s.UpdateInput(ctx, "session", "delivered", &content, nil); !errors.Is(err, ErrInputConsumed) {
+	if _, _, err := s.UpdateInput(ctx, "session", "delivered", content); !errors.Is(err, ErrInputConsumed) {
 		t.Fatalf("edited consumed input: %v", err)
 	}
 	if _, _, _, err := s.RemoveInput(ctx, "session", "delivered", true); !errors.Is(err, ErrInputConsumed) {
@@ -224,7 +298,7 @@ func TestPausedInputsPreserveImagesAcrossRestartAndResume(t *testing.T) {
 		t.Fatal(err)
 	}
 	image := fixtureImage(t)
-	if _, _, err := s.QueueInputWithImages(ctx, "session", "pending", "now", "keep image", []Image{image}); err != nil {
+	if _, _, err := s.QueueInputWithImages(ctx, "session", "pending", "keep image", []Image{image}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := s.FinishRun(ctx, "session", "run", "", "interrupted", "cancelled"); err != nil {
@@ -245,7 +319,7 @@ func TestPausedInputsPreserveImagesAcrossRestartAndResume(t *testing.T) {
 	if pending, err := s.NextQueuedInput(ctx, "session"); err != nil || pending != nil {
 		t.Fatalf("paused input automatically replayed: %+v %v", pending, err)
 	}
-	if _, _, err := s.QueueInput(ctx, "session", "while-paused", "later", "new task"); !errors.Is(err, ErrNotRunning) {
+	if _, _, err := s.QueueInput(ctx, "session", "while-paused", "new task"); !errors.Is(err, ErrNotRunning) {
 		t.Fatalf("idle input should start a new run: %v", err)
 	}
 	if _, err := s.ResumeInputs(ctx, "session"); err != nil {
@@ -278,7 +352,7 @@ func TestNewInputsRemainDeliverableBesidePausedInputs(t *testing.T) {
 	if _, _, err := s.BeginRun(ctx, "session", "failed", "first", "work"); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := s.QueueInput(ctx, "session", "old", "now", "keep paused"); err != nil {
+	if _, _, err := s.QueueInput(ctx, "session", "old", "keep paused"); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := s.FinishRun(ctx, "session", "failed", "error", "failed", "HTTP 403"); err != nil {
@@ -287,29 +361,29 @@ func TestNewInputsRemainDeliverableBesidePausedInputs(t *testing.T) {
 	if _, _, err := s.BeginRun(ctx, "session", "retry", "retry-user", "try again"); err != nil {
 		t.Fatal(err)
 	}
-	for _, mode := range []string{"now", "later"} {
-		input, _, err := s.QueueInput(ctx, "session", mode, mode, "new "+mode)
+	for _, id := range []string{"follow-up", "next-input"} {
+		input, _, err := s.QueueInput(ctx, "session", id, "new "+id)
 		if err != nil || input.Status != "queued" || input.RunID != "retry" {
 			t.Fatalf("new input inherited old pause: %+v %v", input, err)
 		}
 	}
 	input, err := s.NextInterjection(ctx, "session", "retry")
-	if err != nil || input == nil || input.ID != "now" {
+	if err != nil || input == nil || input.ID != "follow-up" {
 		t.Fatalf("new interjection was blocked: %+v %v", input, err)
 	}
-	message, err := s.DeliverInput(ctx, "session", "retry", "now", "now-user")
-	if err != nil || message == nil || message.Content != "new now" {
+	message, err := s.DeliverInput(ctx, "session", "retry", "follow-up", "follow-up-user")
+	if err != nil || message == nil || message.Content != "new follow-up" {
 		t.Fatalf("new interjection was not delivered: %+v %v", message, err)
 	}
 	if _, err := s.FinishRun(ctx, "session", "retry", "retry-answer", "succeeded", "done"); err != nil {
 		t.Fatal(err)
 	}
 	input, err = s.NextQueuedInput(ctx, "session")
-	if err != nil || input == nil || input.ID != "later" {
-		t.Fatalf("new deferred input was blocked: %+v %v", input, err)
+	if err != nil || input == nil || input.ID != "next-input" {
+		t.Fatalf("undelivered follow-up was blocked: %+v %v", input, err)
 	}
-	if _, err := s.BeginQueuedRun(ctx, "session", "later", "next", "later-user"); err != nil {
-		t.Fatalf("new deferred input could not start: %v", err)
+	if _, err := s.BeginQueuedRun(ctx, "session", "next-input", "next", "next-user"); err != nil {
+		t.Fatalf("undelivered follow-up could not start: %v", err)
 	}
 	if _, err := s.FinishRun(ctx, "session", "next", "next-answer", "succeeded", "done"); err != nil {
 		t.Fatal(err)

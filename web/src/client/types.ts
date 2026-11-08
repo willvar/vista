@@ -70,7 +70,7 @@ export type ContextNotice = { sequence: number; runId?: string; message: string;
 export type CompactionStatus = { runId: string; phase: 'compacting' | 'compacted' | 'failed'; manual: boolean; error?: string; sequence?: number }
 export type ContextUsage = { tokens: number; sequence: number; runId?: string }
 export type ChecklistItem = { text: string; status: 'pending' | 'in_progress' | 'done' | 'blocked' }
-export type QueuedInput = { id: string; mode: 'now' | 'later'; status: string; content: string; imageCount?: number }
+export type QueuedInput = { id: string; status: string; content: string; imageCount?: number }
 export type RunProgress = { runId: string; phase: 'starting' | 'model' | 'retry' | 'reasoning' | 'response' | 'tool' | 'processing' | 'finished'; tool?: string; retry?: { attempt: number; maxRetries: number; retryAt: string } }
 export type Job = { id: string; runId: string; callId?: string; taskId?: string; parentTaskId?: string; directory: string; command: string; status: string; bytes: number; exitCode: number; complete: boolean; error?: string; createdAt?: string; startedAt?: string; expiresAt?: string; finishedAt?: string; signal?: string; terminationReason?: string }
 export type Artifact = { id: string; runId: string; callId?: string; taskId?: string; parentTaskId?: string; status: string; bytes: number; complete: boolean; error?: string }
@@ -102,7 +102,7 @@ export type ServerStatus = {
   sampledAt: string
 }
 export type QuestionReplyInput = { runId: string; answers: QuestionAnswer[] }
-export type SendMessageInput = { content?: string; images?: Array<{ mediaType: string; hash: string; bytes: number; name?: string }>; questionReply?: QuestionReplyInput; mode?: 'now' | 'later'; modelKey?: string; reasoningEffort?: string; selectionMode?: 'manual' | 'auto'; selectionTier?: 'speed' | 'quality' }
+export type SendMessageInput = { content?: string; images?: Array<{ mediaType: string; hash: string; bytes: number; name?: string }>; questionReply?: QuestionReplyInput; modelKey?: string; reasoningEffort?: string; selectionMode?: 'manual' | 'auto'; selectionTier?: 'speed' | 'quality' }
 export type SendMessageResult = { runId?: string; message?: Message; input?: QueuedInput; event: StreamEvent }
 export type ModelSpeedStats = { count: number; failures: number; medianMs: number | null; p90Ms: number | null; lowConfidence: boolean }
 export type ModelSelectionStats = {

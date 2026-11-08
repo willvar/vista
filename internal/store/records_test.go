@@ -25,7 +25,7 @@ func TestEscapedEightKiBInputEventsRemainDurable(t *testing.T) {
 	if err != nil || message.Content != content || len(event.Data) <= 32<<10 || len(event.Data) > 64<<10 {
 		t.Fatalf("escaped input was not durably accepted: message=%d event=%d err=%v", len(message.Content), len(event.Data), err)
 	}
-	queued, queuedEvent, err := s.QueueInput(ctx, session, "input-1", "now", content)
+	queued, queuedEvent, err := s.QueueInput(ctx, session, "input-1", content)
 	if err != nil || queued.Content != content || len(queuedEvent.Data) <= 32<<10 || len(queuedEvent.Data) > 64<<10 {
 		t.Fatalf("escaped queued input was not durably accepted: input=%d event=%d err=%v", len(queued.Content), len(queuedEvent.Data), err)
 	}
@@ -295,7 +295,7 @@ func TestSuccessfulResultCannotHideUnknownTool(t *testing.T) {
 	if _, err := s.AppendRunEvent(ctx, session, "run", "tool", map[string]any{"runId": "run", "status": "started", "tool": map[string]string{"callId": "call-1", "name": "write_file"}}); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := s.QueueInput(ctx, session, "later", "later", "follow up"); err != nil {
+	if _, _, err := s.QueueInput(ctx, session, "later", "follow up"); err != nil {
 		t.Fatal(err)
 	}
 	finished, err := s.FinishRun(ctx, session, "run", "assistant", "succeeded", "all done")

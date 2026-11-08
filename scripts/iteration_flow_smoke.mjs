@@ -104,10 +104,10 @@ try {
   await until(() => held, 'held provider request')
   const pending = []
   for (let i = 0; i < 12; i++) {
-    const queued = await api(`/sessions/${queue.id}/messages`, 'POST', { content: `Pending ${i}`, mode: 'later', modelKey: 'fixture-0' })
+    const queued = await api(`/sessions/${queue.id}/messages`, 'POST', { content: `Pending ${i}`, modelKey: 'fixture-0' })
     pending.push(queued.input)
   }
-  await api(`/sessions/${queue.id}/inputs/${pending[0].id}`, 'PATCH', { content: 'Edited pending', mode: 'now' })
+  await api(`/sessions/${queue.id}/inputs/${pending[0].id}`, 'PATCH', { content: 'Edited pending' })
   await api(`/sessions/${queue.id}/inputs/${pending[1].id}`, 'DELETE')
   const withdrawn = await api(`/sessions/${queue.id}/inputs/${pending[2].id}/withdraw`, 'POST', {})
   assert.equal(withdrawn.input.content, 'Pending 2')

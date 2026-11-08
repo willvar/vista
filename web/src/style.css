@@ -639,9 +639,6 @@ a {
   width: 7rem;
   flex: 0 1 7rem;
 }
-.alternate-delivery {
-  flex-shrink: 0;
-}
 .pending-inputs {
   flex: none;
   max-width: 100%;

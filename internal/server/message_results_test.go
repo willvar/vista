@@ -77,7 +77,7 @@ func TestSameRunRepliesPartitionUsageEvenAcrossMessagePages(t *testing.T) {
 		t.Fatal(err)
 	}
 	addResult(1, 0)
-	if _, _, err := app.store.QueueInput(ctx, sessionID, "follow-up", "now", "Next question"); err != nil {
+	if _, _, err := app.store.QueueInput(ctx, sessionID, "follow-up", "Next question"); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := app.store.DeliverInput(ctx, sessionID, "run", "follow-up", "question-2", store.CompletedReply{ID: "answer-1", Content: "First answer", Output: store.ModelOutputRef{Turn: 1, Bytes: len("First answer")}}); err != nil {
