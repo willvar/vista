@@ -30,13 +30,13 @@ function artifactResult(content: string) {
 <template>
   <div class="tool-outputs">
     <p v-for="error in errors" :key="error" class="tool-output-error error">{{ error }}</p>
-    <TraceToolResult v-if="!displayedArtifacts.length && !jobs.length" :node="node" :show-error="false" />
+    <TraceToolResult v-if="!expanded || !displayedArtifacts.length && !jobs.length" :node="node" :show-error="false" />
     <section v-for="(item, index) in jobs" :key="item.id" class="tool-output-entry" :data-output-id="item.id">
-      <TraceToolResult v-if="index === 0" :node="node" :show-error="false" />
+      <TraceToolResult v-if="expanded && index === 0" :node="node" :show-error="false" />
       <Button variant="link" @click="emit('openJob', item.id)">{{ t('viewProcess') }}</Button>
     </section>
     <Button v-for="id in node.jobIds.filter(id => !jobs.some(job => job.id === id))" :key="id" variant="link" @click="emit('openJob', id)">{{ t('viewProcess') }}</Button>
-    <section v-for="(item, index) in displayedArtifacts" :key="item.id" class="tool-output-entry" :data-output-id="item.id">
+    <section v-for="(item, index) in expanded ? displayedArtifacts : []" :key="item.id" class="tool-output-entry" :data-output-id="item.id">
       <FullTraceOutput :path="outputPath(sessionId, 'artifacts', item.id)" :snapshot="snapshot(item)" :expanded="expanded">
         <template #default="{ content }"><TraceToolResult :node="artifactResult(content)" :show-error="!errors.length" /></template>
         <template v-if="!jobs.length && index === 0" #fallback><TraceToolResult :node="node" :show-error="false" /></template>

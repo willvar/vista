@@ -4,7 +4,7 @@ import { VistaAPIError } from '../client/vista.ts'
 import { createConversationSync, type ConversationSyncStatus, type ConversationSyncDiagnostics } from '../client/conversationSync.ts'
 import type { Artifact, ConversationSnapshot, CompactionStatus, ContextUsage, Job, MainOutput, Message, ModelCatalog, OutputView, QuestionAnswer, QueuedInput, SendMessageResult, Session, StreamEvent } from '../client/types'
 import { appendMessage, createConversationState, messageResults, runResults, messageWindowLimit, pruneConversationWindow, reduceConversationEvent, replyTraceSegments } from '../state/conversation.ts'
-import { toolOperationLabelKey } from '../state/runTrace.ts'
+import { toolOperationLabelKey, compactTraceText } from '../state/runTrace.ts'
 import { conversationItems, hydrateMainOutput, mainOutputKey, mergeMainOutputs, type ConversationItem, type MainOutputRecord } from '../state/mainOutputs.ts'
 import { useInteractionPreferences, type InteractionPreferences, type SelectionMode, type SelectionTier } from './useInteractionPreferences.ts'
 import { formatQuotedReply, quoteStoragePrefix, readQuotedText, type QuotedText } from '../state/quotedReply.ts'
@@ -201,7 +201,7 @@ export function useConversation({ client, sessions, modelCatalog, error, busy, r
     if (compaction.value?.phase === 'compacting') return t('contextCompacting')
     const progress = runProgress.value?.runId === activeRunID.value ? runProgress.value : null
     if (progress?.phase === 'retry' && progress.retry) return t('modelRetryWaiting', progress.retry)
-    if (progress?.phase === 'tool') return t(toolOperationLabelKey(progress.tool)) + '…'
+    if (progress?.phase === 'tool') return [t(toolOperationLabelKey(progress.tool)), compactTraceText(progress.summary, 90)].filter(Boolean).join(' · ')
     const key = { model: 'agentWaitingModel', reasoning: 'agentReasoning', response: 'agentResponding', processing: 'agentProcessing' }[progress?.phase as 'model' | 'reasoning' | 'response' | 'processing']
     return t(key || 'agentStarting')
   })
@@ -335,6 +335,7 @@ export function useConversation({ client, sessions, modelCatalog, error, busy, r
     const latestUser = snapshot.messages.filter(message => message.role === 'user').at(-1)
     next.activeRunID = latestUser?.runId || snapshot.messages.at(-1)?.runId || ''
     next.activeRunSequence = latestUser?.sequence || 0
+    next.runClock = snapshot.currentRun || (next.activeRunID ? { id: next.activeRunID, startedAt: snapshot.messages.find(message => message.role === 'user' && message.runId === next.activeRunID)?.createdAt || '' } : null)
     next.latestMessageSequence = snapshot.messages.at(-1)?.sequence || 0
     next.hasOlder = snapshot.hasOlder
     next.jobs = old.jobs; next.artifacts = old.artifacts; next.queuedInputs = old.queuedInputs
@@ -362,6 +363,8 @@ export function useConversation({ client, sessions, modelCatalog, error, busy, r
     if (old.activeRunSequence > snapshot.throughSequence) {
       next.activeRunID = old.activeRunID; next.activeRunSequence = old.activeRunSequence
       next.runProgress = old.runProgress
+      next.checklist = old.checklist
+      next.runClock = old.runClock
       next.selected = { ...next.selected!, executing: old.selected?.executing || false }
     }
     const unchanged = new Set(next.messages.filter(message => old.messages.some(previous => previous.id === message.id
@@ -636,6 +639,7 @@ export function useConversation({ client, sessions, modelCatalog, error, busy, r
   }
 
   function hasVisibleRun(runId: string) { return !!runId && messages.value.some(message => message.runId === runId) }
+  const currentChecklist = computed(() => state.checklist?.runId === activeRunID.value ? state.checklist.items : [])
   const traceSegments = computed(() => replyTraceSegments(messages.value, agentWorking.value ? activeRunID.value : '', state.hasNewer))
   function traceSegment(message: Message) { return traceSegments.value.get(message.id)! }
   function runActivityAnchor(message: Message) {
@@ -815,6 +819,7 @@ export function useConversation({ client, sessions, modelCatalog, error, busy, r
     if (result.runId && !state.finishedRuns[result.runId] && (!state.activeRunID || state.activeRunID === result.runId || (result.message?.sequence || 0) >= state.activeRunSequence)) {
       state.activeRunID = result.runId
       state.activeRunSequence = result.message?.sequence || state.activeRunSequence
+      if (state.runClock?.id !== result.runId) state.runClock = { id: result.runId, startedAt: result.message?.createdAt || new Date().toISOString() }
       if (state.runProgress?.runId !== result.runId) state.runProgress = { runId: result.runId, phase: 'starting' }
       if (selected.value) selected.value = { ...selected.value, executing: true, pendingReply: undefined }
     }
@@ -1103,7 +1108,7 @@ export function useConversation({ client, sessions, modelCatalog, error, busy, r
     synchronization, syncDiagnostics, viewRevision, resynchronize, renderFailure,
     selectSession, clearSession, refreshConversation, loadOlderActivity, showRecentActivity, loadOlder, loadNewer, markRead,
     send, submitMessage, analyzingFailure, canAnalyzeFailure, analyzeFailure, canRetryFailure, retryFailure, submitQuestion, cancelExecution, readModelOutput, modelOutputLoading, modelOutputFailure,
-    fullMessageText, resultsForMessage, resultsForRun, resultsForTrace, traceSegment, runStartedAt, runReplyTurns, runActivityAnchor, firstRunSequence, liveDrafts,
+    fullMessageText, resultsForMessage, resultsForRun, resultsForTrace, traceSegment, runStartedAt, runReplyTurns, runActivityAnchor, firstRunSequence, liveDrafts, currentChecklist,
     hasVisibleRun, chooseImages, addImages, pasteImages, dropImages, removeImage,
   }
 }

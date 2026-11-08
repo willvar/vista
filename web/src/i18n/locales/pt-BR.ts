@@ -2,6 +2,8 @@ import type en from './en.ts'
 
 
 export default {
+  "traceReadFull": "Ler resultado completo",
+  "traceHideFull": "Ocultar resultado completo",
   "portChangeConfirm": "Salvar e reiniciar",
   "portChangeWarning": "O Vista reiniciará na porta {port}. As execuções e os processos em segundo plano gerenciados serão interrompidos.",
   "portChangeAccepted": "A nova porta está reservada e o Vista está reiniciando. Abra o novo endereço em outra aba.",

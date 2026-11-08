@@ -50,6 +50,88 @@ func TestConversationSnapshotRetainsRootRetryAcrossChildTraffic(t *testing.T) {
 	t.Fatal("retry missing from run overview")
 }
 
+func TestConversationSnapshotRetainsLatestChecklistOutsideRecentEvents(t *testing.T) {
+	s := revertStore(t)
+	ctx := context.Background()
+	if _, _, err := s.BeginRun(ctx, "s", "r", "u", "question"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.ReplaceChecklist(ctx, "s", "r", []ChecklistItem{{Text: "Old plan", Status: "done"}}); err != nil {
+		t.Fatal(err)
+	}
+	items := []ChecklistItem{{Text: "Read source", Status: "done"}, {Text: "Verify result", Status: "in_progress"}}
+	checklist, err := s.ReplaceChecklist(ctx, "s", "r", items)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request, err := s.RecordModelRequest(ctx, "s", "r", "openai-chat", "model")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 110; i++ {
+		if _, err := s.AppendModelDelta(ctx, "s", "r", 1, 1, fmt.Sprint(i)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	view, err := s.ConversationSnapshot(ctx, "s")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(view.Events) != 102 || view.Events[0].Sequence != checklist.Sequence || view.Events[1].Sequence != request.Sequence {
+		t.Fatalf("latest checklist or model identity lost from bounded snapshot: %+v", view.Events)
+	}
+	var data struct{ Items []ChecklistItem }
+	if err := json.Unmarshal(view.Events[0].Data, &data); err != nil || len(data.Items) != 2 || data.Items[1] != items[1] {
+		t.Fatalf("checklist changed: %+v err=%v", data, err)
+	}
+	if _, err := s.FinishRun(ctx, "s", "r", "a", "succeeded", "answer"); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := s.BeginRun(ctx, "s", "next", "next-user", "new question"); err != nil {
+		t.Fatal(err)
+	}
+	view, err = s.ConversationSnapshot(ctx, "s")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, event := range view.Events {
+		if event.Kind == "checklist" {
+			t.Fatal("a new run inherited the old plan outside its recent history")
+		}
+	}
+}
+
+func TestConversationSnapshotClockSurvivesPagingAndIgnoresAuxiliaryTraffic(t *testing.T) {
+	s := revertStore(t)
+	ctx := context.Background()
+	if _, _, err := s.BeginRun(ctx, "s", "r", "u", "question"); err != nil {
+		t.Fatal(err)
+	}
+	started := "2026-11-08T01:00:00Z"
+	if err := s.orm.Exec("UPDATE runs SET created_at=? WHERE id='r'", started).Error; err != nil {
+		t.Fatal(err)
+	}
+	var last *Event
+	for i := 0; i < 110; i++ {
+		var err error
+		last, err = s.AppendModelDelta(ctx, "s", "r", 1, 1, fmt.Sprint(i))
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	activity := "2026-11-08T01:15:00Z"
+	if err := s.orm.Exec("UPDATE events SET created_at=? WHERE sequence=?", activity, last.Sequence).Error; err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.AppendRunEvent(ctx, "s", "r", "model_request", map[string]any{"runId": "r", "purpose": "summary"}); err != nil {
+		t.Fatal(err)
+	}
+	view, err := s.ConversationSnapshot(ctx, "s")
+	if err != nil || view.CurrentRun == nil || *view.CurrentRun != (RunClock{ID: "r", StartedAt: started, LastActivityAt: activity}) {
+		t.Fatalf("paged execution clock: %+v error=%v", view.CurrentRun, err)
+	}
+}
+
 func TestConversationSnapshotBoundariesAndRootProgress(t *testing.T) {
 	s := revertStore(t)
 	ctx := context.Background()

@@ -2,6 +2,8 @@ import type en from './en.ts'
 
 
 export default {
+  "traceReadFull": "Прочитать полный результат",
+  "traceHideFull": "Скрыть полный результат",
   "portChangeConfirm": "Сохранить и перезапустить",
   "portChangeWarning": "Vista перезапустится на порту {port}. Текущие выполнения и управляемые фоновые процессы будут остановлены.",
   "portChangeAccepted": "Новый порт зарезервирован, Vista перезапускается. Откройте новый адрес в новой вкладке.",

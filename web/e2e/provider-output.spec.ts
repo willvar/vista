@@ -27,7 +27,6 @@ for (const format of ['perplexity', 'openrouter', 'responses'] as const) {
         if (reload) await page.reload()
         await expect(page.locator('article.assistant .markdown')).toHaveText('Cited answer.')
         const trace = page.locator('.run-trace')
-        await trace.locator('.trace-overview-heading').click()
         await trace.locator('.ui-thought-chain-node-title').filter({ hasText: /^Sources$/ }).click()
         await expect(trace.getByRole('link', { name: source, exact: true })).toHaveAttribute('href', source)
         if (format === 'responses') {
@@ -56,13 +55,11 @@ test.describe('Responses terminal reasoning', () => {
       if (reload) await page.reload()
       const reasoning = page.locator('.run-trace .trace-reasoning')
       const answer = page.locator('article.assistant .markdown')
-      await expect(reasoning).toBeHidden()
+      await expect(reasoning).toBeVisible()
       await expect(answer).toHaveText('Cited answer.')
       await expect(page.locator('.message-row article .markdown')).toHaveText([
         'Find the source', 'Cited answer.',
       ])
-      await expect(page.locator('.trace-process-header')).toHaveAttribute('aria-expanded', 'false')
-      await page.locator('.trace-overview-heading').click()
       await expect(reasoning).toHaveText('Checked the available source before answering.')
       await expect(reasoning.locator('button, .ui-thought-chain')).toHaveCount(0)
       const reasoningColor = await reasoning.evaluate(el => getComputedStyle(el).color)

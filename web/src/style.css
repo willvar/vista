@@ -1230,14 +1230,6 @@ body {
   min-width: 0;
   max-width: min(32rem,100%);
 }
-.sender-state {
-  color: var(--muted);
-  font-size: calc(.73rem + 2px);
-  max-width: 12rem;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
 .composer-submit {
   display: flex;
   align-items: center;
@@ -2073,9 +2065,6 @@ body {
   .composer-submit {
     width: 100%;
   }
-  .sender-state {
-    margin-right: auto;
-  }
   .sender-footer {
     gap: .4rem;
   }
@@ -2140,9 +2129,6 @@ body {
   .composer-submit .delivery-select {
     width: 9rem;
   }
-  .sender-state {
-    max-width: 9rem;
-  }
 }
 @media(max-width:520px) {
   .sender-options {
@@ -2195,9 +2181,6 @@ body {
   .composer-submit {
     width: auto;
   }
-  .sender-state {
-    max-width: 12rem;
-  }
 }
 @media(max-width:520px) {
   .selection-stats-metrics {
@@ -2212,9 +2195,6 @@ body {
   .sender-card .sender-options .composer-tier {
     min-width: 96px!important;
     flex-basis: 96px!important;
-  }
-  .sender-card .sender-state {
-    max-width: 4rem;
   }
   .sender-card .sender-attach-label {
     display: none;

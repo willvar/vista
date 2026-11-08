@@ -2,6 +2,8 @@ import type en from './en.ts'
 
 
 export default {
+  "traceReadFull": "Vollständiges Ergebnis laden",
+  "traceHideFull": "Vollständiges Ergebnis ausblenden",
   "portChangeConfirm": "Speichern und neu starten",
   "portChangeWarning": "Vista startet auf Port {port} neu. Laufende Ausführungen und verwaltete Hintergrundprozesse werden gestoppt.",
   "portChangeAccepted": "Der neue Port ist reserviert und Vista startet neu. Öffne die neue Adresse in einem neuen Tab.",

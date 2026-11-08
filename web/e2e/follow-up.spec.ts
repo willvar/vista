@@ -215,7 +215,7 @@ test('Escape stops only the current running session, preserves drafts, and ignor
     await expect.poll(fixture.cancellations).toBe(before + 1)
     await expect(page.locator('.alternate-delivery')).toHaveCount(0)
     await expect(page.getByRole('button', { name: 'Stop current execution', exact: true })).toHaveCount(0)
-    await expect(page.locator('.sender-state')).toBeEmpty()
+    await expect(page.locator('.conversation-execution')).toHaveCount(0)
     await expect(textarea).toHaveValue(draft)
     await expect(original).toHaveText('Controlled follow-up fixture')
     await textarea.press('Escape')
@@ -235,7 +235,7 @@ test('Escape dismisses a dropdown, settings, context popup, or title editor befo
     if (fixture.cancellations()) {
       fixture.setExecuting(true)
       await page.reload()
-      await expect(page.locator('.sender-state')).not.toBeEmpty()
+      await expect(page.locator('.conversation-execution-current')).not.toBeEmpty()
     }
     const draft = `Preserve draft while closing ${overlay}`
     await textarea.fill(draft)

@@ -25,6 +25,14 @@ type ConversationSnapshot struct {
 	Results        []Event           `json:"-"`
 	Boundaries     map[string]int64  `json:"-"`
 	Efforts        map[string]string `json:"-"`
+	CurrentRun     *RunClock         `json:"currentRun,omitempty"`
+}
+
+// RunClock is bounded state for the composer, independent of history paging.
+type RunClock struct {
+	ID             string `json:"id"`
+	StartedAt      string `json:"startedAt"`
+	LastActivityAt string `json:"lastActivityAt,omitempty"`
 }
 
 func (s *Store) checkpoint(ctx context.Context, id string) (SyncCheckpoint, error) {
@@ -119,8 +127,19 @@ func (s *Store) ConversationSnapshot(ctx context.Context, id string) (Conversati
 			return err
 		}
 		// Child traffic can push the latest root progress off the recent page.
-		// Keep its model identity and latest progress without a full run overview.
+		// Keep its model identity, latest progress and checklist without a full run overview.
 		if activeRun != "" {
+			var clock RunClock
+			if err = view.orm.Raw(`SELECT id,created_at AS started_at,
+ COALESCE((SELECT created_at FROM events WHERE session_id=? AND json_extract(data,'$.runId')=?
+ AND COALESCE(json_extract(data,'$.purpose'),'')=''
+ AND kind IN ('tool','agent_task','model_request','model_retry','model_result','model_delta','model_reasoning_delta','run_finished')
+ ORDER BY sequence DESC LIMIT 1),'') AS last_activity_at FROM runs WHERE session_id=? AND id=?`, id, activeRun, id, activeRun).Scan(&clock).Error; err != nil {
+				return err
+			}
+			if clock.ID != "" {
+				snapshot.CurrentRun = &clock
+			}
 			var root []struct {
 				Sequence  int64
 				Kind      string
@@ -131,8 +150,8 @@ func (s *Store) ConversationSnapshot(ctx context.Context, id string) (Conversati
  SELECT MAX(sequence) FROM events WHERE session_id=? AND json_extract(data,'$.runId')=?
  AND COALESCE(json_extract(data,'$.depth'),0)=0 AND COALESCE(json_extract(data,'$.taskId'),'main') IN ('','main')
  AND COALESCE(json_extract(data,'$.purpose'),'')=''
- AND kind IN ('model_request','model_retry','model_delta','model_reasoning_delta','model_result','tool','run_finished')
- GROUP BY kind='model_request') AND session_id=? ORDER BY sequence`, id, activeRun, id).Scan(&root).Error; err != nil {
+ AND kind IN ('model_request','model_retry','model_delta','model_reasoning_delta','model_result','tool','run_finished','checklist')
+ GROUP BY CASE kind WHEN 'model_request' THEN 1 WHEN 'checklist' THEN 2 ELSE 0 END) AND session_id=? ORDER BY sequence`, id, activeRun, id).Scan(&root).Error; err != nil {
 				return err
 			}
 			var prefix []Event

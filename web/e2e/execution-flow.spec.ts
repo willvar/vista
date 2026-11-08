@@ -286,6 +286,9 @@ async function mockExecution(page: Page, origin: string, source = replayEvents()
   const deliveries = new Set<(checkpoint?: boolean) => void>()
   const checkpoint = () => {
     const { session: current, throughSequence } = coreSnapshot(session, messages, events)
+    const latestRun = [...messages].reverse().find(message => message.role === 'user' && !message.contextSummary)?.runId
+    const finished = [...events].reverse().find(event => event.kind === 'run_finished' && event.data.runId === latestRun)
+    current.latestRunStatus = current.executing ? 'running' : finished?.data.status || ''
     return { session: current, throughSequence }
   }
   // Keep the mock transport open, just like the runtime. A finite fulfilled
@@ -364,6 +367,10 @@ async function mockExecution(page: Page, origin: string, source = replayEvents()
       const recent = events.slice(-100)
       const root = [...events].reverse().find(event => !event.data.depth && ['model_request', 'model_delta', 'model_reasoning_delta', 'model_result', 'tool', 'run_finished'].includes(event.kind))
       if (root && root.sequence < (recent[0]?.sequence || Infinity)) recent.unshift(root)
+      const latestRun = [...messages].reverse().find(message => message.role === 'user' && !message.contextSummary)?.runId
+      const checklist = [...events].reverse().find(event => event.kind === 'checklist' && event.data.runId === latestRun && !event.data.depth && (!event.data.taskId || event.data.taskId === 'main'))
+      if (checklist && !recent.some(event => event.sequence === checklist.sequence)) recent.push(checklist)
+      recent.sort((a, b) => a.sequence - b.sequence)
       return reply({ ...checkpoint(), messages, events: recent, hasOlder: false, hasOlderEvents: events.length >= 100 })
     }
     if (path === '/model-selection/stats') return reply({ speedScope: 'global', qualityScope: 'user', speedWindowDays: 30, qualityWindowSize: 200, models: [] })
@@ -468,8 +475,8 @@ async function mockExecution(page: Page, origin: string, source = replayEvents()
   return { events, runId, session, messages, artifacts, jobs, outputContents, outputFailures, holdOutput, historyPages, outputReads, mainOutputReads, nodeReads, turnReads, overviewReads, unexpected, append, get sseRequests() { return sseRequests } }
 }
 
-function taskHeader(task: Locator) { return task.locator(':scope > .ui-think > .ui-think-status-wrapper') }
-function processHeader(trace: Locator) { return trace.locator(':scope > .ui-think > .ui-think-status-wrapper') }
+function stepNode(title: Locator) { return title.locator('xpath=ancestor::div[contains(concat(" ",normalize-space(@class)," ")," ui-thought-chain-node ")][1]') }
+async function readFull(title: Locator) { await stepNode(title).getByRole('button', { name: 'Read full result', exact: true }).click() }
 async function scrollPosition(page: Page) { return page.locator('.messages').evaluate(element => element.scrollTop) }
 async function distanceToLatest(page: Page) { return page.locator('.messages').evaluate(element => element.scrollHeight - element.scrollTop - element.clientHeight) }
 function nodeTitle(trace: Locator, runId: string, key: string) { return trace.locator(`[id="trace-${runId}-0-${encodeURIComponent(key)}"]`) }
@@ -483,6 +490,7 @@ async function settledHeight(node: Locator) {
 // Move only the conversation scrollbar. Missing virtual rows must become reachable
 // by scrolling the visible history, without calling component methods or controls.
 async function scrollToTraceStep(page: Page, task: Locator, runId: string, key: string, from: 'start' | 'end' = 'start') {
+  await task.dispatchEvent('click')
   const steps = task.locator('.trace-steps')
   const titleId = `trace-${runId}-0-${encodeURIComponent(key)}`
   const result = await steps.evaluate(async (element, options) => {
@@ -497,7 +505,7 @@ async function scrollToTraceStep(page: Page, task: Locator, runId: string, key: 
       maxMounted = Math.max(maxMounted, element.querySelectorAll('.ui-thought-chain-node').length)
       if (element.querySelector(`[id="${options.titleId}"]`)) return { found: true, maxMounted, connected: element.isConnected, scrollTop: scroller.scrollTop }
       const previous = scroller.scrollTop
-      scroller.scrollTop += (options.from === 'start' ? 1 : -1) * Math.max(60, scroller.clientHeight * .7)
+      scroller.scrollTop += (options.from === 'start' ? 1 : -1) * Math.max(180, scroller.clientHeight * .7)
       scroller.dispatchEvent(new Event('scroll'))
       if (Math.abs(scroller.scrollTop - previous) <= 1) break
     }
@@ -508,6 +516,11 @@ async function scrollToTraceStep(page: Page, task: Locator, runId: string, key: 
   expect(result.found, `Step ${key} must be reachable through the conversation scrollbar`).toBe(true)
   const title = nodeTitle(task, runId, key)
   await title.scrollIntoViewIfNeeded()
+  await title.evaluate(element => {
+    const scroller = element.closest<HTMLElement>('.messages')!
+    scroller.scrollTop += element.getBoundingClientRect().top - scroller.getBoundingClientRect().top - scroller.clientHeight * .2
+    scroller.dispatchEvent(new Event('scroll'))
+  })
   await expect(title).toBeVisible()
   return title
 }
@@ -525,7 +538,7 @@ async function assertSessionTerminology(page: Page) {
   expect(text, 'Visible session labels must use session terminology; debug JSON keeps internal identifiers').not.toMatch(/\bMain\s+Agent\b|\bSubagent\b|主\s*Agent|子\s*Agent/i)
 }
 async function assertNoHorizontalOverflow(page: Page) {
-  const overflow = await page.locator('.run-overview').evaluate(element => {
+  const overflow = await page.locator('.run-trace').first().evaluate(element => {
     const box = element.getBoundingClientRect()
     return { left: box.left, right: box.right, viewport: innerWidth, internal: element.scrollWidth - element.clientWidth,
       overflowing: [...element.querySelectorAll('*')].filter(child => child.clientWidth > 0 && child.scrollWidth > child.clientWidth + 2)
@@ -537,71 +550,25 @@ async function assertNoHorizontalOverflow(page: Page) {
   expect(overflow.internal, JSON.stringify(overflow.overflowing)).toBeLessThanOrEqual(2)
 }
 
-for (const longSteps of [false, true]) test(`expanding ${longSteps ? 'virtualized' : 'short'} execution details preserves a scrolled conversation`, async ({ page, mockOrigin }, testInfo) => {
-  test.setTimeout(60_000)
-  const events = (longSteps ? deterministicEvents(true) : independentWindowEvents()).map(event => ({ ...event, sequence: event.sequence + 100,
-    data: event.kind === 'message' ? { ...event.data, sequence: event.sequence + 100 } : event.data }))
-  const runId = events[0].data.runId as string
-  const messages: Message[] = [
-    ...Array.from({ length: 12 }, (_, index): Message => ({
-      id: `earlier-${index}`, runId: `earlier-run-${index}`, role: 'assistant', sequence: index + 1,
-      content: `Earlier conversation reply ${index + 1}.\n\nThis reply puts the execution details below the start of the conversation.`,
-      modelId: 'gpt-6-astra', modelKey: 'replay-model', createdAt: '2026-01-01T11:00:00Z',
-    })),
-    events[0].data,
-    ...Array.from({ length: 5 }, (_, index): Message => ({
-      id: `later-${index}`, runId: `later-run-${index}`, role: 'assistant', sequence: 10000 + index,
-      content: `Later conversation reply ${index + 1}.\n\nThere is more conversation below the inspected execution.`,
-      modelId: 'gpt-6-astra', modelKey: 'replay-model', createdAt: '2026-01-01T14:00:00Z',
-    })),
-  ]
-  const fixture = await mockExecution(page, mockOrigin, events, { messages })
-  const trace = page.locator(`.run-trace[data-run-id="${runId}"]`)
-  const scroller = page.locator('.messages')
-  const positions: object[] = []
-  async function clickWithoutJump(title: Locator, label: string) {
-    await scroller.dispatchEvent('wheel', { deltaY: -100 })
-    await title.scrollIntoViewIfNeeded()
-    await title.evaluate(element => {
-      const scroll = element.closest<HTMLElement>('.messages')!
-      scroll.scrollTop += element.getBoundingClientRect().top - scroll.getBoundingClientRect().top - scroll.clientHeight * .3
-      scroll.dispatchEvent(new Event('scroll'))
-    })
-    await page.waitForTimeout(350)
-    const measure = () => title.evaluate(element => {
-      const scroll = element.closest<HTMLElement>('.messages')!
-      const viewport = scroll.getBoundingClientRect()
-      const title = element.getBoundingClientRect()
-      return { scrollTop: scroll.scrollTop, titleTop: title.top, titleBottom: title.bottom, viewportTop: viewport.top, viewportBottom: viewport.bottom }
-    })
-    const before = await measure()
-    expect(before.scrollTop, `${label} is clicked after scrolling away from the conversation top`).toBeGreaterThan(300)
-    expect(before.titleTop).toBeGreaterThanOrEqual(before.viewportTop)
-    expect(before.titleBottom).toBeLessThanOrEqual(before.viewportBottom)
-    await page.screenshot({ path: testInfo.outputPath(`${label}-before.png`), animations: 'disabled' })
-    // In short landscape windows the floating jump button can cover the
-    // header's center. Use its uncovered leading edge so Playwright's automatic
-    // scrolling around that overlay is not mistaken for expansion movement.
-    await title.click({ position: { x: 8, y: 8 } })
-    await page.waitForTimeout(450)
-    const after = await measure()
-    positions.push({ label, before, after })
-    writeFileSync(testInfo.outputPath('expansion-scroll-positions.json'), JSON.stringify(positions, null, 2))
-    await page.screenshot({ path: testInfo.outputPath(`${label}-after.png`), animations: 'disabled' })
-    expect.soft(Math.abs(after.scrollTop - before.scrollTop), `${label} preserves the conversation scroll offset`).toBeLessThanOrEqual(3)
-    expect.soft(Math.abs(after.titleTop - before.titleTop), `${label} preserves the clicked title's viewport position`).toBeLessThanOrEqual(3)
-  }
-  await clickWithoutJump(processHeader(trace).getByRole('status'), 'execution-summary')
-  await expect(trace.locator('.trace-loading')).toHaveCount(0, { timeout: 15_000 })
-  const childId = longSteps ? 'task-1' : 'child-a'
-  const child = trace.locator(`.trace-task-group[data-task-id="${childId}"]`)
-  await clickWithoutJump(taskHeader(child), 'child-session')
-  const stepKey = longSteps ? 'tool/task-1/call-40' : 'tool/child-a/child-a-3'
-  const title = longSteps ? await scrollToTraceStep(page, child, runId, stepKey) : nodeTitle(child, runId, stepKey)
-  await clickWithoutJump(title, 'execution-step')
-  await expect(title.locator('xpath=ancestor::div[contains(concat(" ",normalize-space(@class)," ")," ui-thought-chain-node ")][1]').locator('pre.trace-output')).toBeVisible()
+for (const theme of ['light', 'dark']) test(`execution messages appear without opening a panel (${theme})`, async ({ page, mockOrigin }, testInfo) => {
+  await page.addInitScript(theme => localStorage.setItem('vista-appearance', theme), theme)
+  const fixture = await mockExecution(page, mockOrigin, independentWindowEvents())
+  const trace = page.locator(`.run-trace[data-run-id="${fixture.runId}"]`)
+  await expect(trace.locator('.trace-steps')).toHaveAttribute('data-step-count', '24')
+  await expect(trace.locator('.ui-think, [data-part="trigger"]')).toHaveCount(0)
+  await expect(trace.locator('pre.trace-output')).toHaveCount(24)
+  await expect(trace.locator('.trace-step-row')).toHaveCount(24)
+  expect(await trace.locator('.trace-step-row').evaluateAll(rows => rows.map(row => row.getAttribute('data-task-id')))).toEqual([
+    ...Array(6).fill('main'), ...Array(6).fill('child-a'), ...Array(6).fill('child-b'), ...Array(6).fill('grandchild-a'),
+  ])
+  const first = nodeTitle(trace, fixture.runId, 'tool/main/main-1')
+  await first.scrollIntoViewIfNeeded()
+  await expect(page.locator('.conversation-execution')).toBeVisible()
+  await expect(page.locator('.conversation-execution-elapsed')).not.toBeEmpty()
+  await assertNoHorizontalOverflow(page)
+  expect(fixture.outputReads).toEqual([])
   expect(fixture.unexpected).toEqual([])
-  await testInfo.attach('expansion-scroll-positions', { body: JSON.stringify(positions, null, 2), contentType: 'application/json' })
+  await page.screenshot({ path: testInfo.outputPath(`inline-execution-${theme}.png`), animations: 'disabled' })
 })
 
 // Playwright hides scrollbars by default. Give only this regression a browser
@@ -628,13 +595,7 @@ nativeScrollbarTest.describe('native conversation scrollbar', () => {
       await scroller.evaluate(element => { element.scrollTop = 0; element.dispatchEvent(new Event('scroll')) })
     }
     const trace = page.locator(`.run-trace[data-run-id="${fixture.runId}"]`)
-    await processHeader(trace).getByRole('status').click()
     await expect(trace.locator('.trace-loading')).toHaveCount(0, { timeout: 15_000 })
-    for (let index = 1; index <= 5; index++) {
-      const child = trace.locator(`.trace-task-group[data-task-id="task-${index}"]`)
-      await taskHeader(child).click()
-      await expect(child.locator('.trace-steps')).toHaveCount(1)
-    }
     await scroller.dispatchEvent('wheel', { deltaY: -100 })
     // Setup may position the viewport; every tested drag below uses only the mouse.
     await scroller.evaluate(element => { element.scrollTop = 0; element.dispatchEvent(new Event('scroll')) })
@@ -657,7 +618,7 @@ nativeScrollbarTest.describe('native conversation scrollbar', () => {
       const thumbHeight = Math.max(before.gutter, trackHeight * before.viewport / before.scrollHeight)
       const x = before.right - before.gutter / 2
       const startY = before.top + before.gutter + thumbHeight / 2 + (trackHeight - thumbHeight) * before.progress
-      const endY = progress === 1 ? before.bottom - before.gutter - 3 : progress === 0 ? before.top + before.gutter + 3
+      const endY = progress === 1 ? before.bottom - 3 : progress === 0 ? before.top + 3
         : before.top + before.gutter + thumbHeight / 2 + (trackHeight - thumbHeight) * progress
       await page.mouse.move(x, startY)
       await page.mouse.down()
@@ -719,148 +680,58 @@ nativeScrollbarTest.describe('native conversation scrollbar', () => {
   })
 })
 
-test('complete session steps and manual expansion remain independent during live delegated work', async ({ page, mockOrigin }, testInfo) => {
-  test.setTimeout(60_000)
+test('interleaved main and child activity stays ordered and does not disturb earlier reading', async ({ page, mockOrigin }, testInfo) => {
   const fixture = await mockExecution(page, mockOrigin, independentWindowEvents())
   const trace = page.locator(`.run-trace[data-run-id="${fixture.runId}"]`)
-  const taskIds = ['main', 'child-a', 'child-b', 'grandchild-a']
-  const group = (taskId: string) => trace.locator(`.trace-task-group[data-task-id="${taskId}"]`)
-  const title = (taskId: string, step: number) => nodeTitle(group(taskId), fixture.runId, `tool/${taskId}/${taskId}-${step}`)
-  const body = (taskId: string, step: number) => title(taskId, step).locator('xpath=ancestor::div[contains(concat(" ",normalize-space(@class)," ")," ui-thought-chain-node ")][1]').locator('pre.trace-output')
-  const titleIds = (taskId: string) => group(taskId).locator('.ui-thought-chain-node-title [id]').evaluateAll(elements => elements.map(element => element.id))
-  await processHeader(trace).getByRole('status').click()
-  for (const taskId of taskIds) {
-    if (taskId !== 'main') await taskHeader(group(taskId)).click()
-    await expect(group(taskId).locator('.ui-thought-chain-node')).toHaveCount(6)
-    await title(taskId, 1).click()
-    await expect(body(taskId, 1)).toHaveText(`Body from ${taskId} step 1.`)
+  await expect(trace.locator('.trace-step-row')).toHaveCount(24)
+  const first = nodeTitle(trace, fixture.runId, 'tool/child-a/child-a-1')
+  await first.scrollIntoViewIfNeeded()
+  await trace.dispatchEvent('click')
+  const top = (await first.boundingBox())!.y
+  const reads = fixture.historyPages.length
+  for (const [index, taskId] of ['main', 'child-a', 'main', 'child-b'].entries()) {
+    fixture.append('tool', { taskId, status: 'succeeded', tool: { callId: `interleaved-${index}`, name: 'read_file', summary: `src/${index}.ts` }, content: JSON.stringify({ content: `Live content ${index}` }) })
   }
-  // All 24 steps remain available without a manual history action.
-  await expect(trace.getByRole('button', { name: 'Load earlier steps', exact: true })).toHaveCount(0)
-  // A manually closed main step and unopened main steps must survive another
-  // session's traffic too; testing only open nodes would miss the defect.
-  await title('main', 2).click()
-  await expect(body('main', 2)).toHaveText('Body from main step 2.')
-  await title('main', 2).click()
-  await expect(body('main', 2)).toHaveCount(0)
-  await title('child-b', 2).click()
-  await expect(body('child-b', 2)).toHaveText('Body from child-b step 2.')
-  await title('child-b', 2).click()
-  await expect(body('child-b', 2)).toHaveCount(0)
-  const original = new Map(await Promise.all(taskIds.map(async taskId => [taskId, await titleIds(taskId)] as const)))
-  const pagesBeforeUpdates = fixture.historyPages.length
-  const appendSteps = (taskId: string, turn: number) => {
-    const parentTaskId = taskId === 'main' ? undefined : 'main'
-    const depth = taskId === 'main' ? 0 : 1
-    fixture.append('model_request', { taskId, parentTaskId, depth, turn, provider: 'openai-chat', key: 'replay-model', id: 'gpt-6-astra' })
-    for (let step = 7; step <= 31; step++) {
-      const tool = { callId: `${taskId}-${step}`, name: 'read_file', summary: `src/${taskId}/step-${step}.ts` }
-      fixture.append('tool', { taskId, parentTaskId, depth, turn, status: 'started', tool, content: '' })
-      fixture.append('tool', { taskId, parentTaskId, depth, turn, status: 'succeeded', tool, content: JSON.stringify({ content: `Body from ${taskId} step ${step}.` }) })
-    }
-    fixture.append('model_result', { taskId, parentTaskId, depth, turn, modelResult: { provider: 'openai-chat', id: 'gpt-6-astra', finishReason: 'tool_calls' } })
-  }
-  appendSteps('child-a', 5)
-  await expect(title('child-a', 31)).toHaveCount(1)
-  for (const taskId of ['main', 'child-b', 'grandchild-a']) {
-    await expect.poll(() => titleIds(taskId), `${taskId} keeps its complete steps`).toEqual(original.get(taskId))
-    await expect(body(taskId, 1)).toHaveText(`Body from ${taskId} step 1.`)
-  }
-  await expect(body('main', 2)).toHaveCount(0)
-  await expect(body('child-b', 2)).toHaveCount(0)
-  await expect(body('child-a', 1)).toHaveText('Body from child-a step 1.')
-  await expect(group('child-a').locator('.ui-thought-chain-node')).toHaveCount(31)
-  await expect(title('child-a', 2)).toHaveCount(1)
-
-  const childWindows = new Map(await Promise.all(['child-a', 'child-b', 'grandchild-a'].map(async taskId => [taskId, await titleIds(taskId)] as const)))
-  appendSteps('main', 6)
-  await expect(title('main', 31)).toHaveCount(1)
-  for (const taskId of ['child-a', 'child-b', 'grandchild-a']) {
-    await expect.poll(() => titleIds(taskId), `${taskId} is unaffected by the main session's continuation`).toEqual(childWindows.get(taskId))
-    await expect(body(taskId, 1)).toHaveText(`Body from ${taskId} step 1.`)
-  }
-  await expect(body('main', 1)).toHaveText('Body from main step 1.')
-  await expect(body('child-b', 2)).toHaveCount(0)
-  expect(fixture.historyPages.length, 'Live work must not trigger automatic older-page loading').toBe(pagesBeforeUpdates)
-
-  await expect(trace.getByRole('button', { name: 'Load earlier steps', exact: true })).toHaveCount(0)
-  for (const taskId of ['main', 'child-a']) {
-    await expect(group(taskId).locator('.ui-thought-chain-node')).toHaveCount(31)
-    await expect(title(taskId, 2)).toHaveCount(1)
-    await expect(title(taskId, 4)).toHaveCount(1)
-    await expect(body(taskId, 1)).toHaveText(`Body from ${taskId} step 1.`)
-  }
-  await expect(body('main', 2)).toHaveCount(0)
-  await expect(body('child-b', 2)).toHaveCount(0)
-  for (const taskId of ['child-b', 'grandchild-a']) await expect.poll(() => titleIds(taskId)).toEqual(original.get(taskId))
-  expect(fixture.historyPages.length, 'Revealing already-known earlier steps must not fetch history').toBe(pagesBeforeUpdates)
+  await expect(trace.locator('.trace-step-row')).toHaveCount(28)
+  expect(await trace.locator('.trace-step-row').evaluateAll(rows => rows.slice(-4).map(row => row.getAttribute('data-task-id')))).toEqual(['main', 'child-a', 'main', 'child-b'])
+  await expect(trace.locator('pre.trace-output')).toHaveCount(28)
+  await expect(page.locator('.conversation-execution time')).toHaveAttribute('datetime', fixture.events.at(-1)!.createdAt!)
+  expect(Math.abs((await first.boundingBox())!.y - top)).toBeLessThanOrEqual(3)
+  expect(fixture.historyPages.length).toBe(reads)
   expect(fixture.outputReads).toEqual([])
   expect(fixture.unexpected).toEqual([])
-  await title('child-b', 1).scrollIntoViewIfNeeded()
-  const readingSibling = { top: (await title('child-b', 1).boundingBox())!.y, scrollTop: await scrollPosition(page) }
-  const parentContinuation = { callId: 'main-32', name: 'read_file', summary: 'src/main/step-32.ts' }
-  fixture.append('tool', { taskId: 'main', depth: 0, turn: 6, status: 'succeeded', tool: parentContinuation, content: JSON.stringify({ content: 'Body from main step 32.' }) })
-  await expect(title('main', 32)).toHaveCount(1)
-  await expect(body('child-b', 1)).toHaveText('Body from child-b step 1.')
-  const afterSibling = { top: (await title('child-b', 1).boundingBox())!.y, scrollTop: await scrollPosition(page) }
-  writeFileSync(testInfo.outputPath('sibling-reading-position.json'), JSON.stringify({ before: readingSibling, after: afterSibling }, null, 2))
-  expect(Math.abs(afterSibling.top - readingSibling.top), 'Parent activity keeps the sibling session step in the same screen position').toBeLessThanOrEqual(3)
-  await assertNoHorizontalOverflow(page)
-  await page.screenshot({ path: testInfo.outputPath('independent-agent-step-windows.png'), animations: 'disabled' })
+  await page.screenshot({ path: testInfo.outputPath('interleaved-execution.png'), animations: 'disabled' })
 })
 
-test('long complete execution steps scroll naturally with bounded DOM and preserve expanded output', async ({ page, mockOrigin }, testInfo) => {
-  test.setTimeout(60_000)
+test('long chronological execution keeps bounded DOM and loads full outputs only on request', async ({ page, mockOrigin }, testInfo) => {
+  test.setTimeout(90_000)
   const fixture = await mockExecution(page, mockOrigin, deterministicEvents(true))
   const trace = page.locator(`.run-trace[data-run-id="${fixture.runId}"]`)
-  await processHeader(trace).getByRole('status').click()
-  await expect.poll(() => fixture.historyPages.length).toBeGreaterThan(1)
-  await expect(trace.locator('.trace-loading')).toHaveCount(0, { timeout: 15_000 })
-  expect(fixture.historyPages.length).toBe(1 + Math.ceil(fixture.events.length / 100))
-  await expect(trace.getByRole('button', { name: 'Load earlier steps', exact: true })).toHaveCount(0)
-  expect(fixture.outputReads, 'A full step summary history must not eagerly load detailed outputs').toEqual([])
-  const mainTask = trace.locator('.trace-task[data-task-id="main"]')
-  const mainSteps = mainTask.locator('.trace-steps')
-  await expect(mainSteps).toHaveAttribute('data-virtualized', 'true')
-  expect(Number(await mainSteps.getAttribute('data-step-count'))).toBeGreaterThanOrEqual(200)
-  const mainFirst = await scrollToTraceStep(page, mainTask, fixture.runId, 'tool/main/call-20')
-  await expect(mainFirst).toContainText('Inspect source implementation')
-  const mainMiddle = await scrollToTraceStep(page, mainTask, fixture.runId, 'tool/main/call-310')
-  const middleIndex = Number(await mainMiddle.locator('xpath=ancestor::div[contains(concat(" ",normalize-space(@class)," ")," trace-step-row ")][1]').getAttribute('data-index'))
-  expect(middleIndex).toBeGreaterThan(100)
-  await mainMiddle.click()
-  const middleNode = mainMiddle.locator('xpath=ancestor::div[contains(concat(" ",normalize-space(@class)," ")," ui-thought-chain-node ")][1]')
-  const expectedMiddle = fullOutputText('Tool output virtual-middle-output')
-  await expect(middleNode.locator('.tool-output-entry pre')).toHaveText(expectedMiddle)
-  await expect.poll(() => settledHeight(middleNode), { message: 'Expanded output contributes its full dynamic row height after opening' }).toBeGreaterThan(1500)
-  const middleOutputPath = '/sessions/execution-session/artifacts/virtual-middle-output/output?full=1'
-  expect(fixture.outputReads.filter(path => path === middleOutputPath)).toHaveLength(1)
-  const middlePosition = (await mainMiddle.boundingBox())!.y
-  const countBeforeLiveStep = Number(await mainSteps.getAttribute('data-step-count'))
-  const liveTool = { callId: 'call-live', name: 'read_file', summary: 'src/live-step.ts' }
-  fixture.append('tool', { taskId: 'main', turn: 197, status: 'started', tool: liveTool, content: '' })
-  fixture.append('tool', { taskId: 'main', turn: 197, status: 'succeeded', tool: liveTool, content: JSON.stringify({ content: 'New completed step while reviewing earlier output.' }) })
-  await expect(mainSteps).toHaveAttribute('data-step-count', String(countBeforeLiveStep + 1))
-  await expect(middleNode.locator('.tool-output-entry pre')).toHaveText(expectedMiddle)
-  expect(Math.abs((await mainMiddle.boundingBox())!.y - middlePosition), 'New step activity preserves the virtual row being read').toBeLessThanOrEqual(3)
-  await page.screenshot({ path: testInfo.outputPath('virtual-middle-full-output.png'), animations: 'disabled' })
-  const mainLast = await scrollToTraceStep(page, mainTask, fixture.runId, 'tool/main/call-410', 'end')
-  await expect(mainLast).toContainText('Inspect source implementation')
-  await expect(mainMiddle).toHaveCount(0)
-  await scrollToTraceStep(page, mainTask, fixture.runId, 'tool/main/call-310', 'end')
-  await expect(middleNode.locator('.tool-output-entry pre')).toHaveText(expectedMiddle)
-  expect(fixture.outputReads.filter(path => path === middleOutputPath), 'Remounting an expanded row reuses its full output snapshot').toHaveLength(1)
-  await mainMiddle.click()
-  await expect(middleNode.locator('.tool-output-entry pre')).toHaveCount(0)
-  await scrollToTraceStep(page, mainTask, fixture.runId, 'tool/main/call-410', 'end')
-  await expect(mainFirst, 'The early failed step is virtualized away while reading later history').toHaveCount(0)
-  await expect(mainSteps).toHaveAttribute('data-virtualized', 'true')
-  await scrollToTraceStep(page, mainTask, fixture.runId, 'tool/main/call-310')
-  await expect(middleNode.locator('.tool-output-entry pre'), 'A manually closed row remains closed after scrolling away and back').toHaveCount(0)
-  await scrollToTraceStep(page, mainTask, fixture.runId, 'tool/main/call-410', 'end')
-  await assertNoHorizontalOverflow(page)
-  await page.screenshot({ path: testInfo.outputPath('virtual-scrolled-details.png'), animations: 'disabled' })
+  await expect.poll(() => fixture.historyPages.length).toBe(1 + Math.ceil(fixture.events.length / 100))
+  await expect(trace.locator('.trace-loading')).toHaveCount(0)
+  const steps = trace.locator('.trace-steps')
+  await expect(steps).toHaveAttribute('data-virtualized', 'true')
+  expect(Number(await steps.getAttribute('data-step-count'))).toBeGreaterThan(500)
+  expect(fixture.outputReads).toEqual([])
+  await scrollToTraceStep(page, trace, fixture.runId, 'tool/main/call-20')
+  const title = await scrollToTraceStep(page, trace, fixture.runId, 'tool/main/call-310')
+  const node = stepNode(title)
+  await readFull(title)
+  const expected = fullOutputText('Tool output virtual-middle-output')
+  await expect(node.locator('.tool-output-entry pre')).toHaveText(expected)
+  expect(fixture.outputReads.filter(path => path.includes('virtual-middle-output'))).toHaveLength(1)
+  await node.getByRole('button', { name: 'Hide full result', exact: true }).click()
+  await expect(node.locator('pre.trace-output')).toHaveText('Source inspection output')
+  await readFull(title)
+  await expect(node.locator('.tool-output-entry pre')).toHaveText(expected)
+  await scrollToTraceStep(page, trace, fixture.runId, 'tool/main/call-410', 'end')
+  await scrollToTraceStep(page, trace, fixture.runId, 'tool/main/call-310')
+  await expect(node.locator('.tool-output-entry pre')).toHaveText(expected)
+  expect(fixture.outputReads.filter(path => path.includes('virtual-middle-output'))).toHaveLength(1)
+  expect(fixture.nodeReads).toEqual([])
   expect(fixture.unexpected).toEqual([])
+  await assertNoHorizontalOverflow(page)
+  await page.screenshot({ path: testInfo.outputPath('long-chronological-execution.png'), animations: 'disabled' })
 })
 
 test('crossing the step virtualization threshold preserves the reading position and open output', async ({ page, mockOrigin }, testInfo) => {
@@ -877,14 +748,13 @@ test('crossing the step virtualization threshold preserves the reading position 
   events.push({ sequence: events.at(-1)!.sequence + 1, kind: 'model_delta', createdAt: '2026-01-01T12:00:04Z', data: { runId, taskId: 'main', turn: 1, content: 'Working on the synthetic threshold task.' } })
   const fixture = await mockExecution(page, mockOrigin, events)
   const trace = page.locator(`.run-trace[data-run-id="${runId}"]`)
-  const mainTask = trace.locator('.trace-task[data-task-id="main"]')
+  const mainTask = trace
   const steps = mainTask.locator('.trace-steps')
-  await processHeader(trace).getByRole('status').click()
   await expect(steps).toHaveAttribute('data-step-count', '100')
   await expect(steps).toHaveAttribute('data-virtualized', 'false')
   await expect(trace.locator('.trace-loading')).toHaveCount(0, { timeout: 15_000 })
   const first = nodeTitle(mainTask, runId, 'tool/main/threshold-1')
-  await first.click()
+  await readFull(first)
   const firstNode = first.locator('xpath=ancestor::div[contains(concat(" ",normalize-space(@class)," ")," ui-thought-chain-node ")][1]')
   await expect(firstNode.locator('pre.trace-output')).toHaveText(firstOutput)
   await expect.poll(() => settledHeight(firstNode)).toBeGreaterThan(1500)
@@ -936,16 +806,17 @@ test('expanded execution history and output restore after the outer message list
   const mainProgressRows = new Set(events.filter(event => event.kind === 'model_delta' && !event.data.depth && (!event.data.taskId || event.data.taskId === 'main')).map(event => event.data.turn)).size
   await expect(page.locator('.message-space')).toHaveAttribute('data-count', String(messages.length + mainProgressRows))
   await expect(page.locator('.message-space')).toHaveClass(/virtualized/)
+  const checklist = page.locator('.conversation-checklist')
+  await expect(checklist).toContainText('Analyze duplicate images')
   await scroller.dispatchEvent('wheel', { deltaY: -100 })
   await scroller.evaluate(element => { element.scrollTop = 0; element.dispatchEvent(new Event('scroll')) })
   const trace = page.locator(`.run-trace[data-run-id="${runId}"]`)
   await expect(trace).toBeVisible()
-  await processHeader(trace).getByRole('status').click()
   await expect.poll(() => fixture.historyPages.length).toBeGreaterThan(1)
   await expect(trace.locator('.trace-loading')).toHaveCount(0, { timeout: 15_000 })
-  const mainTask = trace.locator('.trace-task[data-task-id="main"]')
+  const mainTask = trace
   const title = await scrollToTraceStep(page, mainTask, runId, 'tool/main/call-310')
-  await title.click()
+  await readFull(title)
   const node = title.locator('xpath=ancestor::div[contains(concat(" ",normalize-space(@class)," ")," ui-thought-chain-node ")][1]')
   const expected = fullOutputText('Tool output virtual-middle-output')
   await expect(node.locator('.tool-output-entry pre')).toHaveText(expected)
@@ -956,6 +827,7 @@ test('expanded execution history and output restore after the outer message list
   const reads = readCounts()
   await scroller.evaluate(element => { element.scrollTop = element.scrollHeight; element.dispatchEvent(new Event('scroll')) })
   await expect(trace, 'The outer message virtualizer really unmounts the inspected execution').toHaveCount(0)
+  await expect(checklist, 'The checklist stays above the composer when its trace is unmounted').toBeVisible()
   await expect(page.getByText('Independent later conversation reply 110.', { exact: true })).toBeVisible()
   await scroller.evaluate(element => { element.scrollTop = 0; element.dispatchEvent(new Event('scroll')) })
   await expect(mainTask, 'The process keeps its user-controlled expanded state').toBeVisible()
@@ -987,188 +859,40 @@ test('expanded execution history and output restore after the outer message list
   await page.screenshot({ path: testInfo.outputPath('message-virtualization-restored-execution.png'), animations: 'disabled' })
 })
 
-test('execution overview and complete task details survive live updates, finish, and reload', async ({ page, mockOrigin }, testInfo) => {
-  test.setTimeout(60_000)
-  const fixture = await mockExecution(page, mockOrigin)
-  const trace = page.locator(`.run-trace[data-run-id="${fixture.runId}"]`)
-  const overview = trace.locator('.run-overview')
-  const header = processHeader(trace)
-  const checklist = trace.locator('.trace-checklist')
-  const details = overview.locator(':scope > .ui-think-content')
-  const assertChecklist = async (unfinishedStatus = 'in_progress') => {
-    await expect(checklist, 'Each run has one checklist below its summary').toHaveCount(1)
-    await expect(header.locator('.trace-checklist')).toHaveCount(1)
-    await expect(details.locator('.trace-checklist'), 'The checklist is not repeated inside the execution details').toHaveCount(0)
-    await expect(checklist.locator('[data-checklist-status]')).toHaveCount(initialChecklist.length)
-    await expect(checklist.locator(`[data-checklist-status="${unfinishedStatus}"]`)).toHaveCount(2)
-    await expect(checklist.locator('[data-checklist-status="done"]')).toHaveCount(1)
-    for (const item of initialChecklist) await expect(checklist.getByText(item.text, { exact: true })).toBeVisible()
-    const order = await trace.evaluate(element => {
-      const summary = element.querySelector('.trace-summary')!.getBoundingClientRect()
-      const checklist = element.querySelector('.trace-checklist')!.getBoundingClientRect()
-      const details = element.querySelector(':scope > .ui-think > .ui-think-content')
-      return { summaryBottom: summary.bottom, checklistTop: checklist.top, checklistBottom: checklist.bottom, detailsTop: details?.checkVisibility() ? details.getBoundingClientRect().top : null }
-    })
-    expect(order.checklistTop, 'Todo follows the execution summary').toBeGreaterThanOrEqual(order.summaryBottom - 1)
-    if (order.detailsTop !== null) expect(order.detailsTop, 'Expanded details follow Todo').toBeGreaterThanOrEqual(order.checklistBottom - 1)
+test('current action, timing and Todo stay above the composer through live work and reload', async ({ page, mockOrigin }, testInfo) => {
+  const source = independentWindowEvents()
+  const runId = source[0].data.runId as string
+  source.push({ sequence: source.at(-1)!.sequence + 1, kind: 'checklist', createdAt: source.at(-1)!.createdAt, data: { runId, items: initialChecklist } })
+  const fixture = await mockExecution(page, mockOrigin, source)
+  const dock = page.locator('.conversation-execution')
+  const checklist = page.locator('.conversation-checklist')
+  const assertDock = async () => {
+    await expect(dock).toBeVisible()
+    await expect(checklist).toContainText('Analyze duplicate images')
+    expect(await dock.evaluate(element => !!element.closest('.messages'))).toBe(false)
+    const geometry = await dock.evaluate(element => ({ bottom: element.getBoundingClientRect().bottom, height: innerHeight, sender: document.querySelector('.sender-card')!.getBoundingClientRect().top }))
+    expect(geometry.bottom).toBeLessThanOrEqual(geometry.sender)
+    expect(geometry.bottom).toBeLessThan(geometry.height)
   }
-  await expect(header, 'Each run has one summary toggle').toHaveCount(1)
-  await expect(header.locator('.trace-overview-heading'), 'The summary is the toggle title').toHaveCount(1)
-  await expect(trace.getByText('Execution process', { exact: true }), 'There is no separate execution-process row').toHaveCount(0)
-  await expect(overview).toHaveAttribute('data-run-status', 'active')
-  await expect(overview.locator('.trace-overview-heading')).not.toContainText('model calls')
-  await expect(overview.locator('.trace-last-activity')).toBeVisible()
-  await assertChecklist()
-  await expect(header).toHaveAttribute('aria-expanded', 'false')
-  await expect(header).toContainText('1/3 checklist items complete')
-  await expect(trace.locator('.trace-task')).toHaveCount(0)
-  await expect(trace.getByRole('button', { name: 'Read output', exact: true })).toHaveCount(0)
-  expect(fixture.historyPages).toEqual([''])
-  expect(fixture.outputReads).toEqual([])
-  await checklist.scrollIntoViewIfNeeded()
-  const checklistLayout = await checklist.evaluate(element => ({ left: element.getBoundingClientRect().left, right: element.getBoundingClientRect().right, width: innerWidth, overflow: element.scrollWidth - element.clientWidth }))
-  expect(checklistLayout.left).toBeGreaterThanOrEqual(-1)
-  expect(checklistLayout.right).toBeLessThanOrEqual(checklistLayout.width + 1)
-  expect(checklistLayout.overflow).toBeLessThanOrEqual(2)
-  await page.screenshot({ path: testInfo.outputPath('checklist-before-expansion.png'), animations: 'disabled' })
-  await overview.scrollIntoViewIfNeeded()
-  await assertNoHorizontalOverflow(page)
-  await page.screenshot({ path: testInfo.outputPath('overview.png'), animations: 'disabled' })
-
-  await checklist.getByText(initialChecklist[0].text, { exact: true }).click()
-  await expect(header, 'Clicking Todo expands the shared execution panel').toHaveAttribute('aria-expanded', 'true')
-  await expect(trace.locator('.trace-task')).toHaveCount(6)
-  await expect(overview.locator('.trace-last-activity time')).toHaveAttribute('datetime', fixture.events.at(-1)!.createdAt!)
-  await assertChecklist()
-  await expect(trace.locator('.trace-loading')).toHaveCount(0, { timeout: 15_000 })
-  await checklist.scrollIntoViewIfNeeded()
-  await page.screenshot({ path: testInfo.outputPath('checklist-with-expanded-details.png'), animations: 'disabled' })
-  await checklist.getByText(initialChecklist[1].text, { exact: true }).click()
-  await expect(header, 'Clicking Todo again collapses the shared execution panel').toHaveAttribute('aria-expanded', 'false')
-  await expect(trace.locator('.trace-task')).toHaveCount(0)
-  await assertChecklist()
-  await expect(overview).toBeVisible()
-  await expect(header).not.toContainText('model calls')
-  await overview.scrollIntoViewIfNeeded()
-  await assertNoHorizontalOverflow(page)
-  await page.screenshot({ path: testInfo.outputPath('summary-collapsed-again.png'), animations: 'disabled' })
-  await header.locator('.trace-overview-heading').click()
-  await expect(trace.locator('.trace-task')).toHaveCount(6)
-  await expect(trace.locator('.trace-task-group[data-task-id="task-5"]')).toHaveAttribute('data-task-status', 'succeeded')
-  await expect(taskHeader(trace.locator('.trace-task-group[data-task-id="task-4"]'))).toContainText('Child session 4')
-  await expect(trace.locator('.trace-task-group[data-task-id="task-2"]')).toHaveAttribute('data-task-status', 'failed')
-  await expect.poll(() => fixture.historyPages.length).toBeGreaterThan(1)
-  await expect(trace.locator('.trace-loading')).toHaveCount(0, { timeout: 15_000 })
-  const initialHistoryPages = fixture.historyPages.length
-  expect(initialHistoryPages).toBe(1 + Math.ceil(fixture.events.length / 100))
-  expect(fixture.historyPages.slice(1).every(query => new URLSearchParams(query).get('compact') === '1')).toBe(true)
-  await expect(trace.getByRole('button', { name: 'Load earlier steps', exact: true })).toHaveCount(0)
-  await expect(trace.locator('.trace-task-group[data-agent-role="subagent"] .ui-thought-chain-node')).toHaveCount(0)
-  const reportTask = trace.locator('.trace-task[data-task-id="task-4"]')
-  await taskHeader(reportTask).click()
-  await expect(reportTask.locator('.trace-report')).toBeVisible()
-  expect(await reportTask.locator('.ui-thought-chain-node').count()).toBeLessThanOrEqual(100)
-  const reportBody = reportTask.locator('.trace-report-body')
-  await expect(reportBody.getByRole('heading', { level: 2 })).toHaveText(['Opening section', 'Middle section', 'Final section'])
-  await expect(reportBody).toContainText('Child report 1004 ending — 完整输出 ✅.')
-  await expect(reportTask.getByRole('button', { name: /Read output|Read next page|Read from start|Refresh output/ })).toHaveCount(0)
-  expect(fixture.outputReads.filter(path => path.includes('model-output'))).toEqual([`/sessions/execution-session/runs/${fixture.runId}/model-output?turn=1004&full=1`])
-
-  const nestedTask = trace.locator('.trace-task[data-task-id="task-3"]')
-  await expect(nestedTask).toHaveAttribute('data-parent-task-id', 'task-2')
-  await expect(nestedTask.locator('.trace-agent-delegator')).toHaveText('Delegated by Child session 2')
-  await expect(taskHeader(nestedTask)).toHaveCount(1)
-  await taskHeader(reportTask).click()
-
-  // An expanded tool gets its full snapshot automatically; reopened reports reuse it.
-  await taskHeader(reportTask).click()
-  await expect(reportBody).toContainText('Child report 1004 ending — 完整输出 ✅.')
-  expect(fixture.outputReads.filter(path => path.includes('model-output'))).toHaveLength(1)
-  const toolEvent = [...fixture.events].reverse().find(event => event.kind === 'tool' && event.data.taskId === 'task-4' && event.data.tool?.outputRef?.artifactId && event.data.tool.outputRef.bytes > 4096)!
-  const callId = toolEvent.data.tool.callId as string
-  const toolTitle = reportTask.locator(`[id="trace-${fixture.runId}-0-${encodeURIComponent(`tool/task-4/${callId}`)}"]`)
-  await expect(toolTitle).toHaveCount(1)
-  await toolTitle.click()
-  const toolNode = toolTitle.locator('xpath=ancestor::div[contains(concat(" ",normalize-space(@class)," ")," ui-thought-chain-node ")][1]')
-  const toolOutput = toolNode.locator('.tool-output-entry')
-  await expect(toolOutput).toHaveCount(1)
-  await expect(toolOutput.locator('details')).toHaveCount(0)
-  const expectedTool = fullOutputText(`Tool output ${toolEvent.data.tool.outputRef.artifactId}`)
-  await expect(toolOutput.locator('pre')).toHaveText(expectedTool)
-  await expect(toolOutput.getByRole('button', { name: /Read output|Read next page|Read from start|Refresh output/ })).toHaveCount(0)
-  const artifactReads = fixture.outputReads.filter(path => path.includes('/artifacts/'))
-  expect(artifactReads).toEqual([`/sessions/execution-session/artifacts/${toolEvent.data.tool.outputRef.artifactId}/output?full=1`])
-  await toolTitle.click()
-  await toolTitle.click()
-  await expect(toolOutput.locator('pre')).toHaveText(expectedTool)
-  expect(fixture.outputReads.filter(path => path.includes('/artifacts/'))).toHaveLength(1)
-
-  // Inspection disables automatic following. Unrelated SSE records keep this node open.
-  await toolTitle.scrollIntoViewIfNeeded()
-  await page.locator('.messages').evaluate(element => { element.scrollTop = Math.max(0, element.scrollTop - 30) })
-  const captureLivePosition = () => toolTitle.evaluate(element => {
-    const scroller = element.closest<HTMLElement>('.messages')!
-    const trace = element.closest('.run-trace')!
-    const header = trace.querySelector('.trace-process-header')!
-    return { scrollTop: scroller.scrollTop, titleTop: element.getBoundingClientRect().top, headerHeight: header?.getBoundingClientRect().height, activityHeight: trace.querySelector('.trace-last-activity')?.getBoundingClientRect().height }
-  })
-  const beforeLivePosition = await captureLivePosition()
-  const pagesBeforeUpdate = fixture.historyPages.length
-  fixture.append('model_request', { taskId: 'main', depth: 0, turn: 198, provider: 'openai-chat', key: 'replay-model', id: 'gpt-6-astra', reasoningEffort: 'high' })
-  fixture.append('model_delta', { taskId: 'main', depth: 0, turn: 198, content: 'New activity while inspecting an older tool. ' })
-  await expect(overview.locator('.trace-last-activity time')).toHaveAttribute('datetime', fixture.events.at(-1)!.createdAt!)
-  await expect(overview.locator('.trace-last-activity')).not.toContainText('Model output')
-  await expect(toolOutput.locator('pre')).toBeVisible()
-  const afterLivePosition = await captureLivePosition()
-  writeFileSync(testInfo.outputPath('live-summary-reading-position.json'), JSON.stringify({ before: beforeLivePosition, after: afterLivePosition }, null, 2))
-  // Wrapping activity text can change the height above this step; native
-  // anchoring may adjust scrollTop while keeping the actual reading position.
-  expect(Math.abs(afterLivePosition.titleTop - beforeLivePosition.titleTop)).toBeLessThanOrEqual(3)
-  expect(fixture.historyPages.length).toBe(pagesBeforeUpdate)
-  expect(fixture.sseRequests).toBe(1)
-
-  const assistant: Message = { id: 'replay-assistant', runId: fixture.runId, role: 'assistant', sequence: fixture.events.at(-1)!.sequence + 2, outputTurn: 198, content: 'The source review is complete. The checklist remains as explicitly reported.', modelId: 'gpt-6-astra', modelKey: 'replay-model', createdAt: new Date().toISOString() }
-  fixture.session.executing = false
-  fixture.messages.push(assistant)
-  fixture.append('agent_task', { taskId: 'main', task: { id: 'main', title: 'Main task', status: 'succeeded' } })
-  const beforeFinish = (await toolTitle.boundingBox())!.y
-  const captureReadingPosition = () => trace.evaluate(element => {
-    const scroller = element.closest<HTMLElement>('.messages')!
-    const viewport = scroller.getBoundingClientRect()
-    const titles = [...element.querySelectorAll<HTMLElement>('.ui-thought-chain-node-title [id]')].map(title => ({ id: title.id, top: title.getBoundingClientRect().top, bottom: title.getBoundingClientRect().bottom })).filter(title => title.bottom > viewport.top && title.top < viewport.bottom)
-    return { scrollTop: scroller.scrollTop, scrollHeight: scroller.scrollHeight, viewportTop: viewport.top, viewportBottom: viewport.bottom, titles, status: element.querySelector('.run-overview')?.getAttribute('data-run-status') }
-  })
-  const beforeReadingPosition = await captureReadingPosition()
-  fixture.append('run_finished', { status: 'succeeded', message: assistant })
-  await expect(overview).toHaveAttribute('data-run-status', 'succeeded')
-  await expect(toolOutput.locator('pre')).toBeVisible()
-  await expect(trace.locator(`[id="trace-${fixture.runId}-0-${encodeURIComponent('text/main/198')}"]`)).toHaveCount(0)
-  await testInfo.attach('completion-reading-position', { body: JSON.stringify({ before: beforeReadingPosition, after: await captureReadingPosition() }, null, 2), contentType: 'application/json' })
-  // Native scroll anchoring may change scrollTop when a preceding task gains a node.
-  // The inspected step must stay in the same place on screen.
-  expect(Math.abs((await toolTitle.boundingBox())!.y - beforeFinish)).toBeLessThanOrEqual(3)
-  await expect(checklist.locator('[data-checklist-status="in_progress"]')).toHaveCount(0)
-  await expect(checklist.locator('[data-checklist-status="incomplete"] > small')).toHaveText(['incomplete', 'incomplete'])
-  await expect(checklist.locator('[data-checklist-status="incomplete"] .trace-checklist-icon svg[data-icon="minus"]')).toHaveCount(2)
-  await expect(header).toContainText('1/3 checklist items complete')
-  expect(fixture.events.find(event => event.kind === 'checklist')!.data.items).toEqual(initialChecklist)
-  await page.screenshot({ path: testInfo.outputPath('inspection-finished.png'), animations: 'disabled' })
-
-  const pagesBeforeReload = fixture.historyPages.length
+  await assertDock()
+  fixture.append('tool', { taskId: 'main', status: 'started', tool: { callId: 'long-action', name: 'shell', summary: 'Build project', input: { command: 'make build' } } })
+  await expect(dock).toContainText('make build')
+  await expect(dock.locator('time')).toHaveAttribute('datetime', fixture.events.at(-1)!.createdAt!)
+  await page.locator('.messages').evaluate(element => { element.scrollTop = 0; element.dispatchEvent(new Event('scroll')) })
+  await assertDock()
+  await page.screenshot({ path: testInfo.outputPath('current-execution-dock.png'), animations: 'disabled' })
   await page.reload()
-  await expect(overview).toHaveAttribute('data-run-status', 'succeeded')
-  await expect(overview.locator('.trace-overview-heading')).not.toContainText('model calls')
-  await expect(trace.locator('.trace-task')).toHaveCount(0)
-  await expect(header).toHaveCount(1)
-  await expect(header.locator('.trace-overview-heading')).toHaveCount(1)
-  await assertChecklist('incomplete')
-  await expect(checklist.locator('[data-checklist-status="in_progress"]')).toHaveCount(0)
-  await expect(header).toContainText('1/3 checklist items complete')
-  expect(fixture.historyPages.length - pagesBeforeReload).toBe(1)
+  await expect(dock).toContainText('make build')
+  await assertDock()
+  fixture.session.executing = false
+  fixture.append('run_finished', { status: 'succeeded' })
+  await expect(dock).toHaveCount(0)
+  await expect(checklist.locator('[data-checklist-status="incomplete"]')).toHaveCount(2)
+  await expect(page.locator('.run-trace')).toHaveAttribute('data-run-status', 'succeeded')
+  await page.reload()
+  await expect(dock).toHaveCount(0)
+  await expect(checklist.locator('[data-checklist-status="incomplete"]')).toHaveCount(2)
   expect(fixture.unexpected).toEqual([])
-  await overview.scrollIntoViewIfNeeded()
-  await assertNoHorizontalOverflow(page)
-  await page.screenshot({ path: testInfo.outputPath('reloaded.png'), animations: 'disabled' })
 })
 
 test('stopping a run shows interrupted Todo immediately and after reload without changing saved statuses', async ({ page, mockOrigin }, testInfo) => {
@@ -1182,9 +906,9 @@ test('stopping a run shows interrupted Todo immediately and after reload without
   events.push({ sequence: events.at(-1)!.sequence + 1, kind: 'checklist', createdAt: '2026-01-01T12:01:00Z', data: { runId, items: savedItems } })
   const fixture = await mockExecution(page, mockOrigin, events)
   const trace = page.locator(`.run-trace[data-run-id="${runId}"]`)
-  const overview = trace.locator('.run-overview')
-  const header = processHeader(trace)
-  const checklist = trace.locator('.trace-checklist')
+  const overview = trace
+  const checklist = page.locator('.conversation-checklist')
+  const header = checklist
   await expect(overview).toHaveAttribute('data-run-status', 'active')
   await expect(checklist.locator('[data-checklist-status="in_progress"]')).toHaveCount(2)
   await expect(header).toContainText('1/5 checklist items complete')
@@ -1194,14 +918,14 @@ test('stopping a run shows interrupted Todo immediately and after reload without
   fixture.append('run_finished', { status: 'canceled' })
   const assertStoppedChecklist = async () => {
     await expect(overview).toHaveAttribute('data-run-status', 'canceled')
-    await expect(trace.locator('.trace-task'), 'Stopped Todo stays visible without opening the execution').toHaveCount(0)
+    await expect(trace.locator('.trace-step-row')).toHaveCount(4)
     await expect(checklist.locator('[data-checklist-status="in_progress"]')).toHaveCount(0)
     await expect(checklist.locator('[data-checklist-status="interrupted"] > small')).toHaveText(['interrupted', 'interrupted'])
-    await expect(checklist.locator('[data-checklist-status="interrupted"] .trace-checklist-icon svg[data-icon="stop"]')).toHaveCount(2)
+    await expect(checklist.locator('[data-checklist-status="interrupted"] .checklist-icon svg[data-icon="stop"]')).toHaveCount(2)
     for (const status of ['done', 'pending', 'blocked']) await expect(checklist.locator(`[data-checklist-status="${status}"]`)).toHaveCount(1)
     for (const item of savedItems) {
       const row = checklist.locator('[data-checklist-status]').filter({ has: page.getByText(item.text, { exact: true }) })
-      await expect(row.locator('.trace-checklist-icon svg'), 'Each Todo uses exactly one SVG icon').toHaveCount(1)
+      await expect(row.locator('.checklist-icon svg'), 'Each Todo uses exactly one SVG icon').toHaveCount(1)
       await expect(row.locator('small')).toHaveText(item.status === 'in_progress' ? 'interrupted' : item.status)
     }
     await expect(header).toContainText('1/5 checklist items complete')
@@ -1209,7 +933,7 @@ test('stopping a run shows interrupted Todo immediately and after reload without
   await assertStoppedChecklist()
   await overview.scrollIntoViewIfNeeded()
   await page.screenshot({ path: testInfo.outputPath('stopped-todo.png'), animations: 'disabled' })
-  await header.getByRole('button', { name: 'Debug details', exact: true }).click()
+  await trace.getByRole('button', { name: 'Debug details', exact: true }).click()
   const diagnostics = page.getByRole('dialog', { name: 'Debug details', exact: true })
   await expect(diagnostics).toBeVisible()
   const diagnosticEvents = JSON.parse(await diagnostics.locator('.trace-debug-body').innerText()).events as StreamEvent[]
@@ -1223,7 +947,7 @@ test('stopping a run shows interrupted Todo immediately and after reload without
   await page.screenshot({ path: testInfo.outputPath('stopped-todo-reloaded.png'), animations: 'disabled' })
 })
 
-test('new runs keep old checklists on their original execution during updates and reloads', async ({ page, mockOrigin }) => {
+test('new runs clear the composer checklist without changing earlier saved plans', async ({ page, mockOrigin }) => {
   const events = hydrationEvents().slice(0, 2)
   const runId = events[0].data.runId as string
   const oldItems = [{ text: 'Earlier unfinished work', status: 'in_progress' }]
@@ -1237,7 +961,8 @@ test('new runs keep old checklists on their original execution during updates an
   const oldTrace = page.locator(`.run-trace[data-run-id="${runId}"]`)
   const newRun = 'run-without-checklist'
   const newTrace = page.locator(`.run-trace[data-run-id="${newRun}"]`)
-  await expect(oldTrace.locator('.trace-checklist')).toContainText('Earlier unfinished work')
+  await expect(page.locator('.conversation-checklist')).toContainText('Earlier unfinished work')
+  await expect(page.locator('.conversation-checklist [data-checklist-status="incomplete"]')).toHaveCount(1)
   const user: Message = { id: 'new-user', runId: newRun, sequence: 7, role: 'user', content: 'A different task', createdAt: new Date().toISOString() }
   fixture.messages.push(user)
   fixture.session.executing = true
@@ -1247,166 +972,60 @@ test('new runs keep old checklists on their original execution during updates an
   fixture.append('tool', { runId: newRun, turn: 1, taskId: 'main', status: 'started', tool })
   const assertSeparate = async () => {
     await expect(newTrace).toBeVisible()
-    await expect(newTrace.locator('.trace-checklist')).toHaveCount(0)
-    await expect(oldTrace.locator('.trace-checklist')).toContainText('Earlier unfinished work')
-    await expect(oldTrace.locator('[data-checklist-status="incomplete"]')).toHaveCount(1)
+    await expect(page.locator('.conversation-checklist')).toHaveCount(0)
+    await expect(oldTrace.locator('.checklist')).toHaveCount(0)
+    await expect(newTrace.locator('.checklist')).toHaveCount(0)
   }
   await assertSeparate()
   await page.reload()
   await assertSeparate()
+  const newItems: ChecklistItem[] = [{ text: 'Verify the new task', status: 'in_progress' }]
+  fixture.append('checklist', { runId: newRun, items: newItems })
+  await expect(page.locator('.conversation-checklist')).toContainText('Verify the new task')
+  await expect(page.locator('.conversation-checklist')).not.toContainText('Earlier unfinished work')
+  fixture.append('checklist', { runId: newRun, items: [] })
+  await expect(page.locator('.conversation-checklist')).toHaveCount(0)
+  fixture.append('checklist', { runId: newRun, items: [{ ...newItems[0], status: 'done' }] })
   fixture.append('tool', { runId: newRun, turn: 1, taskId: 'main', status: 'succeeded', tool, content: 'File read.' })
   const reply: Message = { id: 'new-reply', runId: newRun, sequence: events.at(-1)!.sequence + 1, role: 'assistant', content: 'New task completed.', createdAt: new Date().toISOString() }
   fixture.messages.push(reply)
   fixture.session.executing = false
   fixture.append('run_finished', { runId: newRun, status: 'succeeded', message: reply })
-  await expect(newTrace.locator('.run-overview')).toHaveAttribute('data-run-status', 'succeeded')
-  await assertSeparate()
+  await expect(newTrace).toHaveAttribute('data-run-status', 'succeeded')
+  await expect(page.locator('.conversation-checklist [data-checklist-status="done"]')).toHaveText(/Verify the new task/)
   await page.reload()
-  await assertSeparate()
+  await expect(page.locator('.conversation-checklist [data-checklist-status="done"]')).toHaveText(/Verify the new task/)
+  await expect(page.locator('.messages .checklist')).toHaveCount(0)
   expect(fixture.events.find(event => event.kind === 'checklist')!.data.items).toEqual(oldItems)
   expect(fixture.unexpected).toEqual([])
 })
 
-test('main and nested subagents keep distinct identities, delegation, and independent results', async ({ page, mockOrigin, isMobile }, testInfo) => {
-  test.setTimeout(45_000)
+test('child messages retain their stable identities, full assignments and delegation', async ({ page, mockOrigin }, testInfo) => {
   const fixture = await mockExecution(page, mockOrigin, agentIdentityEvents())
   const trace = page.locator(`.run-trace[data-run-id="${fixture.runId}"]`)
-  await processHeader(trace).getByRole('status').click()
-  await expect.poll(() => trace.locator('.ui-think-content:visible').evaluateAll(elements => elements.map(element => getComputedStyle(element).borderInlineStartWidth))).toEqual(['0px'])
-  await expect(trace.locator('.trace-navigation')).toHaveCount(0)
-  await expect(trace.locator('select, .ui-select')).toHaveCount(0)
-  await expect(trace.getByRole('combobox')).toHaveCount(0)
-  const agents = trace.locator('.trace-task-group')
-  const expectedOrder = ['main', 'child-a', 'grandchild-a', 'child-b']
-  await expect(agents).toHaveCount(4)
-  await expect.poll(() => agents.evaluateAll(elements => elements.map(element => element.getAttribute('data-task-id')))).toEqual(expectedOrder)
-  await expect(trace.locator('.run-task-summary')).toHaveCount(0)
+  await expect(trace.locator('.trace-step-row')).toHaveCount(4)
+  expect(await trace.locator('.trace-step-row').evaluateAll(rows => rows.map(row => row.getAttribute('data-task-id')))).toEqual(['main', 'child-a', 'child-b', 'grandchild-a'])
   const identities = [
-    { id: 'main', role: 'main', depth: 0, number: 0, label: 'Main session', parent: null },
-    { id: 'child-a', role: 'subagent', depth: 1, number: 1, label: 'Child session 1', parent: 'Main session' },
-    { id: 'grandchild-a', role: 'subagent', depth: 2, number: 3, label: 'Child session 3', parent: 'Child session 1' },
-    { id: 'child-b', role: 'subagent', depth: 1, number: 2, label: 'Child session 2', parent: 'Main session' },
+    { id: 'child-a', number: 1, depth: 1, parent: 'Main session' },
+    { id: 'child-b', number: 2, depth: 1, parent: 'Main session' },
+    { id: 'grandchild-a', number: 3, depth: 2, parent: 'Child session 1' },
   ]
   for (const identity of identities) {
-    const agent = trace.locator(`.trace-task-group[data-task-id="${identity.id}"]`)
-    await expect(agent).toHaveAttribute('data-agent-role', identity.role)
-    await expect(agent).toHaveAttribute('data-agent-depth', String(identity.depth))
-    await expect(agent).toHaveAttribute('data-agent-number', String(identity.number))
-    if (identity.parent) {
-      await expect(agent.locator('.trace-agent-role')).toHaveText(identity.label)
-      await expect(agent.locator('.trace-agent-role')).toBeVisible()
-      await expect(agent.locator('.trace-agent-delegator')).toHaveText(`Delegated by ${identity.parent}`)
-      await expect(agent.locator('.trace-agent-delegator')).toBeVisible()
-    } else {
-      await expect(agent.locator('.trace-agent-identity')).toHaveCount(0)
-      await expect(agent.locator('.trace-agent-delegator')).toHaveCount(0)
-    }
+    const row = trace.locator(`.trace-step-row[data-task-id="${identity.id}"]`)
+    const heading = row.locator('.trace-agent-message-heading')
+    await expect(heading).toHaveAttribute('data-agent-number', String(identity.number))
+    await expect(heading).toHaveAttribute('data-agent-depth', String(identity.depth))
+    await expect(heading.locator('.trace-agent-role')).toHaveText(`Child session ${identity.number}`)
+    await expect(heading.locator('.trace-agent-delegator')).toHaveText(`Delegated by ${identity.parent}`)
+    await expect(heading.locator('.trace-agent-purpose')).toContainText('完整委派说明结束。')
+    await expect(row).toContainText(`Independent result from ${identity.id}.`)
   }
-  // Duplicate assignments do not become duplicate session identities. A nested
-  // session keeps the same creation number even though DFS moves it before sibling 2.
-  const instructions = fixture.events.find(event => event.kind === 'agent_task' && event.data.taskId === 'child-a')!.data.task.title as string
-  expect(new TextEncoder().encode(instructions).length).toBeGreaterThan(300)
-  expect(new TextEncoder().encode(instructions).length).toBeLessThanOrEqual(2048)
-  expect(instructions.split('\n')).toHaveLength(5)
-  await expect(trace.locator('.trace-agent-assignment')).toHaveCount(0)
-  for (const identity of identities) {
-    const agent = trace.locator(`.trace-task-group[data-task-id="${identity.id}"]`)
-    if (identity.parent) {
-      const purpose = taskHeader(agent).locator('.trace-agent-purpose')
-      await expect(agent.locator('.trace-agent-purpose')).toHaveCount(1)
-      await expect(purpose).toBeVisible()
-      const summary = await purpose.textContent()
-      expect(summary).toMatch(/^Inspect the shared source folder/)
-      expect(summary).toMatch(/…$/)
-      expect(summary!.length).toBeLessThanOrEqual(90)
-      expect(summary).not.toContain('\n')
-      await expect(taskHeader(agent)).not.toContainText(instructions)
-      await purpose.click()
-      await expect.poll(() => purpose.textContent()).toBe(instructions)
-      await expect(purpose).toBeVisible()
-      await expect(purpose).toContainText('完整委派说明结束。')
-      await expect(purpose).toHaveCSS('white-space', 'pre-wrap')
-      await expect(purpose).toHaveCSS('user-select', 'text')
-      await expect(purpose).toHaveCSS('cursor', 'text')
-      await purpose.click()
-      await expect(purpose, 'Clicking expanded delegation text does not collapse the session').toHaveText(instructions)
-      const contentBorders = await trace.locator('.ui-think-content:visible').evaluateAll(elements => elements.map(element => getComputedStyle(element).borderInlineStartWidth))
-      expect(contentBorders.length).toBeGreaterThanOrEqual(2)
-      expect(contentBorders.every(width => width === '0px'), 'Execution process and expanded child session Think content must have no inline border').toBe(true)
-      await expect(agent.locator('.trace-agent-purpose')).toHaveCount(1)
-      await expect(agent.locator('.trace-agent-assignment')).toHaveCount(0)
-      await taskHeader(agent).locator('.trace-agent-role').click()
-      await expect.poll(() => purpose.textContent()).toBe(summary)
-      await expect(purpose).toBeVisible()
-      await purpose.click()
-      await expect.poll(() => purpose.textContent()).toBe(instructions)
-      await expect(purpose).toBeVisible()
-      if (identity.id === 'child-a' && !isMobile) {
-        await purpose.scrollIntoViewIfNeeded()
-        const bounds = (await purpose.boundingBox())!
-        const lineHeight = await purpose.evaluate(element => parseFloat(getComputedStyle(element).lineHeight))
-        await page.evaluate(() => window.getSelection()?.removeAllRanges())
-        await page.mouse.move(bounds.x + 3, bounds.y + lineHeight / 2)
-        await page.mouse.down()
-        await page.mouse.move(bounds.x + Math.min(280, bounds.width - 8), bounds.y + lineHeight / 2, { steps: 12 })
-        await page.mouse.up()
-        const selected = await page.evaluate(() => window.getSelection()?.toString().trim() || '')
-        expect(selected.length, 'A real mouse drag selects delegation text for copying').toBeGreaterThan(5)
-        expect(instructions).toContain(selected)
-        await expect(purpose, 'Selecting expanded delegation text keeps the session open').toHaveText(instructions)
-        await testInfo.attach('selected-delegation-text', { body: selected, contentType: 'text/plain' })
-        await assertNoHorizontalOverflow(page)
-        await page.screenshot({ path: testInfo.outputPath('session-expanded-purpose.png'), animations: 'disabled' })
-      }
-    }
-    const title = nodeTitle(agent, fixture.runId, `tool/${identity.id}/read-${identity.id}`)
-    await title.click()
-    const node = title.locator('xpath=ancestor::div[contains(concat(" ",normalize-space(@class)," ")," ui-thought-chain-node ")][1]')
-    await expect(node.locator(identity.id === 'grandchild-a' ? 'p.tool-output-error' : 'pre.trace-output').first()).toHaveText(`Independent result from ${identity.id}.`)
-    for (const other of identities.filter(value => value.id !== identity.id)) {
-      await expect(agent).not.toContainText(`Independent result from ${other.id}.`)
-    }
-  }
-  await trace.locator('.trace-task-group[data-task-id="main"]').scrollIntoViewIfNeeded()
+  await expect(trace.locator('.ui-think')).toHaveCount(0)
   await assertSessionTerminology(page)
+  await trace.locator('.trace-agent-message-heading').first().scrollIntoViewIfNeeded()
   await assertNoHorizontalOverflow(page)
-  await page.screenshot({ path: testInfo.outputPath('agent-identities-and-results.png'), animations: 'disabled' })
-
-  await expect.poll(() => agents.evaluateAll(elements => elements.map(element => element.getAttribute('data-task-id')))).toEqual(expectedOrder)
-  for (const identity of identities) {
-    await expect(nodeTitle(trace, fixture.runId, `tool/${identity.id}/read-${identity.id}`), 'All sessions and rounds remain directly available').toBeVisible()
-  }
-  await page.evaluate(() => localStorage.setItem('vista-language', 'zh-CN'))
-  await page.reload()
-  await processHeader(trace).getByRole('status').click()
-  await expect(agents.locator('.trace-agent-role')).toHaveText(['子会话 1', '子会话 3', '子会话 2'])
-  await expect(trace.locator('.trace-task-group[data-task-id="child-a"] .trace-agent-delegator')).toHaveText('由 主会话 委派')
-  await expect(trace.locator('.trace-task-group[data-task-id="grandchild-a"] .trace-agent-delegator')).toHaveText('由 子会话 1 委派')
-  await assertSessionTerminology(page)
-  await assertNoHorizontalOverflow(page)
-  await page.screenshot({ path: testInfo.outputPath('session-identities-zh-CN.png'), animations: 'disabled' })
-  // A newly delegated session can expose its purpose before its first model or
-  // tool step arrives; the header must still provide the same expansion.
-  fixture.append('agent_task', { taskId: 'child-empty', parentTaskId: 'main', task: { id: 'child-empty', parentId: 'main', title: instructions, status: 'started' } })
-  const emptyChild = trace.locator('.trace-task-group[data-task-id="child-empty"]')
-  await expect(emptyChild).toHaveCount(1)
-  await expect(emptyChild.locator('.trace-agent-role')).toHaveText('子会话 4')
-  await expect(emptyChild.locator('.ui-thought-chain-node')).toHaveCount(0)
-  const emptyPurpose = taskHeader(emptyChild).locator('.trace-agent-purpose')
-  const emptySummary = await emptyPurpose.textContent()
-  expect(emptySummary).toMatch(/…$/)
-  await emptyPurpose.click()
-  await expect.poll(() => emptyPurpose.textContent()).toBe(instructions)
-  await expect(emptyPurpose).toHaveCSS('white-space', 'pre-wrap')
-  await expect(emptyChild.locator('.trace-empty')).toHaveCount(0)
-  await expect(emptyChild.locator('.trace-agent-purpose')).toHaveCount(1)
-  await expect(emptyChild.locator('.trace-agent-assignment')).toHaveCount(0)
-  await emptyPurpose.scrollIntoViewIfNeeded()
-  await assertNoHorizontalOverflow(page)
-  await page.screenshot({ path: testInfo.outputPath('session-no-steps-expanded-purpose.png'), animations: 'disabled' })
-  await taskHeader(emptyChild).locator('.trace-agent-role').click()
-  await expect.poll(() => emptyPurpose.textContent()).toBe(emptySummary)
   expect(fixture.unexpected).toEqual([])
+  await page.screenshot({ path: testInfo.outputPath('inline-agent-identities.png'), animations: 'disabled' })
 })
 
 test('webfetch artifacts preserve large page text including JSON fields after refresh', async ({ page, mockOrigin }) => {
@@ -1430,8 +1049,7 @@ test('webfetch artifacts preserve large page text including JSON fields after re
   for (let pass = 0; pass < 2; pass++) {
     if (pass) await page.reload()
     const trace = page.locator(`.run-trace[data-run-id="${runId}"]`)
-    await processHeader(trace).getByRole('status').click()
-    await nodeTitle(trace, runId, 'tool/main/fetch-page').click()
+    await readFull(nodeTitle(trace, runId, 'tool/main/fetch-page'))
     const output = trace.locator('[data-output-id="webfetch-artifact"] pre.trace-output')
     await expect(output).toHaveCount(1)
     await expect.poll(() => output.textContent()).toBe(full)
@@ -1464,9 +1082,8 @@ for (const theme of ['light', 'dark']) test(`write_file diffs load on expansion,
   for (let pass = 0; pass < 2; pass++) {
     if (pass) await page.reload()
     const trace = page.locator(`.run-trace[data-run-id="${runId}"]`)
-    await processHeader(trace).getByRole('status').click()
     expect(fixture.outputReads).toHaveLength(pass)
-    await nodeTitle(trace, runId, 'tool/main/write-source').click()
+    await readFull(nodeTitle(trace, runId, 'tool/main/write-source'))
     const diff = trace.locator('.file-diff')
     await expect(diff.locator('.file-diff-heading')).toContainText('File updated')
     await expect(diff.locator('.file-diff-remove')).toContainText('previous 中文🙂')
@@ -1486,7 +1103,6 @@ for (const theme of ['light', 'dark']) test(`write_file diffs load on expansion,
   fixture.append('artifact', { id: 'partial-write-diff', callId: partialTool.callId, status: 'failed', bytes: 4, complete: false, error: 'Diff storage failed' })
   fixture.append('tool', { status: 'succeeded', tool: partialTool, content: JSON.stringify({ path, sha256: 'committed-hash', diff: { path, created: true, unified: '', omitted: 'unavailable' } }) })
   const trace = page.locator(`.run-trace[data-run-id="${runId}"]`)
-  await nodeTitle(trace, runId, 'tool/main/write-diff-unavailable').click()
   await expect(trace.locator('.file-diff').last()).toContainText('The file was written, but the diff could not be saved.')
   expect(fixture.outputReads.some(path => path.includes('partial-write-diff'))).toBe(false)
   expect(fixture.unexpected).toEqual([])
@@ -1503,34 +1119,32 @@ test('execution tool results render once, keep useful summaries, and move metada
     '/sessions/execution-session/artifacts/artifact-search/output': source.searchFull,
   } })
   const trace = page.locator(`.run-trace[data-run-id="${runId}"]`)
-  const summary = processHeader(trace)
+  const summary = trace
   const diagnosticsButton = summary.getByRole('button', { name: 'Debug details', exact: true })
   await expect(diagnosticsButton).toHaveCount(1)
   await diagnosticsButton.click()
   const closedDiagnostics = page.getByRole('dialog', { name: 'Debug details', exact: true })
   await expect(closedDiagnostics).toBeVisible()
-  await expect(trace.locator('.trace-task'), 'Debug details leave a collapsed summary closed').toHaveCount(0)
+  await expect(trace.locator('.trace-step-row')).not.toHaveCount(0)
   await page.keyboard.press('Escape')
   await expect(closedDiagnostics).not.toBeVisible()
-  await expect(summary.locator('.trace-overview-heading')).toBeVisible()
-  await processHeader(trace).getByRole('status').click()
-  await expect(taskHeader(trace.locator('.trace-task-group[data-task-id="main"]'))).toHaveCount(0)
+  await expect(trace.locator('.trace-steps')).toBeVisible()
   const fullTitle = nodeTitle(trace, runId, 'tool/main/shell-full')
   await expect(fullTitle).toContainText('cat src/example.ts')
   await expect(fullTitle).toHaveAttribute('title', 'cat src/example.ts')
-  await fullTitle.click()
+  await readFull(fullTitle)
   const fullNode = fullTitle.locator('xpath=ancestor::div[contains(concat(" ",normalize-space(@class)," ")," ui-thought-chain-node ")][1]')
   await expect(fullNode.locator('pre.trace-output')).toHaveCount(1)
   await expect(fullNode.locator('pre.trace-output')).toHaveText(source.full)
   expect(fixture.outputReads.filter(path => path.includes('artifact-full'))).toEqual([fullPath + '?full=1'])
 
   const failedTitle = nodeTitle(trace, runId, 'tool/main/shell-error')
-  await failedTitle.click()
+  await readFull(failedTitle)
   const failedNode = failedTitle.locator('xpath=ancestor::div[contains(concat(" ",normalize-space(@class)," ")," ui-thought-chain-node ")][1]')
   await expect(failedNode.locator('p.tool-output-error')).toHaveCount(1)
   await expect(failedNode.locator('p.tool-output-error')).toHaveText(source.error)
   await expect(failedNode.locator('pre.trace-output')).toHaveText('/synthetic\n')
-  for (const callId of ['source-read', 'source-search']) await nodeTitle(trace, runId, `tool/main/${callId}`).click()
+  await readFull(nodeTitle(trace, runId, 'tool/main/source-search'))
   await expect(trace.locator('.trace-search-results li')).toHaveCount(1)
   await expect(trace.locator('.trace-search-results')).toContainText('src/example.ts:2')
   await expect(trace.locator('.trace-search-results')).toContainText('Search output preserved.')
@@ -1542,7 +1156,7 @@ test('execution tool results render once, keep useful summaries, and move metada
     const node = title.locator('xpath=ancestor::div[contains(concat(" ",normalize-space(@class)," ")," ui-thought-chain-node ")][1]')
     await expect(node.locator('.ui-thought-chain-node-description')).toContainText(text)
     await expect(node.locator('.ui-thought-chain-node-collapse-icon')).toHaveCount(0)
-    await expect(node.locator('.ui-thought-chain-node-content-box')).toHaveCount(0)
+    await expect(node.locator('.trace-read-full')).toHaveCount(0)
   }
   await expect(trace.locator('details.trace-details, details.tool-output-technical')).toHaveCount(0)
   await expect(trace.getByText('Technical details', { exact: true })).toHaveCount(0)
@@ -1561,8 +1175,7 @@ test('execution tool results render once, keep useful summaries, and move metada
   await page.keyboard.press('Escape')
   await expect(debug).not.toBeVisible()
   await expect(fullNode.locator('pre.trace-output'), 'Opening and closing debug details preserves the expanded execution output').toHaveText(source.full)
-  await fullTitle.click()
-  await nodeTitle(trace, runId, 'tool/main/source-search').click()
+  await fullNode.getByRole('button', { name: 'Hide full result', exact: true }).click()
   await fullTitle.scrollIntoViewIfNeeded()
   await assertNoHorizontalOverflow(page)
   await page.screenshot({ path: testInfo.outputPath('clean-tool-results.png'), animations: 'disabled' })
@@ -1575,9 +1188,8 @@ test('tool output failure falls back to one inline preview and Retry replaces it
   const fullPath = '/sessions/execution-session/artifacts/artifact-full/output'
   const fixture = await mockExecution(page, mockOrigin, source.events, { outputContents: { [fullPath]: source.full }, outputFailures: { [fullPath]: 1 } })
   const trace = page.locator(`.run-trace[data-run-id="${runId}"]`)
-  await processHeader(trace).getByRole('status').click()
   const title = nodeTitle(trace, runId, 'tool/main/shell-full')
-  await title.click()
+  await readFull(title)
   const node = title.locator('xpath=ancestor::div[contains(concat(" ",normalize-space(@class)," ")," ui-thought-chain-node ")][1]')
   await expect(node.locator('.trace-output-load-error')).toBeVisible()
   await expect(node.locator('pre.trace-output')).toHaveCount(1)
@@ -1587,9 +1199,9 @@ test('tool output failure falls back to one inline preview and Retry replaces it
   await expect(node.locator('pre.trace-output')).toHaveCount(1)
   await expect(node.locator('pre.trace-output')).toHaveText(source.full)
   expect(fixture.outputReads).toEqual([fullPath + '?full=1', fullPath + '?full=1'])
-  await title.click()
-  await expect(node.locator('pre.trace-output')).toHaveCount(0)
-  await title.click()
+  await node.getByRole('button', { name: 'Hide full result', exact: true }).click()
+  await expect(node.locator('pre.trace-output')).toHaveText(source.full.slice(0, 1024))
+  await readFull(title)
   await expect(node.locator('pre.trace-output'), 'Reopening a recovered tool reuses the successful full snapshot').toHaveText(source.full)
   expect(fixture.outputReads).toHaveLength(2)
   expect(fixture.unexpected).toEqual([])
@@ -1602,20 +1214,19 @@ test('truncated file and search steps hydrate on expansion, and jump to latest r
   const trace = page.locator(`.run-trace[data-run-id="${fixture.runId}"]`)
   const readEvent = fixture.events.find(event => event.kind === 'tool' && event.data.tool.callId === 'read-source' && event.data.status === 'succeeded')!
   const searchEvent = fixture.events.find(event => event.kind === 'tool' && event.data.tool.callId === 'search-title' && event.data.status === 'succeeded')!
-  await expect(trace.locator('.run-overview')).toHaveAttribute('data-run-status', 'active')
+  await expect(trace).toHaveAttribute('data-run-status', 'active')
   expect(fixture.nodeReads).toEqual([])
-  await processHeader(trace).getByRole('status').click()
   const readTitle = nodeTitle(trace, fixture.runId, 'tool/main/read-source')
   const searchTitle = nodeTitle(trace, fixture.runId, 'tool/main/search-title')
-  await readTitle.click()
+  await readFull(readTitle)
   const readNode = readTitle.locator('xpath=ancestor::div[contains(concat(" ",normalize-space(@class)," ")," ui-thought-chain-node ")][1]')
   await expect(readNode.locator('pre.trace-output').first()).toContainText('Hydrated file ending.')
   await expect.poll(() => fixture.nodeReads).toEqual([readEvent.sequence])
   await expect(readNode.locator('details.trace-details')).toHaveCount(0)
-  await readTitle.click()
+  await expect(readNode.locator('.trace-read-full')).toHaveCount(0)
   await readTitle.click()
   expect(fixture.nodeReads).toEqual([readEvent.sequence])
-  await searchTitle.click()
+  await readFull(searchTitle)
   const searchNode = searchTitle.locator('xpath=ancestor::div[contains(concat(" ",normalize-space(@class)," ")," ui-thought-chain-node ")][1]')
   await expect(searchNode.locator('.trace-search-results li')).toHaveCount(2)
   await expect(searchNode.locator('.trace-search-results')).toContainText('src/title.test.ts:24')
@@ -1778,8 +1389,6 @@ test('background process monitor reads bounded live ranges and leaves trace as a
   const closedReads = fixture.outputReads.length
   await page.waitForTimeout(1300)
   expect(fixture.outputReads).toHaveLength(closedReads)
-  await processHeader(trace).getByRole('status').click()
-  await nodeTitle(trace, runId, 'tool/main/live-command').click()
   await expect(trace.getByRole('button', { name: 'View process', exact: true })).toBeVisible()
   await expect(trace.locator('pre.trace-output')).toHaveCount(0)
   await expect(trace.getByRole('button', { name: 'Stop process' })).toHaveCount(0)
@@ -1890,7 +1499,7 @@ test('switching monitored processes rejects late output and wraps long single li
   expect(fixture.unexpected).toEqual([])
 })
 
-test('automatic report loading shows Retry after failure and keeps the recovered full snapshot', async ({ page, mockOrigin }, testInfo) => {
+test('requested report loading shows Retry after failure and keeps the recovered full snapshot', async ({ page, mockOrigin }, testInfo) => {
   const events = hydrationEvents().slice(0, 2)
   const runId = events[0].data.runId as string
   const content = fullOutputText('Recovered child report')
@@ -1899,10 +1508,9 @@ test('automatic report loading shows Retry after failure and keeps the recovered
   const fixture = await mockExecution(page, mockOrigin, events, { outputContents: { [outputPath]: content }, outputFailures: { [outputPath]: 1 }, outputDelayMs: 700 })
   const trace = page.locator(`.run-trace[data-run-id="${runId}"]`)
   expect(fixture.outputReads).toEqual([])
-  await processHeader(trace).getByRole('status').click()
   expect(fixture.outputReads).toEqual([])
   const child = trace.locator('.trace-task[data-task-id="report-child"]')
-  await taskHeader(child).click()
+  await child.getByRole('button', { name: 'Child session result', exact: true }).click()
   await expect(child.locator('.trace-report').getByText('Child session result', { exact: true })).toBeVisible()
   await expect(child.locator('.trace-output-loading')).toBeVisible()
   await expect(child.locator('.trace-output-load-error')).toBeVisible()
@@ -1915,8 +1523,8 @@ test('automatic report loading shows Retry after failure and keeps the recovered
   await expect(child.locator('.trace-output-load-error')).toHaveCount(0)
   await expect(retry).toHaveCount(0)
   expect(fixture.outputReads).toEqual([outputPath + '&full=1', outputPath + '&full=1'])
-  await taskHeader(child).click()
-  await taskHeader(child).click()
+  await child.getByRole('button', { name: 'Child session result', exact: true }).click()
+  await child.getByRole('button', { name: 'Child session result', exact: true }).click()
   await expect(child.locator('.trace-report-body')).toContainText('Recovered child report ending — 完整输出 ✅.')
   expect(fixture.outputReads).toHaveLength(2)
   expect(fixture.unexpected).toEqual([])
@@ -2012,8 +1620,6 @@ test('debug mode defaults off and settings persist both diagnostic entrances acr
   await expect(trace).toBeVisible()
   expect(await page.evaluate(() => localStorage.getItem('vista-debug-mode'))).toBeNull()
   await checkEntrances(false)
-  await processHeader(trace).getByRole('status').click()
-  await title.click()
   await expect(main.locator('pre.trace-output')).toHaveText('Independent result from main.')
   await checkManager(false)
   await openAction('Settings')
@@ -2041,7 +1647,6 @@ test('debug mode defaults off and settings persist both diagnostic entrances acr
   await expect(page.locator('.worker-metrics-detail:visible')).toContainText('Worker heap')
   await page.keyboard.press('Escape')
   await expect(page.locator('.worker-metrics-detail:visible')).toHaveCount(0)
-  await processHeader(trace).getByRole('status').click()
   await expect(title).toBeVisible()
   await page.screenshot({ path: testInfo.outputPath('debug-mode-session-enabled.png'), animations: 'disabled' })
   await openAction('Settings')
@@ -2056,7 +1661,6 @@ test('debug mode defaults off and settings persist both diagnostic entrances acr
   await page.reload()
   await expect(trace).toBeVisible()
   await checkEntrances(false)
-  await processHeader(trace).getByRole('status').click()
   await expect(title).toBeVisible()
   await page.screenshot({ path: testInfo.outputPath('debug-mode-session-disabled.png'), animations: 'disabled' })
   await openAction('Settings')

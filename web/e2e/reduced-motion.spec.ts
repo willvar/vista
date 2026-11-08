@@ -97,11 +97,9 @@ test.describe('conversation motion', () => {
       await expectReducedMotion(page)
       release()
       await expect(page.locator('article.assistant').last()).toContainText('Final progress answer.')
-      await page.locator('.trace-overview-heading').click()
       await expect(page.locator('.trace-reasoning').first()).toBeVisible()
       await expectReducedMotion(page)
-      await page.locator('.trace-overview-heading').click()
-      await expect(page.locator('.trace-reasoning:visible')).toHaveCount(0)
+      await expect(page.locator('.trace-reasoning')).toHaveCount(2)
 
       const source = page.locator('article.user [data-quote-role] p').first()
       await source.scrollIntoViewIfNeeded()

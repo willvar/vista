@@ -1,4 +1,6 @@
 export default {
+  "traceReadFull": "Read full result",
+  "traceHideFull": "Hide full result",
   "portChangeConfirm": "Save and restart",
   "portChangeWarning": "Vista will restart on port {port}. Current executions and managed background processes will stop.",
   "portChangeAccepted": "The new port is reserved and Vista is restarting. Open the new address in a new tab.",

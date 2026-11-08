@@ -2,6 +2,8 @@ import type en from './en.ts'
 
 
 export default {
+  "traceReadFull": "結果全体を読み込む",
+  "traceHideFull": "結果全体を閉じる",
   "portChangeConfirm": "保存して再起動",
   "portChangeWarning": "Vista はポート {port} で再起動します。現在の実行と管理対象のバックグラウンドプロセスは停止します。",
   "portChangeAccepted": "新しいポートを予約し、Vista を再起動しています。新しいアドレスを別のタブで開いてください。",

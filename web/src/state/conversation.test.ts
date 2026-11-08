@@ -7,6 +7,44 @@ const session: Session = { id: 'session-a', title: 'Example', modelKey: '', open
 const message = (id: string, sequence: number, runId: string, role = 'user'): Message => ({ id, sequence, runId, role, content: id, createdAt: '' })
 const event = (sequence: number, kind: string, data: unknown): StreamEvent => ({ sequence, kind, data })
 
+test('the composer clock retains the run start while child activity and steering continue', () => {
+  const startedAt = '2026-11-08T01:00:00Z'
+  let state = reduceConversationEvent(createConversationState(session), { ...event(1, 'message', { ...message('input', 1, 'run'), createdAt: startedAt }), createdAt: startedAt })
+  state = reduceConversationEvent(state, { ...event(2, 'tool', { runId: 'run', status: 'started', tool: { name: 'shell', input: { command: 'make build' } } }), createdAt: '2026-11-08T01:01:00Z' })
+  state = reduceConversationEvent(state, { ...event(3, 'model_delta', { runId: 'run', taskId: 'child', depth: 1, turn: 2, content: 'Child progress' }), createdAt: '2026-11-08T01:02:00Z' })
+  assert.deepEqual(state.runClock, { id: 'run', startedAt, lastActivityAt: '2026-11-08T01:02:00Z' })
+  assert.equal(state.runProgress?.summary, 'make build', 'A child cannot replace the main action')
+  state = reduceConversationEvent(state, { ...event(4, 'model_request', { runId: 'run', purpose: 'summary' }), createdAt: '2026-11-08T01:03:00Z' })
+  assert.equal(state.runClock?.lastActivityAt, '2026-11-08T01:02:00Z')
+  state = reduceConversationEvent(state, { ...event(5, 'message', { ...message('followup', 5, 'run'), createdAt: '2026-11-08T01:04:00Z' }) })
+  assert.equal(state.runClock?.startedAt, startedAt, 'Steering retains the original start')
+  state = reduceConversationEvent(state, event(6, 'message', { ...message('next', 6, 'new-run'), createdAt: '2026-11-08T02:00:00Z' }))
+  assert.deepEqual(state.runClock, { id: 'new-run', startedAt: '2026-11-08T02:00:00Z' })
+})
+
+test('the current checklist survives trace eviction and stays isolated from children and later runs', () => {
+  let state = reduceConversationEvent(createConversationState(session), event(1, 'message', message('input', 1, 'run')))
+  const items = [{ text: 'Review the result', status: 'in_progress' as const }]
+  state = reduceConversationEvent(state, event(2, 'checklist', { runId: 'run', items }))
+  for (let sequence = 3; sequence <= 1510; sequence++) state = reduceConversationEvent(state, event(sequence, 'model_reasoning_delta', { runId: 'run', depth: 1, turn: 1, content: '.' }))
+  assert.equal(state.processEvents.some(event => event.kind === 'checklist'), false)
+  assert.deepEqual(state.checklist, { runId: 'run', items })
+  state = reduceConversationEvent(state, event(1511, 'checklist', { runId: 'run', depth: 1, taskId: 'child', items: [] }))
+  assert.deepEqual(state.checklist?.items, items)
+  state = reduceConversationEvent(state, event(1512, 'message', message('followup', 1512, 'run')))
+  assert.deepEqual(state.checklist, { runId: 'run', items })
+  state = reduceConversationEvent(state, event(1513, 'run_finished', { runId: 'run', status: 'canceled' }))
+  assert.deepEqual(state.checklist?.items, items, 'Display status never rewrites the saved checklist')
+  state = reduceConversationEvent(state, event(1514, 'message', message('next', 1514, 'next-run')))
+  assert.notEqual(state.checklist?.runId, state.activeRunID, 'A new run does not inherit the old plan')
+  state = reduceConversationEvent(state, event(1515, 'checklist', { runId: 'next-run', items: [{ text: 'New plan', status: 'pending' }] }))
+  state = reduceConversationEvent(state, event(1516, 'checklist', { runId: 'run', items: [] }))
+  assert.equal(state.checklist?.runId, 'next-run')
+  assert.equal(state.checklist?.items.length, 1)
+  state = reduceConversationEvent(state, event(1517, 'checklist', { runId: 'next-run', items: [] }))
+  assert.deepEqual(state.checklist, { runId: 'next-run', items: [] })
+})
+
 test('model retry progress survives event replay and remains cancellable execution', () => {
   let state = createConversationState(session)
   state = reduceConversationEvent(state, event(1, 'message', message('input', 1, 'run')))

@@ -1,4 +1,4 @@
-import type { Artifact, Job, Message, ModelDraft, ModelInfo, ModelResultView, OutputView, QueuedInput, RunProgress, Session, StreamEvent } from '../client/types'
+import type { Artifact, ChecklistItem, Job, Message, ModelDraft, ModelInfo, ModelResultView, OutputView, QueuedInput, RunProgress, Session, StreamEvent } from '../client/types'
 import { jobActive } from './jobs.ts'
 import { reduceMainOutputEvent, type MainOutputRecord } from './mainOutputs.ts'
 
@@ -68,6 +68,8 @@ export type ConversationState = {
   activeRunID: string
   activeRunSequence: number
   runProgress: RunProgress | null
+  runClock: import('../client/types').RunClock | null
+  checklist: { runId: string; items: ChecklistItem[] } | null
   jobs: Job[]
   artifacts: Artifact[]
   modelByRun: Record<string, ModelInfo>
@@ -82,7 +84,7 @@ export function createConversationState(selected: Session | null = null): Conver
   return {
     selected, messages: [], processEvents: [], modelDrafts: [], mainOutputs: [], modelResults: [], modelOutput: {},
     queuedInputs: [], activeRunID: '', activeRunSequence: 0,
-    runProgress: null, jobs: [], artifacts: [], modelByRun: {},
+    runProgress: null, runClock: null, checklist: null, jobs: [], artifacts: [], modelByRun: {},
     lastEvent: 0, latestMessageSequence: 0, hasOlder: false, hasNewer: false, finishedRuns: {},
   }
 }
@@ -150,6 +152,7 @@ export function reduceConversationEvent(state: ConversationState, event: StreamE
   if (event.kind === 'message' && data?.role === 'user' && runId && event.sequence >= state.activeRunSequence) {
     next.activeRunID = runId
     next.activeRunSequence = event.sequence
+    if (next.runClock?.id !== runId) next.runClock = { id: runId, startedAt: data.createdAt || event.createdAt || '' }
     next.runProgress = { runId, phase: 'starting' }
     if (next.selected) next.selected = { ...next.selected, pendingReply: undefined, executing: true, latestRunStatus: 'running' }
   } else if (runId && runId === next.activeRunID && !depth && !next.finishedRuns[runId]) {
@@ -158,10 +161,18 @@ export function reduceConversationEvent(state: ConversationState, event: StreamE
     else if (event.kind === 'model_reasoning_delta') next.runProgress = { runId, phase: 'reasoning' }
     else if (event.kind === 'model_delta') next.runProgress = { runId, phase: 'response' }
     else if (event.kind === 'model_result') next.runProgress = { runId, phase: 'processing' }
-    else if (event.kind === 'tool') next.runProgress = data?.status === 'started' ? { runId, phase: 'tool', tool: data?.tool?.name } : { runId, phase: 'processing' }
+    else if (event.kind === 'tool') next.runProgress = data?.status === 'started' ? { runId, phase: 'tool', tool: data?.tool?.name, summary: data?.tool?.input?.command || data?.tool?.summary } : { runId, phase: 'processing' }
+  }
+  if (runId && next.runClock?.id === runId && !data.purpose && ['tool', 'agent_task', 'model_request', 'model_retry', 'model_delta', 'model_reasoning_delta', 'model_result', 'run_finished'].includes(event.kind)) {
+    const at = event.createdAt || data.createdAt
+    if (at && (!next.runClock.lastActivityAt || Date.parse(at) > Date.parse(next.runClock.lastActivityAt))) next.runClock = { ...next.runClock, lastActivityAt: at }
   }
   if ((event.kind === 'session_title' || event.kind === 'session_renamed') && next.selected && typeof data?.title === 'string') next.selected = { ...next.selected, title: data.title }
   if (event.kind === 'message') next = appendMessage(next, data as Message)
+  if (event.kind === 'checklist' && runId === next.activeRunID && !depth && (!data.taskId || data.taskId === 'main') && Array.isArray(data.items || data.checklist?.items)) {
+    // Keep the current plan independently of the bounded trace/event window.
+    next.checklist = { runId, items: data.items || data.checklist.items }
+  }
   if (event.kind === 'run_finished' && runId) {
     next.finishedRuns = { ...next.finishedRuns, [runId]: true }
     if (runId === next.activeRunID) {

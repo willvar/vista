@@ -5,6 +5,8 @@ import { Empty as VEmpty, Alert as VAlert, Button as VButton, Modal as VModal } 
 import { MenuOutlined, VerticalAlignBottomOutlined, EditOutlined } from '@antdv-next/icons'
 import Bubble from '../ui/Bubble.vue'
 import ConversationSender from '../ConversationSender.vue'
+import ConversationChecklist from '../ConversationChecklist.vue'
+import ConversationExecution from '../ConversationExecution.vue'
 import VistaMark from '../VistaMark.vue'
 import InlineSessionTitle from '../InlineSessionTitle.vue'
 import { elementScroll, useVirtualizer } from '@tanstack/vue-virtual'
@@ -39,7 +41,7 @@ const { synchronization, viewRevision, resynchronize, renderFailure, feedbackInv
   beginEditMessage, withdrawMessage, rollbackFailure, draft, attachedImages,
   feedback, feedbackBusy, rateMessage, selectionMode, pendingInputs, inputQueuePaused, pendingBusy, mutateInput, resumeInputs,
   displayMessages: messages, processEvents, mainOutputs, modelOutput,
-  agentWorking, agentStatus, jobs, artifacts,
+  agentWorking, agentStatus, jobs, artifacts, currentChecklist, runClock,
   modelByRun,
   hasOlder, hasNewer, paging, lastEvent, loadOlder, loadNewer, submitQuestion, readDisplayOutput, modelOutputLoading, modelOutputFailure,
   fullMessageText, resultsForMessage, resultsForTrace, traceSegment, runReplyTurns, runActivityAnchor, firstRunSequence } = workspace.conversation
@@ -111,6 +113,7 @@ watch([selected, () => route.name, mobileSessionsOpen, feedbackInvitationOpen], 
 onMounted(() => document.addEventListener('visibilitychange', markVisibleReplies))
 const visibleOutputKeys = ref(new Set<string>())
 function readVisibleOutput(index: number) {
+  if (scrollbarDragging.value) return
   const message = messages.value[index]
   if (message?.mainOutput || message?.role === 'assistant' && (message.outputBytes || 0) > 8192) void readDisplayOutput(message)
 }
@@ -231,7 +234,7 @@ const visibleMessages = computed(() => {
     : messages.value.map((message, index) => ({ key: message.displayKey, index, start: 0 }))
   return rows.flatMap(row => messages.value[row.index] ? [{ ...row, message: messages.value[row.index] }] : [])
 })
-watch(() => [visibleMessages.value, messages.value, visibleOutputKeys.value], () => {
+watch(() => [visibleMessages.value, messages.value, visibleOutputKeys.value, scrollbarDragging.value], () => {
   for (const row of visibleMessages.value) if (visibleOutputKeys.value.has(messages.value[row.index]?.displayKey)) readVisibleOutput(row.index)
 }, { immediate: true })
 function measureMessage(element: Element | ComponentPublicInstance | null) {
@@ -283,7 +286,7 @@ onUnmounted(() => {
           <v-button v-if="synchronization.phase === 'error'" @click="resynchronize">{{ t('conversationResynchronize') }}</v-button>
         </div>
         <div class="workspace-body">
-        <div class="conversation-column">
+        <div class="conversation-column" :class="{ 'has-checklist': currentChecklist.length, 'has-execution': agentWorking }">
         <div class="conversation-history">
         <v-button v-if="hasOlder" :disabled="paging" @click="showOlderMessages">{{ t('loadOlderMessages') }}</v-button>
         <div ref="messageList" class="messages" :class="{ empty: !messages.length }" @scroll="updateMessageScroll" @wheel.passive="manualScrollIntent" @touchmove.passive="manualScrollIntent" @pointerdown.capture="preserveTraceScroll" @keydown.enter.capture="preserveTraceScroll" @keydown.space.capture="preserveTraceScroll"><v-empty v-if="!messages.length" class="vista-empty-state conversation-empty" :description="t('conversationEmpty')" /><div class="message-space" :data-count="messages.length" :class="{ virtualized: virtualizedMessages }" :style="virtualizedMessages ? { height: `${messageVirtualizer.getTotalSize()}px` } : undefined"><div v-for="row in visibleMessages" :key="String(row.key)" :ref="measureMessage" :data-index="row.index" :data-display-key="row.message.displayKey" :data-progress="row.message.progress || undefined" class="message-row" :class="row.message.role" :style="virtualizedMessages ? { transform: `translateY(${row.start}px)` } : undefined"><RenderGuard v-if="runActivityAnchor(row.message)" :reset-key="traceSegment(row.message).key" @failure="renderFailure"><RunTrace
@@ -328,6 +331,8 @@ onUnmounted(() => {
         <PendingInputs :items="pendingInputs" :paused="inputQueuePaused" :busy="pendingBusy" :mutate="mutateInput" @resume="resumeInputs" />
         </div>
         <MessageQuoteSelection :root="messageList" :session-id="selected.id" :disabled="busy || !selected.open || route.name !== 'session' || mobileSessionsOpen || feedbackInvitationOpen" @quote="workspace.conversation.quoteSelection" />
+        <ConversationExecution v-if="agentWorking" :status="agentStatus" :clock="runClock" />
+        <ConversationChecklist :items="currentChecklist" :active="agentWorking" :status="selected.latestRunStatus" />
         <ConversationSender @send="prepareForSend" @open-processes="processes?.open()" />
         </div></div>
       </section>
@@ -358,4 +363,8 @@ onUnmounted(() => {
 .conversation-sync-notice{padding:8px 16px;border-bottom:1px solid var(--border)}
 .conversation-sync-notice[role="alert"]{color:var(--danger)}
 .conversation-render-notice{padding:12px 0}
+@media(max-height:520px){
+  .conversation-column.has-checklist .jump-latest,.conversation-column.has-execution .jump-latest{left:auto;right:.5rem;transform:none}
+  .conversation-column.has-checklist .jump-latest-enter-from,.conversation-column.has-checklist .jump-latest-leave-to,.conversation-column.has-execution .jump-latest-enter-from,.conversation-column.has-execution .jump-latest-leave-to{transform:translateY(6px) scale(.88)}
+}
 </style>

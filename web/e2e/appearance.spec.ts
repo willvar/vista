@@ -64,7 +64,6 @@ test.describe('appearance during execution', () => {
       const reply = page.locator('article.assistant:not(.main-output)')
       await expect(reply).toHaveCount(1)
       await expect(reply).toContainText('Final progress answer.')
-      await page.locator('.trace-overview-heading').click()
       await expect(page.locator('.run-trace .trace-reasoning')).toHaveCount(2)
       await expect(page.locator('.run-trace .trace-reasoning').first()).toHaveText('Private progress reasoning.')
       await expect(page.locator('.trace-reasoning button')).toHaveCount(0)

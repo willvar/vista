@@ -8,11 +8,11 @@ test('normal empty completion is visible without a fabricated reply and survives
   await page.reload()
   await page.locator('.sender-card textarea').fill('Finish without text')
   await page.locator('.sender-card textarea').press('Enter')
-  const status = page.locator('.trace-overview-heading strong[role="status"]')
+  const status = page.locator('.trace-empty-reply')
   for (const reload of [false, true]) {
     if (reload) await page.reload()
     await expect(status).toHaveText('Execution finished; model returned no text')
-    await expect(page.locator('.run-overview')).toHaveAttribute('data-run-status', 'succeeded')
+    await expect(page.locator('.run-trace')).toHaveAttribute('data-run-status', 'succeeded')
     await expect(page.locator('article.assistant')).toHaveCount(0)
     await expect(page.locator('.run-failure-message')).toHaveCount(0)
     await expect(page.locator('.sender-card textarea')).toBeEnabled()

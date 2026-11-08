@@ -14,7 +14,7 @@ import { useWorkspace } from './composables/useWorkspace'
 const { t } = useI18n({ useScope: 'global' })
 const emit = defineEmits<{ send: []; openProcesses: [] }>()
 const { selected, busy, needsProvider, workerAvailable, modelChoices, interactionPreferences, conversation, route, mobileSessionsOpen, modalQuery } = useWorkspace()
-const { draft, quotedText, removeQuote, agentWorking, agentStatus, selectionMode, selectionTier, chooseSelectionTier,
+const { draft, quotedText, removeQuote, agentWorking, selectionMode, selectionTier, chooseSelectionTier,
   editingMessage, cancelEditMessage,
   selectedModel, selectedReasoning, reasoningChoices, chooseModel,
   canAttachImage, attachedImages, attachedPreviewURLs, chooseImages, pasteImages, dropImages, removeImage,
@@ -184,7 +184,6 @@ onUnmounted(() => {
               <v-dropdown v-if="selected" :trigger="['click']" :menu="{ items: [{ key: 'compact', label: t('compactContext'), disabled: !canCompact || senderDisabled }], onClick: compactSession }">
                 <v-button class="icon-button" variant="text" :aria-label="t('conversationOptions')" :title="t('conversationOptions')"><MoreOutlined /></v-button>
               </v-dropdown>
-              <span v-if="!compacting" class="sender-state" role="status" aria-live="polite" :title="agentWorking ? agentStatus : undefined">{{ agentWorking ? agentStatus : '' }}</span>
               <v-tooltip v-if="canAttachImage" :title="t('addImagesHint')"><span class="sender-attach">
                 <v-button class="icon-button" variant="text" :aria-label="t('addImage')" :disabled="imageInputDisabled" @click="imageInput?.click()"><PictureOutlined /><span class="sender-attach-label">{{ t('addImage') }}</span></v-button>
                 <input ref="imageInput" type="file" accept="image/png,image/jpeg,image/webp,image/gif" multiple tabindex="-1" aria-hidden="true" :aria-label="t('addImage')" :disabled="imageInputDisabled" @change="chooseImages">
@@ -219,7 +218,7 @@ onUnmounted(() => {
 .sender-card .composer-send.ui-btn:focus-visible{outline:var(--focus-outline, 2px solid var(--accent));outline-offset:2px}
 .sender-actions{display:flex;align-items:center;gap:8px;min-width:0;max-width:100%;margin-inline-start:auto}
 .sender-card .composer-submit{width:auto;margin-left:0}
-.sender-card-auto .sender-footer{flex-wrap:nowrap}.sender-card-auto .sender-options{flex:1 1 auto;flex-wrap:nowrap}.sender-card-auto .composer-submit{width:auto;flex:0 1 auto;flex-wrap:nowrap}.sender-card-auto .sender-state{max-width:clamp(4rem,23vw,12rem);min-width:0}
+.sender-card-auto .sender-footer{flex-wrap:nowrap}.sender-card-auto .sender-options{flex:1 1 auto;flex-wrap:nowrap}.sender-card-auto .composer-submit{width:auto;flex:0 1 auto;flex-wrap:nowrap}
 @media(max-height:520px){
   .sender-quote{gap:7px;margin:6px 8px 0;padding:6px 8px}
   .sender-quote-body p{max-height:3.2em}
@@ -230,6 +229,5 @@ onUnmounted(() => {
   .sender-card .sender-options{flex:1 1 auto;flex-wrap:nowrap;gap:.3rem;min-width:0}
   .sender-card .sender-options .composer-tier{flex:0 1 7rem;width:7rem}
   .sender-card .composer-submit{flex:0 1 auto;flex-wrap:nowrap;width:auto;gap:.3rem;min-width:0}
-  .sender-card .sender-state{max-width:clamp(3rem,20vw,9rem);font-size:calc(.67rem + 2px);min-width:0}
 }
 </style>

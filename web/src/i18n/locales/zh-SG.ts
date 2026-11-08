@@ -2,6 +2,8 @@
 import type en from './en.ts'
 
 export default {
+  "traceReadFull": "读取完整结果",
+  "traceHideFull": "收起完整结果",
   "portChangeConfirm": "保存并重启",
   "portChangeWarning": "Vista 将在端口 {port} 上重启。当前执行及托管后台进程会停止。",
   "portChangeAccepted": "目标端口已预留，Vista 正在重启。请在新标签页打开新地址。",

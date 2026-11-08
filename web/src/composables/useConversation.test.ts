@@ -412,7 +412,7 @@ test('snapshot restores root execution while preserving recent child tokens and 
   })
   sessions.value[0]!.executing = true
   await conversation.selectSession(sessions.value[0]!)
-  assert.deepEqual(conversation.runProgress.value, { runId: 'run-a', phase: 'tool', tool: 'delegate' })
+  assert.deepEqual(conversation.runProgress.value, { runId: 'run-a', phase: 'tool', tool: 'delegate', summary: 'Inspect source' })
   assert.equal(conversation.modelByRun.value['run-a']?.id, 'model')
   assert.equal(conversation.lastEvent.value, 100)
   assert.equal(conversation.modelDrafts.value[0]?.content, 'Preserve recent tokens')

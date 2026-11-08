@@ -3,12 +3,11 @@ import { computed, onScopeDispose, ref, watch, type ComponentPublicInstance } fr
 import { elementScroll, useVirtualizer } from '@tanstack/vue-virtual'
 import { useDragStableMeasurement, useScrollbarDrag } from './composables/useScrollbarDrag'
 import type { TraceNodeView as Node } from './ui/traceTypes'
-import type { RunTraceNode, RunTraceTask } from './state/runTrace'
-import TraceReport from './TraceReport.vue'
+import type { RunTraceNode } from './state/runTrace'
 import TraceStep from './TraceStep.vue'
 
 const props = defineProps<{
-  sessionId: string; task: RunTraceTask; showReport: boolean; items: Node[]; expandedKeys: string[]
+  items: Node[]; expandedKeys: string[]
   nodeLoading: Record<number, boolean>; nodeFailure: Record<number, string>; nodeId: (key: string) => string
 }>()
 const emit = defineEmits<{ expand: [keys: string[]]; retry: [node: RunTraceNode] }>()
@@ -52,7 +51,7 @@ const virtualizer = useVirtualizer(computed(() => ({
   enabled: !!scrollElement.value,
   initialOffset: () => scrollElement.value?.scrollTop ?? 0,
   // Measure short lists too, so adding the 101st step reuses their real heights
-  // instead of replacing open output with fresh collapsed-height estimates.
+  // instead of replacing open output with fresh preview-height estimates.
   getScrollElement: () => scrollElement.value,
   getItemKey: (index: number) => props.items[index]!.key,
   // Rounding each row's height accumulates a visible jump when 100 normal
@@ -91,13 +90,14 @@ function expandRow(item: Node, keys: string[]) {
 
 <template>
   <div ref="root" class="trace-steps" :data-step-count="items.length" :data-virtualized="virtualized" :style="virtualized ? { height: `${virtualizer.getTotalSize()}px` } : undefined">
-  <div v-for="row in rows" :key="String(row.key)" :ref="measureRow" class="trace-step-row" :class="{ 'trace-step-last': row.index === items.length - 1 }" :data-index="row.index" :data-step-key="items[row.index].key" :style="virtualized ? { transform: `translateY(${row.start - scrollMargin}px)` } : undefined">
+  <div v-for="row in rows" :key="String(row.key)" :ref="measureRow" class="trace-step-row trace-task trace-task-group" :class="{ 'trace-step-last': row.index === items.length - 1 }" :data-index="row.index" :data-step-key="items[row.index].key" :data-task-id="items[row.index].taskId" :data-agent-role="items[row.index].taskId === 'main' ? 'main' : 'subagent'" :style="virtualized ? { transform: `translateY(${row.start - scrollMargin}px)` } : undefined">
+  <slot name="before-step" :node="items[row.index]" :index="row.index" />
   <TraceStep :item="items[row.index]" :expanded="expandedKeys.includes(items[row.index].key)" :loading="!!nodeLoading[items[row.index].lastSequence]" :failure="nodeFailure[items[row.index].lastSequence]" :node-id="nodeId" @expand="keys => expandRow(items[row.index], keys)" @retry="node => emit('retry', node)">
     <template #tool-output="{ node, expanded }"><slot name="tool-output" :node="node" :expanded="expanded" /></template>
   </TraceStep>
+  <slot name="after-step" :node="items[row.index]" />
   </div>
   </div>
-  <TraceReport v-if="task.id !== 'main' && showReport && task.report" :session-id="sessionId" :report="task.report" />
 </template>
 
 <style scoped>

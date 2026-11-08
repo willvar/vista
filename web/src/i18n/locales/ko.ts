@@ -2,6 +2,8 @@ import type en from './en.ts'
 
 
 export default {
+  "traceReadFull": "전체 결과 읽기",
+  "traceHideFull": "전체 결과 접기",
   "portChangeConfirm": "저장 후 다시 시작",
   "portChangeWarning": "Vista가 {port} 포트에서 다시 시작됩니다. 현재 실행과 관리되는 백그라운드 프로세스가 중지됩니다.",
   "portChangeAccepted": "새 포트를 예약했으며 Vista를 다시 시작합니다. 새 탭에서 새 주소를 여세요.",
