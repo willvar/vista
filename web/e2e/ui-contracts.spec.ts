@@ -1,4 +1,3 @@
-import type { Locator } from '@playwright/test'
 import { test, expect } from './fixtures'
 
 test.beforeEach(async ({ vista }) => {
@@ -212,59 +211,29 @@ test('switches distinguish off and on in both themes and keep the native state s
   }
 })
 
-async function toggleMotion(trigger: Locator, reduced: boolean) {
-  return trigger.evaluate(async (element, reduced) => {
-    const root = element.closest('[data-scope="collapsible"][data-part="root"]')!
-    const opening = element.getAttribute('aria-expanded') === 'false'
-    ;(element as HTMLElement).click()
-    let content: Element | null = null
-    let animation: Animation | undefined
-    for (let i = 0; i < (reduced ? 3 : 8); i++) {
-      await new Promise<void>(resolve => requestAnimationFrame(() => resolve()))
-      content = root.querySelector('.ui-collapse')
-      animation = content?.getAnimations().find(item => item instanceof CSSAnimation)
-      if (animation && parseFloat((content as HTMLElement).style.getPropertyValue('--height')) > 0) break
-    }
-    const result = { animated: !!animation, opening, middle: 0, full: 0, connected: !!content?.isConnected }
-    if (animation && content) {
-      animation.pause()
-      animation.currentTime = Number(animation.effect!.getTiming().duration) / 2
-      result.middle = content.getBoundingClientRect().height
-      result.full = parseFloat((content as HTMLElement).style.getPropertyValue('--height'))
-      animation.finish()
-    }
-    return result
-  }, reduced)
-}
-
-test.describe('trace folding', () => {
+test.describe('inline execution messages', () => {
   test.use({ progressCalls: 1 })
   for (const reducedMotion of ['no-preference', 'reduce'] as const) {
-    test(`execution and tool details expand and collapse with ${reducedMotion} motion`, async ({ page, vista }) => {
+    test(`execution previews stay visible while full tool output is optional with ${reducedMotion} motion`, async ({ page, vista }) => {
       await page.emulateMedia({ reducedMotion })
       await page.goto(vista.origin)
       const input = page.locator('.sender-card textarea')
       await input.fill('Check execution details')
       await input.press('Enter')
       await expect(page.locator('article.assistant').last()).toContainText('Final progress answer.')
-      const overview = page.getByRole('button', { name: 'Execution process', exact: true }).first()
-      const check = async (trigger: Locator) => {
-        const result = await toggleMotion(trigger, reducedMotion === 'reduce')
-        expect(result.animated).toBe(reducedMotion === 'no-preference')
-        if (result.animated) {
-          expect(result.middle).toBeGreaterThan(0)
-          expect(result.middle).toBeLessThan(result.full)
-        }
-        await expect(trigger).toHaveAttribute('aria-expanded', String(result.opening))
-      }
-      await check(overview)
-      const tool = page.locator('.ui-thought-chain-node-header').first()
-      await check(tool)
-      await expect(page.locator('.trace-step-content:visible')).toContainText('Tool result')
-      await check(tool)
-      await expect(page.locator('.trace-step-content')).toHaveCount(0)
-      await check(overview)
-      await expect(page.locator('.trace-overview > .ui-collapse')).toHaveCount(0)
+      await expect(page.getByRole('button', { name: 'Execution process', exact: true })).toHaveCount(0)
+      const tool = page.locator('.ui-thought-chain-node').filter({ hasText: 'Run command' })
+      await expect(tool.locator('.trace-step-content')).toContainText('Tool result')
+      const readFull = tool.getByRole('button', { name: 'Read full result', exact: true })
+      await expect(readFull).toHaveAttribute('aria-expanded', 'false')
+      await expect(tool.locator('.tool-output-entry')).toHaveCount(0)
+      await readFull.click()
+      await expect(tool.locator('.tool-output-entry')).toContainText('Tool result')
+      const hideFull = tool.getByRole('button', { name: 'Hide full result', exact: true })
+      await expect(hideFull).toHaveAttribute('aria-expanded', 'true')
+      await hideFull.click()
+      await expect(tool.locator('.tool-output-entry')).toHaveCount(0)
+      await expect(tool.locator('.trace-step-content')).toContainText('Tool result')
     })
   }
 })

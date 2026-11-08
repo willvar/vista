@@ -172,8 +172,8 @@ test.describe('model-managed preferences', () => {
 
     await page.goto(`${vista.origin}/sessions/${first.id}`)
     const trace = page.locator('.run-trace')
-    await trace.getByRole('button', { name: 'Execution process', exact: true }).click()
-    await trace.locator('.ui-thought-chain-node-title').filter({ hasText: 'Memory' }).click()
+    await expect(trace.getByRole('button', { name: 'Execution process', exact: true })).toHaveCount(0)
+    await expect(trace.locator('.ui-thought-chain-node-title')).toContainText('Memory')
     await expect(trace.locator('.trace-result-summary')).toHaveText('Memory added')
     await expect(trace.locator('.trace-step-content')).toContainText('Keep answers concise.')
 

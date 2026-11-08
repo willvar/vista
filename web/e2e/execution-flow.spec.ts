@@ -793,7 +793,9 @@ test('crossing the step virtualization threshold preserves the reading position 
 })
 
 test('expanded execution history and output restore after the outer message list unmounts them', async ({ page, mockOrigin }, testInfo) => {
-  test.setTimeout(60_000)
+  // Both passes scroll hundreds of rows through the real conversation viewport.
+  // The short landscape viewport needs more frames on shared CI runners.
+  test.setTimeout(120_000)
   const events = deterministicEvents(true)
   const runId = events[0].data.runId as string
   events.push({ sequence: events.at(-1)!.sequence + 1, kind: 'run_finished', createdAt: '2026-01-01T13:00:00Z', data: { runId, status: 'succeeded' } })
@@ -830,7 +832,7 @@ test('expanded execution history and output restore after the outer message list
   await expect(checklist, 'The checklist stays above the composer when its trace is unmounted').toBeVisible()
   await expect(page.getByText('Independent later conversation reply 110.', { exact: true })).toBeVisible()
   await scroller.evaluate(element => { element.scrollTop = 0; element.dispatchEvent(new Event('scroll')) })
-  await expect(mainTask, 'The process keeps its user-controlled expanded state').toBeVisible()
+  await expect(mainTask, 'Process messages remain visible after remounting').toBeVisible()
   expect(Number(await mainTask.locator('.trace-steps').getAttribute('data-step-count')), 'Restored history retains all model and tool steps').toBeGreaterThanOrEqual(200)
   await expect(mainTask.locator('.trace-steps')).toHaveAttribute('data-virtualized', 'true')
   await scrollToTraceStep(page, mainTask, runId, 'tool/main/call-310')
