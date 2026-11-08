@@ -302,6 +302,11 @@ Oh My Pi@overflow rules f1ac114d8d3438bee43010aee559bfe720ba3224; catalog blob 6
   Declared license: MIT
   LICENSE: 2e9d3d03c7f5bd727f8e53dda3795edc0873e6479d0cb32225b9390c1db72433
 
+@zag-js/tree-view@1.47.0
+  Use: Frontend dependency
+  Declared license: MIT
+  LICENSE: 2e9d3d03c7f5bd727f8e53dda3795edc0873e6479d0cb32225b9390c1db72433
+
 @zag-js/types@1.47.0
   Use: Frontend dependency
   Declared license: MIT
