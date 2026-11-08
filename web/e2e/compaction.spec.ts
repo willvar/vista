@@ -3,7 +3,7 @@ import { test, expect } from './fixtures'
 test.describe('automatic recovery', () => {
   test.use({ modelFailure: { status: 400, body: { error: { code: 'context_length_exceeded', message: 'Context length exceeded' } }, attempts: 1, skipAttempts: 1 } })
 
-  test('an automatic summary appears once between the input and continued answer', async ({ page, vista }) => {
+  test('an automatic summary appears once between the input and continued answer', { tag: '@smoke' }, async ({ page, vista }) => {
     await vista.api('/preferences', { method: 'PATCH', body: JSON.stringify({ feedbackInvitationSeen: true }) })
     const session = await vista.api('/sessions', { method: 'POST', body: '{}' })
     await vista.api(`/sessions/${session.id}/messages`, { method: 'POST', body: JSON.stringify({ content: 'Preserve these verified findings. '.repeat(160) }) })

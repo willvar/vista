@@ -31,7 +31,7 @@ function displayRegions(page: Page, locale: string, regions: readonly string[]) 
   }, { locale, regions })
 }
 
-test('Chinese region selection keeps script groups, fixed defaults and the saved regional catalog', async ({ page, vista }, testInfo) => {
+test('Chinese region selection keeps script groups, fixed defaults and the saved regional catalog', { tag: '@responsive' }, async ({ page, vista }, testInfo) => {
   await page.goto(vista.origin + '/settings/general')
   const picker = page.locator('.language-setting .ui-select')
   const region = page.locator('.region-setting .ui-select')
@@ -62,7 +62,7 @@ test('Chinese region selection keeps script groups, fixed defaults and the saved
   }
 })
 
-test('a language with one region hides the region picker and keeps its selection after reload', async ({ page, vista }, testInfo) => {
+test('a language with one region hides the region picker and keeps its selection after reload', { tag: '@responsive' }, async ({ page, vista }, testInfo) => {
   await page.goto(vista.origin + '/settings/general')
   const picker = page.locator('.language-setting .ui-select')
   const options = page.locator('.ui-select-dropdown:visible .ui-select-item-option')
@@ -127,6 +127,34 @@ test('regional wording and formatting choices survive manual selection and reloa
 for (const { browser, locale, reply } of cases) {
   test.describe(`UI language ${locale}`, () => {
     test.use({ locale: browser })
+    test('translated settings and nested dialogs fit each viewport', { tag: '@responsive' }, async ({ page, vista }, testInfo) => {
+      const text = messages[locale]
+      await page.addInitScript(value => localStorage.setItem('vista-language', value), locale)
+      await page.goto(vista.origin + '/settings/general')
+      await expect(page.locator('html')).toHaveAttribute('lang', locale)
+      for (const theme of ['light', 'dark']) {
+        await page.emulateMedia({ colorScheme: theme as 'light' | 'dark' })
+        for (const section of ['general', 'models', 'mcp', 'skills', 'storage', 'about', 'search']) {
+          await openSettingsSection(page, section)
+          const geometry = await page.locator('.settings-page').evaluate(element => ({
+            page: document.documentElement.scrollWidth - innerWidth,
+            overflow: Math.max(element.scrollWidth - element.clientWidth, ...[...element.querySelectorAll<HTMLElement>('.settings-content')].map(item => item.scrollWidth - item.clientWidth)),
+            left: element.getBoundingClientRect().left, right: element.getBoundingClientRect().right, width: innerWidth,
+          }))
+          expect(geometry.page).toBeLessThanOrEqual(2)
+          expect(geometry.overflow).toBeLessThanOrEqual(2)
+          expect(geometry.left).toBeGreaterThanOrEqual(-1)
+          expect(geometry.right).toBeLessThanOrEqual(geometry.width + 1)
+        }
+        const name = text.editSearchKey.replace('{name}', 'Exa')
+        await page.locator('.search-credentials').getByRole('button', { name, exact: true }).click()
+        const dialog = page.getByRole('dialog', { name, exact: true })
+        await expect(dialog.getByRole('button', { name: text.saveChanges, exact: true })).toBeVisible()
+        expect(await dialog.evaluate(element => element.scrollWidth - element.clientWidth)).toBeLessThanOrEqual(2)
+        await page.screenshot({ path: testInfo.outputPath(`${locale}-layout-${theme}.png`), animations: 'disabled' })
+        await dialog.getByRole('button', { name: text.cancel === '取消' ? /^取\s*消$/ : text.cancel, exact: true }).click()
+      }
+    })
     test('browser detection, searchable override, settings layout and reply language', async ({ page, vista }, testInfo) => {
       const text = messages[locale]
       const errors: string[] = []

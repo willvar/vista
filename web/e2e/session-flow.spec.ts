@@ -23,7 +23,7 @@ function frames(events: { sequence: number; kind: string; data: unknown }[]) {
   return events.map(event => `data: ${JSON.stringify(event)}\n\n`).join('')
 }
 
-test('switching sessions ignores a delayed history response and keeps the new draft', async ({ page, vista }) => {
+test('switching sessions ignores a delayed history response and keeps the new draft', { tag: '@smoke' }, async ({ page, vista }) => {
   await vista.api('/preferences', { method: 'PATCH', body: JSON.stringify({ feedbackInvitationSeen: true }) })
   const first = await vista.api('/sessions', { method: 'POST', body: '{}' })
   const second = await vista.api('/sessions', { method: 'POST', body: '{}' })

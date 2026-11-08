@@ -9,6 +9,7 @@ The [Makefile](../Makefile) groups checks by behavior. The sections below descri
 Run from the repository root with Go 1.26+, Node.js with native TypeScript support, npm, and Make. The race target also needs a supported C compiler/toolchain. Direct Go commands use `GOWORK=off`.
 
 ```sh
+make test
 make test go
 make test frontend
 make test e2e
@@ -21,20 +22,36 @@ make test all
 
 | Goal | Current checks |
 | --- | --- |
+| `test` (without another goal) | Go/frontend checks, fixed browser smoke flows, and affected modules plus their consumers |
 | `go` | Go unit tests, `go vet`, and `go test -race` |
 | `frontend` | Node unit tests, UA version updater checks, Vue/TypeScript checking, i18n validation, and embedded asset build |
-| `e2e` | Playwright desktop, mobile portrait, and mobile landscape projects |
+| `e2e` | Every Playwright scenario on desktop; responsive, touch and scrolling checks on mobile portrait/landscape |
 | `integration` | Native CLI/Server/Worker application test and smoke scripts for persistence, tools, queues, compaction, conflicts, and faults |
 | `mcp` | SDK stdio/HTTP fixtures and pinned upstream Filesystem/Everything servers |
 | `memory` | 20 open conversations plus 200 additional turns in one persistent Worker, with memory regression checks |
 | `capacity` | Mixed stdio/HTTP MCP, shell and child work; Chat/Responses long output; slow SSE; eight image adapters |
 | `all` | All seven goals in sequence, stopping at failure |
 
-`make test` defaults to `go`. Combine goals with `make test frontend memory`; shared prerequisites run once. Locked npm dependencies are installed when needed. Browser checks find Chrome/Chromium on `PATH`; set `VISTA_CHROME` to override. Integration scripts require `sqlite3`. Missing prerequisites fail explicitly. MCP upstream dependencies may require network access to install.
+Explicit goals such as `make test frontend memory` run only those checks; shared prerequisites run once. Locked npm dependencies are installed when needed. Browser checks find Chrome/Chromium on `PATH`; set `VISTA_CHROME` to override. Integration scripts require `sqlite3`. Missing prerequisites fail explicitly. MCP upstream dependencies may require network access to install.
 
 Make builds test executables under `.vista/test-state/bin` and uses separate configurations and ports. It does not replace `bin/vista` or restart the user's instance. Browser state, traces, screenshots, and HTML reports live under `web/.vista/test-state/`; see [frontend checks](../web/README.md).
 
 `E2E_ARGS` passes options to Playwright without changing the default projects, for example `make test e2e E2E_ARGS='--max-failures=1 --workers=2'`.
+
+`make test` compares staged, unstaged and untracked source against `HEAD` by default.
+Set `TEST_BASE=<commit>` to include changes already committed since an earlier validation.
+The selector in [`e2e-coverage.ts`](../web/scripts/e2e-coverage.ts) adds the browser consumers of known modules and always retains `@smoke` workflows.
+Shared components, global styles, fixtures, build/configuration changes and unclassified source select the complete browser suite.
+Regenerated frontend bundles follow the accompanying source selection; bundle-only changes select the complete suite.
+Documentation and unit-test-only edits retain smoke without adding unrelated browser scenarios.
+Selection and result records, source identity, binary SHA-256 and elapsed browser time are written under `.vista/acceptance/local-checks/`.
+Custom file/grep filters use `make test e2e`; the local selector rejects filters that could silently remove mandatory smoke or consumers.
+
+Desktop remains the complete browser baseline.
+Mobile projects use the explicit responsive coverage list, including multilingual layout, touch, dragging, scrolling, virtualized history and modal geometry; width-independent persistence and protocol recovery run once on desktop.
+The same classification applies locally and in CI.
+Language detection, saved preferences and request-language injection remain desktop workflows; a separate language-parameterized layout check covers both themes and all three viewports.
+Pure state/protocol checks also run through Node and Go tests rather than depending solely on browser repetitions.
 
 ## GitHub builds and releases
 
@@ -53,7 +70,7 @@ Hosted Windows ARM64 jobs dismiss first-logon privacy setup before desktop check
 When the runner lacks an Explorer desktop entry, the process starts Explorer and requires a ready taskbar before validation; desktop-launch, tray and native status tests must pass on both architectures.
 The native script checks process-breakaway permission before building, without changing the application's launch flags.
 
-The Linux browser matrix installs the Chromium version matching the pinned Playwright package and runs each of the three viewport projects on a separate runner with two workers.
+The Linux browser matrix installs the Chromium version matching the pinned Playwright package and runs each viewport project on a separate runner with two workers, using the coverage classification above.
 Manual runs may disable it; pushed release tags always run it.
 Native reports, archives and browser summaries are retained for three days; browser traces/screenshots are uploaded on failure only.
 Runner results establish the checks actually run; simulated model endpoints do not establish live-provider compatibility.

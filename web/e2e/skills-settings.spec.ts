@@ -236,7 +236,7 @@ test('failed requests and late document responses keep the current editor and sa
   await expect(page).toHaveURL(/\/settings\/skills$/)
 })
 
-test('file tree preserves separate drafts, edits references and scripts, and previews or downloads assets', async ({ page, vista }, testInfo) => {
+test('file tree preserves separate drafts, edits references and scripts, and previews or downloads assets', { tag: '@smoke' }, async ({ page, vista }, testInfo) => {
   const { directory } = await vista.api('/skills')
   const folder = join(directory, 'complete-pack')
   for (const name of ['scripts', 'references', 'assets']) mkdirSync(join(folder, name), { recursive: true })

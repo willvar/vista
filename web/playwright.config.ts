@@ -1,9 +1,12 @@
 import { defineConfig } from '@playwright/test'
 import { mkdirSync } from 'node:fs'
 import { resolve } from 'node:path'
+import { responsiveGrep } from './scripts/e2e-coverage.ts'
 
 if (!process.env.VISTA_CHROME) throw new Error('Set VISTA_CHROME to the isolated test browser executable')
 const runtime = resolve(import.meta.dirname, '.vista/test-state')
+const selection = process.env.VISTA_E2E_SELECTION
+const mobileGrep = selection ? new RegExp(`(?=.*(?:${responsiveGrep.source}))(?=.*(?:${selection}))`) : responsiveGrep
 mkdirSync(runtime, { recursive: true })
 // Playwright's temporary browser profiles must also stay on disk.
 process.env.TMPDIR = runtime
@@ -30,8 +33,8 @@ export default defineConfig({
     },
   },
   projects: [
-    { name: 'desktop', use: { viewport: { width: 1440, height: 900 } } },
-    { name: 'mobile-portrait', use: { viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true } },
-    { name: 'mobile-landscape', use: { viewport: { width: 568, height: 320 }, isMobile: true, hasTouch: true } },
+    { name: 'desktop', grep: selection ? new RegExp(selection) : undefined, use: { viewport: { width: 1440, height: 900 } } },
+    { name: 'mobile-portrait', grep: mobileGrep, use: { viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true } },
+    { name: 'mobile-landscape', grep: mobileGrep, use: { viewport: { width: 568, height: 320 }, isMobile: true, hasTouch: true } },
   ],
 })

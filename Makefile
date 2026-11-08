@@ -13,6 +13,7 @@ TEST_MCP_FIXTURE := $(TEST_STATE)/bin/mcp-fixture
 TEST_ENV = VISTA_BIN="$(TEST_BIN)" VISTA_MCP_FIXTURE="$(TEST_MCP_FIXTURE)" VISTA_TEST_TMPDIR="$(TEST_STATE)"
 VISTA_CHROME ?= $(shell command -v google-chrome || command -v google-chrome-stable || command -v chromium || command -v chromium-browser)
 E2E_ARGS ?= --max-failures=1
+TEST_BASE ?= HEAD
 HARBOR_PYTHON ?= $(CURDIR)/.vista/benchmarks/harbor/venv/bin/python
 BENCHMARK_ARGS ?= --help
 
@@ -23,7 +24,7 @@ IMAGE_PROTOCOLS := openai-chat mistral cohere bedrock vercel-gateway \
 	bedrock-mantle-responses sap-ai-core copilot
 
 .PHONY: build update-ua licenses check-licenses package test web benchmark $(BENCHMARK_GOALS) $(TEST_GOALS) all test-bin test-mcp-fixture \
-	test-frontend-unit test-frontend-types check-browser check-sqlite
+	test-frontend-unit test-frontend-types test-e2e-bin check-browser check-sqlite
 # Memory measurements and builds share resources, including with multiple goals.
 .NOTPARALLEL:
 
@@ -80,8 +81,13 @@ tb:
 gaia:
 	"$(HARBOR_PYTHON)" benchmarks/gaia/run.py $(BENCHMARK_ARGS)
 
-test: $(if $(filter-out test,$(MAKECMDGOALS)),,go)
+ifeq ($(filter-out test,$(MAKECMDGOALS)),)
+test: go frontend test-e2e-bin
+	TEST_BASE="$(TEST_BASE)" VISTA_BIN="$(TEST_E2E_BIN)" VISTA_CHROME="$(VISTA_CHROME)" node web/scripts/test-local.ts $(E2E_ARGS)
+else
+test:
 	@:
+endif
 
 go:
 	GOWORK=off CGO_ENABLED=0 go test ./...
@@ -112,9 +118,11 @@ test-mcp-fixture:
 	mkdir -p "$(TEST_STATE)/bin"
 	GOWORK=off CGO_ENABLED=0 go build -o "$(TEST_MCP_FIXTURE)" ./scripts/mcp_fixture
 
-e2e: check-browser web
+test-e2e-bin: check-browser web
 	mkdir -p "$(TEST_STATE)/bin"
 	GOWORK=off CGO_ENABLED=0 go build -ldflags="$(BUILD_LDFLAGS)" -o "$(TEST_E2E_BIN)" ./cmd/vista
+
+e2e: test-e2e-bin
 	VISTA_BIN="$(TEST_E2E_BIN)" VISTA_CHROME="$(VISTA_CHROME)" npm --prefix web run test:e2e -- $(E2E_ARGS)
 
 integration: check-sqlite test-bin

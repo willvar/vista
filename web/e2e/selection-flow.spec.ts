@@ -1,7 +1,7 @@
 import { closeSettings, openSettingsSection } from './settings-navigation'
 import { test, expect } from './fixtures'
 
-test('reasoning controls align on the homepage and in a conversation', async ({ page, vista }, testInfo) => {
+test('reasoning controls align on the homepage and in a conversation', { tag: '@smoke' }, async ({ page, vista }, testInfo) => {
   await vista.api('/preferences', { method: 'PATCH', body: JSON.stringify({ feedbackInvitationSeen: true }) })
   const catalog = await vista.api('/models')
   const model = catalog.models.find((item: { key: string }) => item.key === catalog.default)

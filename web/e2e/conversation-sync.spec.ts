@@ -60,7 +60,7 @@ async function start(page: Page, vista: VistaFixture) {
   return session.id as string
 }
 
-test('four saved replies recover from a connected silent stream without reload or repeated model requests', async ({ page, vista }) => {
+test('four saved replies recover from a connected silent stream without reload or repeated model requests', { tag: '@smoke' }, async ({ page, vista }) => {
   await page.clock.install()
   const id = await start(page, vista)
   await page.evaluate(() => { (window as any).__conversationDelivery.drop = 'silent' })

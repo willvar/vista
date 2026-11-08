@@ -114,7 +114,7 @@ test.describe('first launch without a provider', () => {
     await expect(stats.locator('.selection-stats-summary')).toContainText('0 models · 0 samples')
     await expect(stats.locator('.selection-stats-empty .ui-empty-description')).toHaveText('Connect a provider to start learning.')
   })
-  test('connect a provider and create the first session only when sending Hi', async ({ page, vista }, testInfo) => {
+  test('connect a provider and create the first session only when sending Hi', { tag: '@smoke' }, async ({ page, vista }, testInfo) => {
     let creationRequests = 0
     let messageRequests = 0
     page.on('request', request => {

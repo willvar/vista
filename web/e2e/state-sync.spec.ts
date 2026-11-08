@@ -71,7 +71,7 @@ test('view interests share one connection and release server work without reload
   await expect(page.locator('.state-sync-error')).toHaveCount(0)
 })
 
-test('workspace initializes each snapshot once and keeps one stream without periodic requests', async ({ page, vista }, info) => {
+test('workspace initializes each snapshot once and keeps one stream without periodic requests', { tag: '@smoke' }, async ({ page, vista }, info) => {
   test.skip(info.project.name !== 'desktop', 'Transport behavior is independent of viewport')
   test.setTimeout(45_000)
   await page.goto('about:blank')

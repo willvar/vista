@@ -11,7 +11,7 @@ test.beforeEach(async ({ vista }) => {
   await vista.api('/preferences', { method: 'PATCH', body: JSON.stringify({ feedbackInvitationSeen: true }) })
 })
 
-test('settings entry and category returns preserve the conversation and draft', async ({ page, vista }, testInfo) => {
+test('settings entry and category returns preserve the conversation and draft', { tag: '@smoke' }, async ({ page, vista }, testInfo) => {
   const session = await vista.api('/sessions', { method: 'POST', body: '{}' })
   await page.goto(`${vista.origin}/sessions/${session.id}`)
   const draft = page.locator('.sender-card textarea')

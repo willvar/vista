@@ -289,7 +289,7 @@ test('manager titles save inline on blur and Enter while drafts survive remote r
   await expect(manager).toBeVisible()
 })
 
-test('fixed manager controls and pagination leave a scrollable list on desktop and phones', async ({ page, vista }, info) => {
+test('fixed manager controls and pagination leave a scrollable list on desktop and phones', { tag: '@smoke' }, async ({ page, vista }, info) => {
   test.setTimeout(60_000)
   const titles = ['Compare gaming phones', 'Plan a weekend trip', 'Fix project tests', 'Organize research notes', 'Prepare interview questions', 'Review a monthly budget', 'Translate a letter', 'Summarize an article', 'Choose a birthday gift', 'Sort downloaded documents', 'Create a workout plan', 'Outline a presentation']
   for (const [index, title] of titles.entries()) {

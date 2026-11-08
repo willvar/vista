@@ -9,6 +9,7 @@
 在仓库根目录运行，需要 Go 1.26+、支持直接运行 TypeScript 的 Node.js、npm 和 Make。竞态检查另需受支持的 C 编译工具链；直接执行 Go 命令时设置 `GOWORK=off`。
 
 ```sh
+make test
 make test go
 make test frontend
 make test e2e
@@ -21,20 +22,36 @@ make test all
 
 | 目标 | 当前检查 |
 | --- | --- |
+| `test`（不带其他目标） | Go／前端检查、固定浏览器核心流程，以及受影响模块和消费者 |
 | `go` | Go 单测、`go vet`、`go test -race` |
 | `frontend` | Node 单测、UA 版本同步脚本检查、Vue／TypeScript 检查、国际化校验及内嵌资源构建 |
-| `e2e` | Playwright 桌面、手机竖屏、手机横屏项目 |
+| `e2e` | 桌面执行全部 Playwright 场景；手机竖屏／横屏覆盖响应式、触控和滚动 |
 | `integration` | CLI／Server／Worker 原生应用测试，以及持久化、工具、队列、压缩、冲突和故障 smoke 脚本 |
 | `mcp` | SDK stdio／HTTP fixture 及锁定版本的上游 Filesystem／Everything 服务 |
 | `memory` | 20 个打开会话，同一常驻 Worker 追加 200 轮及内存回归检查 |
 | `capacity` | stdio／HTTP MCP、shell 和子任务混合负载，Chat／Responses 长输出、慢 SSE 及八种图片适配器 |
 | `all` | 顺序执行全部七项目标，首次失败即停止 |
 
-`make test` 默认执行 `go`，可用 `make test frontend memory` 组合目标，共享前置步骤只执行一次。按需安装锁定 npm 依赖；浏览器检查从 `PATH` 查找 Chrome／Chromium，也可设置 `VISTA_CHROME`。集成脚本需要 `sqlite3`，缺少依赖时明确失败；安装上游 MCP 依赖可能需要网络。
+指定目标时只执行对应检查，例如 `make test frontend memory`；共享前置步骤只执行一次。按需安装锁定 npm 依赖；浏览器检查从 `PATH` 查找 Chrome／Chromium，也可设置 `VISTA_CHROME`。集成脚本需要 `sqlite3`，缺少依赖时明确失败；安装上游 MCP 依赖可能需要网络。
 
 Make 在 `.vista/test-state/bin` 构建隔离测试产物，使用独立配置和端口，不替换 `bin/vista` 或重启用户实例。浏览器状态、trace、截图和 HTML 报告位于 `web/.vista/test-state/`，见[前端检查](../web/README.zh-CN.md)。
 
 可用 `E2E_ARGS` 向 Playwright 传递选项，保留默认项目，例如 `make test e2e E2E_ARGS='--max-failures=1 --workers=2'`。
+
+`make test` 默认比较暂存、未暂存和未跟踪源码与 `HEAD` 的差异。
+用 `TEST_BASE=<commit>` 纳入上次验证之后已经提交的改动。
+[`e2e-coverage.ts`](../web/scripts/e2e-coverage.ts) 中的选择器为已知模块追加浏览器消费者，始终保留 `@smoke` 核心流程。
+公共组件、全局样式、fixture、构建／配置改动及未归类源码会选择完整浏览器覆盖。
+前端生成产物跟随对应源码的选择范围；只有产物变化时选择完整覆盖。
+仅文档或单元测试改动保留核心流程，不追加无关浏览器场景。
+选择范围、结果、源码标识、二进制 SHA-256 和浏览器耗时记录在 `.vista/acceptance/local-checks/` 下。
+自定义文件／grep 筛选使用 `make test e2e`；本地选择器拒绝可能静默移除核心流程或消费者的过滤参数。
+
+桌面保持完整浏览器基线。
+手机项目使用明确的响应式覆盖清单，包括多语言布局、触控、拖动、滚动、虚拟历史和弹框几何；与视口无关的持久化及协议恢复只在桌面执行一次。
+本地和 CI 使用同一套分类。
+语言识别、偏好保存和请求语言注入保留桌面流程；另有按语言参数化的布局检查覆盖三视口及两种主题。
+纯状态／协议检查同时通过 Node 和 Go 测试验证，不仅依靠浏览器重复执行。
 
 ## GitHub 构建与发布
 
@@ -53,7 +70,7 @@ Windows ARM64 托管 runner 会在桌面检查前关闭首次登录隐私设置�
 runner 缺少 Explorer 桌面入口时，该进程会启动 Explorer，并在任务栏就绪后开始验证；两种架构均要求桌面启动、托盘和原生状态窗口测试通过。
 原生脚本在编译前检查进程脱离权限，不改写应用的启动标志。
 
-Linux 浏览器矩阵安装与锁定 Playwright 包匹配的 Chromium，三个视口项目分别使用独立 runner，各运行两个工作进程。
+Linux 浏览器矩阵安装与锁定 Playwright 包匹配的 Chromium，三个视口项目分别使用独立 runner，各运行两个工作进程，并应用上述覆盖分类。
 手动运行时可关闭浏览器测试；推送发布 tag 时始终执行。
 原生报告、压缩包和浏览器结果摘要保留三天，浏览器 trace／截图仅在失败时上传。
 runner 结果只证明实际运行的检查，模拟模型端点不证明真实服务商兼容性。

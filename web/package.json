@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "npm run generate:i18n && vite",
-    "test:unit": "node --test src/client/*.test.ts src/state/*.test.ts src/composables/*.test.ts src/i18n/*.test.ts",
+    "test:unit": "node --test src/client/*.test.ts src/state/*.test.ts src/composables/*.test.ts src/i18n/*.test.ts scripts/e2e-coverage.test.ts",
     "test:e2e": "playwright test",
     "build": "npm run generate:i18n && npm run check:i18n && vite build",
     "check": "vue-tsc --noEmit -p tsconfig.json",

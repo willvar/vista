@@ -866,7 +866,7 @@ test('expanded execution history and output restore after the outer message list
   await page.screenshot({ path: testInfo.outputPath('message-virtualization-restored-execution.png'), animations: 'disabled' })
 })
 
-test('current action, timing and Todo stay above the composer through live work and reload', async ({ page, mockOrigin }, testInfo) => {
+test('current action, timing and Todo stay above the composer through live work and reload', { tag: '@smoke' }, async ({ page, mockOrigin }, testInfo) => {
   const source = independentWindowEvents()
   const runId = source[0].data.runId as string
   source.push({ sequence: source.at(-1)!.sequence + 1, kind: 'checklist', createdAt: source.at(-1)!.createdAt, data: { runId, items: initialChecklist } })
