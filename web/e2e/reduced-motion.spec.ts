@@ -31,7 +31,7 @@ test('system changes update existing controls, dropdowns and both modal levels w
   await connect.click()
   const inner = page.locator('.provider-connection-modal')
   await expect(inner).toBeVisible()
-  await inner.locator('.model-form label').first().locator('.ui-select').click()
+  await inner.getByRole('combobox', { name: 'Provider', exact: true }).click()
   const dropdown = page.locator('.ui-select-dropdown:visible')
   await expect(dropdown).toBeVisible()
   await expectReducedMotion(page)

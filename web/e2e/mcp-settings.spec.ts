@@ -224,7 +224,11 @@ test('stdio arguments are explicit and the inner editor dismisses without closin
   await dialog.getByLabel('Transport', { exact: true }).click()
   await page.getByRole('option', { name: 'Local · stdio', exact: true }).click()
   await dialog.getByLabel('Command (absolute path)', { exact: true }).fill('/usr/bin/npx')
-  await dialog.getByLabel('Arguments', { exact: true }).fill('-y\n@modelcontextprotocol/server-filesystem\n/home/user/a b')
+  const argumentsGroup = dialog.getByRole('group', { name: 'Arguments', exact: true })
+  for (const value of ['-y', '@modelcontextprotocol/server-filesystem', '/home/user/a b']) {
+    await argumentsGroup.getByRole('button', { name: 'Add item', exact: true }).click()
+    await argumentsGroup.getByRole('textbox').last().fill(value)
+  }
   await expect(dialog.getByLabel('Working directory (absolute path)', { exact: true })).toHaveValue('/home/user/project')
   await dialog.getByRole('button', { name: 'Save changes', exact: true }).click()
   await expect(dialog).toBeHidden()

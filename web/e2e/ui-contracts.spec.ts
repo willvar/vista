@@ -27,7 +27,7 @@ test('composer retains its text padding and borderless model search states', asy
 test('ordinary selects reject typing without filtering and still support keyboard selection', async ({ page, vista }) => {
   for (const [route, ids] of [
     ['general', ['model-selection-mode']],
-    ['about', ['user-agent-preset', 'memory-preset']],
+    ['about', ['user-agent-config-preset-input', 'capacity-preset-preset-input']],
     ['statistics', ['statistics-period']],
   ] as const) {
     await page.goto(`${vista.origin}/settings/${route}`)
