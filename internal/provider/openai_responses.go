@@ -333,6 +333,8 @@ func parseResponsesStreamWithReasoning(body io.Reader, onText, onReasoning func(
 		raw    bool
 	}
 	reasoningText := map[reasoningKey]*strings.Builder{}
+	var lastReasoningKey reasoningKey
+	hadReasoning := false
 	// Terminal events repeat the full summary. Emit only the missing suffix
 	// for each item/part, including gateways that never send summary deltas.
 	emitReasoning := func(key reasoningKey, value string, snapshot bool) error {
@@ -361,9 +363,18 @@ func parseResponsesStreamWithReasoning(body io.Reader, onText, onReasoning func(
 		if onReasoning == nil {
 			return errors.New("OpenAI Responses reasoning stream requires a sink")
 		}
+		// Summary/content parts are separate paragraphs, not adjacent chunks of
+		// one Markdown string. Keep deltas within a part byte-for-byte joined;
+		// the native response items and per-part deduplication remain unchanged.
+		if hadReasoning && key != lastReasoningKey {
+			if err := onReasoning("\n\n"); err != nil {
+				return err
+			}
+		}
 		if err := onReasoning(value); err != nil {
 			return err
 		}
+		lastReasoningKey, hadReasoning = key, true
 		previous.WriteString(value)
 		return nil
 	}

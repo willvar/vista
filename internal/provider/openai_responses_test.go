@@ -236,7 +236,7 @@ func TestOpenAIResponsesStreamsVisibleReasoning(t *testing.T) {
 		`data: {"type":"response.completed","response":{"status":"completed","output":[]}}` + "\n\n"
 	var text, reasoning strings.Builder
 	turn, err := parseResponsesStreamWithReasoning(strings.NewReader(stream), func(fragment string) error { _, err := text.WriteString(fragment); return err }, func(fragment string) error { _, err := reasoning.WriteString(fragment); return err })
-	if err != nil || turn.Text != "Answer." || text.String() != "Answer." || reasoning.String() != "Summary. Detail." {
+	if err != nil || turn.Text != "Answer." || text.String() != "Answer." || reasoning.String() != "Summary. \n\nDetail." {
 		t.Fatalf("Responses reasoning: turn=%+v, text=%q, reasoning=%q, err=%v", turn, text.String(), reasoning.String(), err)
 	}
 	if _, err := parseResponses(strings.NewReader(stream)); err == nil || !strings.Contains(err.Error(), "requires a sink") {
@@ -279,7 +279,7 @@ func TestOpenAIResponsesTerminalReasoning(t *testing.T) {
 		{"completed only", completed(summary("r", "Visible summary.")), "Visible summary."},
 		{"all terminal echoes", delta("r", 0, "Visible ") + done("r", 0, "Visible summary.") + itemDone(summary("r", "Visible summary.")) + completed(summary("r", "Visible summary.")), "Visible summary."},
 		{"partially streamed", delta("r", 0, "Visible ") + completed(summary("r", "Visible summary.")), "Visible summary."},
-		{"parts and items", delta("a", 0, "Same.") + done("a", 0, "Same.") + done("a", 1, "Same.") + itemDone(summary("a", "Same.", "Same.")) + completed(summary("a", "Same.", "Same."), summary("b", "Same.")), "Same.Same.Same."},
+		{"parts and items", delta("a", 0, "Same.") + done("a", 0, "Same.") + done("a", 1, "Same.") + itemDone(summary("a", "Same.", "Same.")) + completed(summary("a", "Same.", "Same."), summary("b", "Same.")), "Same.\n\nSame.\n\nSame."},
 		{"empty encrypted reasoning", completed(map[string]any{"type": "reasoning", "id": "r", "summary": []any{}, "encrypted_content": "opaque"}), ""},
 		{"rewritten optional summary", delta("r", 0, "Streamed summary.") + completed(summary("r", "Rewritten summary.")), "Streamed summary."},
 	} {
