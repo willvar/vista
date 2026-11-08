@@ -42,7 +42,7 @@ function update(value: unknown) { handleChange(control.value.path, value) }
 function select(value: unknown) { update(control.value.schema.enum?.find(option => String(option) === value)) }
 </script>
 <template>
-  <div v-if="control.visible" class="schema-control" :class="{ 'schema-control-invalid': !!control.errors }" :data-field-path="control.path">
+  <div v-if="control.visible" class="schema-control" :class="{ 'schema-control-invalid': !!control.errors, 'schema-control-switch': control.schema.type === 'boolean' && !choices.length }" :data-field-path="control.path">
     <component v-if="before" :is="before" />
     <label :for="id">{{ control.label }}<span v-if="requiresValue" class="schema-required" aria-hidden="true"> *</span></label>
     <Select v-if="choices.length" :id="id" :value="control.data == null ? null : String(control.data)" :options="choices" :disabled="!control.enabled" :show-search="!!options.showSearch" :option-filter-prop="options.enumSearchText ? 'searchText' : 'label'" :option-label-prop="options.enumFullLabels ? 'fullLabel' : undefined" :placeholder="options.placeholder"
@@ -64,6 +64,10 @@ function select(value: unknown) { update(control.value.schema.enum?.find(option 
 </template>
 <style scoped>
 .schema-control { display: flex; flex-direction: column; gap: .5rem; min-width: 0; }
+.schema-control-switch { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; column-gap: 1rem; }
+.schema-control-switch > label { grid-column: 1; grid-row: 1; }
+.schema-control-switch > :deep(.ui-switch) { grid-column: 2; grid-row: 1; }
+.schema-control-switch > small { grid-column: 1; }
 .schema-control :deep(.ui-input-number), .schema-control :deep(.ui-select) { width: 100%; }
 .schema-control small { color: var(--muted); line-height: 1.5; white-space: pre-wrap; }
 .schema-required { color: var(--danger); }
