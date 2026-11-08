@@ -70,6 +70,7 @@ export type ConversationState = {
   runProgress: RunProgress | null
   runClock: import('../client/types').RunClock | null
   checklist: { runId: string; items: ChecklistItem[] } | null
+  summaryStart: { runId: string; sequence: number } | null
   jobs: Job[]
   artifacts: Artifact[]
   modelByRun: Record<string, ModelInfo>
@@ -84,7 +85,7 @@ export function createConversationState(selected: Session | null = null): Conver
   return {
     selected, messages: [], processEvents: [], modelDrafts: [], mainOutputs: [], modelResults: [], modelOutput: {},
     queuedInputs: [], activeRunID: '', activeRunSequence: 0,
-    runProgress: null, runClock: null, checklist: null, jobs: [], artifacts: [], modelByRun: {},
+    runProgress: null, runClock: null, checklist: null, summaryStart: null, jobs: [], artifacts: [], modelByRun: {},
     lastEvent: 0, latestMessageSequence: 0, hasOlder: false, hasNewer: false, finishedRuns: {},
   }
 }
@@ -113,7 +114,7 @@ export function pruneConversationWindow(state: ConversationState): ConversationS
 export function appendMessage(state: ConversationState, message: Message | null | undefined): ConversationState {
   if (!message) return state
   const next = { ...state, latestMessageSequence: Math.max(state.latestMessageSequence, message.sequence) }
-  if (message.role === 'assistant' && !message.contextSummary && next.selected) next.selected = { ...next.selected,
+  if (message.role === 'assistant' && !message.contextSummary && !(message.checklist && !message.content) && next.selected) next.selected = { ...next.selected,
     latestReplySequence: Math.max(next.selected.latestReplySequence || 0, message.sequence) }
   if (message.role === 'assistant' && message.outputTurn) {
     next.mainOutputs = next.mainOutputs.map(output => output.runId === message.runId && output.turn === message.outputTurn ? { ...output, complete: true } : output)
@@ -126,9 +127,12 @@ export function appendMessage(state: ConversationState, message: Message | null 
 }
 
 export function messageResults(message: Message, modelResults: readonly ModelResultView[]): ModelResultView[] {
-  if (message.role !== 'assistant' || message.contextSummary || !message.runId) return []
+  if (message.role !== 'assistant' || !message.runId || message.checklist && !message.content) return []
   return runResults(message.runId, [message], modelResults)
-    .filter(result => result.sequence > (message.resultsAfter || 0) && result.sequence <= message.sequence)
+    .filter(result => {
+      const rootSummary = result.purpose === 'summary' && !result.depth && (!result.taskId || result.taskId === 'main')
+      return !!message.contextSummary === rootSummary && result.sequence > (message.resultsAfter || 0) && result.sequence <= message.sequence
+    })
 }
 
 export function runResults(runId: string, messages: readonly Message[], modelResults: readonly ModelResultView[]): ModelResultView[] {
@@ -179,7 +183,12 @@ export function reduceConversationEvent(state: ConversationState, event: StreamE
       next.runProgress = { runId, phase: 'finished' }
       if (next.selected) next.selected = { ...next.selected, pendingReply: data?.pendingReply || undefined, executing: false, latestRunStatus: data?.status }
     }
-    next = appendMessage(next, data?.message as Message | null)
+    const checklist = next.checklist?.runId === runId && next.checklist.items.length
+      ? { items: next.checklist.items, status: data?.status || '' } : undefined
+    const reply = data?.message as Message | null
+    next = appendMessage(next, reply ? { ...reply, ...(checklist ? { checklist } : {}) }
+      : checklist ? { id: `checklist-summary/${event.sequence}`, runId, role: 'assistant', content: '',
+        sequence: event.sequence, createdAt: event.createdAt || '', checklist } : null)
     next.modelDrafts = next.modelDrafts.map(draft => draft.runId === runId ? { ...draft, finished: true } : draft)
   }
   if (event.kind === 'model_delta' && runId && data?.turn > 0 && typeof data?.content === 'string' && !next.finishedRuns[runId]
@@ -205,10 +214,14 @@ export function reduceConversationEvent(state: ConversationState, event: StreamE
   }
   if (event.kind.startsWith('input_') && next.selected) next.selected = { ...next.selected,
     pendingInputCount: next.queuedInputs.filter(input => ['queued', 'paused'].includes(input.status)).length }
-  if (event.kind === 'context_notice' && !depth && typeof data.summary === 'string' && data.summary.trim()) next = appendMessage(next, {
-    id: `context-summary/${event.sequence}`, runId: runId || '', sequence: event.sequence, createdAt: event.createdAt || '',
-    role: 'assistant', content: data.summary, contextSummary: true,
-  })
+  if (event.kind === 'context_status' && runId && !depth && data.phase === 'compacting') next.summaryStart = { runId, sequence: event.sequence }
+  if (event.kind === 'context_notice' && !depth && typeof data.summary === 'string' && data.summary.trim()) {
+    next = appendMessage(next, {
+      id: `context-summary/${event.sequence}`, runId: runId || '', sequence: event.sequence, createdAt: event.createdAt || '',
+      role: 'assistant', content: data.summary, contextSummary: true, resultsAfter: next.summaryStart && next.summaryStart.runId === runId ? next.summaryStart.sequence : 0,
+    })
+    if (runId) next.summaryStart = { runId, sequence: event.sequence }
+  }
   if (event.kind === 'job' && data?.id) next.jobs = [data as Job, ...next.jobs.filter(item => item.id !== data.id)].sort((a, b) => Number(jobActive(b)) - Number(jobActive(a))).slice(0, 200)
   if (event.kind === 'job_output' && data?.id && Number.isSafeInteger(data.bytes) && data.bytes >= 0) next.jobs = next.jobs.map(job => job.id === data.id ? { ...job, bytes: Math.max(job.bytes, data.bytes) } : job)
   if (event.kind === 'artifact' && data?.id) next.artifacts = [data as Artifact, ...next.artifacts.filter(item => item.id !== data.id)].slice(0, 200)

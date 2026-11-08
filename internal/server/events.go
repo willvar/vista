@@ -39,10 +39,12 @@ func (a *App) messagesWithResults(r *http.Request, id string, items []store.Mess
 	var runIDs, messageIDs []string
 	seen := map[string]bool{}
 	for _, item := range items {
-		if item.Role != "assistant" || item.ContextSummary || item.RunID == "" {
+		if item.Role != "assistant" || item.RunID == "" || item.Checklist != nil && item.Content == "" {
 			continue
 		}
-		messageIDs = append(messageIDs, item.ID)
+		if !item.ContextSummary {
+			messageIDs = append(messageIDs, item.ID)
+		}
 		if !seen[item.RunID] {
 			runIDs = append(runIDs, item.RunID)
 			seen[item.RunID] = true
@@ -68,8 +70,10 @@ func messagesWithResultData(items []store.Message, events []store.Event, boundar
 	runs := map[string][]int{}
 	for index, item := range items {
 		out[index] = messageWithResults{Message: item}
-		out[index].ResultsAfter = boundaries[item.ID]
-		if item.Role == "assistant" && !item.ContextSummary && item.RunID != "" {
+		if !item.ContextSummary {
+			out[index].ResultsAfter = boundaries[item.ID]
+		}
+		if item.Role == "assistant" && item.RunID != "" && !(item.Checklist != nil && item.Content == "") {
 			runs[item.RunID] = append(runs[item.RunID], index)
 		}
 	}
@@ -79,15 +83,22 @@ func messagesWithResultData(items []store.Message, events []store.Event, boundar
 			continue
 		}
 		result := modelResultEvent{TaskID: data.TaskID, ParentTaskID: data.ParentTaskID, Purpose: data.ModelResult.Purpose, Sequence: event.Sequence, CreatedAt: event.CreatedAt, RunID: data.RunID, Turn: data.Turn, Depth: data.Depth, Provider: data.ModelResult.Provider, ID: data.ModelResult.ID, FinishReason: data.ModelResult.FinishReason, Usage: data.ModelResult.Usage, DurationMS: data.ModelResult.DurationMS, ReasoningEffort: data.ModelResult.ReasoningEffort}
-		if result.ReasoningEffort == "" {
+		rootSummary := result.Purpose == "summary" && result.Depth == 0 && (result.TaskID == "" || result.TaskID == "main")
+		if result.ReasoningEffort == "" && !rootSummary {
 			effort := efforts[data.RunID]
 			if effort != "default" && !strings.HasPrefix(effort, "config:") {
 				result.ReasoningEffort = effort
 			}
 		}
 		for _, index := range runs[data.RunID] {
+			if out[index].ContextSummary != rootSummary {
+				continue
+			}
 			if result.Sequence > out[index].ResultsAfter && result.Sequence <= out[index].Sequence {
 				out[index].ModelResults = append(out[index].ModelResults, result)
+				if out[index].ContextSummary {
+					out[index].Provider, out[index].ModelID = result.Provider, result.ID
+				}
 			}
 		}
 	}

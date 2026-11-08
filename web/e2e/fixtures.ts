@@ -150,7 +150,7 @@ export const test = base.extend<{ vista: VistaFixture; configuredProvider: boole
         return
       }
       if (String(input.messages?.[0]?.content || '').startsWith('Compress the completed execution transcript')) {
-        response.end('data: {"choices":[{"delta":{"content":"Saved verified findings and constraints."},"finish_reason":"stop"}]}\n\ndata: [DONE]\n\n')
+        response.end('data: {"choices":[{"delta":{"content":"Saved verified findings and constraints."},"finish_reason":"stop"}],"usage":{"prompt_tokens":321,"completion_tokens":12}}\n\ndata: [DONE]\n\n')
         return
       }
       const lastMessage = input.messages?.at(-1)

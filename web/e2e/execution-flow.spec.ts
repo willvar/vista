@@ -291,6 +291,23 @@ async function mockExecution(page: Page, origin: string, source = replayEvents()
     current.latestRunStatus = current.executing ? 'running' : finished?.data.status || ''
     return { session: current, throughSequence }
   }
+  // Match the server's display projection: final checklists share the
+  // terminal reply cursor, including runs without a final text message.
+  const displayMessages = () => {
+    const displayed = new Map(messages.map(message => [message.sequence, { ...message }]))
+    for (const finished of events.filter(event => event.kind === 'run_finished')) {
+      const checklist = [...events].reverse().find(event => event.kind === 'checklist' && event.sequence < finished.sequence
+        && event.data.runId === finished.data.runId && !event.data.depth && (!event.data.taskId || event.data.taskId === 'main'))
+      const items = checklist?.data.items || checklist?.data.checklist?.items
+      if (!items?.length) continue
+      const reply = displayed.get(finished.sequence) || finished.data.message || {
+        id: `checklist-summary/${finished.sequence}`, sequence: finished.sequence, role: 'assistant', runId: finished.data.runId,
+        content: '', createdAt: finished.createdAt || '',
+      }
+      displayed.set(finished.sequence, { ...reply, checklist: { items, status: finished.data.status } })
+    }
+    return [...displayed.values()].sort((a, b) => a.sequence - b.sequence)
+  }
   // Keep the mock transport open, just like the runtime. A finite fulfilled
   // response would continually exercise recovery during unrelated layout tests.
   streamHandlers.set(origin, (request, response) => {
@@ -371,10 +388,10 @@ async function mockExecution(page: Page, origin: string, source = replayEvents()
       const checklist = [...events].reverse().find(event => event.kind === 'checklist' && event.data.runId === latestRun && !event.data.depth && (!event.data.taskId || event.data.taskId === 'main'))
       if (checklist && !recent.some(event => event.sequence === checklist.sequence)) recent.push(checklist)
       recent.sort((a, b) => a.sequence - b.sequence)
-      return reply({ ...checkpoint(), messages, events: recent, hasOlder: false, hasOlderEvents: events.length >= 100 })
+      return reply({ ...checkpoint(), messages: displayMessages(), events: recent, hasOlder: false, hasOlderEvents: events.length >= 100 })
     }
     if (path === '/model-selection/stats') return reply({ speedScope: 'global', qualityScope: 'user', speedWindowDays: 30, qualityWindowSize: 200, models: [] })
-    if (path.endsWith('/messages')) return reply(messages)
+    if (path.endsWith('/messages')) return reply(displayMessages())
     if (path.endsWith('/artifacts')) return reply(artifacts.slice(-200))
     if (path.endsWith('/jobs')) return reply(jobs)
     if (path.match(/\/jobs\/[^/]+$/)) {
@@ -811,10 +828,10 @@ test('expanded execution history and output restore after the outer message list
   const fixture = await mockExecution(page, mockOrigin, events, { messages })
   const scroller = page.locator('.messages')
   const mainProgressRows = new Set(events.filter(event => event.kind === 'model_delta' && !event.data.depth && (!event.data.taskId || event.data.taskId === 'main')).map(event => event.data.turn)).size
-  await expect(page.locator('.message-space')).toHaveAttribute('data-count', String(messages.length + mainProgressRows))
+  await expect(page.locator('.message-space')).toHaveAttribute('data-count', String(messages.length + mainProgressRows + 1))
   await expect(page.locator('.message-space')).toHaveClass(/virtualized/)
-  const checklist = page.locator('.conversation-checklist')
-  await expect(checklist).toContainText('Analyze duplicate images')
+  const checklist = page.locator('.conversation-column > .conversation-checklist')
+  await expect(checklist).toHaveCount(0)
   await scroller.dispatchEvent('wheel', { deltaY: -100 })
   await scroller.evaluate(element => { element.scrollTop = 0; element.dispatchEvent(new Event('scroll')) })
   const trace = page.locator(`.run-trace[data-run-id="${runId}"]`)
@@ -834,7 +851,7 @@ test('expanded execution history and output restore after the outer message list
   const reads = readCounts()
   await scroller.evaluate(element => { element.scrollTop = element.scrollHeight; element.dispatchEvent(new Event('scroll')) })
   await expect(trace, 'The outer message virtualizer really unmounts the inspected execution').toHaveCount(0)
-  await expect(checklist, 'The checklist stays above the composer when its trace is unmounted').toBeVisible()
+  await expect(checklist, 'A finished checklist no longer occupies the composer while reading later history').toHaveCount(0)
   await expect(page.getByText('Independent later conversation reply 110.', { exact: true })).toBeVisible()
   await scroller.evaluate(element => { element.scrollTop = 0; element.dispatchEvent(new Event('scroll')) })
   await expect(mainTask, 'Process messages remain visible after remounting').toBeVisible()
@@ -894,16 +911,23 @@ test('current action, timing and Todo stay above the composer through live work 
   fixture.session.executing = false
   fixture.append('run_finished', { status: 'succeeded' })
   await expect(dock).toHaveCount(0)
+  await expect(page.locator('.conversation-column > .conversation-checklist')).toHaveCount(0)
+  await expect(page.locator('.messages [data-checklist-summary]')).toHaveCount(1)
   await expect(checklist.locator('[data-checklist-status="incomplete"]')).toHaveCount(2)
   await expect(page.locator('.run-trace')).toHaveAttribute('data-run-status', 'succeeded')
   await page.reload()
   await expect(dock).toHaveCount(0)
+  await expect(page.locator('.conversation-column > .conversation-checklist')).toHaveCount(0)
+  await expect(page.locator('.messages [data-checklist-summary]')).toHaveCount(1)
   await expect(checklist.locator('[data-checklist-status="incomplete"]')).toHaveCount(2)
   expect(fixture.unexpected).toEqual([])
 })
 
 test('stopping a run shows interrupted Todo immediately and after reload without changing saved statuses', async ({ page, mockOrigin }, testInfo) => {
-  await page.addInitScript(() => localStorage.setItem('vista-debug-mode', 'true'))
+  await page.addInitScript(() => {
+    localStorage.setItem('vista-debug-mode', 'true')
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: async (text: string) => { (window as Window & { copiedText?: string }).copiedText = text } } })
+  })
   const events = agentIdentityEvents()
   const runId = events[0].data.runId as string
   const savedItems: ChecklistItem[] = [...initialChecklist,
@@ -925,6 +949,8 @@ test('stopping a run shows interrupted Todo immediately and after reload without
   fixture.append('run_finished', { status: 'canceled' })
   const assertStoppedChecklist = async () => {
     await expect(overview).toHaveAttribute('data-run-status', 'canceled')
+    await expect(page.locator('.conversation-column > .conversation-checklist')).toHaveCount(0)
+    await expect(page.locator('.messages [data-checklist-summary]')).toHaveCount(1)
     await expect(trace.locator('.trace-step-row')).toHaveCount(4)
     await expect(checklist.locator('[data-checklist-status="in_progress"]')).toHaveCount(0)
     await expect(checklist.locator('[data-checklist-status="interrupted"] > small')).toHaveText(['interrupted', 'interrupted'])
@@ -938,7 +964,12 @@ test('stopping a run shows interrupted Todo immediately and after reload without
     await expect(header).toContainText('1/5 checklist items complete')
   }
   await assertStoppedChecklist()
-  await overview.scrollIntoViewIfNeeded()
+  await page.locator('.messages [data-checklist-summary]').getByRole('button', { name: 'Copy reply', exact: true }).click()
+  const copied = await page.evaluate(() => (window as Window & { copiedText?: string }).copiedText)
+  expect(copied).toContain('- [x] Check message composer · done')
+  expect(copied).toContain('- [ ] Analyze duplicate images · interrupted')
+  for (const item of savedItems) expect(copied).toContain(item.text)
+  await page.locator('.messages [data-checklist-summary]').scrollIntoViewIfNeeded()
   await page.screenshot({ path: testInfo.outputPath('stopped-todo.png'), animations: 'disabled' })
   await trace.getByRole('button', { name: 'Debug details', exact: true }).click()
   const diagnostics = page.getByRole('dialog', { name: 'Debug details', exact: true })
@@ -950,7 +981,7 @@ test('stopping a run shows interrupted Todo immediately and after reload without
   await assertStoppedChecklist()
   expect(fixture.events.find(event => event.kind === 'checklist')!.data.items).toEqual(savedItems)
   expect(fixture.unexpected).toEqual([])
-  await overview.scrollIntoViewIfNeeded()
+  await page.locator('.messages [data-checklist-summary]').scrollIntoViewIfNeeded()
   await page.screenshot({ path: testInfo.outputPath('stopped-todo-reloaded.png'), animations: 'disabled' })
 })
 
@@ -979,7 +1010,8 @@ test('new runs clear the composer checklist without changing earlier saved plans
   fixture.append('tool', { runId: newRun, turn: 1, taskId: 'main', status: 'started', tool })
   const assertSeparate = async () => {
     await expect(newTrace).toBeVisible()
-    await expect(page.locator('.conversation-checklist')).toHaveCount(0)
+    await expect(page.locator('.conversation-column > .conversation-checklist')).toHaveCount(0)
+    await expect(page.locator('.messages [data-checklist-summary]')).toHaveCount(1)
     await expect(oldTrace.locator('.checklist')).toHaveCount(0)
     await expect(newTrace.locator('.checklist')).toHaveCount(0)
   }
@@ -988,10 +1020,10 @@ test('new runs clear the composer checklist without changing earlier saved plans
   await assertSeparate()
   const newItems: ChecklistItem[] = [{ text: 'Verify the new task', status: 'in_progress' }]
   fixture.append('checklist', { runId: newRun, items: newItems })
-  await expect(page.locator('.conversation-checklist')).toContainText('Verify the new task')
-  await expect(page.locator('.conversation-checklist')).not.toContainText('Earlier unfinished work')
+  await expect(page.locator('.conversation-column > .conversation-checklist')).toContainText('Verify the new task')
+  await expect(page.locator('.conversation-column > .conversation-checklist')).not.toContainText('Earlier unfinished work')
   fixture.append('checklist', { runId: newRun, items: [] })
-  await expect(page.locator('.conversation-checklist')).toHaveCount(0)
+  await expect(page.locator('.conversation-column > .conversation-checklist')).toHaveCount(0)
   fixture.append('checklist', { runId: newRun, items: [{ ...newItems[0], status: 'done' }] })
   fixture.append('tool', { runId: newRun, turn: 1, taskId: 'main', status: 'succeeded', tool, content: 'File read.' })
   const reply: Message = { id: 'new-reply', runId: newRun, sequence: events.at(-1)!.sequence + 1, role: 'assistant', content: 'New task completed.', createdAt: new Date().toISOString() }
@@ -1002,7 +1034,8 @@ test('new runs clear the composer checklist without changing earlier saved plans
   await expect(page.locator('.conversation-checklist [data-checklist-status="done"]')).toHaveText(/Verify the new task/)
   await page.reload()
   await expect(page.locator('.conversation-checklist [data-checklist-status="done"]')).toHaveText(/Verify the new task/)
-  await expect(page.locator('.messages .checklist')).toHaveCount(0)
+  await expect(page.locator('.conversation-column > .conversation-checklist')).toHaveCount(0)
+  await expect(page.locator('.messages [data-checklist-summary]')).toHaveCount(2)
   expect(fixture.events.find(event => event.kind === 'checklist')!.data.items).toEqual(oldItems)
   expect(fixture.unexpected).toEqual([])
 })

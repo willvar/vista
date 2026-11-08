@@ -639,7 +639,7 @@ export function useConversation({ client, sessions, modelCatalog, error, busy, r
   }
 
   function hasVisibleRun(runId: string) { return !!runId && messages.value.some(message => message.runId === runId) }
-  const currentChecklist = computed(() => state.checklist?.runId === activeRunID.value ? state.checklist.items : [])
+  const currentChecklist = computed(() => agentWorking.value && state.checklist?.runId === activeRunID.value ? state.checklist.items : [])
   const traceSegments = computed(() => replyTraceSegments(messages.value, agentWorking.value ? activeRunID.value : '', state.hasNewer))
   function traceSegment(message: Message) { return traceSegments.value.get(message.id)! }
   function runActivityAnchor(message: Message) {

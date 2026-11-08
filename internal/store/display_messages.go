@@ -2,12 +2,14 @@ package store
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"sort"
 )
 
-// Display pages merge formal messages with already committed compaction
-// summaries. Model history continues to use the canonical messages/checkpoints.
+// Display pages project committed compaction summaries and final checklists.
+// A final checklist shares its run_finished cursor with the formal reply, so
+// paging cannot split the two bodies. Canonical model history is unchanged.
 func (s *Store) DisplayMessagesBefore(ctx context.Context, sessionID string, before int64, limit int) ([]Message, error) {
 	return s.displayMessages(ctx, sessionID, before, limit, false)
 }
@@ -27,30 +29,41 @@ func (s *Store) displayMessages(ctx context.Context, sessionID string, cursor in
 	if err != nil {
 		return nil, err
 	}
-	query := `SELECT sequence,COALESCE(json_extract(data,'$.runId'),''),json_extract(data,'$.summary'),created_at
- FROM events WHERE session_id=? AND kind='context_notice'
- AND COALESCE(json_extract(data,'$.depth'),0)=0
- AND json_type(data,'$.summary')='text' AND length(trim(json_extract(data,'$.summary')))>0`
+	query := `WITH display AS (
+ SELECT e.sequence,COALESCE(json_extract(e.data,'$.runId'),'') AS run_id,e.kind,e.created_at,
+ COALESCE(json_extract(e.data,'$.summary'),'') AS summary,
+ COALESCE(json_extract(e.data,'$.status'),'') AS status,
+ CASE WHEN e.kind='context_notice' THEN COALESCE((SELECT MAX(start.sequence) FROM events start
+  WHERE start.session_id=e.session_id AND json_extract(start.data,'$.runId')=json_extract(e.data,'$.runId')
+  AND start.sequence<e.sequence AND COALESCE(json_extract(start.data,'$.depth'),0)=0
+  AND (start.kind='context_notice' OR (start.kind='context_status' AND json_extract(start.data,'$.phase')='compacting'))),0) ELSE 0 END AS results_after,
+ CASE WHEN e.kind='run_finished' THEN (SELECT COALESCE(json_extract(c.data,'$.items'),json_extract(c.data,'$.checklist.items')) FROM events c
+  WHERE c.session_id=e.session_id AND c.kind='checklist' AND json_extract(c.data,'$.runId')=json_extract(e.data,'$.runId')
+  AND c.sequence<e.sequence AND COALESCE(json_extract(c.data,'$.depth'),0)=0
+  AND COALESCE(json_extract(c.data,'$.taskId'),'main') IN ('','main') ORDER BY c.sequence DESC LIMIT 1) END AS items
+ FROM events e WHERE e.session_id=? AND ((e.kind='context_notice'
+ AND COALESCE(json_extract(e.data,'$.depth'),0)=0 AND json_type(e.data,'$.summary')='text' AND length(trim(json_extract(e.data,'$.summary')))>0)
+ OR e.kind='run_finished')`
 	args := []any{sessionID}
 	if forward {
-		query += " AND sequence>?"
+		query += " AND e.sequence>?"
 		args = append(args, cursor)
 	} else if cursor > 0 {
-		query += " AND sequence<?"
+		query += " AND e.sequence<?"
 		args = append(args, cursor)
 	}
-	// A full formal-message page already bounds the only summaries that can
-	// enter this page; do not preload summaries outside that visible range.
+	// Include the boundary itself: a checklist can share a formal reply's
+	// sequence, but projections outside the visible page are not read.
 	if len(messages) == limit {
 		if forward {
-			query += " AND sequence<?"
+			query += " AND e.sequence<=?"
 			args = append(args, messages[len(messages)-1].Sequence)
 		} else {
-			query += " AND sequence>?"
+			query += " AND e.sequence>=?"
 			args = append(args, messages[0].Sequence)
 		}
 	}
-	query += " ORDER BY sequence"
+	query += ") SELECT sequence,run_id,kind,created_at,summary,status,results_after,COALESCE(items,'[]') FROM display WHERE kind='context_notice' OR json_array_length(items)>0 ORDER BY sequence"
 	if !forward {
 		query += " DESC"
 	}
@@ -61,12 +74,31 @@ func (s *Store) displayMessages(ctx context.Context, sessionID string, cursor in
 		return nil, err
 	}
 	defer rows.Close()
+	bySequence := make(map[int64]int, len(messages))
+	for index, message := range messages {
+		bySequence[message.Sequence] = index
+	}
 	for rows.Next() {
-		message := Message{SessionID: sessionID, Role: "assistant", ContextSummary: true}
-		if err := rows.Scan(&message.Sequence, &message.RunID, &message.Content, &message.CreatedAt); err != nil {
+		message := Message{SessionID: sessionID, Role: "assistant"}
+		var kind, status, items string
+		if err := rows.Scan(&message.Sequence, &message.RunID, &kind, &message.CreatedAt, &message.Content, &status, &message.ResultsAfter, &items); err != nil {
 			return nil, err
 		}
-		message.ID = fmt.Sprintf("context-summary/%d", message.Sequence)
+		if kind == "context_notice" {
+			message.ContextSummary = true
+			message.ID = fmt.Sprintf("context-summary/%d", message.Sequence)
+		} else {
+			message.ID = fmt.Sprintf("checklist-summary/%d", message.Sequence)
+			message.Content = ""
+			message.Checklist = &ChecklistSummary{Status: status}
+			if err := json.Unmarshal([]byte(items), &message.Checklist.Items); err != nil {
+				return nil, err
+			}
+			if index, exists := bySequence[message.Sequence]; exists {
+				messages[index].Checklist = message.Checklist
+				continue
+			}
+		}
 		messages = append(messages, message)
 	}
 	if err := rows.Err(); err != nil {

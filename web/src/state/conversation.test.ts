@@ -241,7 +241,7 @@ test('execution compaction projects one ordinary assistant message without endin
   const summary = state.messages[1]!
   assert.deepEqual(summary, {
     id: 'context-summary/3', runId: 'run-a', role: 'assistant', content: notice.data.summary,
-    sequence: 3, createdAt: notice.createdAt, contextSummary: true, modelResults: [],
+    sequence: 3, createdAt: notice.createdAt, contextSummary: true, resultsAfter: 0, modelResults: [],
   })
   assert.equal(reduceConversationEvent(state, notice), state)
   assert.equal(state.activeRunID, 'run-a')
@@ -258,6 +258,57 @@ test('execution compaction projects one ordinary assistant message without endin
   const restored = createConversationState(session)
   restored.messages = [summary]
   assert.equal(reduceConversationEvent(restored, notice).messages.length, 1)
+})
+
+test('each summary owns only its root compaction calls, independently of ordinary replies and other compactions', () => {
+  let state = reduceConversationEvent(createConversationState(session), event(1, 'message', message('input', 1, 'run')))
+  const result = (sequence: number, purpose = '', depth = 0) => event(sequence, 'model_result', {
+    runId: 'run', turn: sequence, depth, modelResult: { provider: 'custom', id: purpose ? 'summary-model' : 'chat-model', purpose, usage: { inputTokens: sequence } },
+  })
+  state = reduceConversationEvent(state, result(2))
+  state = reduceConversationEvent(state, event(3, 'context_status', { runId: 'run', phase: 'compacting' }))
+  state = reduceConversationEvent(state, result(4, 'summary'))
+  state = reduceConversationEvent(state, event(5, 'context_status', { runId: 'run', depth: 1, phase: 'compacting' }))
+  state = reduceConversationEvent(state, result(6, 'summary', 1))
+  state = reduceConversationEvent(state, result(7, 'summary'))
+  state = reduceConversationEvent(state, event(8, 'context_notice', { runId: 'run', depth: 0, summary: 'First summary' }))
+  const first = state.messages.at(-1)!
+  assert.deepEqual(messageResults(first, state.modelResults).map(result => result.sequence), [4, 7])
+  state = reduceConversationEvent(state, event(9, 'context_status', { runId: 'run', phase: 'compacting' }))
+  state = reduceConversationEvent(state, result(10, 'summary'))
+  state = reduceConversationEvent(state, event(11, 'context_notice', { runId: 'run', depth: 0, summary: 'Second summary' }))
+  const second = state.messages.at(-1)!
+  assert.deepEqual(messageResults(second, state.modelResults).map(result => result.sequence), [10])
+  state = reduceConversationEvent(state, result(12))
+  const reply = { ...message('answer', 13, 'run', 'assistant') }
+  assert.deepEqual(messageResults(reply, state.modelResults).map(result => result.sequence), [2, 6, 12])
+  assert.deepEqual(messageResults(first, []).map(result => result.sequence), [4, 7], 'Persisted metadata survives event-window eviction')
+})
+
+test('final checklists share the reply cursor, survive empty replies and do not change unread or saved statuses', () => {
+  for (const status of ['succeeded', 'failed', 'interrupted']) for (const hasReply of [true, false]) {
+    let state = reduceConversationEvent(createConversationState(session), event(1, 'message', message('input', 1, 'run')))
+    const items = [{ text: 'Still working', status: 'in_progress' as const }]
+    state = reduceConversationEvent(state, event(2, 'checklist', { runId: 'run', items }))
+    const finish = event(3, 'run_finished', { runId: 'run', status, message: hasReply ? message('answer', 3, 'run', 'assistant') : null })
+    state = reduceConversationEvent(state, finish)
+    assert.equal(state.messages.length, 2)
+    assert.deepEqual(state.messages.at(-1)!.checklist, { items, status })
+    assert.equal(state.messages.at(-1)!.sequence, 3)
+    assert.equal(state.selected?.latestReplySequence || 0, hasReply ? 3 : 0)
+    assert.equal(reduceConversationEvent(state, finish), state)
+    state = reduceConversationEvent(state, event(4, 'message', message('next', 4, 'next-run')))
+    assert.deepEqual(state.messages[1]!.checklist?.items, items, 'A new run preserves the archived checklist')
+  }
+})
+
+test('clearing a checklist and child-only plans do not create final checklist messages', () => {
+  let state = reduceConversationEvent(createConversationState(session), event(1, 'message', message('input', 1, 'run')))
+  state = reduceConversationEvent(state, event(2, 'checklist', { runId: 'run', items: [{ text: 'Plan', status: 'pending' }] }))
+  state = reduceConversationEvent(state, event(3, 'checklist', { runId: 'run', items: [] }))
+  state = reduceConversationEvent(state, event(4, 'checklist', { runId: 'run', depth: 1, taskId: 'child', items: [{ text: 'Child', status: 'done' }] }))
+  state = reduceConversationEvent(state, event(5, 'run_finished', { runId: 'run', status: 'succeeded' }))
+  assert.equal(state.messages.length, 1)
 })
 
 test('child compaction and empty summaries do not add chat messages', () => {

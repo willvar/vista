@@ -149,12 +149,15 @@ While idle, the same context assembly used for the next request recomputes the
 estimate, including retained tool turns from completed or interrupted runs. This number
 is never cumulative request usage or an automatic compaction threshold.
 Successful automatic and manual compaction hide the composer status and display
-the committed summary as a normal assistant message, with Markdown and copying,
+the committed summary as a normal assistant message, with Markdown, copying,
+the actual compression model and its token usage/call details,
 at its event position in the conversation. The execution details do not repeat
 the summary. Message pages and snapshots derive this display from the existing
 `context_notice`, including notices outside the recent event window; replay uses
 the same message identity. This projection adds no model request or canonical
 history entry and does not duplicate reply usage, feedback or unread counts.
+Each summary includes only the root compression calls since that compaction began;
+ordinary replies exclude those calls, while child-task usage stays with its reply.
 After manual success, Continue is offered in the placeholder only while idle with an empty
 draft and no images. Activating a conversation focuses its enabled composer;
 pressing Tab fills the draft without sending. Shift+Tab and Tab without a suggestion retain normal focus navigation.

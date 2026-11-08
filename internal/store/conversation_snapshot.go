@@ -105,10 +105,12 @@ func (s *Store) ConversationSnapshot(ctx context.Context, id string) (Conversati
 			if message.Role == "user" {
 				activeRun = message.RunID
 			}
-			if message.Role != "assistant" || message.ContextSummary {
+			if message.Role != "assistant" || message.Checklist != nil && message.Content == "" {
 				continue
 			}
-			messageIDs = append(messageIDs, message.ID)
+			if !message.ContextSummary {
+				messageIDs = append(messageIDs, message.ID)
+			}
 			if !seen[message.RunID] && message.RunID != "" {
 				runIDs = append(runIDs, message.RunID)
 				seen[message.RunID] = true

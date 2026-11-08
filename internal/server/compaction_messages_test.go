@@ -81,3 +81,92 @@ func TestCompactionSummaryAppearsInMessagePagesWithoutDuplicatingReplyResults(t 
 		})
 	}
 }
+
+func TestSummaryResultsStayWithinTheirCompactionAcrossSnapshotAndSingleMessagePages(t *testing.T) {
+	app, sessionID := inputQueueFixture(t)
+	ctx := app.ctx
+	if err := app.store.RecordRunSelection(ctx, "run", "chat-model", "high", "endpoint"); err != nil {
+		t.Fatal(err)
+	}
+	appendEvent := func(kind string, data any) store.Event {
+		t.Helper()
+		event, err := app.store.AppendRunEvent(ctx, sessionID, "run", kind, data)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return *event
+	}
+	result := func(turn int32, purpose string, depth int) {
+		appendEvent("model_result", workerproto.Result{RunID: "run", Turn: turn, Depth: depth,
+			ModelResult: &workerproto.ModelResult{Provider: "custom", ID: "actual-model", Purpose: purpose, FinishReason: "stop", DurationMS: 123,
+				Usage: &workerproto.ModelUsage{InputTokens: int64(turn), OutputTokens: 1}}})
+	}
+	result(1, "", 0)
+	var notices []store.Event
+	for i := 0; i < 2; i++ {
+		appendEvent("context_status", map[string]any{"runId": "run", "phase": "compacting"})
+		result(int32(i*3+2), "summary", 0)
+		result(int32(i*3+3), "summary", 1)
+		result(int32(i*3+4), "summary", 0)
+		notices = append(notices, appendEvent("context_notice", map[string]any{"runId": "run", "depth": 0, "summary": fmt.Sprintf("Summary %d", i)}))
+	}
+	result(8, "", 0)
+	if _, err := app.store.FinishRun(ctx, sessionID, "run", "answer", "succeeded", "Answer"); err != nil {
+		t.Fatal(err)
+	}
+	for _, suffix := range []string{"/messages", "/snapshot", fmt.Sprintf("/messages?before=%d", notices[1].Sequence+1), fmt.Sprintf("/messages?after=%d", notices[0].Sequence)} {
+		response := httptest.NewRecorder()
+		app.session(response, httptest.NewRequest(http.MethodGet, "/api/sessions/"+sessionID+suffix, nil))
+		if response.Code != 200 {
+			t.Fatalf("%s: %d %s", suffix, response.Code, response.Body.String())
+		}
+		body := response.Body.Bytes()
+		if suffix == "/snapshot" {
+			var snapshot struct {
+				Messages json.RawMessage `json:"messages"`
+			}
+			if err := json.Unmarshal(body, &snapshot); err != nil {
+				t.Fatal(err)
+			}
+			body = snapshot.Messages
+		}
+		var page []messageWithResults
+		if err := json.Unmarshal(body, &page); err != nil {
+			t.Fatal(err)
+		}
+		for _, message := range page {
+			if message.Role != "assistant" {
+				continue
+			}
+			if message.ContextSummary {
+				if len(message.ModelResults) != 2 || message.Provider != "custom" || message.ModelID != "actual-model" || message.ResultsAfter <= 0 {
+					t.Fatalf("summary lost scoped usage or identity: %+v", message)
+				}
+				wantFirst := int32(2)
+				if message.Sequence == notices[1].Sequence {
+					wantFirst = 5
+				}
+				if message.ModelResults[0].Turn != wantFirst || message.ModelResults[1].Turn != wantFirst+2 {
+					t.Fatalf("summary includes another compaction: %+v", message.ModelResults)
+				}
+				for _, result := range message.ModelResults {
+					if result.ReasoningEffort != "" {
+						t.Fatal("summary inherited the foreground reasoning setting")
+					}
+				}
+			} else if len(message.ModelResults) != 4 {
+				t.Fatalf("ordinary answer lost calls or duplicated root summary usage: %+v", message.ModelResults)
+			}
+		}
+	}
+	// A page containing just a summary must load its results without a formal
+	// assistant message from that run being present on the same page.
+	items, err := app.store.DisplayMessagesAfter(ctx, sessionID, notices[0].Sequence, 1)
+	if err != nil || len(items) != 1 || !items[0].ContextSummary {
+		t.Fatalf("summary-only page: %+v %v", items, err)
+	}
+	page, err := app.messagesWithResults(httptest.NewRequest(http.MethodGet, "/", nil), sessionID, items)
+	if err != nil || len(page[0].ModelResults) != 2 || page[0].ModelResults[0].Turn != 5 {
+		t.Fatalf("summary-only usage: %+v %v", page, err)
+	}
+}

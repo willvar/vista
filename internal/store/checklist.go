@@ -14,6 +14,11 @@ type ChecklistItem struct {
 	Status string `json:"status"`
 }
 
+type ChecklistSummary struct {
+	Items  []ChecklistItem `json:"items"`
+	Status string          `json:"status"`
+}
+
 func ValidateChecklist(items []ChecklistItem) error {
 	if len(items) > 16 {
 		return errors.New("checklist exceeds 16 items")

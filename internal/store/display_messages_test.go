@@ -120,3 +120,145 @@ func TestDisplayMessagesProjectCompactionWithoutChangingCanonicalHistory(t *test
 		t.Fatalf("rollback retained a discarded summary: %+v err=%v", remaining, err)
 	}
 }
+
+func TestDisplayMessagesRetainFinalChecklistWithItsReplyAndPageCursor(t *testing.T) {
+	for _, status := range []string{"succeeded", "failed", "interrupted"} {
+		for _, text := range []string{"", "answer"} {
+			t.Run(status+"/"+text, func(t *testing.T) {
+				ctx := context.Background()
+				s, err := Open(filepath.Join(t.TempDir(), "vista.db"))
+				if err != nil {
+					t.Fatal(err)
+				}
+				defer s.Close()
+				if _, err := s.Create(ctx, "s", "Checklist"); err != nil {
+					t.Fatal(err)
+				}
+				input, _, err := s.BeginRun(ctx, "s", "r", "input", "task")
+				if err != nil {
+					t.Fatal(err)
+				}
+				items := []ChecklistItem{{Text: "Done", Status: "done"}, {Text: "Still working", Status: "in_progress"}, {Text: "Blocked", Status: "blocked"}}
+				if _, err := s.ReplaceChecklist(ctx, "s", "r", items); err != nil {
+					t.Fatal(err)
+				}
+				if _, err := s.AppendRunEvent(ctx, "s", "r", "checklist", map[string]any{"runId": "r", "depth": 1, "taskId": "child", "items": []ChecklistItem{{Text: "Child", Status: "done"}}}); err != nil {
+					t.Fatal(err)
+				}
+				for i := 0; i < 110; i++ {
+					if _, err := s.AppendModelDelta(ctx, "s", "r", 1, 1, "child progress"); err != nil {
+						t.Fatal(err)
+					}
+				}
+				finished, err := s.FinishRun(ctx, "s", "r", "answer", status, text)
+				if err != nil {
+					t.Fatal(err)
+				}
+				// Move the entire finished run off the recent event page.
+				if _, _, err := s.BeginRun(ctx, "s", "next", "next-input", "next task"); err != nil {
+					t.Fatal(err)
+				}
+				for i := 0; i < 110; i++ {
+					if _, err := s.AppendModelDelta(ctx, "s", "next", 1, 1, "progress"); err != nil {
+						t.Fatal(err)
+					}
+				}
+				view, err := s.ConversationSnapshot(ctx, "s")
+				if err != nil {
+					t.Fatal(err)
+				}
+				if len(view.Messages) != 3 {
+					t.Fatalf("unexpected messages: %+v", view.Messages)
+				}
+				final := view.Messages[1]
+				if final.Sequence != finished.Sequence || final.RunID != "r" || final.Checklist == nil || final.Checklist.Status != status || !reflect.DeepEqual(final.Checklist.Items, items) {
+					t.Fatalf("final checklist was lost or changed: %+v", final)
+				}
+				canonical, err := s.MessagesBefore(ctx, "s", 0, 100)
+				if err != nil {
+					t.Fatal(err)
+				}
+				wantCanonical := 2
+				if text != "" && status != "interrupted" {
+					wantCanonical++
+				}
+				if len(canonical) != wantCanonical {
+					t.Fatalf("checklist entered model history: %+v", canonical)
+				}
+				for _, message := range canonical {
+					if message.Checklist != nil {
+						t.Fatal("canonical message contains a display checklist")
+					}
+				}
+				for _, forward := range []bool{false, true} {
+					var paged []Message
+					var cursor int64
+					for {
+						var page []Message
+						if forward {
+							page, err = s.DisplayMessagesAfter(ctx, "s", cursor, 1)
+						} else {
+							page, err = s.DisplayMessagesBefore(ctx, "s", cursor, 1)
+						}
+						if err != nil {
+							t.Fatal(err)
+						}
+						if len(page) == 0 {
+							break
+						}
+						if len(page) != 1 || page[0].Sequence == cursor {
+							t.Fatal("cursor did not advance")
+						}
+						if forward {
+							paged = append(paged, page...)
+						} else {
+							paged = append(page, paged...)
+						}
+						cursor = page[0].Sequence
+					}
+					if !reflect.DeepEqual(paged, view.Messages) {
+						t.Fatalf("paging split or duplicated the final checklist: %+v", paged)
+					}
+				}
+				if _, err := s.FinishRun(ctx, "s", "next", "next-answer", "succeeded", ""); err != nil {
+					t.Fatal(err)
+				}
+				if _, err := s.Revert(ctx, "s", "input", input.Sequence); err != nil {
+					t.Fatal(err)
+				}
+				remaining, err := s.DisplayMessagesBefore(ctx, "s", 0, 100)
+				if err != nil || len(remaining) != 0 {
+					t.Fatalf("withdrawal retained the checklist: %+v %v", remaining, err)
+				}
+			})
+		}
+	}
+}
+
+func TestDisplayMessagesOmitClearedChecklists(t *testing.T) {
+	ctx := context.Background()
+	s, err := Open(filepath.Join(t.TempDir(), "vista.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	if _, err := s.Create(ctx, "s", "Checklist"); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := s.BeginRun(ctx, "s", "r", "input", "task"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.ReplaceChecklist(ctx, "s", "r", []ChecklistItem{{Text: "Plan", Status: "pending"}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.ReplaceChecklist(ctx, "s", "r", []ChecklistItem{}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.FinishRun(ctx, "s", "r", "answer", "succeeded", "answer"); err != nil {
+		t.Fatal(err)
+	}
+	page, err := s.DisplayMessagesBefore(ctx, "s", 0, 100)
+	if err != nil || len(page) != 2 || page[1].Checklist != nil {
+		t.Fatalf("cleared checklist returned: %+v %v", page, err)
+	}
+}

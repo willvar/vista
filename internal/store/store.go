@@ -50,24 +50,25 @@ type PendingReply struct {
 }
 
 type Message struct {
-	Failure        bool   `json:"failure,omitempty"`
-	ContextSummary bool   `json:"contextSummary,omitempty"` // Display projection of a committed compaction event, not additional model history.
-	ID             string `json:"id"`
-	SessionID      string `json:"sessionId"`
-	RunID          string `json:"runId"`
-	Provider       string `json:"provider,omitempty"`
-	ModelID        string `json:"modelId,omitempty"`
-	ModelKey       string `json:"modelKey,omitempty"`
-	OutputTurn     int32  `json:"outputTurn,omitempty"`
-	OutputBytes    int    `json:"outputBytes,omitempty"`
-	ResultsAfter   int64  `json:"resultsAfter,omitempty"`
-	Sequence       int64  `json:"sequence"`
-	Role           string `json:"role"`
-	Content        string `json:"content"`
-	QuestionCallID string `json:"questionCallId,omitempty"` // Persisted in the message event; display role stays user.
-	ImageCount     int    `json:"imageCount,omitempty"`
-	ImageBytes     int    `json:"-"`
-	CreatedAt      string `json:"createdAt"`
+	Failure        bool              `json:"failure,omitempty"`
+	ContextSummary bool              `json:"contextSummary,omitempty"` // Display projection of a committed compaction event, not additional model history.
+	Checklist      *ChecklistSummary `json:"checklist,omitempty"`      // Final display state; never added to canonical model history.
+	ID             string            `json:"id"`
+	SessionID      string            `json:"sessionId"`
+	RunID          string            `json:"runId"`
+	Provider       string            `json:"provider,omitempty"`
+	ModelID        string            `json:"modelId,omitempty"`
+	ModelKey       string            `json:"modelKey,omitempty"`
+	OutputTurn     int32             `json:"outputTurn,omitempty"`
+	OutputBytes    int               `json:"outputBytes,omitempty"`
+	ResultsAfter   int64             `json:"resultsAfter,omitempty"`
+	Sequence       int64             `json:"sequence"`
+	Role           string            `json:"role"`
+	Content        string            `json:"content"`
+	QuestionCallID string            `json:"questionCallId,omitempty"` // Persisted in the message event; display role stays user.
+	ImageCount     int               `json:"imageCount,omitempty"`
+	ImageBytes     int               `json:"-"`
+	CreatedAt      string            `json:"createdAt"`
 }
 
 type Image struct {
@@ -261,6 +262,7 @@ func Open(path string) (*Store, error) {
    created_at TEXT NOT NULL, PRIMARY KEY(session_id, sequence)
   )`,
 		`CREATE INDEX IF NOT EXISTS events_model_results ON events(session_id) WHERE kind='model_result'`,
+		`CREATE INDEX IF NOT EXISTS events_checklists ON events(session_id,json_extract(data,'$.runId'),sequence) WHERE kind='checklist'`,
 		`CREATE UNIQUE INDEX IF NOT EXISTS events_model_history ON events(session_id,json_extract(data,'$.runId'),json_extract(data,'$.turn'),json_extract(data,'$.status'),COALESCE(json_extract(data,'$.history.index'),0)) WHERE kind='model_history'`,
 		`CREATE TABLE IF NOT EXISTS model_output_chunks (
    session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,

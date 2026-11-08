@@ -56,7 +56,7 @@ export type CatalogCheckRecord = Pick<OMPCatalogInfo, 'revision' | 'modelsDevRev
   changed: boolean
   error?: string
 }
-export type Message = { failure?: boolean; contextSummary?: boolean; id: string; runId: string; provider?: string; modelId?: string; modelKey?: string; outputTurn?: number; outputBytes?: number; imageCount?: number; sequence: number; resultsAfter?: number; role: string; content: string; createdAt: string; modelResults?: ModelResultView[] }
+export type Message = { failure?: boolean; contextSummary?: boolean; checklist?: { items: ChecklistItem[]; status: string }; id: string; runId: string; provider?: string; modelId?: string; modelKey?: string; outputTurn?: number; outputBytes?: number; imageCount?: number; sequence: number; resultsAfter?: number; role: string; content: string; createdAt: string; modelResults?: ModelResultView[] }
 export type StreamEvent = { sequence: number; kind: string; createdAt?: string; data: any }
 export type SyncCheckpoint = { throughSequence: number; revertedSequence?: number; session: Session }
 export type RunClock = { id: string; startedAt: string; lastActivityAt?: string }
