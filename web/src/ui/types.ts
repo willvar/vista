@@ -32,3 +32,4 @@ export interface ModalProps {
 
 export interface SelectOption { value: string | number; label: string; searchText?: string; fullLabel?: string; disabled?: boolean }
 export interface SelectGroup { key?: string; label: string; options: SelectOption[] }
+export interface TreeNode { value: string; label: string; children?: TreeNode[]; modified?: boolean }

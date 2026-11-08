@@ -2,6 +2,14 @@ import type en from './en.ts'
 
 
 export default {
+  "skillFiles": "Fichiers de la compétence",
+  "skillReloadFile": "Relire le fichier",
+  "skillBinaryFile": "Ce fichier peut être téléchargé.",
+  "skillBytes": "octets",
+  "skillUnsavedFiles": "{count} fichiers non enregistrés",
+  "skillDiscardTitle": "Abandonner les modifications non enregistrées ?",
+  "skillDiscard": "Abandonner les modifications",
+  "skillDiscardHint": "Les modifications non enregistrées de {count} fichiers seront abandonnées.",
   "traceReadFull": "Lire le résultat complet",
   "traceHideFull": "Masquer le résultat complet",
   "portChangeConfirm": "Enregistrer et redémarrer",

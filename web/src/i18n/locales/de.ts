@@ -2,6 +2,14 @@ import type en from './en.ts'
 
 
 export default {
+  "skillFiles": "Skill-Dateien",
+  "skillReloadFile": "Datei neu laden",
+  "skillBinaryFile": "Diese Datei kann heruntergeladen werden.",
+  "skillBytes": "Bytes",
+  "skillUnsavedFiles": "{count} Dateien mit ungespeicherten Änderungen",
+  "skillDiscardTitle": "Ungespeicherte Änderungen verwerfen?",
+  "skillDiscard": "Änderungen verwerfen",
+  "skillDiscardHint": "Ungespeicherte Änderungen in {count} Dateien werden verworfen.",
   "traceReadFull": "Vollständiges Ergebnis laden",
   "traceHideFull": "Vollständiges Ergebnis ausblenden",
   "portChangeConfirm": "Speichern und neu starten",

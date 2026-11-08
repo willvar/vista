@@ -214,6 +214,29 @@ func TestManagedSkillChangesAndDirectoryReplacementNotifyWithoutFollowingLinks(t
 	if a.updates.snapshot().Revisions["skills"] == 0 {
 		t.Fatal("external write not observed")
 	}
+	// Supporting files can change without touching the entrypoint. Include
+	// newly created directories, not only folders present at watcher startup.
+	nested := filepath.Join(root, "example", "references", "nested")
+	nestedBefore := a.updates.snapshot().Revisions["skills"]
+	if err := os.MkdirAll(nested, 0700); err != nil {
+		t.Fatal(err)
+	}
+	deadline = time.Now().Add(3 * time.Second)
+	for a.updates.snapshot().Revisions["skills"] == nestedBefore && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if a.updates.snapshot().Revisions["skills"] == nestedBefore {
+		t.Fatal("new supporting directory not observed")
+	}
+	nestedBefore = a.updates.snapshot().Revisions["skills"]
+	write(filepath.Join(nested, "new.md"))
+	deadline = time.Now().Add(3 * time.Second)
+	for a.updates.snapshot().Revisions["skills"] == nestedBefore && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if a.updates.snapshot().Revisions["skills"] == nestedBefore {
+		t.Fatal("nested supporting file change not observed")
+	}
 	time.Sleep(250 * time.Millisecond)
 	before := a.updates.snapshot().Revisions["skills"]
 	write(filepath.Join(outside, "SKILL.md"))

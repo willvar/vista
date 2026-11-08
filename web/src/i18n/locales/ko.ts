@@ -2,6 +2,14 @@ import type en from './en.ts'
 
 
 export default {
+  "skillFiles": "스킬 파일",
+  "skillReloadFile": "파일 다시 읽기",
+  "skillBinaryFile": "이 파일은 다운로드할 수 있습니다.",
+  "skillBytes": "바이트",
+  "skillUnsavedFiles": "저장하지 않은 파일 {count}개",
+  "skillDiscardTitle": "저장하지 않은 변경 사항을 버릴까요?",
+  "skillDiscard": "변경 사항 버리기",
+  "skillDiscardHint": "파일 {count}개의 저장하지 않은 변경 사항을 버립니다.",
   "traceReadFull": "전체 결과 읽기",
   "traceHideFull": "전체 결과 접기",
   "portChangeConfirm": "저장 후 다시 시작",

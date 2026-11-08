@@ -1,4 +1,12 @@
 export default {
+  "skillFiles": "Skill files",
+  "skillReloadFile": "Reload file",
+  "skillBinaryFile": "This file is available for download.",
+  "skillBytes": "bytes",
+  "skillUnsavedFiles": "{count} file with unsaved changes | {count} files with unsaved changes",
+  "skillDiscardTitle": "Discard unsaved changes?",
+  "skillDiscard": "Discard changes",
+  "skillDiscardHint": "Unsaved changes in {count} file will be discarded. | Unsaved changes in {count} files will be discarded.",
   "traceReadFull": "Read full result",
   "traceHideFull": "Hide full result",
   "portChangeConfirm": "Save and restart",

@@ -68,6 +68,22 @@ func SystemSkillDocument(id string) ([]byte, []string, error) {
 	return systemSkillDocument(systemSkillFiles, id)
 }
 
+// SystemSkillFS exposes one embedded skill without materializing it on disk.
+func SystemSkillFS(id string) (fs.FS, error) {
+	name := strings.TrimPrefix(id, "system:")
+	if name == id || !fs.ValidPath(name) || strings.Contains(name, "/") {
+		return nil, os.ErrNotExist
+	}
+	root, err := fs.Sub(systemSkillFiles, "systemskills/"+name)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := fs.Stat(root, "SKILL.md"); err != nil {
+		return nil, err
+	}
+	return root, nil
+}
+
 func systemSkillDocument(filesystem fs.FS, id string) ([]byte, []string, error) {
 	name := strings.TrimPrefix(id, "system:")
 	if name == id || !fs.ValidPath(name) || strings.Contains(name, "/") {

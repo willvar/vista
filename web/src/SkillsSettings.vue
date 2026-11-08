@@ -1,14 +1,14 @@
 <script setup lang="ts">
-import { computed, onUnmounted, reactive, ref, watch } from 'vue'
+import { computed, onUnmounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { Empty as VEmpty, Alert as VAlert, Button as VButton, Input as VInput, Modal as VModal, Switch as VSwitch, TextArea as VTextarea } from './ui'
+import { Empty as VEmpty, Alert as VAlert, Button as VButton, Input as VInput, Switch as VSwitch } from './ui'
 import { DeleteOutlined, EditOutlined, EyeOutlined, FileMarkdownOutlined, SearchOutlined } from '@antdv-next/icons'
 import ConfirmPopover from './ConfirmPopover.vue'
+import SkillEditor from './SkillEditor.vue'
 import { useWorkspace } from './composables/useWorkspace'
 import { useStateQuery } from './composables/useStateQuery'
 
 type Skill = { id: string; name: string; description: string; path: string; source: 'system' | 'user'; disabled: boolean; error?: string }
-type SkillDocument = { content: string; sha256: string; files: string[] }
 const emit = defineEmits<{ 'modal-open': [open: boolean] }>()
 const { t } = useI18n({ useScope: 'global' })
 const { client, stateSync } = useWorkspace()
@@ -24,58 +24,12 @@ const visibleSkills = computed(() => skills.value.filter(skill => `${skill.name}
 const hasUserSkills = computed(() => skills.value.some(skill => skill.source !== 'system'))
 const editorOpen = ref(false)
 const editing = ref<Skill | null>(null)
-const documentLoading = ref(false)
-const formError = ref('')
-const draft = reactive({ content: '', sha256: '' })
-const supportingFiles = ref<string[]>([])
 const deleting = ref('')
 const deleteError = ref('')
-let editorController: AbortController | undefined
-let editorGeneration = 0
-const canSave = computed(() => !loading.value && !documentLoading.value && !!editing.value && editing.value.source !== 'system' && !!draft.sha256 && !!draft.content.trim())
 const skillURL = (id: string) => `/skills/${encodeURIComponent(id)}`
 
 
-async function edit(skill: Skill) {
-  if (busy.value) return
-  editorController?.abort()
-  editorController = new AbortController()
-  const controller = editorController
-  const generation = ++editorGeneration
-  editing.value = skill
-  Object.assign(draft, { content: '', sha256: '' })
-  supportingFiles.value = []
-  formError.value = ''
-  documentLoading.value = true
-  editorOpen.value = true
-  try {
-    const result = await client.request<SkillDocument>(skillURL(skill.id), { signal: controller.signal })
-    if (controller.signal.aborted || lifetime.signal.aborted || generation !== editorGeneration) return
-    Object.assign(draft, { content: result.content, sha256: result.sha256 })
-    supportingFiles.value = result.files
-  } catch (cause) { if (!controller.signal.aborted && !lifetime.signal.aborted) formError.value = String(cause) }
-  finally { if (!controller.signal.aborted && generation === editorGeneration) documentLoading.value = false }
-}
-function closeEditor() {
-  if (busy.value) return
-  editorController?.abort()
-  ++editorGeneration
-  editorOpen.value = false
-}
-async function save() {
-  if (busy.value || !canSave.value || !editing.value) return
-  busy.value = true
-  formError.value = ''
-  error.value = ''
-  saved.value = false
-  try {
-    await client.request(skillURL(editing.value.id), { method: 'PUT', body: JSON.stringify({ content: draft.content, sha256: draft.sha256 }), signal: lifetime.signal })
-    if (lifetime.signal.aborted) return
-    editorOpen.value = false
-    saved.value = true
-  } catch (cause) { if (!lifetime.signal.aborted) formError.value = String(cause) }
-  finally { busy.value = false }
-}
+function edit(skill: Skill) { if (!busy.value) { editing.value = skill; editorOpen.value = true } }
 async function toggle(skill: Skill, enabled: boolean) {
   if (busy.value || skill.source === 'system') return
   busy.value = true
@@ -105,7 +59,6 @@ async function remove(skill: Skill) {
 watch(() => editorOpen.value || !!deleting.value, open => emit('modal-open', open), { flush: 'sync' })
 onUnmounted(() => {
   lifetime.abort()
-  editorController?.abort()
   emit('modal-open', false)
 })
 defineExpose({ imported: () => { saved.value = true } })
@@ -131,17 +84,7 @@ defineExpose({ imported: () => { saved.value = true } })
     </article>
   </div>
 
-  <v-modal :open="editorOpen" centered :z-index="1200" width="min(800px, calc(100vw - 2rem))" :title="t(editing?.source === 'system' ? 'skillView' : 'skillEdit')" :footer="null" :closable="!busy" :keyboard="!busy" :mask-closable="!busy" destroy-on-hidden :styles="{ body: { maxHeight: 'calc(100dvh - 10rem)', overflowY: 'auto', overscrollBehavior: 'contain' } }" @cancel="closeEditor">
-    <form v-if="editorOpen" class="skill-form" @submit.prevent="save">
-      <v-alert v-if="formError" type="error" role="alert" :message="formError" />
-      <p v-if="editing" class="skill-path">{{ editing.source === 'system' ? t('skillSystemHint') : editing.path }}</p>
-      <p v-if="documentLoading" role="status" class="skills-hint">{{ t('skillsLoading') }}</p>
-      <label for="skill-content">SKILL.md<v-textarea id="skill-content" v-model:value="draft.content" class="skill-content-input" :auto-size="false" :readonly="editing?.source === 'system'" :disabled="busy || documentLoading || !draft.sha256" aria-label="SKILL.md" :aria-describedby="editing?.source === 'system' ? undefined : 'skill-content-hint'" /></label>
-      <p v-if="editing?.source !== 'system'" id="skill-content-hint" class="skills-hint">{{ t('skillContentHint') }}</p>
-      <details v-if="supportingFiles.length" class="skill-supporting-files"><summary>{{ t('skillSupportingFiles', { count: supportingFiles.length }) }}</summary><ul><li v-for="path in supportingFiles" :key="path">{{ path }}</li></ul><small v-if="editing?.source !== 'system'" class="skills-hint">{{ t('skillSupportingFilesHint') }}</small></details>
-      <div class="skill-form-footer"><div class="skill-form-actions"><v-button :disabled="busy" @click="closeEditor">{{ t(editing?.source === 'system' ? 'close' : 'cancel') }}</v-button><v-button v-if="editing?.source !== 'system'" type="submit" variant="primary" :loading="busy" :disabled="busy || !canSave">{{ t('saveChanges') }}</v-button></div></div>
-    </form>
-  </v-modal>
+  <SkillEditor v-if="editing" :key="editing.id" v-model:open="editorOpen" :skill="editing" :revision="resource.data.value?.version" @saved="saved = true" />
 </template>
 
 <style scoped>
@@ -162,14 +105,6 @@ defineExpose({ imported: () => { saved.value = true } })
 p.skill-error { font-size: var(--font-size-body); }
 .skill-actions { display: flex; flex-wrap: wrap; gap: .5rem; }
 .skill-actions { margin-top: .8rem; }
-.skill-form { display: flex; flex-direction: column; gap: 1rem; }
-.skill-form label { display: flex; flex-direction: column; gap: .4rem; min-width: 0; }
-.skill-content-input { height: clamp(180px, 38dvh, 480px); min-height: 120px; resize: vertical; font: var(--font-size-body)/1.65 var(--font-mono, monospace); tab-size: 2; }
-.skill-supporting-files { color: var(--muted); font-size: var(--font-size-body); }
-.skill-supporting-files summary { cursor: pointer; }
-.skill-supporting-files ul { max-height: 10rem; overflow: auto; padding-left: 1.2rem; overflow-wrap: anywhere; }
-.skill-form-footer { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: .8rem; }
-.skill-form-actions { display: flex; gap: .5rem; margin-left: auto; }
 @media (max-width: 480px) {
   .skills-toolbar { flex-direction: column; gap: .7rem; }
   .skill-card { padding: .8rem; }

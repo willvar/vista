@@ -2,6 +2,14 @@
 import type en from './en.ts'
 
 export default {
+  "skillFiles": "技能檔案",
+  "skillReloadFile": "重新讀取檔案",
+  "skillBinaryFile": "此檔案可下載檢視。",
+  "skillBytes": "位元組",
+  "skillUnsavedFiles": "{count} 個檔案尚未儲存",
+  "skillDiscardTitle": "放棄未儲存的更改？",
+  "skillDiscard": "放棄更改",
+  "skillDiscardHint": "將放棄 {count} 個檔案中尚未儲存的更改。",
   "traceReadFull": "讀取完整結果",
   "traceHideFull": "收起完整結果",
   "portChangeConfirm": "儲存並重啟",

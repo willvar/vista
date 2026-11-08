@@ -2,6 +2,14 @@ import type en from './en.ts'
 
 
 export default {
+  "skillFiles": "Файлы навыка",
+  "skillReloadFile": "Перечитать файл",
+  "skillBinaryFile": "Этот файл можно скачать.",
+  "skillBytes": "байт",
+  "skillUnsavedFiles": "Файлов с несохранёнными изменениями: {count}",
+  "skillDiscardTitle": "Отменить несохранённые изменения?",
+  "skillDiscard": "Отменить изменения",
+  "skillDiscardHint": "Несохранённые изменения в {count} файлах будут отменены.",
   "traceReadFull": "Прочитать полный результат",
   "traceHideFull": "Скрыть полный результат",
   "portChangeConfirm": "Сохранить и перезапустить",

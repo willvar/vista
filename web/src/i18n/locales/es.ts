@@ -2,6 +2,14 @@ import type en from './en.ts'
 
 
 export default {
+  "skillFiles": "Archivos de la habilidad",
+  "skillReloadFile": "Volver a leer el archivo",
+  "skillBinaryFile": "Este archivo se puede descargar.",
+  "skillBytes": "bytes",
+  "skillUnsavedFiles": "{count} archivos sin guardar",
+  "skillDiscardTitle": "¿Descartar los cambios sin guardar?",
+  "skillDiscard": "Descartar cambios",
+  "skillDiscardHint": "Se descartarán los cambios sin guardar de {count} archivos.",
   "traceReadFull": "Leer el resultado completo",
   "traceHideFull": "Ocultar el resultado completo",
   "portChangeConfirm": "Guardar y reiniciar",

@@ -86,6 +86,15 @@ func (a *App) skillSetting(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
 	id := strings.TrimPrefix(r.URL.Path, "/api/skills/")
 	if strings.HasPrefix(id, "system:") {
+		filesystem, err := tools.SystemSkillFS(id)
+		if err != nil {
+			skillHTTPError(w, err)
+			return
+		}
+		if r.URL.Query().Has("file") {
+			serveSkillFile(w, r, filesystem, nil)
+			return
+		}
 		content, files, err := tools.SystemSkillDocument(id)
 		if err != nil {
 			skillHTTPError(w, err)
@@ -95,21 +104,32 @@ func (a *App) skillSetting(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "system skills are read-only and updated with Vista", http.StatusForbidden)
 			return
 		}
-		jsonOut(w, map[string]any{"content": string(content), "sha256": skillDigest(content), "files": files})
+		entries, err := skillFileEntries(filesystem)
+		if err != nil {
+			skillHTTPError(w, err)
+			return
+		}
+		jsonOut(w, map[string]any{"content": string(content), "sha256": skillDigest(content), "files": files, "entries": entries})
 		return
 	}
 	if !validSkillPath(id) || strings.Contains(id, "/") || strings.HasPrefix(id, ".") {
 		http.Error(w, "invalid skill folder name", http.StatusBadRequest)
 		return
 	}
+	if r.URL.Query().Has("file") && r.Method != http.MethodGet && r.Method != http.MethodPut {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
 	if r.Method != http.MethodGet && r.Method != http.MethodPut && r.Method != http.MethodPatch && r.Method != http.MethodDelete {
 		w.WriteHeader(http.StatusMethodNotAllowed)
 		return
 	}
-	// Settings mutations are infrequent; one lock keeps toggles and edits
-	// atomic with respect to other WebUI requests, without a database registry.
-	a.skillsMu.Lock()
-	defer a.skillsMu.Unlock()
+	// Serialize mutations and directory snapshots. A selected file is read
+	// through its open handle; streaming a download must not block other edits.
+	if r.Method != http.MethodGet || !r.URL.Query().Has("file") {
+		a.skillsMu.Lock()
+		defer a.skillsMu.Unlock()
+	}
 	root, err := a.openSkillsRoot()
 	if err != nil {
 		skillHTTPError(w, err)
@@ -139,6 +159,19 @@ func (a *App) skillSetting(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer skill.Close()
+	if r.URL.Query().Has("file") {
+		serveSkillFile(w, r, skill.FS(), skill)
+		return
+	}
+	if r.Method == http.MethodGet && r.URL.Query().Get("tree") == "1" {
+		entries, err := skillFileEntries(skill.FS())
+		if err != nil {
+			skillHTTPError(w, err)
+			return
+		}
+		jsonOut(w, map[string]any{"entries": entries})
+		return
+	}
 	switch r.Method {
 	case http.MethodGet:
 		content, err := readManagedSkill(skill)
@@ -146,21 +179,18 @@ func (a *App) skillSetting(w http.ResponseWriter, r *http.Request) {
 			skillHTTPError(w, err)
 			return
 		}
-		files := []string{}
-		err = fs.WalkDir(skill.FS(), ".", func(path string, entry fs.DirEntry, err error) error {
-			if err != nil {
-				return err
-			}
-			if !entry.IsDir() && path != "SKILL.md" && path != tools.SkillDisabledFile {
-				files = append(files, path)
-			}
-			return r.Context().Err()
-		})
+		entries, err := skillFileEntries(skill.FS())
 		if err != nil {
 			skillHTTPError(w, err)
 			return
 		}
-		jsonOut(w, map[string]any{"content": string(content), "sha256": skillDigest(content), "files": files})
+		files := []string{}
+		for _, entry := range entries {
+			if !entry.Directory && entry.Path != "SKILL.md" {
+				files = append(files, entry.Path)
+			}
+		}
+		jsonOut(w, map[string]any{"content": string(content), "sha256": skillDigest(content), "files": files, "entries": entries})
 	case http.MethodPut:
 		var input struct {
 			Content string `json:"content"`

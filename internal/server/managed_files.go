@@ -1,6 +1,7 @@
 package server
 
 import (
+	"io/fs"
 	"log"
 	"os"
 	"path/filepath"
@@ -11,9 +12,9 @@ import (
 	"vista/internal/configstore"
 )
 
-// Watch only managed roots and their immediate folders. Following symlinks or
-// recursively watching user workspaces would make costs unrelated to Vista's
-// inventory. Parent watches also catch directory replacement and atomic saves.
+// Watch managed roots, skill supporting directories and immediate resource
+// folders. Never follow symlinks into user workspaces. Parent watches also
+// catch directory replacement and atomic saves.
 func (a *App) watchManagedFiles() {
 	watcher, err := fsnotify.NewWatcher()
 	if err != nil {
@@ -24,12 +25,27 @@ func (a *App) watchManagedFiles() {
 	roots := map[string]string{filepath.Join(a.configDir, "skills"): "skills", filepath.Join(a.dir, "resources"): "storage"}
 	reconcile := func() {
 		wanted := map[string]bool{a.configDir: true, a.dir: true}
-		for root := range roots {
+		for root, topic := range roots {
 			info, err := os.Lstat(root)
 			if err != nil || !info.IsDir() {
 				continue
 			}
 			wanted[root] = true
+			if topic == "skills" {
+				_ = filepath.WalkDir(root, func(path string, entry fs.DirEntry, err error) error {
+					if err != nil {
+						return nil
+					}
+					if entry.IsDir() {
+						if filepath.Dir(path) == root && strings.HasPrefix(entry.Name(), ".") {
+							return fs.SkipDir
+						}
+						wanted[path] = true
+					}
+					return nil
+				})
+				continue
+			}
 			entries, _ := os.ReadDir(root)
 			for _, entry := range entries {
 				if entry.IsDir() && !strings.HasPrefix(entry.Name(), ".") {
