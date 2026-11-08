@@ -3,6 +3,7 @@ package tools
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"io"
 	"os"
@@ -16,7 +17,6 @@ import (
 // Agent Skills limits descriptions by Unicode characters, not UTF-8 bytes.
 const MaxSkillDescriptionChars = 1024
 const SkillDisabledFile = ".vista-disabled"
-const skillPageBytes = 1536
 
 type SkillInfo struct {
 	Name        string `json:"name"`
@@ -198,10 +198,24 @@ func skillTextPage(path string, b []byte, offset int) (SkillPage, error) {
 	if offset < 0 || offset > len(b) || !utf8.Valid(b[:offset]) {
 		return SkillPage{}, errors.New("invalid skill byte offset")
 	}
-	end := min(len(b), offset+skillPageBytes)
-	for end > offset && !utf8.Valid(b[offset:end]) {
-		end--
-	}
 	hash := sha256.Sum256(b)
-	return SkillPage{Path: path, SHA256: hex.EncodeToString(hash[:]), Content: string(b[offset:end]), NextOffset: end, Truncated: end < len(b)}, nil
+	page := SkillPage{Path: path, SHA256: hex.EncodeToString(hash[:])}
+	// Fit the serialized page, including its path, digest and continuation.
+	// JSON escaping and many short lines must not trigger a second preview
+	// layer which would hide content or invalidate read coverage.
+	low, high, best := offset, min(len(b), offset+MaxToolResultBytes), offset
+	for low <= high {
+		probe := low + (high-low)/2
+		end := offset + len(completeUTF8Prefix(b[offset:probe]))
+		page.Content, page.NextOffset, page.Truncated = string(b[offset:end]), end, end < len(b)
+		encoded, _ := json.Marshal(page)
+		if !ExceedsToolBudget(string(encoded)) {
+			best = end
+			low = probe + 1
+		} else {
+			high = probe - 1
+		}
+	}
+	page.Content, page.NextOffset, page.Truncated = string(b[offset:best]), best, best < len(b)
+	return page, nil
 }

@@ -36,24 +36,26 @@ func TestRunShellCapturesOutputAndExit(t *testing.T) {
 func TestShellPreviewContinuesAtUTF8Boundary(t *testing.T) {
 	root := t.TempDir()
 	stateDir := filepath.Join(root, "state")
-	content := strings.Repeat("a", maxShellPreview-1) + "你好" + strings.Repeat("b", 9000)
+	content := strings.Repeat("a", maxShellPreview/2-1) + "你好" + strings.Repeat("b", 9000)
 	path := filepath.Join(root, "input.txt")
 	if err := os.WriteFile(path, []byte(content), 0600); err != nil {
 		t.Fatal(err)
 	}
 	result, err := RunShell(context.Background(), stateDir, root, "cat input.txt", time.Second)
-	if err != nil || !result.Truncated || result.PreviewBytes != maxShellPreview-1 || result.NextOffset != int64(result.PreviewBytes) || result.Bytes != int64(len(content)) {
-		t.Fatalf("long shell output: %+v, %v", result, err)
+	if err != nil || !result.Truncated || result.PreviewBytes != maxShellPreview/2-1 || result.NextOffset != int64(result.PreviewBytes) || result.Bytes != int64(len(content)) || result.Tail == nil {
+		t.Fatalf("long shell output: head=%d bytes=%d tail=%+v error=%v", result.PreviewBytes, result.Bytes, result.Tail, err)
 	}
 	recovered := result.Preview
-	for offset := result.NextOffset; offset < result.Bytes; {
-		page, err := ReadOutputPage(stateDir, result.OutputPath, offset, 0)
+	for offset := result.NextOffset; offset < result.Tail.Offset; {
+		limit := int(min(int64(DefaultOutputPageBytes), result.Tail.Offset-offset))
+		page, err := ReadOutputPage(stateDir, result.OutputPath, offset, limit)
 		if err != nil || page.NextOffset <= offset {
 			t.Fatalf("continuation at %d: %+v, %v", offset, page, err)
 		}
 		recovered += page.Content
 		offset = page.NextOffset
 	}
+	recovered += result.Tail.Content
 	if recovered != content {
 		t.Fatal("shell preview and continuation lost or duplicated UTF-8 output")
 	}

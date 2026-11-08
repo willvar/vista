@@ -21,8 +21,8 @@ import (
 	"vista/internal/workerproto"
 )
 
-const maxToolResult = 50 * 1024
-const maxToolResultLines = 2000
+const maxToolResult = tools.MaxToolResultBytes
+const maxToolResultLines = tools.MaxToolResultLines
 
 func Run(ctx context.Context, command workerproto.Command, emit func(workerproto.Result) error) (string, error) {
 	return RunWithInputs(ctx, command, emit, nil)

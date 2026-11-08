@@ -13,6 +13,7 @@ import (
 	"unicode/utf8"
 
 	modelcfg "vista/internal/model"
+	"vista/internal/tools"
 	"vista/internal/workerproto"
 )
 
@@ -109,7 +110,7 @@ func TestToolOutputPreviewPreservesFullOutputAndStatus(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	for _, full := range []string{strings.Repeat("完整\n", 2200), strings.Repeat("<\x00🙂", 10000)} {
 		var events []workerproto.Result
-		bounded, err := boundToolOutput(context.Background(), "run", "tool-1", "shell", full, nil, func(event workerproto.Result) error { events = append(events, event); return nil })
+		bounded, err := boundToolOutput(context.Background(), "run", "tool-1", "mcp_call_tool", full, nil, func(event workerproto.Result) error { events = append(events, event); return nil })
 		if err != nil || !bounded.truncated || bounded.reference == nil {
 			t.Fatalf("output preview: error=%v, ref=%+v", err, bounded.reference)
 		}
@@ -129,7 +130,7 @@ func TestToolOutputPreviewPreservesFullOutputAndStatus(t *testing.T) {
 		}
 	}
 	encoded, _ := json.Marshal(map[string]string{"content": strings.Repeat("一行\n", 2100)})
-	bounded, err := boundToolOutput(context.Background(), "run", "lines", "shell", string(encoded), nil, func(workerproto.Result) error { return nil })
+	bounded, err := boundToolOutput(context.Background(), "run", "lines", "mcp_call_tool", string(encoded), nil, func(workerproto.Result) error { return nil })
 	if err != nil || !bounded.truncated {
 		t.Fatalf("JSON text did not respect the line budget: %v", err)
 	}
@@ -138,6 +139,20 @@ func TestToolOutputPreviewPreservesFullOutputAndStatus(t *testing.T) {
 	}
 	if json.Unmarshal([]byte(bounded.model), &modelPreview) != nil || strings.Count(modelPreview.Preview, "\n") >= maxToolResultLines {
 		t.Fatal("JSON text preview exceeds line budget")
+	}
+}
+
+func TestBoundedShellOutputKeepsHeadTailAndSourceOffsets(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	for _, text := range []string{strings.Repeat("\n", 4096), strings.Repeat("<\x00", 2048)} {
+		output, err := marshalResult(tools.ShellResult{ArtifactID: "shell-artifact", Bytes: 100000, Preview: text, PreviewBytes: len(text), NextOffset: int64(len(text)), Truncated: true, ExitCode: 1, Complete: true, Tail: &tools.OutputExcerpt{Offset: 100000 - int64(len(text)), NextOffset: 100000, Content: text}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		bounded, err := boundToolOutput(context.Background(), "shell", "call", "shell", output, nil, func(workerproto.Result) error { return nil })
+		if err != nil || bounded.model != output {
+			t.Fatalf("bounded shell excerpts or source offsets were replaced: %v", err)
+		}
 	}
 }
 

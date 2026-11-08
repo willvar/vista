@@ -347,3 +347,16 @@ Withdrawal/edit submission stops the conversation's work before truncating histo
 About Vista exposes memory presets and custom limits through `config.json` · `capacity` and `GET`/`PUT /api/memory-config`; shared status SSE includes the saved configuration and measured main/Worker/MCP-host RSS. Defaults are a 2,048 MiB total admission budget, 1,024 MiB per Worker or MCP host and four concurrent executing conversations, including background activity. There is no fixed open-conversation count cap. The [admission implementation](../internal/server/admission.go) rejects new Workers, runs and image work when measured usage reaches the budget or available host memory drops below 128 MiB. Existing Workers and the MCP host receive changed limits; Go soft memory limits target 75% of each Worker limit and 90% of the MCP-host limit, and one-second RSS checks stop processes over their configured limit. These are soft guards, not OS-enforced ceilings or predicted peak usage; transient peaks can occur between samples, and external shell/MCP subprocess memory is outside the admission total. Interrupted work is recorded without automatic replay. Component buffer limits and per-operation timeouts do not establish a general workload-capacity guarantee; see [verification](./testing.md).
 
 The service binds to loopback, validates Host/Origin, and runs tools with local user permissions without per-call approval. HTTP/stream failures preserve redacted provider diagnostics for the message area; actual step errors remain in their steps. The platform layer implements Linux, Windows, and macOS process handling.
+
+## Instruction pages and shell evidence
+
+`internal/tools/output.go` defines the shared 50 KiB / 2,000-line model output budget for ordinary tools.
+`read_project_instruction` and `read_skill` fit the complete serialized page within that budget, including JSON escaping, path, SHA-256 and `nextOffset`; they do not have a separate small page size.
+Complete UTF-8 byte coverage and the full-source hash still determine whether project rules have been read.
+UI event previews and saved full output remain separate from the model-facing page.
+
+Foreground `shell` returns short output in full and shares an 8 KiB source-byte preview between the beginning and end of long output.
+`previewBytes` and `nextOffset` describe the head; `tail.offset`, `tail.nextOffset` and `tail.content` identify the final excerpt in the original artifact.
+The omitted middle begins at `nextOffset` and ends at `tail.offset`; `read_tool_output` can retrieve it without rerunning the command.
+These source-bounded shell results bypass a second generic model preview, retaining the tail and byte-range metadata even for many short lines or JSON escapes.
+The UI separates the excerpts with an ellipsis, and exit status, cancellation, timeout and artifact retention keep their existing semantics.

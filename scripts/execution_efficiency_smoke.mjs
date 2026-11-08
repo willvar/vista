@@ -74,14 +74,17 @@ const provider = createServer(async (request, response) => {
         // Directory is explicit; the command does not interpolate a filesystem path.
         return calls(tool('large-output', 'shell', { directory: state, command: 'cat input.txt' }))
       case 4:
-        assert.equal(last.previewBytes, 8192)
+        assert.equal(last.previewBytes, 4096)
+        assert.equal(last.tail.offset, Buffer.byteLength(contents) - 4096)
+        assert.equal(last.tail.content, contents.slice(-4096))
         assert.equal(last.bytes, Buffer.byteLength(contents))
         assert.equal(last.truncated, true)
         assert.equal(last.outputPath, undefined)
-        return calls(tool('remaining-output', 'read_tool_output', { artifactId: last.artifactId, offset: last.nextOffset }))
+        return calls(tool('remaining-output', 'read_tool_output', { artifactId: last.artifactId, offset: last.nextOffset, limit: last.tail.offset - last.nextOffset }))
       case 5:
-        assert.equal(last.content, contents.slice(8192))
-        assert.equal(last.truncated, false)
+        assert.equal(last.content, contents.slice(4096, -4096))
+        assert.equal(last.nextOffset, Buffer.byteLength(contents) - 4096)
+        assert.equal(last.truncated, true)
         return calls(tool('first-report', 'await_agent', { taskIds: ['main/fast', 'main/slow'] }))
       case 6:
         assert.match(JSON.stringify(last), /fast evidence/)

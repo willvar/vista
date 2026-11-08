@@ -1,6 +1,7 @@
 package tools
 
 import (
+	"encoding/json"
 	"errors"
 	"io"
 	"os"
@@ -8,6 +9,38 @@ import (
 	"strings"
 	"unicode/utf8"
 )
+
+// Shared model-facing budget for ordinary tools, including instruction pages.
+// Network tools have their own user-configured budgets.
+const MaxToolResultBytes = 50 * 1024
+const MaxToolResultLines = 2000
+
+func ExceedsToolBudget(output string) bool {
+	if len(output) > MaxToolResultBytes {
+		return true
+	}
+	lines := strings.Count(output, "\n") + 1
+	var value any
+	if json.Unmarshal([]byte(output), &value) == nil {
+		var count func(any)
+		count = func(value any) {
+			switch value := value.(type) {
+			case string:
+				lines += strings.Count(value, "\n")
+			case []any:
+				for _, item := range value {
+					count(item)
+				}
+			case map[string]any:
+				for _, item := range value {
+					count(item)
+				}
+			}
+		}
+		count(value)
+	}
+	return lines > MaxToolResultLines
+}
 
 const DefaultOutputPageBytes = 8 << 10
 const MaxOutputPageBytes = 32 << 10

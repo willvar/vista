@@ -17,27 +17,21 @@ export function prepareVistaTestConfig(state) {
 // then hide only these bootstrap messages from unrelated fixture assertions.
 // No tool result or runtime rule check is bypassed.
 export function projectRulesFixture(directory) {
-  const pages = []
+  const files = []
   for (let ancestor = directory; ; ancestor = dirname(ancestor)) {
     for (const name of ['AGENTS.md', 'CLAUDE.md', '.github/copilot-instructions.md']) {
       const path = join(ancestor, name)
       if (!lstatSync(path, { throwIfNoEntry: false })?.isFile()) continue
       const bytes = readFileSync(path)
       const hash = createHash('sha256').update(bytes).digest('hex')
-      for (let offset = 0; ;) {
-        pages.push({ path, offset, hash })
-        if (offset + 1536 >= bytes.length) break
-        let end = offset + 1536
-        while ((bytes[end] & 0xc0) === 0x80) end--
-        offset = end
-      }
+      files.push({ path, hash })
     }
     if (dirname(ancestor) === ancestor) break
   }
   let requests = 0
   const handle = (body, response, protocol = 'chat') => {
     const calls = new Map()
-    const seen = new Set()
+    const seen = new Map()
     const key = (path, offset, hash) => JSON.stringify([path, offset, hash])
     if (protocol === 'gemini') {
       for (const message of body.contents || []) for (const part of message.parts || []) {
@@ -45,7 +39,7 @@ export function projectRulesFixture(directory) {
         const result = part.functionResponse
         if (result?.name === 'read_project_instruction' && calls.has(result.id)) {
           const page = JSON.parse(result.response.result)
-          seen.add(key(page.path, calls.get(result.id).offset || 0, page.sha256))
+          seen.set(key(page.path, calls.get(result.id).offset || 0, page.sha256), page)
         }
       }
     } else {
@@ -53,11 +47,20 @@ export function projectRulesFixture(directory) {
         for (const call of message.tool_calls || []) if (call.function.name === 'read_project_instruction') calls.set(call.id, JSON.parse(call.function.arguments))
         if (message.role === 'tool' && calls.has(message.tool_call_id)) {
           const page = JSON.parse(message.content)
-          seen.add(key(page.path, calls.get(message.tool_call_id).offset || 0, page.sha256))
+          seen.set(key(page.path, calls.get(message.tool_call_id).offset || 0, page.sha256), page)
         }
       }
     }
-    const missing = pages.filter(page => !seen.has(key(page.path, page.offset, page.hash)))
+    const missing = files.flatMap(file => {
+      let offset = 0
+      for (;;) {
+        const page = seen.get(key(file.path, offset, file.hash))
+        if (!page) return [{ ...file, offset }]
+        if (!page.truncated) return []
+        if (page.nextOffset <= offset) throw new Error('Rule page did not advance')
+        offset = page.nextOffset
+      }
+    })
     if (missing.length) {
       requests++
       const items = missing.map((page, index) => ({ id: `fixture_rule_${requests}_${index}`, name: 'read_project_instruction', args: { path: page.path, offset: page.offset } }))

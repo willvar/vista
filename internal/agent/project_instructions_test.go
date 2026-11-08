@@ -41,6 +41,52 @@ func instructionMessages(t *testing.T, path string, offset int) []provider.ChatM
 	return []provider.ChatMessage{{Role: "assistant", ToolCalls: []provider.ToolCall{call}}, {Role: "tool", ToolCallID: call.ID, Content: output}}
 }
 
+func TestInstructionPagesReachTheModelWithoutAnotherTruncation(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	for _, name := range []string{"read_project_instruction", "read_skill"} {
+		t.Run(name, func(t *testing.T) {
+			filename := "AGENTS.md"
+			if name == "read_skill" {
+				filename = "SKILL.md"
+			}
+			path := filepath.Join(t.TempDir(), filename)
+			text := strings.Repeat("<\t\"\\中文🙂\n", 10000)
+			if err := os.WriteFile(path, []byte(text), 0600); err != nil {
+				t.Fatal(err)
+			}
+			runtime := &toolRuntime{}
+			var recovered strings.Builder
+			for offset := 0; ; {
+				call := instructionCall(t, fmt.Sprint(offset), name, map[string]any{"path": path, "offset": offset})
+				read := runtime.readProjectInstruction
+				if name == "read_skill" {
+					read = runtime.readSkill
+				}
+				output, err := read(context.Background(), call)
+				if err != nil {
+					t.Fatal(err)
+				}
+				bounded, err := boundToolOutput(context.Background(), "rules", call.ID, name, output, nil, func(workerproto.Result) error { return nil })
+				if err != nil || bounded.model != output {
+					t.Fatalf("page was truncated again: %v", err)
+				}
+				var page tools.SkillPage
+				if err := json.Unmarshal([]byte(bounded.model), &page); err != nil || page.NextOffset <= offset || page.SHA256 == "" {
+					t.Fatalf("page lost content or metadata: %v", err)
+				}
+				recovered.WriteString(page.Content)
+				if !page.Truncated {
+					break
+				}
+				offset = page.NextOffset
+			}
+			if recovered.String() != text {
+				t.Fatal("model received incomplete instruction text")
+			}
+		})
+	}
+}
+
 func requireInstructionNotice(t *testing.T, state *projectInstructionState, call provider.ToolCall, paths ...string) {
 	t.Helper()
 	output, err := state.prepare(context.Background(), call)
@@ -114,7 +160,7 @@ func TestInstructionChecksDetectNewAndChangedScopedRules(t *testing.T) {
 func TestInstructionCoverageUsesOnlyCompletePagesInConsumedContext(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "AGENTS.md")
-	if err := os.WriteFile(path, []byte(strings.Repeat("规则\n", 700)), 0600); err != nil {
+	if err := os.WriteFile(path, []byte(strings.Repeat("规则\n", 24000)), 0600); err != nil {
 		t.Fatal(err)
 	}
 	var pages [][]provider.ChatMessage
@@ -171,7 +217,7 @@ func TestInstructionCoverageUsesOnlyCompletePagesInConsumedContext(t *testing.T)
 			requireInstructionNotice(t, &state, call, path)
 		})
 	}
-	if err := os.WriteFile(path, []byte(strings.Repeat("新规\n", 700)), 0600); err != nil {
+	if err := os.WriteFile(path, []byte(strings.Repeat("新规\n", 24000)), 0600); err != nil {
 		t.Fatal(err)
 	}
 	state.acknowledge(append(messages, instructionMessages(t, path, 0)...))

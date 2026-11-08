@@ -9,6 +9,7 @@ import (
 	"unicode/utf8"
 
 	"vista/internal/toolinput"
+	"vista/internal/tools"
 	"vista/internal/workerproto"
 )
 
@@ -53,33 +54,7 @@ func jsonTextPreview(text string, maximum int) string {
 	return text[:best]
 }
 
-func exceedsToolBudget(output string) bool {
-	if len(output) > maxToolResult {
-		return true
-	}
-	lines := strings.Count(output, "\n") + 1
-	// Native tool results are JSON; count newlines in their text fields too.
-	var value any
-	if json.Unmarshal([]byte(output), &value) == nil {
-		var count func(any)
-		count = func(value any) {
-			switch value := value.(type) {
-			case string:
-				lines += strings.Count(value, "\n")
-			case []any:
-				for _, item := range value {
-					count(item)
-				}
-			case map[string]any:
-				for _, item := range value {
-					count(item)
-				}
-			}
-		}
-		count(value)
-	}
-	return lines > maxToolResultLines
-}
+func exceedsToolBudget(output string) bool { return tools.ExceedsToolBudget(output) }
 
 func modelToolPreview(output string, reference *workerproto.OutputRef) string {
 	location := fmt.Sprintf("run %s, turn %d; use read_model_output", reference.RunID, reference.Turn)
@@ -182,9 +157,10 @@ func mergeToolError(output string, err error) string {
 func boundToolOutput(ctx context.Context, runID, callID, toolName, output string, reference *workerproto.OutputRef, emit func(workerproto.Result) error) (boundedToolOutput, error) {
 	result := boundedToolOutput{model: output, event: eventPreview(output), reference: reference}
 	result.truncated = result.event != output
-	// Network tools already apply the user's initial character limits. A fixed
-	// byte or line budget here would silently override those settings.
-	modelTruncated := toolName != "websearch" && toolName != "webfetch" && exceedsToolBudget(output)
+	// Network tools apply the user's byte setting; shell already shares its
+	// own 8 KiB source preview budget between head and tail. A second generic
+	// preview would discard continuation metadata (or the final diagnostic).
+	modelTruncated := toolName != "websearch" && toolName != "webfetch" && toolName != "shell" && exceedsToolBudget(output)
 	if (result.truncated || modelTruncated) && reference == nil {
 		var err error
 		reference, err = recordToolOutput(ctx, runID, callID, []byte(output), emit)

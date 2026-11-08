@@ -102,3 +102,7 @@ Windows 在 PowerShell 设置对应环境变量，路径使用 `.exe`。也可�
 ## 生成的服务商基准
 
 [服务商矩阵基准](../scripts/provider_matrix/testdata/catalog.csv)是确定性的目录／路由数据，不是真实服务商报告。生成方式及证据边界见[服务商](./providers.zh-CN.md#协议与验证边界)。
+
+通过前台 `shell` 工具运行测试时，将测试程序的诊断超时设为小于 shell 超时。
+例如，用 `timeoutSeconds: 180` 执行 `GOWORK=off go test -timeout=120s ./internal/agent`，让 Go 在 shell 清理进程前打印超时堆栈。
+测试套件可能超过前台超时时，使用受管后台工作并读取保存的输出，不增加或移除 shell 的最长时限。

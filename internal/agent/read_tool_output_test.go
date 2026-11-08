@@ -51,7 +51,7 @@ func TestReadToolOutputRecoversArtifactByIDAndCall(t *testing.T) {
 	_, emit := outputToolStore(t)
 	ctx := context.Background()
 	full := strings.Repeat("完整证据🙂\n", 8000)
-	bounded, err := boundToolOutput(ctx, "run", "main/child/read-1", "shell", full, nil, emit)
+	bounded, err := boundToolOutput(ctx, "run", "main/child/read-1", "mcp_call_tool", full, nil, emit)
 	if err != nil || bounded.reference == nil {
 		t.Fatalf("artifact: %+v, %v", bounded.reference, err)
 	}

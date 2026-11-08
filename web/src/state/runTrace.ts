@@ -110,8 +110,10 @@ export function projectToolOutput(raw: string, toolName?: string): Pick<RunTrace
     if (!value || typeof value !== 'object' || Array.isArray(value)) return { body: '', rawBody: raw }
     const fields = value as Record<string, unknown>
     const error = typeof fields.error === 'string' ? fields.error : fields.error && typeof fields.error === 'object' && typeof (fields.error as any).message === 'string' ? (fields.error as any).message : ''
-    const preview = typeof fields.preview === 'string' ? fields.preview : ''
     const operation = toolOperationLabelKey(toolName)
+    const head = typeof fields.preview === 'string' ? fields.preview : ''
+    const tail = fields.tail as { content?: unknown } | undefined
+    const preview = operation === 'traceOpShell' && typeof tail?.content === 'string' ? `${head}\n…\n${tail.content}` : head
     if (['traceOpAwaitAgent', 'traceOpCancelAgent'].includes(operation) && fields.status === 'canceled' && typeof fields.taskId === 'string') return { body: '', rawBody: raw, resultSummaryKey: 'traceAgentCanceled' }
     if (error) return { body: preview, error, rawBody: raw }
     if (operation === 'traceOpWrite' && fields.diff && typeof fields.diff === 'object') {
@@ -143,6 +145,7 @@ export function projectToolOutput(raw: string, toolName?: string): Pick<RunTrace
       return { body: '', rawBody: raw, search: { matches, filesScanned: typeof fields.filesScanned === 'number' ? fields.filesScanned : undefined, truncated: fields.truncated === true } }
     }
     if (typeof fields.answer === 'string') return { body: fields.answer, rawBody: raw, markdown: true }
+    if (operation === 'traceOpShell' && typeof fields.preview === 'string') return { body: preview, rawBody: raw }
     for (const name of ['preview', 'content', 'text', 'output']) if (typeof fields[name] === 'string') return { body: fields[name], rawBody: raw }
     // Preserve structured tool data when it has no dedicated presentation;
     // lifecycle metadata stays in the run's diagnostics.

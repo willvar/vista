@@ -4,12 +4,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"github.com/google/uuid"
 	"vista/internal/platform"
@@ -21,18 +23,25 @@ const maxShellPreview = 8 << 10
 
 var ErrOutputLimit = errors.New("shell output exceeded 16 MiB")
 
+type OutputExcerpt struct {
+	Offset     int64  `json:"offset"`
+	NextOffset int64  `json:"nextOffset"`
+	Content    string `json:"content"`
+}
+
 type ShellResult struct {
-	ArtifactID   string `json:"artifactId"`
-	Directory    string `json:"directory"`
-	OutputPath   string `json:"-"`
-	Bytes        int64  `json:"bytes"`
-	Preview      string `json:"preview"`
-	PreviewBytes int    `json:"previewBytes"`
-	Truncated    bool   `json:"truncated"`
-	NextOffset   int64  `json:"nextOffset"`
-	ExitCode     int    `json:"exitCode"`
-	Signal       string `json:"signal,omitempty"`
-	Complete     bool   `json:"complete"`
+	ArtifactID   string         `json:"artifactId"`
+	Directory    string         `json:"directory"`
+	OutputPath   string         `json:"-"`
+	Bytes        int64          `json:"bytes"`
+	Preview      string         `json:"preview"`
+	Tail         *OutputExcerpt `json:"tail,omitempty"`
+	PreviewBytes int            `json:"previewBytes"`
+	Truncated    bool           `json:"truncated"`
+	NextOffset   int64          `json:"nextOffset"`
+	ExitCode     int            `json:"exitCode"`
+	Signal       string         `json:"signal,omitempty"`
+	Complete     bool           `json:"complete"`
 }
 
 func (r ShellResult) ExitError() error {
@@ -172,11 +181,9 @@ func RunShellRecorded(ctx context.Context, stateDir, directory, script string, t
 		writer.failure = err
 	}
 	result.Bytes = writer.bytes
-	preview := completeUTF8Prefix(writer.preview)
-	result.Preview = strings.ToValidUTF8(string(preview), "�")
-	result.PreviewBytes = len(preview)
-	result.NextOffset = int64(result.PreviewBytes)
-	result.Truncated = result.NextOffset < result.Bytes
+	if previewErr := result.capturePreview(file, writer.preview); previewErr != nil && writer.failure == nil {
+		writer.failure = previewErr
+	}
 	if cmd.ProcessState != nil {
 		result.ExitCode = cmd.ProcessState.ExitCode()
 		result.Signal = platform.ProcessSignal(cmd.ProcessState)
@@ -201,4 +208,30 @@ func RunShellRecorded(ctx context.Context, stateDir, directory, script string, t
 	}
 	result.Complete = true
 	return result, nil
+}
+
+// Short output is complete. Long output shares one 8 KiB budget between the
+// beginning and end; nextOffset always points to the omitted middle, never past
+// it. Ranges count original bytes, even if invalid UTF-8 needs display replacement.
+func (result *ShellResult) capturePreview(file *os.File, prefix []byte) error {
+	head := prefix
+	if result.Bytes > maxShellPreview {
+		head = head[:maxShellPreview/2]
+		tail := make([]byte, maxShellPreview/2)
+		offset := result.Bytes - int64(len(tail))
+		if _, err := io.ReadFull(io.NewSectionReader(file, offset, int64(len(tail))), tail); err != nil {
+			return fmt.Errorf("read shell output tail: %w", err)
+		}
+		start := 0
+		for start < len(tail) && !utf8.RuneStart(tail[start]) {
+			start++
+		}
+		result.Tail = &OutputExcerpt{Offset: offset + int64(start), NextOffset: result.Bytes, Content: strings.ToValidUTF8(string(tail[start:]), "�")}
+	}
+	head = completeUTF8Prefix(head)
+	result.Preview = strings.ToValidUTF8(string(head), "�")
+	result.PreviewBytes = len(head)
+	result.NextOffset = int64(len(head))
+	result.Truncated = result.NextOffset < result.Bytes
+	return nil
 }

@@ -102,3 +102,7 @@ The maintained adapters live in [`benchmarks/harbor/`](../benchmarks/harbor/) an
 ## Generated provider fixture
 
 The [provider matrix fixture](../scripts/provider_matrix/testdata/catalog.csv) is deterministic catalog/routing data, not a real-provider report. Regeneration and evidence limits are in [providers](./providers.md#protocol-and-verification-boundaries).
+
+When running tests through the foreground `shell` tool, set the test runner's diagnostic timeout below the shell timeout.
+For example, use `GOWORK=off go test -timeout=120s ./internal/agent` with `timeoutSeconds: 180`; Go can print its timeout stack trace before shell process cleanup.
+For a suite that may exceed the foreground timeout, use a managed background job and read its saved output rather than increasing or removing the shell's deadline.

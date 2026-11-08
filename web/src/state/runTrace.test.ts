@@ -454,3 +454,13 @@ test('reasoning follows tools across turns, excludes empty and auxiliary fragmen
   assert.deepEqual(buildRunTrace(events, { ...options, through: 6 }).nodes.map(node => node.sequence), [2, 4, 5])
   assert.deepEqual(buildRunTrace(events, { ...options, after: 6 }).nodes.map(node => node.sequence), [7])
 })
+
+
+test('shell previews show both original excerpts on success and failure', () => {
+  const output = { preview: 'Build started', tail: { offset: 12000, nextOffset: 12024, content: 'FAIL: final diagnostic' }, nextOffset: 4096, truncated: true }
+  for (const error of ['', 'exit code 1']) {
+    const projected = projectToolOutput(JSON.stringify({ ...output, ...(error ? { error } : {}) }), 'shell')
+    assert.equal(projected.body, 'Build started\n…\nFAIL: final diagnostic')
+    assert.equal(projected.error || '', error)
+  }
+})

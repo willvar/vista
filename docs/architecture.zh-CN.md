@@ -347,3 +347,16 @@ MCP 导入同时接受 v2 的 `mcp.servers` 和 v1 的平铺服务条目，同�
 关于 Vista 通过 `config.json` · `capacity` 及 `GET`／`PUT /api/memory-config` 提供内存预设和自定义限制，共用状态 SSE 携带已保存配置及主进程／Worker／MCP 托管进程的实际 RSS。默认总准入预算 2,048 MiB、单 Worker 或 MCP 托管进程 1,024 MiB、同时执行四个会话（包含后台活动），不设固定打开会话数上限。[准入实现](../internal/server/admission.go)在实测占用达到预算或系统可用内存低于 128 MiB 时拒绝新 Worker、执行和图片操作。限制变更发送到现有 Worker 和 MCP 托管进程；Go 软内存目标分别为各自限制的 75% 和 90%，每秒 RSS 检查停止超过限制的进程。这是软保护，并非操作系统硬上限或峰值估算；采样间隔内仍可能出现瞬时峰值，外部 shell/MCP 子进程内存不计入准入总量。中断工作记录状态，不自动重放。组件缓冲限制和单次操作超时不等于通用任务容量保证，见[验证](./testing.zh-CN.md)。
 
 服务监听回环地址，校验 Host/Origin，工具以本机用户权限执行，无逐次调用审批。HTTP／流错误保留脱敏后的服务商诊断，在消息区展示；实际步骤错误保留在步骤内。平台层实现 Linux、Windows 和 macOS 进程管理。
+
+## 指令分页与命令证据
+
+`internal/tools/output.go` 定义普通工具共用的 50 KiB／2,000 行模型输出预算。
+`read_project_instruction` 和 `read_skill` 按完整 JSON 页计算预算，包括转义、路径、SHA-256 和 `nextOffset`，不再另设较小的指令页大小。
+项目规则仍以完整 UTF-8 字节覆盖及源文件哈希判断是否已读取。
+界面事件预览及保存的完整输出与模型收到的分页保持独立。
+
+前台 `shell` 完整返回短输出，长输出的首尾预览共享 8 KiB 原始字节预算。
+`previewBytes` 和 `nextOffset` 描述开头；`tail.offset`、`tail.nextOffset` 和 `tail.content` 标明原始产物中的末尾片段。
+省略的中段从 `nextOffset` 到 `tail.offset`，可通过 `read_tool_output` 读取，无须重跑命令。
+已经按原始字节限制的 shell 结果不再经过通用模型预览二次截断，避免短行过多或 JSON 转义导致尾部和偏移信息丢失。
+界面以省略号分开首尾片段，退出状态、取消、超时及产物保留沿用原有语义。
