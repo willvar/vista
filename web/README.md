@@ -53,7 +53,7 @@ Recovery only reads persisted data; it does not resend messages or invoke models
 The workspace owns one additional fetch-based SSE connection for shared state changes.
 Subscribe through `workspace.stateSync`; components do not open independent state streams or periodically request status.
 Its connection-scoped subscription ID allows batched `PUT /api/events/subscriptions` interest/timezone updates without reopening the stream or reloading workspace metadata.
-`useStateQuery.ts` keeps skill inventories and model-selection statistics on revision-driven, cached, cancellable HTTP reads; list updates never replace skill-editor drafts.
+`useStateQuery.ts` keeps skill inventories and model-selection statistics on revision-driven, cached, cancellable HTTP reads; list updates never replace skill-editor drafts. `SkillEditor.vue` uses `ui/Tree.vue` for existing files, caches drafts per path, saves the selected UTF-8 file with its SHA-256 revision, and confirms discarding drafts. Shared skill revisions update only tree metadata while it is open; file bodies, raster previews and downloads are separate on-demand reads. System skills use the same viewer read-only. Mobile navigates between the tree and file inside the same modal.
 The server coalesces storage scans for visible storage views and schedules statistics hour/day invalidation in each subscribed viewer's timezone.
 Routine Refresh controls are absent from automatically updated views; catalog checks, import reads, authorization, cleanup and error recovery retain explicit actions.
 Changed sessions/status, models, catalog progress/history, storage status, MCP settings, login outcomes and memory counts/limits arrive as bounded state-frame payloads.
@@ -84,7 +84,11 @@ Metrics are pushed only for debug subscriptions; local elapsed-time clocks are i
 `RenderGuard.vue` isolates execution-detail failures; `MessageMarkdown.vue` falls back to plain text.
 See [synchronization contracts](../docs/architecture.md#conversation-synchronization) for timeouts and ownership.
 
-Main model text is a message-area row, distinct from execution details. `main-outputs` indexes history; visible rows load full model text. Formal replies replace the corresponding row by `outputTurn` rather than duplicating it. Reasoning appears chronologically inside execution details with no second fold. Tools and children stay in their steps. A call count or whole-run failure alone does not create an empty execution panel; whole-run diagnostics appear in the message area.
+Main model text is a message-area row, distinct from execution details. `main-outputs` indexes history; visible rows load full model text. Formal replies replace the corresponding row by `outputTurn` rather than duplicating it. Reasoning, tools and child activity appear chronologically inside always-visible, visually secondary execution messages. `RunTrace.vue` and `TraceSteps.vue` share one chronological virtual list instead of separate folded agent lists. Tool previews render immediately; explicit full-result and child-report actions retain bounded, cached reads. A call count or whole-run failure alone does not create an empty execution panel; whole-run diagnostics appear in the message area.
+
+`ConversationExecution.vue` renders the current action, elapsed time and latest activity above the composer. Its local display clock uses run timestamps from the consistent conversation snapshot and durable events, with no polling; child activity updates the last-activity clock without replacing the main action.
+
+`ConversationChecklist.vue` renders the current run's latest checklist above the composer, outside the virtualized message list. Conversation state retains that replacement independently of its recent event window; initial/recovery snapshots include the latest root checklist even when older than the recent page. Reuse the conversation stream for changes without another overview read or polling. New runs hide the previous plan; completion/interruption changes only displayed statuses, preserving the original events.
 
 Message rows and long traces use virtual rendering and measured heights. Full-text caches are evicted outside their windows; returning to history reloads it. `useFullOutput` shares a bounded cache of 32 tool outputs and roughly 8 MiB of text; cache bounds do not truncate the currently expanded content.
 
@@ -103,7 +107,7 @@ Text actions use the shared `Button` at its default 36px height, including list 
 Empty views use `src/ui/Empty.vue`, with one shared illustration and spacing and typography in `.vista-empty-state`; narrow sidebars use `.vista-empty-state-compact`. Keep loading and errors separate from empty results, preserve context-specific descriptions, and omit pagination when no results exist.
 
 `TraceToolResult.vue` renders `write_file` artifacts through `FileDiffOutput.vue`.
-The diff records the committed write, not current filesystem contents; `RunToolOutput.vue` loads it only when its step is expanded through the existing bounded output cache.
+The diff records the committed write, not current filesystem contents; `RunToolOutput.vue` loads it when the full result is requested through the existing bounded output cache.
 Unified hunks retain old/new line numbers, insertion/deletion markers and escaped text; fixed-height virtual rows bound DOM size and horizontal scrolling contains long lines.
 Keep creation, unchanged-content and unavailable-diff states distinct, and preserve metadata-only results from older histories.
 
