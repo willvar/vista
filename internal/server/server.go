@@ -66,6 +66,9 @@ type App struct {
 	storageMu              sync.Mutex
 	skillsMu               sync.Mutex
 	agentSettingsMu        sync.Mutex
+	serverConfigMu         sync.Mutex
+	listenerPort           func() int
+	portChange             func(http.ResponseWriter, *http.Request, RuntimeConfig, string, bool)
 	storageStatus          resourceStorageStatus
 	storageGeneration      uint64
 	storageScanned         uint64
@@ -119,7 +122,14 @@ type App struct {
 // A Server process keeps its identity when a full reset replaces its App.
 var processInstanceID = uuid.NewString()
 
-func Run(portOverride int, onReady func(context.Context) func(), startRestart func(port int) (wait func() error, err error)) error {
+func Run(portOverride int, onReady func(context.Context) func(), startRestart func(port int) (wait func() error, err error), options ...RunOptions) error {
+	option := RunOptions{}
+	if len(options) > 0 {
+		option = options[0]
+	}
+	if option.Listener != nil {
+		defer option.Listener.Close()
+	}
 	build, buildErr := buildinfo.Read()
 	if buildErr != nil {
 		log.Printf("binary hash unavailable: %v", buildErr)
@@ -136,6 +146,9 @@ func Run(portOverride int, onReady func(context.Context) func(), startRestart fu
 		return err
 	}
 	lock, err := instance.Lock(dir)
+	if err != nil && option.WaitForInstance && platform.IsLockBusy(err) {
+		err = waitInstanceLock(context.Background(), func() error { var nextErr error; lock, nextErr = instance.Lock(dir); return nextErr })
+	}
 	if err != nil {
 		if platform.IsLockBusy(err) {
 			return fmt.Errorf("Vista is already running: %w", err)
@@ -150,7 +163,10 @@ func Run(portOverride int, onReady func(context.Context) func(), startRestart fu
 	if err != nil {
 		return err
 	}
-	socket, err := net.Listen("tcp", config.Address())
+	socket := option.Listener
+	if socket == nil {
+		socket, err = net.Listen("tcp", config.Address())
+	}
 	if err != nil {
 		return fmt.Errorf("listen on %s: %w", config.Address(), err)
 	}
@@ -163,6 +179,7 @@ func Run(portOverride int, onReady func(context.Context) func(), startRestart fu
 		if err != nil {
 			return nil, err
 		}
+		app.listenerPort = func() int { return listener.Addr().(*net.TCPAddr).Port }
 		if err := app.start(); err != nil {
 			app.closeContext()
 			app.stopAll()
@@ -177,6 +194,7 @@ func Run(portOverride int, onReady func(context.Context) func(), startRestart fu
 		return err
 	}
 	handler := newAppHandler(app, open)
+	handler.reservePortRestart = option.ReservePortRestart
 	defer handler.close()
 	if startRestart != nil {
 		handler.startRestart = func() (func() error, error) {
@@ -351,6 +369,20 @@ func (a *App) handler() http.Handler {
 	mux.HandleFunc("/api/events", a.stateEvents)
 	mux.HandleFunc("/api/events/subscriptions", a.stateInterests)
 	mux.HandleFunc("/api/status", a.status)
+	mux.HandleFunc("/api/server-config", a.serverConfigHTTP)
+	// A cross-origin image load is a narrow, credential-free readiness signal
+	// for a user-confirmed port move; it exposes no application state.
+	mux.HandleFunc("/api/port-ready.svg", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+		w.Header().Set("Content-Type", "image/svg+xml")
+		w.Header().Set("Cache-Control", "no-store")
+		w.Header().Set("Cross-Origin-Resource-Policy", "cross-origin")
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		_, _ = io.WriteString(w, `<svg xmlns="http://www.w3.org/2000/svg" width="1" height="1"/>`)
+	})
 	mux.HandleFunc("/api/memory-config", a.memorySettingsHTTP)
 	mux.HandleFunc("/api/resource-storage", a.resourceStorage)
 	mux.HandleFunc("/api/models", a.modelList)
@@ -392,7 +424,8 @@ func (a *App) host(next http.Handler) http.Handler {
 		if r.URL.Path == "/api/restart" || r.URL.Path == "/api/reset" {
 			w.Header().Set("Cache-Control", "no-store")
 		}
-		if r.Host == "" || (!strings.HasPrefix(r.Host, "127.0.0.1:") && !strings.HasPrefix(r.Host, "[::1]:")) {
+		defaultHTTPHost := r.Host == "127.0.0.1" && a.listenerPort != nil && a.listenerPort() == 80
+		if r.Host == "" || !defaultHTTPHost && (!strings.HasPrefix(r.Host, "127.0.0.1:") && !strings.HasPrefix(r.Host, "[::1]:")) {
 			http.Error(w, "invalid host", http.StatusForbidden)
 			return
 		}

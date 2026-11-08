@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/fsnotify/fsnotify"
+	"vista/internal/configstore"
 )
 
 // Watch only managed roots and their immediate folders. Following symlinks or
@@ -52,6 +53,14 @@ func (a *App) watchManagedFiles() {
 		}
 	}
 	reconcile()
+	serverRevision := func() string {
+		data, present, err := configstore.Read(a.configDir, configstore.Server)
+		if err != nil {
+			return "unavailable"
+		}
+		return configstore.Revision(data, present)
+	}
+	lastServerRevision := serverRevision()
 	var flush <-chan time.Time
 	timer := time.NewTimer(time.Hour)
 	timer.Stop()
@@ -73,6 +82,11 @@ func (a *App) watchManagedFiles() {
 			if !ok {
 				return
 			}
+			if event.Name == filepath.Join(a.configDir, configstore.Filename) || event.Name == filepath.Join(a.configDir, "server.json") || event.Name == a.configDir {
+				// Other section writes share the file but do not invalidate this
+				// editor. Legacy events matter only before explicit migration.
+				mark("server-config-check")
+			}
 			if !event.Has(fsnotify.Create | fsnotify.Write | fsnotify.Remove | fsnotify.Rename) {
 				continue
 			}
@@ -86,14 +100,23 @@ func (a *App) watchManagedFiles() {
 				return
 			}
 			// Overflow means revisions may have been missed. Reconcile inventory
-			// and invalidate both views rather than trusting the partial batch.
+			// and invalidate managed views rather than trusting the partial batch.
 			log.Printf("managed file watcher: %v", err)
 			mark("skills")
 			mark("storage")
+			mark("server-config")
 		case <-flush:
 			flush = nil
 			reconcile()
 			for topic := range dirty {
+				if topic == "server-config-check" {
+					current := serverRevision()
+					if current != lastServerRevision {
+						a.updates.notify("server-config")
+						lastServerRevision = current
+					}
+					continue
+				}
 				if topic == "storage" {
 					a.invalidateResourceStorage()
 				} else {

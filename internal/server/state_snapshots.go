@@ -32,7 +32,7 @@ func (a *App) publicModelsSnapshot(ctx context.Context) (publicModelCatalog, err
 	return publicModelCatalog{Default: initialVisibleModelKey(models, prefs.ShowUnrecognizedModels), Models: models.Public(), ShowUnrecognizedModels: prefs.ShowUnrecognizedModels, SettingsRevision: a.modelSettingsVersion(revision)}, nil
 }
 
-func (a *App) addStateSnapshots(ctx context.Context, point *stateCheckpoint, previous stateCheckpoint) error {
+func (a *App) addStateSnapshots(ctx context.Context, host string, point *stateCheckpoint, previous stateCheckpoint) error {
 	changed := func(topic string) bool { return point.Revisions[topic] != previous.Revisions[topic] }
 	if changed("models") {
 		models, err := a.publicModelsSnapshot(ctx)
@@ -66,6 +66,15 @@ func (a *App) addStateSnapshots(ctx context.Context, point *stateCheckpoint, pre
 		// with an application stream open. A revision wakes only active views.
 		point.Memories = &memorySummary{total, store.MaxMemories, store.MaxMemoryBytes, store.MaxMemoriesBytes}
 	}
+	if changed("server-config") {
+		version := point.Epoch + ":" + strconv.FormatUint(point.Revisions["server-config"], 10)
+		// Invalid or unreadable settings are a view-local HTTP error. Keep the
+		// revision for recovery without closing the shared application stream
+		// or broadcasting file contents, paths or diagnostic messages.
+		if config, err := a.serverConfigSnapshot(host, version); err == nil {
+			point.ServerConfig = &config
+		}
+	}
 	if changed("diagnostics") {
 		point.Diagnostics = a.updates.diagnosticChanges(previous.Revisions["diagnostics"], point.Revisions["diagnostics"])
 	}
@@ -88,7 +97,7 @@ func (point *stateCheckpoint) limitPayload() error {
 		"sessions": func() { point.Sessions = nil }, "memories": func() { point.Memories = nil },
 		"mcp": func() { point.MCP = nil }, "catalog": func() { point.Catalog = nil },
 		"providerLogins": func() { point.ProviderLogins = nil }, "storage": func() { point.Storage = nil },
-		"status": func() { point.Status = nil },
+		"status": func() { point.Status = nil }, "serverConfig": func() { point.ServerConfig = nil },
 	}
 	for len(data) > maxStateSnapshotBytes {
 		largest := ""

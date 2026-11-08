@@ -31,7 +31,7 @@ const maxStateEventStreams = maxEventStreams
 // Oversized lists retain revision-driven HTTP snapshot recovery.
 const maxStateSnapshotBytes = 120_000
 
-var stateTopics = []string{"sessions", "status", "models", "catalog", "provider-login", "mcp", "storage", "memories", "diagnostics", "statistics", "skills", "selection-stats"}
+var stateTopics = []string{"sessions", "status", "models", "catalog", "provider-login", "mcp", "storage", "memories", "diagnostics", "statistics", "skills", "selection-stats", "server-config"}
 
 type stateCheckpoint struct {
 	SubscriptionID string                     `json:"subscriptionId,omitempty"`
@@ -46,6 +46,7 @@ type stateCheckpoint struct {
 	Storage        *resourceStorageStatus     `json:"storage,omitempty"`
 	Memories       *memorySummary             `json:"memories,omitempty"`
 	Diagnostics    *diagnosticChanges         `json:"diagnostics,omitempty"`
+	ServerConfig   *serverConfigState         `json:"serverConfig,omitempty"`
 }
 
 func (a *App) stateUpdate(ctx context.Context, host string, previous stateCheckpoint) (stateCheckpoint, error) {
@@ -84,7 +85,7 @@ func (a *App) stateUpdateScoped(ctx context.Context, host string, previous state
 			}
 		}
 	}
-	if err := a.addStateSnapshots(ctx, &point, calibration); err != nil {
+	if err := a.addStateSnapshots(ctx, host, &point, calibration); err != nil {
 		return stateCheckpoint{}, err
 	}
 	err := point.limitPayload()

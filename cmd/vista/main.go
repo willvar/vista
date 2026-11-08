@@ -70,10 +70,13 @@ func newRootCommand() *cobra.Command {
 	root.AddCommand(restartCommand)
 	root.AddCommand(&cobra.Command{Use: "status", RunE: func(*cobra.Command, []string) error { return status() }})
 	serveCommand := &cobra.Command{Use: "serve", Hidden: true, Args: cobra.NoArgs, RunE: func(*cobra.Command, []string) error {
-		return server.Run(port, startDesktopControls, startProcessRestart)
+		return server.Run(port, startDesktopControls, startProcessRestart, server.RunOptions{ReservePortRestart: reservePortRestart})
 	}}
 	addPortFlag(serveCommand, &port)
 	root.AddCommand(serveCommand)
+	reservedCommand := &cobra.Command{Use: "serve-reserved", Hidden: true, Args: cobra.NoArgs, RunE: func(*cobra.Command, []string) error { return serveReserved(port) }}
+	addPortFlag(reservedCommand, &port)
+	root.AddCommand(reservedCommand)
 	root.AddCommand(&cobra.Command{Use: "worker", Hidden: true, RunE: func(*cobra.Command, []string) error { return worker.Run() }})
 	root.AddCommand(&cobra.Command{Use: "mcp-host", Hidden: true, Args: cobra.NoArgs, RunE: func(*cobra.Command, []string) error { return mcphost.Run() }})
 	return root

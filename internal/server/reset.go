@@ -22,23 +22,26 @@ import (
 // appHandler keeps the listener and instance lock while replacing a generation
 // of user data. No request or background writer may outlive that generation.
 type appHandler struct {
-	mu           sync.Mutex
-	lifecycleMu  sync.Mutex
-	requests     sync.WaitGroup
-	app          *App
-	next         http.Handler
-	open         func() (*App, error)
-	restart      func() (string, error) // Reset-only listener reconfiguration.
-	startRestart func() (func() error, error)
-	restarting   bool
-	resetting    bool
-	unavailable  bool
-	appClosed    bool // Protected by lifecycleMu.
-	closed       bool // Protected by lifecycleMu.
+	mu                 sync.Mutex
+	lifecycleMu        sync.Mutex
+	requests           sync.WaitGroup
+	app                *App
+	next               http.Handler
+	open               func() (*App, error)
+	restart            func() (string, error) // Reset-only listener reconfiguration.
+	startRestart       func() (func() error, error)
+	reservePortRestart func(int) (*ReservedPortRestart, error)
+	restarting         bool
+	resetting          bool
+	unavailable        bool
+	appClosed          bool // Protected by lifecycleMu.
+	closed             bool // Protected by lifecycleMu.
 }
 
 func newAppHandler(app *App, open func() (*App, error)) *appHandler {
-	return &appHandler{app: app, next: app.handler(), open: open}
+	h := &appHandler{app: app, next: app.handler(), open: open}
+	app.portChange = h.changePort
+	return h
 }
 
 func (h *appHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -201,6 +204,7 @@ func (h *appHandler) reset(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	h.mu.Lock()
+	app.portChange = h.changePort
 	h.app, h.next = app, app.handler()
 	h.unavailable = false
 	h.mu.Unlock()
