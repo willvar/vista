@@ -1,3 +1,4 @@
+import { rmSync } from 'node:fs'
 import { installMockStateStream, notifyState } from './state-stream-fixture'
 import { coreSnapshot } from './conversation-fixture'
 import { test as base, expect, type Page } from '@playwright/test'
@@ -8,6 +9,7 @@ import type { ModelSelectionStats, Session } from '../src/client/types'
 const test = base.extend<{}, { mockOrigin: string }>({
   mockOrigin: [async ({}, use) => {
     const server = await createServer({
+      cacheDir: resolve(import.meta.dirname, `../.vista/test-state/selection-stats-vite-${process.pid}`),
       root: resolve(import.meta.dirname, '..'),
       configFile: resolve(import.meta.dirname, '../vite.config.ts'),
       server: { host: '127.0.0.1', port: 0, strictPort: false, watch: { ignored: ['**/.vista/**'] } },
@@ -15,7 +17,7 @@ const test = base.extend<{}, { mockOrigin: string }>({
     await server.listen()
     const address = server.httpServer!.address()
     if (!address || typeof address === 'string') throw new Error('Mock UI server did not start')
-    try { await use(`http://127.0.0.1:${address.port}`) } finally { await server.close() }
+    try { await use(`http://127.0.0.1:${address.port}`) } finally { await server.close(); rmSync(server.config.cacheDir, { recursive: true, force: true }) }
   }, { scope: 'worker' }],
 })
 

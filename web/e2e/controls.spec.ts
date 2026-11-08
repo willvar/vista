@@ -1,3 +1,4 @@
+import { rmSync } from 'node:fs'
 import { test as base, expect } from '@playwright/test'
 import { createServer } from 'vite'
 import vue from '@vitejs/plugin-vue'
@@ -9,13 +10,13 @@ const test = base.extend<{}, { controlsOrigin: string }>({
   controlsOrigin: [async ({}, use) => {
     const server = await createServer({
       root: resolve(import.meta.dirname, '..'), configFile: false, plugins: [vue()],
-      cacheDir: resolve(import.meta.dirname, '../.vista/test-state/controls-vite'),
+      cacheDir: resolve(import.meta.dirname, `../.vista/test-state/controls-vite-${process.pid}`),
       server: { host: '127.0.0.1', port: 0, watch: { ignored: ['**/.vista/**'] } },
     })
     await server.listen()
     const address = server.httpServer!.address()
     if (!address || typeof address === 'string') throw new Error('Control fixture did not start')
-    try { await use(`http://127.0.0.1:${address.port}/e2e/controls/`) } finally { await server.close() }
+    try { await use(`http://127.0.0.1:${address.port}/e2e/controls/`) } finally { await server.close(); rmSync(server.config.cacheDir, { recursive: true, force: true }) }
   }, { scope: 'worker' }],
 })
 

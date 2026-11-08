@@ -2,7 +2,7 @@ import { installMockStateStream } from './state-stream-fixture'
 import { closeSettings, openSettingsSection } from './settings-navigation'
 import { test as base, expect, type Locator, type Page } from '@playwright/test'
 import { createServer } from 'vite'
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { mkdirSync, readFileSync, writeFileSync, rmSync } from 'node:fs'
 import { resolve } from 'node:path'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { Artifact, ChecklistItem, Job, Message, ModelResultView, RunOverview, Session, StreamEvent } from '../src/client/types'
@@ -17,7 +17,8 @@ const streamHandlers = new Map<string, (request: IncomingMessage, response: Serv
 const test = base.extend<{}, { mockOrigin: string }>({
   mockOrigin: [async ({}, use) => {
     let origin = ''
-    const server = await createServer({ root: resolve(import.meta.dirname, '..'), configFile: resolve(import.meta.dirname, '../vite.config.ts'), server: { host: '127.0.0.1', port: 0, strictPort: false, watch: { ignored: ['**/.vista/**'] } },
+    const server = await createServer({
+      cacheDir: resolve(import.meta.dirname, `../.vista/test-state/execution-flow-vite-${process.pid}`), root: resolve(import.meta.dirname, '..'), configFile: resolve(import.meta.dirname, '../vite.config.ts'), server: { host: '127.0.0.1', port: 0, strictPort: false, watch: { ignored: ['**/.vista/**'] } },
       plugins: [{ name: 'replay-events', enforce: 'pre', configureServer(server) {
         server.middlewares.use((request, response, next) => {
           const handler = streamHandlers.get(origin)
@@ -30,7 +31,7 @@ const test = base.extend<{}, { mockOrigin: string }>({
     const address = server.httpServer!.address()
     if (!address || typeof address === 'string') throw new Error('Mock UI server did not start')
     origin = `http://127.0.0.1:${address.port}`
-    try { await use(origin) } finally { streamHandlers.delete(origin); await server.close() }
+    try { await use(origin) } finally { streamHandlers.delete(origin); await server.close(); rmSync(server.config.cacheDir, { recursive: true, force: true }) }
   }, { scope: 'worker' }],
 })
 
@@ -345,6 +346,10 @@ async function mockExecution(page: Page, origin: string, source = replayEvents()
     }
     if (path === '/preferences') return reply({ userId: 'replay-user', lastMode: 'manual', lastTier: 'speed', manualModelKey: 'replay-model', reasoningByModelId: { 'gpt-6-astra': 'high' }, feedbackInvitationSeen: true })
     if (path === '/agent-settings') return reply({ instructions: '', instructionsPath: '/home/test/.config/vista/AGENTS.md', delegationDepth: 1, maxDelegationDepth: 8 })
+    if (path === '/server-config') return reply({
+      version: 'replay:1', revision: 'a'.repeat(64), config: { port: 5186 }, runningPort: 5186, source: 'default',
+      schema: { type: 'object', additionalProperties: false, required: ['port'], properties: { port: { type: 'integer', minimum: 1, maximum: 65535 } } },
+    })
     if (path === '/model-catalog') return reply({ revision: 'a'.repeat(40), modelCount: 1, providerCount: 1 })
     if (path === '/user-agent') return reply({ preset: 'vista', custom: '', value: 'Vista/test', presets: [{ id: 'vista', name: 'Vista', value: 'Vista/test' }], maxLength: 512 })
     if (path === '/models') return reply({ default: 'replay-model', models: [{ key: 'replay-model', name: 'Replay', provider: 'openai-chat', id: 'gpt-6-astra', tools: true, reasoningOptions: ['high'] }] })
