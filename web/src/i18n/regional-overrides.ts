@@ -176,7 +176,6 @@ export const regionalOverrides = {
     "skillDeleteConfirm": "Eliminar {name}, incluindo scripts e ficheiros de apoio?",
     "skillSupportingFiles": "{count} ficheiros de apoio",
     "skillSupportingFilesHint": "Editar SKILL.md não altera esses ficheiros.",
-    "globalInstructionsFile": "Local do ficheiro",
     globalInstructionsPlaceholder: "Por exemplo: Trabalhe como um assistente de investigação rigoroso. Verifique as conclusões principais, distinga factos de suposições e aponte os problemas diretamente. Apresente primeiro a conclusão e depois explique as provas.",
     "fullscreenEdit": "Editar em ecrã inteiro",
     "exitFullscreenEdit": "Sair do ecrã inteiro",

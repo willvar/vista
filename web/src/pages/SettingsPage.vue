@@ -1,9 +1,9 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
+import { computed, nextTick, reactive, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { RightOutlined, SkinOutlined, UserOutlined, ApiOutlined, InfoCircleOutlined, SearchOutlined, LinkOutlined, BookOutlined, SunOutlined, MoonOutlined, DesktopOutlined, HddOutlined, ExclamationCircleOutlined, FullscreenOutlined, FullscreenExitOutlined, PlusOutlined, ImportOutlined, ReloadOutlined, RobotOutlined, TeamOutlined, CompassOutlined, ToolOutlined, CommentOutlined, FolderOpenOutlined, FolderOutlined, FileTextOutlined } from '@antdv-next/icons'
-import { Empty as VEmpty, Alert as VAlert, Button as VButton, Input as VInput, InputNumber as VInputNumber, InputPassword as VInputPassword, Modal as VModal, TextArea as VTextarea, Select as VSelect, Switch as VSwitch, Tooltip as VTooltip, type TextAreaRef } from '../ui'
+import { Empty as VEmpty, Alert as VAlert, Button as VButton, Input as VInput, Modal as VModal, Select as VSelect, Switch as VSwitch, Tooltip as VTooltip } from '../ui'
 import WorkspaceModal from '../WorkspaceModal.vue'
 import ConfirmPopover from '../ConfirmPopover.vue'
 import ModelSelectionStats from '../ModelSelectionStats.vue'
@@ -19,6 +19,8 @@ import CapacitySettings from '../CapacitySettings.vue'
 import UserAgentSettings from '../UserAgentSettings.vue'
 import ResetVistaSettings from '../ResetVistaSettings.vue'
 import RestartVistaSettings from '../RestartVistaSettings.vue'
+import ServerConfigSettings from '../ServerConfigSettings.vue'
+import SchemaForm from '../SchemaForm.vue'
 import VistaMark from '../VistaMark.vue'
 import StatisticsSettings from '../StatisticsSettings.vue'
 import { BarChartOutlined, ClearOutlined } from '@antdv-next/icons'
@@ -89,26 +91,44 @@ const searchModalOpen = ref(false)
 const storageModalOpen = ref(false)
 const resetModalOpen = ref(false)
 const restartModalOpen = ref(false)
+const portChangeModalOpen = ref(false)
 const statisticsModalOpen = ref(false)
 const providerImportOpen = ref(false)
 const providerImport = ref<InstanceType<typeof ConfigurationImport>>()
 const importedCount = ref(0)
 const instructionsEditorOpen = ref(false)
-const instructionsEditor = ref<TextAreaRef>()
+const instructionsDocument = computed<Record<string, unknown>>({ get: () => ({ instructions: agentInstructions.value }), set: value => { if (typeof value.instructions === 'string') agentInstructions.value = value.instructions } })
+const instructionsSchema = computed(() => ({ type: 'object' as const, additionalProperties: false, required: ['instructions'], properties: { instructions: { type: 'string' as const, title: t('globalInstructions') } } }))
+const instructionsUISchema = computed(() => ({ type: 'Control' as const, scope: '#/properties/instructions', options: { multi: true, rows: 24, placeholder: t('globalInstructionsPlaceholder') } }))
+function instructionsFocus() { return document.getElementById('fullscreen-agent-instructions-instructions-input') }
 const {
   languagePreference, languageChoice, languageOptions, regionOptions, settingsBusy, settingsError,
   showUnrecognizedModels, visibilityBusy, setShowUnrecognizedModels,
   providerDisconnectTarget, providerDisconnectError, settings,
   agentInstructions, agentInstructionsPath,
-  delegationDepth, maxDelegationDepth, canSaveAgentInstructions, canSaveDelegationDepth, automaticTitles, setAutomaticTitles,
+  maxDelegationDepth,
+  agentSettingsDraft, agentSettingsSchema, agentSettingsResetKey,
+  agentSettingsResetKeys, canSaveAgentField,
   agentSettingsBusy, agentSettingsLoading, agentSettingsError, agentSettingsSaved,
   loadAgentSettings, saveAgentSettings, modelDraft, modelFormOpen, chosenModels,
   manualModelIDs, canReuseHeader, editingProvider, providerOptions, canSaveProvider,
-  selectedSetup, deploymentModelSelection, providerModelOptions, apiFormatOptions, credentialOptions, usesAPIKey, authenticationHeader, changeCredentialMode,
-  updateSelectedModels, changeProvider, changeCustomBaseURL,
+  providerChoice, providerChoiceSchema, providerChoiceUISchema,
+  deploymentModelSelection, providerModelOptions, usesAPIKey, authenticationHeader,
+  modelConfig, modelConfigSchema, modelConfigUISchema, modelConfigValid, modelConfigDirty, modelConfigResetKey,
+  modelCredentials, modelCredentialsSchema, modelCredentialsUISchema, modelCredentialsValid, showModelCredentials,
+  updateSelectedModels, changeProvider,
   startProviderConnection, cancelModelForm, loadModelSettings, editProvider, providerGroups,
   saveProvider, retryModelDiscovery, providerConnected, setDefaultModel, confirmDisconnectProvider, updateProviderDisconnect,
 } = useProviderSettings(workspace)
+const agentFieldValidity = reactive({ instructions: true, delegationDepth: true, automaticTitles: true })
+const agentFieldSchemas = computed(() => Object.fromEntries(['instructions', 'delegationDepth', 'automaticTitles'].map(field => [field, {
+  type: 'object', additionalProperties: false, required: [field], properties: { [field]: agentSettingsSchema.value.properties![field] },
+}])))
+const instructionsInlineUI = computed(() => ({ type: 'Control' as const, scope: '#/properties/instructions', options: { multi: true, rows: 9, placeholder: t('globalInstructionsPlaceholder') } }))
+const delegationUISchema = { type: 'Control' as const, scope: '#/properties/delegationDepth', options: { descriptionIds: 'delegation-depth-intro delegation-depth-hint' } }
+const delegationDocument = computed<Record<string, unknown>>({ get: () => ({ delegationDepth: agentSettingsDraft.value.delegationDepth }), set: value => { agentSettingsDraft.value = { ...agentSettingsDraft.value, delegationDepth: value.delegationDepth } } })
+const titlesDocument = computed<Record<string, unknown>>({ get: () => ({ automaticTitles: agentSettingsDraft.value.automaticTitles }), set: value => { agentSettingsDraft.value = { ...agentSettingsDraft.value, automaticTitles: value.automaticTitles }; void saveAgentSettings('automaticTitles') } })
+
 type HeaderAction = { label: string; run: () => unknown; disabled: boolean; loading: boolean }
 const sectionActions = ref<{ headerAction: HeaderAction; imported?: () => unknown } | null>(null)
 const importKind = computed(() => route.name === 'settings-mcp' ? 'mcp' : route.name === 'settings-skills' ? 'skills' : 'providers')
@@ -122,6 +142,8 @@ function onImported(count: number) {
 const headerAction = computed<HeaderAction | undefined>(() => route.name === 'settings'
   ? { label: 'connectProvider', run: startProviderConnection, disabled: settingsBusy.value, loading: false }
   : ['settings-mcp', 'settings-about', 'settings-statistics'].includes(String(route.name)) ? sectionActions.value?.headerAction : undefined)
+// Full-screen editing is an explicit context change; synchronize the shared draft on exit.
+watch(instructionsEditorOpen, () => { agentSettingsResetKeys.instructions++ })
 const loginBusy = ref(false)
 watch(() => modelDraft.value.kind, () => { loginBusy.value = false })
 function providerTypeLabel(kind: string, protocol: string) {
@@ -144,7 +166,7 @@ watch(() => route.fullPath, () => {
 <template>
 <WorkspaceModal ref="modal" :open="true" width="max-content" :title="settingsTitle" :page-class="settingsIndex ? 'settings-page settings-index' : 'settings-page'"
   :close-label="t('closeSettings')" :back-label="t(settingsIndex ? 'backToConversation' : 'backToSettings')"
-  :keyboard="!providerDisconnectTarget && !modelFormOpen && !providerImportOpen && !mcpModalOpen && !skillModalOpen && !memoryModalOpen && !searchModalOpen && !storageModalOpen && !resetModalOpen && !restartModalOpen && !statisticsModalOpen && !instructionsEditorOpen" @cancel="backToWorkspace" @back="back">
+  :keyboard="!providerDisconnectTarget && !modelFormOpen && !providerImportOpen && !mcpModalOpen && !skillModalOpen && !memoryModalOpen && !searchModalOpen && !storageModalOpen && !resetModalOpen && !restartModalOpen && !portChangeModalOpen && !statisticsModalOpen && !instructionsEditorOpen" @cancel="backToWorkspace" @back="back">
         <template #header-actions>
             <v-button v-if="canImport" variant="text" class="icon-button" :aria-label="t(importTitleKey)" :title="t(importTitleKey)" :disabled="importKind === 'providers' ? settingsBusy : headerAction?.disabled" @click="importedCount = 0; providerImport?.show()"><template #icon><ImportOutlined aria-hidden="true" /></template></v-button>
             <v-button v-if="headerAction" variant="text" class="icon-button" :aria-label="t(headerAction.label)" :title="t(headerAction.label)" :disabled="headerAction.disabled" :loading="headerAction.loading" @click="headerAction.run()">
@@ -173,9 +195,9 @@ watch(() => route.fullPath, () => {
         <div v-if="route.name === 'settings-personalization'" class="settings-content personalization-settings-content">
           <v-alert v-if="agentSettingsError" type="error" role="alert" :message="agentSettingsError" />
           <v-alert v-if="agentSettingsSaved" type="success" role="status" :message="t('agentSettingsSaved')" />
-          <form class="agent-instructions-form" :aria-label="t('globalInstructions')" @submit.prevent="saveAgentSettings('instructions')">
+          <form class="agent-instructions-form" :aria-label="t('personalizationSettings')" @submit.prevent="agentFieldValidity.instructions && saveAgentSettings('instructions')">
             <div class="general-setting">
-              <div class="agent-instructions-heading"><label for="agent-instructions">{{ t('globalInstructions') }}</label><v-button :disabled="agentSettingsLoading || agentSettingsBusy" @click="instructionsEditorOpen = true"><FullscreenOutlined aria-hidden="true" />{{ t('fullscreenEdit') }}</v-button></div>
+              <div class="agent-instructions-heading"><strong>{{ t('globalInstructions') }}</strong><v-button :disabled="agentSettingsLoading || agentSettingsBusy || !agentFieldValidity.instructions" @click="instructionsEditorOpen = true"><FullscreenOutlined aria-hidden="true" />{{ t('fullscreenEdit') }}</v-button></div>
               <figure id="global-instructions-hint" class="personalization-figure instructions-figure" :aria-label="t('instructionsFigureLabel')">
                 <div class="instructions-figure-heading"><span>{{ t('instructionsFramework') }}</span><small>{{ t('instructionsGlobalScope') }}</small></div>
                 <div class="instructions-workflow">
@@ -186,10 +208,11 @@ watch(() => route.fullPath, () => {
                   <div class="personalization-figure-node"><CommentOutlined aria-hidden="true" /><span>{{ t('instructionsRespond') }}</span></div>
                 </div>
               </figure>
-              <p v-if="agentInstructionsPath" class="instructions-file-location">{{ t('globalInstructionsFile') }}<code>{{ agentInstructionsPath }}</code></p>
-              <v-textarea :disabled="agentSettingsLoading || agentSettingsBusy" id="agent-instructions" v-model:value="agentInstructions" :auto-size="{ minRows: 9, maxRows: 18 }" :placeholder="t('globalInstructionsPlaceholder')" :aria-label="t('globalInstructions')" aria-describedby="global-instructions-hint" />
+              <SchemaForm id="agent-settings" v-model="instructionsDocument" :schema="agentFieldSchemas.instructions" :uischema="instructionsInlineUI"
+                :disabled="agentSettingsLoading || agentSettingsBusy || instructionsEditorOpen" :reset-key="agentSettingsResetKeys.instructions"
+                @validity="agentFieldValidity.instructions = $event" />
             </div>
-            <div class="agent-instructions-footer"><v-button type="submit" variant="primary" :loading="agentSettingsBusy" :disabled="!canSaveAgentInstructions">{{ t('saveChanges') }}</v-button></div>
+            <div class="agent-instructions-footer"><v-button type="submit" variant="primary" :loading="agentSettingsBusy" :disabled="!agentFieldValidity.instructions || !canSaveAgentField('instructions')">{{ t('saveChanges') }}</v-button></div>
             <aside class="instructions-local-example" aria-labelledby="instructions-local-heading">
               <div id="instructions-local-heading" class="instructions-local-heading">{{ t('instructionsDirectoryTitle') }}</div>
               <div class="instructions-local-flow">
@@ -207,9 +230,8 @@ watch(() => route.fullPath, () => {
             </aside>
           </form>
           <MemorySettings @modal-open="memoryModalOpen = $event" />
-          <form class="delegation-depth-form" :aria-label="t('delegationDepth')" @submit.prevent="saveAgentSettings('delegationDepth')">
+          <form class="delegation-depth-form" :aria-label="t('delegationDepth')" @submit.prevent="agentFieldValidity.delegationDepth && saveAgentSettings('delegationDepth')">
             <div class="general-setting">
-              <label for="delegation-depth">{{ t('delegationDepth') }}</label>
               <p id="delegation-depth-intro">{{ t('delegationDepthIntro') }}</p>
               <figure id="delegation-depth-hint" class="delegation-depth-figure" :aria-label="t('delegationDepthHint', { max: maxDelegationDepth })">
                 <div class="delegation-depth-examples">
@@ -231,11 +253,15 @@ watch(() => route.fullPath, () => {
                 </div>
                 <figcaption>{{ t('delegationDepthImpact') }}</figcaption>
               </figure>
-              <v-input-number id="delegation-depth" v-model:value="delegationDepth" :min="0" :max="maxDelegationDepth" :precision="0" :disabled="agentSettingsLoading || agentSettingsBusy" :aria-label="t('delegationDepth')" aria-describedby="delegation-depth-intro delegation-depth-hint" />
+              <SchemaForm id="delegation-settings" v-model="delegationDocument" :schema="agentFieldSchemas.delegationDepth" :uischema="delegationUISchema" :disabled="agentSettingsLoading || agentSettingsBusy"
+                :reset-key="agentSettingsResetKeys.delegationDepth" @validity="agentFieldValidity.delegationDepth = $event" />
             </div>
-            <div class="agent-instructions-footer"><v-button type="submit" variant="primary" :loading="agentSettingsBusy" :disabled="!canSaveDelegationDepth">{{ t('saveChanges') }}</v-button></div>
+            <div class="agent-instructions-footer"><v-button type="submit" variant="primary" :loading="agentSettingsBusy" :disabled="!agentFieldValidity.delegationDepth || !canSaveAgentField('delegationDepth')">{{ t('saveChanges') }}</v-button></div>
           </form>
-          <div class="automatic-title-setting general-setting"><div><label for="automatic-titles">{{ t('automaticTitles') }}</label><p id="automatic-titles-hint">{{ t('automaticTitlesHint') }}</p></div><v-switch id="automatic-titles" :checked="automaticTitles" :disabled="agentSettingsLoading || agentSettingsBusy" :aria-label="t('automaticTitles')" aria-describedby="automatic-titles-hint" @update:checked="setAutomaticTitles(Boolean($event))" /></div>
+          <div class="automatic-title-setting general-setting">
+            <SchemaForm id="title-settings" v-model="titlesDocument" :schema="agentFieldSchemas.automaticTitles" :disabled="agentSettingsLoading || agentSettingsBusy"
+              :reset-key="agentSettingsResetKeys.automaticTitles" @validity="agentFieldValidity.automaticTitles = $event" />
+          </div>
         </div>
         <div v-if="route.name === 'settings'" class="settings-content">
           <div v-if="settings.models.length" class="settings-toolbar"><p>{{ t('manageProvidersHint') }}</p></div>
@@ -261,6 +287,7 @@ watch(() => route.fullPath, () => {
           <OMPCatalogSettings ref="sectionActions" :client="workspace.client" />
           <UserAgentSettings :client="workspace.client" />
           <CapacitySettings :client="workspace.client" :status="serverStatus" />
+          <ServerConfigSettings @modal-open="portChangeModalOpen = $event" />
           <div class="debug-mode-setting general-setting"><div><label for="debug-mode">{{ t('debugMode') }}</label><p id="debug-mode-hint">{{ t('debugModeHint') }}</p></div><v-switch id="debug-mode" v-model:checked="debugMode" :aria-label="t('debugMode')" aria-describedby="debug-mode-hint" /></div>
           <ResetVistaSettings v-if="debugMode" @modal-open="resetModalOpen = $event" />
           <RestartVistaSettings @modal-open="restartModalOpen = $event" />
@@ -282,43 +309,33 @@ watch(() => route.fullPath, () => {
         </div>
       </WorkspaceModal>
   <v-modal :open="instructionsEditorOpen" :title="t('globalInstructions')" :footer="null" :closable="false" :z-index="1200" width="100%"
-    class="instructions-editor-modal" wrap-class-name="instructions-editor-wrap" destroy-on-hidden :initial-focus-el="() => instructionsEditor?.input || null"
+    class="instructions-editor-modal" wrap-class-name="instructions-editor-wrap" destroy-on-hidden :initial-focus-el="instructionsFocus"
     @cancel="instructionsEditorOpen = false">
     <template #header-actions><v-button @click="instructionsEditorOpen = false"><FullscreenExitOutlined aria-hidden="true" />{{ t('exitFullscreenEdit') }}</v-button></template>
-    <v-textarea ref="instructionsEditor" id="fullscreen-agent-instructions" v-model:value="agentInstructions" class="instructions-editor-input"
-      :disabled="agentSettingsLoading || agentSettingsBusy" :auto-size="false" :aria-label="t('globalInstructions')"
-      :placeholder="t('globalInstructionsPlaceholder')" />
+    <SchemaForm id="fullscreen-agent-instructions" v-model="instructionsDocument" :schema="instructionsSchema" :uischema="instructionsUISchema" class="instructions-editor-input"
+      :disabled="agentSettingsLoading || agentSettingsBusy" :reset-key="agentSettingsResetKey" />
   </v-modal>
   <v-modal :open="modelFormOpen" centered :z-index="1200" width="min(640px, calc(100vw - 2rem))"
     class="provider-connection-modal" :title="editingProvider ? t('editProviderConnection') : t('connectProvider')"
     :footer="null" :closable="!settingsBusy" :keyboard="!settingsBusy" :mask-closable="!settingsBusy" destroy-on-hidden
     :styles="{ body: { maxHeight: 'calc(100dvh - 10rem)', overflowY: 'auto', overscrollBehavior: 'contain' } }"
     @cancel="closeProviderForm">
-    <form v-if="modelFormOpen" class="model-form" @submit.prevent="saveProvider">
+    <form v-if="modelFormOpen" class="model-form" @submit.prevent="!loginBusy && saveProvider()">
       <v-alert v-if="settingsError" type="error" role="alert" :message="settingsError" />
       <div v-if="editingProvider" class="provider-kind-field"><span>{{ t('provider') }}</span><span class="provider-kind-value">{{ providerTypeLabel(modelDraft.kind, editingProvider.provider) }}</span></div>
-      <label v-else>{{ t('provider') }}<v-select :value="modelDraft.kind || null" :options="providerOptions" show-search option-filter-prop="searchText" :placeholder="t('chooseProvider')" :disabled="settingsBusy" @update:value="changeProvider(String($event))" /></label>
+      <SchemaForm v-else id="provider-choice" class="provider-kind-select" v-model="providerChoice" :schema="providerChoiceSchema" :uischema="providerChoiceUISchema" :disabled="settingsBusy" />
       <p v-if="modelDraft.kind && modelDraft.credentialMode !== 'oauth' && !manualModelIDs" class="provider-help">{{ t(deploymentModelSelection ? 'azureModelHint' : 'providerModelsAutomatic') }}</p>
-      <label v-if="modelDraft.kind">{{ t('providerName') }}<v-input v-model:value="modelDraft.name" :disabled="loginBusy" :placeholder="modelDraft.kind === 'custom' ? t('providerNameExample') : selectedSetup?.name" :maxlength="64" /></label>
-      <details v-if="modelDraft.kind === 'github-copilot'" class="provider-advanced" :open="editingProvider?.copilotAuth?.enterpriseUrl || editingProvider?.copilotAuth?.clientId ? true : undefined">
-        <summary>{{ t('advancedSettings') }}</summary>
-        <div class="provider-login-fields">
-          <label for="copilot-enterprise-url">{{ t('copilotEnterpriseURL') }}<v-input id="copilot-enterprise-url" v-model:value="modelDraft.copilotAuth.enterpriseUrl" placeholder="company.ghe.com" :maxlength="2048" :disabled="loginBusy" /></label>
-          <label for="copilot-client-id">OAuth Client ID<v-input id="copilot-client-id" v-model:value="modelDraft.copilotAuth.clientId" :placeholder="t('copilotDefaultClient')" :maxlength="200" :disabled="loginBusy" /></label>
-          <p class="provider-help">{{ t('copilotAdvancedHint') }}</p>
-        </div>
-      </details>
-      <ProviderLogin v-if="modelDraft.credentialMode === 'oauth'" :key="`${modelDraft.kind}:${modelDraft.key}`" :kind="modelDraft.kind === 'github-copilot' ? 'copilot' : 'codex'" :client="workspace.client" :name="modelDraft.name" :connection-key="modelDraft.key" :copilot-auth="modelDraft.copilotAuth" @busy="loginBusy = $event" @connected="providerConnected" />
-      <label v-if="modelDraft.credentialMode !== 'oauth' && selectedSetup?.fields?.includes('baseUrl')">{{ t('baseUrl') }}<v-input :value="modelDraft.baseUrl" :placeholder="selectedSetup?.baseUrl || 'https://provider.example/v1'" :maxlength="2048" required @update:value="changeCustomBaseURL" /></label>
-      <label v-if="modelDraft.kind === 'custom'" for="provider-api-format">{{ t('conversationAPIFormat') }}<v-select id="provider-api-format" v-model:value="modelDraft.apiFormat" :options="apiFormatOptions" :aria-label="t('conversationAPIFormat')" /></label>
-      <label v-if="selectedSetup?.fields?.includes('resourceName')">{{ t('azureResourceName') }}<v-input v-model:value="modelDraft.resourceName" placeholder="my-resource" :maxlength="128" required /></label>
-      <label v-if="selectedSetup?.fields?.includes('region')">{{ t('providerRegion') }}<v-input v-model:value="modelDraft.region" placeholder="us-east-1" :maxlength="64" /></label>
-      <label v-if="selectedSetup?.fields?.includes('project')">{{ t('googleCloudProject') }}<v-input v-model:value="modelDraft.project" placeholder="my-project" :maxlength="128" :required="modelDraft.credentialMode !== 'apiKey'" /></label>
-      <label v-if="selectedSetup?.fields?.includes('location')">{{ t('providerLocation') }}<v-input v-model:value="modelDraft.location" placeholder="us-central1" :maxlength="64" /></label>
-      <div v-if="credentialOptions.length && modelDraft.credentialMode !== 'oauth'" class="provider-auth-field">
-        <div class="provider-auth-heading">
-        <label for="provider-authentication">{{ t('providerAuthentication') }}</label>
-        <v-tooltip v-if="modelDraft.kind === 'custom'" :trigger="['hover', 'focus']" placement="topRight" :styles="{ root: { maxWidth: 'min(360px, calc(100vw - 32px))' } }">
+      <SchemaForm v-if="modelDraft.kind" id="model-connection-config" class="provider-public-config" v-model="modelConfig"
+        :schema="modelConfigSchema" :uischema="modelConfigUISchema" :disabled="settingsBusy || loginBusy" :reset-key="modelConfigResetKey"
+        @validity="modelConfigValid = $event" @dirty="modelConfigDirty = $event" />
+      <p v-if="modelDraft.kind" class="provider-help">{{ t('configEditorPrivateHint') }}</p>
+      <p v-if="modelDraft.kind === 'github-copilot'" class="provider-help">{{ t('copilotAdvancedHint') }}</p>
+      <fieldset v-if="modelDraft.credentialMode === 'oauth'" class="provider-login-workflow" :disabled="!modelConfigValid || settingsBusy">
+        <ProviderLogin :key="`${modelDraft.kind}:${modelDraft.key}`" :kind="modelDraft.kind === 'github-copilot' ? 'copilot' : 'codex'" :client="workspace.client" :name="modelDraft.name" :connection-key="modelDraft.key" :copilot-auth="modelDraft.copilotAuth" @busy="loginBusy = $event" @connected="providerConnected" />
+      </fieldset>
+      <div v-if="modelDraft.kind === 'custom'" class="provider-auth-heading provider-auth-info">
+        <span>{{ t('providerAuthentication') }}</span>
+        <v-tooltip :trigger="['hover', 'focus']" placement="topRight" :styles="{ root: { maxWidth: 'min(360px, calc(100vw - 32px))' } }">
           <template #title><div class="provider-auth-tooltip">
             <template v-if="authenticationHeader"><p>{{ t('customAuthHeader') }}</p><code>{{ authenticationHeader }}</code></template>
             <p v-else>{{ t('customAuthNone') }}</p>
@@ -326,29 +343,13 @@ watch(() => route.fullPath, () => {
           </div></template>
           <v-button class="icon-button provider-auth-help" type="button" variant="text" :aria-label="t('apiKeyHelp')"><ExclamationCircleOutlined /></v-button>
         </v-tooltip>
-        </div>
-        <v-select id="provider-authentication" :value="modelDraft.credentialMode" :options="credentialOptions" @update:value="changeCredentialMode(String($event))" />
       </div>
       <p v-if="modelDraft.credentialMode === 'default' && (modelDraft.kind === 'amazon-bedrock' || modelDraft.kind === 'google-vertex')" class="provider-help">{{ t(modelDraft.kind === 'amazon-bedrock' ? 'awsCredentialsHint' : 'googleCredentialsHint') }}</p>
-      <label v-if="modelDraft.kind && usesAPIKey">{{ t(modelDraft.kind === 'opencode' || modelDraft.kind === 'opencode-go' ? 'opencodeApiKey' : 'providerApiKey') }}<v-input-password v-model:value="modelDraft.apiKey" :maxlength="4096" :placeholder="editingProvider?.hasApiKey ? t('reuseSavedKey') : t('enterApiKey')" /></label>
-      <label v-if="modelDraft.credentialMode === 'accessToken'">{{ t('providerAccessToken') }}<v-input-password v-model:value="modelDraft.accessToken" :maxlength="4096" :placeholder="editingProvider?.hasAccessToken ? t('reuseSavedKey') : t('enterAccessToken')" /></label>
-      <details v-if="modelDraft.kind === 'custom'" :key="modelDraft.key" class="provider-advanced" :open="editingProvider?.headerNames?.length ? true : undefined">
-        <summary>{{ t('advancedSettings') }}</summary>
-        <div class="provider-headers">
-          <p class="provider-help">{{ t('customHeadersHint') }}</p>
-          <div v-for="(header, index) in modelDraft.headers" :key="index" class="provider-header-row">
-            <label>{{ t('headerName') }}<v-input v-model:value="header.name" :aria-label="`${t('headerName')} ${index + 1}`" placeholder="X-API-Key" :maxlength="256" /></label>
-            <label>{{ t('headerValue') }}<v-input-password v-model:value="header.value" :aria-label="`${t('headerValue')} ${index + 1}`" :placeholder="canReuseHeader(header.name) ? t('reuseSavedHeader') : t('headerValue')" :maxlength="8192" /></label>
-            <v-button variant="text" type="button" :aria-label="`${t('removeHeader')} ${index + 1}`" @click="modelDraft.headers.splice(index, 1)">×</v-button>
-          </div>
-          <v-button type="button" :disabled="modelDraft.headers.length >= 32" @click="modelDraft.headers.push({ name: '', value: '' })">{{ t('addHeader') }}</v-button>
-        </div>
-      </details>
+      <SchemaForm v-if="showModelCredentials" id="model-credentials" class="provider-public-config" v-model="modelCredentials" :schema="modelCredentialsSchema" :uischema="modelCredentialsUISchema"
+        :disabled="settingsBusy || loginBusy" :reset-key="`${modelConfigResetKey}:${modelDraft.credentialMode}`" @validity="modelCredentialsValid = $event" />
       <label v-if="deploymentModelSelection" class="catalog-model-field">{{ t('model') }}<v-select :value="chosenModels[0]" :options="providerModelOptions" show-search option-filter-prop="searchText" allow-clear :placeholder="t('chooseModel')" @update:value="updateSelectedModels($event ? [String($event)] : [])" /></label>
-      <label v-if="selectedSetup?.fields?.includes('deploymentId')">{{ t('azureDeploymentName') }}<v-input v-model:value="modelDraft.deploymentId" placeholder="my-deployment" :maxlength="128" required /></label>
-      <label v-if="selectedSetup?.fields?.includes('apiVersion')">{{ t('azureApiVersion') }}<v-input v-model:value="modelDraft.apiVersion" placeholder="v1" :maxlength="32" /></label>
       <div v-if="manualModelIDs && modelDraft.kind === 'custom'" class="model-discovery-fallback">
-        <p class="provider-help">{{ t('providerModelsUnavailable') }}<v-button variant="link" :disabled="settingsBusy" @click="retryModelDiscovery">{{ t('retryModelDiscovery') }}</v-button></p>
+        <p class="provider-help">{{ t('providerModelsUnavailable') }}<v-button variant="link" :disabled="settingsBusy || !modelConfigValid" @click="retryModelDiscovery">{{ t('retryModelDiscovery') }}</v-button></p>
         <label class="model-list-field">{{ t('manualModelIds') }}<v-select :value="chosenModels" :options="chosenModels.map(id => ({ label: modelNameById(id), searchText: `${id} ${modelNameById(id)}`, value: id }))" mode="tags" show-search option-filter-prop="searchText" allow-clear :placeholder="t('selectOrTypeModel')" :disabled="settingsBusy" @update:value="updateSelectedModels(Array.isArray($event) ? $event.map(String) : [])" /><small>{{ t('manualModelIdsHint') }}</small></label>
       </div>
       <small v-if="editingProvider && modelDraft.kind === 'custom'">{{ t('changeAddressHint') }}</small>
@@ -356,3 +357,7 @@ watch(() => route.fullPath, () => {
     </form>
   </v-modal>
 </template>
+<style scoped>
+.provider-kind-select,.provider-kind-field,.provider-public-config,.provider-auth-info,.provider-login-workflow { grid-column: 1 / -1; min-width: 0; }
+.provider-login-workflow { margin: 0; padding: 0; border: 0; }
+</style>

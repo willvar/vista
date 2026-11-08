@@ -276,7 +276,7 @@ test('empty and eight-line drafts keep Send and model selection reachable', asyn
   expect(forbidden, 'Layout checks must not submit a message or cancel execution').toEqual([])
 })
 
-test('long running tool and completed process keep Stop and Queue reachable', async ({ page, vista }, testInfo) => {
+test('long running tool and completed process keep Stop and Send reachable', async ({ page, vista }, testInfo) => {
   const session = await vista.api('/sessions', { method: 'POST', body: '{}' })
   const completedRun = 'layout-completed-run'
   const activeRun = 'layout-active-run'
@@ -295,7 +295,7 @@ test('long running tool and completed process keep Stop and Queue reachable', as
     { sequence: 7, kind: 'run_finished', data: { runId: completedRun, status: 'succeeded', message: assistant } },
     { sequence: 8, kind: 'message', data: currentUser },
     { sequence: 9, kind: 'model_result', data: { runId: activeRun, turn: 1, modelResult } },
-    { sequence: 10, kind: 'tool', data: { runId: activeRun, status: 'started', tool: { callId: 'active-call', name: longTool, summary: 'UI geometry only' } } },
+    { sequence: 10, kind: 'tool', createdAt, data: { runId: activeRun, status: 'started', tool: { callId: 'active-call', name: longTool, summary: 'UI geometry only' } } },
   ]
   const forbidden: string[] = []
   await page.route('**/api/sessions**', async route => {
@@ -325,7 +325,9 @@ test('long running tool and completed process keep Stop and Queue reachable', as
   await page.goto(`${vista.origin}/sessions/${session.id}`)
   const activeTrace = page.locator(`.run-trace[data-run-id="${activeRun}"]`)
   const completedTrace = page.locator(`.run-trace[data-run-id="${completedRun}"]`)
-  await expect(activeTrace.locator('.trace-last-activity')).toContainText('Last activity: Use tool · UI geometry only')
+  await expect(activeTrace.locator('.trace-last-activity')).toContainText('Last activity:')
+  await expect(activeTrace.locator('.trace-last-activity')).not.toContainText('UI geometry only')
+  await expect(activeTrace.locator('.trace-last-activity time')).toHaveAttribute('datetime', createdAt)
   await expect(activeTrace.locator('.ui-thought-chain-node-title')).toBeHidden()
   await expect(completedTrace.locator('.trace-overview-heading')).not.toContainText('model calls')
   await completedTrace.locator('.trace-overview-heading').click()
@@ -339,10 +341,7 @@ test('long running tool and completed process keep Stop and Queue reachable', as
       await textarea.fill(draft)
       await settleLayout(page)
       const queue = page.getByRole('button', { name: 'Queue', exact: true })
-      if (draft) {
-        await expectControlReachable(queue)
-        await expect(queue).toBeEnabled()
-      } else await expect(queue).toBeHidden()
+      await expect(queue).toHaveCount(0)
       const button = page.getByRole('button', { name: draft ? 'Send' : 'Stop current execution', exact: true })
       await expectControlReachable(button)
       await expect(button).toBeEnabled()

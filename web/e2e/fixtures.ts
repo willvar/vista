@@ -26,7 +26,7 @@ type ModelRequest = { model?: string; reasoning?: { effort?: string; summary?: s
   tool_call_id?: string
 }[] }
 type ProviderOutput = 'perplexity' | 'openrouter' | 'responses'
-type ModelFailure = { status: number; body: object; stream?: boolean; attempts?: number; retryAfterMs?: number }
+type ModelFailure = { status: number; body: object; stream?: boolean; attempts?: number; skipAttempts?: number; retryAfterMs?: number }
 
 export const test = base.extend<{ vista: VistaFixture; configuredProvider: boolean; imageModel: boolean; budgetModel: boolean; replyWithPrompt: boolean; followUpTool: boolean; questionTool: boolean; memoryTool: boolean; progressCalls: number; longProgress: boolean; terminalReasoning: boolean; emptyReply: boolean; detachedTask: boolean; backgroundProcess: boolean; fileChanges: boolean; providerOutput: ProviderOutput | undefined; modelFailure: ModelFailure | undefined }>({
   configuredProvider: [true, { option: true }],
@@ -105,7 +105,8 @@ export const test = base.extend<{ vista: VistaFixture; configuredProvider: boole
       }
       // A small upstream wait makes request timing measurable on fast loopback.
       await new Promise<void>(done => setTimeout(done, 40))
-      if (!titleRequest && modelFailure && modelRequests.length <= (modelFailure.attempts ?? Infinity)) {
+      if (!titleRequest && modelFailure && modelRequests.length > (modelFailure.skipAttempts ?? 0)
+        && modelRequests.length <= (modelFailure.skipAttempts ?? 0) + (modelFailure.attempts ?? Infinity)) {
         if (modelFailure.stream) {
           const event = providerOutput === 'responses' ? { type: 'response.failed', response: modelFailure.body } : modelFailure.body
           response.writeHead(200, { 'Content-Type': 'text/event-stream' }).end(`data: ${JSON.stringify(event)}\n\n`)

@@ -176,7 +176,7 @@ test('selection stays within one message and Escape dismisses the action without
   expect(vista.modelRequests).toHaveLength(1)
 })
 
-test('a quote can be queued during execution and reaches the next model request intact', async ({ page, vista, isMobile }) => {
+test('a quote sent during execution reaches the next model request intact', async ({ page, vista, isMobile }) => {
   const session = await createConversation(page, vista)
   const release = vista.pauseModelReplies()
   try {
@@ -186,10 +186,10 @@ test('a quote can be queued during execution and reaches the next model request 
     await expect(page.getByRole('button', { name: 'Stop current execution', exact: true })).toBeEnabled()
     await selectText(page.locator('article.assistant [data-quote-role]'), passage)
     await quoteSelected(page, isMobile)
-    await input.fill('Explain this after finishing.')
-    await page.getByRole('button', { name: 'Queue', exact: true }).click()
-    const expected = `> ${passage}\n\nExplain this after finishing.`
-    await expect.poll(async () => (await vista.api(`/sessions/${session.id}/inputs`) as QueuedInput[]).find(item => item.content === expected)?.mode).toBe('later')
+    await input.fill('Explain this next.')
+    await page.getByRole('button', { name: 'Send', exact: true }).click()
+    const expected = `> ${passage}\n\nExplain this next.`
+    await expect.poll(async () => (await vista.api(`/sessions/${session.id}/inputs`) as QueuedInput[]).find(item => item.content === expected)?.status).toBe('queued')
     await expect(page.locator('.sender-quote')).toHaveCount(0)
     release()
     await expect.poll(() => vista.modelRequests.at(-1)?.messages?.filter(message => message.role === 'user').at(-1)?.content).toBe(expected)

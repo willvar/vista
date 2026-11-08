@@ -16,6 +16,8 @@
   "dependencies": {
     "@antdv-next/icons": "1.0.6",
     "@ark-ui/vue": "5.40.0",
+    "@jsonforms/core": "3.8.0",
+    "@jsonforms/vue": "3.8.0",
     "@tanstack/vue-virtual": "^3.13.39",
     "dompurify": "^3.4.16",
     "markdown-it": "^15.0.2",

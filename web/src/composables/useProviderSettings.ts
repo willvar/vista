@@ -1,5 +1,6 @@
-import { computed, onScopeDispose, ref, watch, type Ref } from 'vue'
+import { computed, onScopeDispose, reactive, ref, watch, type Ref } from 'vue'
 import { useI18n } from 'vue-i18n'
+import type { ControlElement, JsonSchema7, UISchemaElement } from '@jsonforms/core'
 import { VistaAPIError, type VistaClient } from '../client/vista'
 import type { createWorkspaceSync } from '../client/workspaceSync'
 import type { AgentSettings, ModelCatalog, ModelInfo, ModelSetting, ModelSettings, ProviderSetup } from '../client/types'
@@ -62,27 +63,49 @@ export function useProviderSettings({ client, error, stateSync, modelCatalog }: 
   const agentInstructions = ref('')
   const agentInstructionsPath = ref('')
   const savedAgentInstructions = ref('')
-  const delegationDepth = ref<number | null>(1)
+  const delegationDepth = ref(1)
   const savedDelegationDepth = ref(1)
   const maxDelegationDepth = ref(8)
   const automaticTitles = ref(true)
+  const savedAutomaticTitles = ref(true)
   const agentSettingsBusy = ref(false)
   const agentSettingsLoading = ref(false)
   const agentSettingsError = ref('')
   const agentSettingsSaved = ref(false)
-  const canSaveAgentInstructions = computed(() => !agentSettingsLoading.value && !agentSettingsBusy.value
-    && agentInstructions.value !== savedAgentInstructions.value)
-  const canSaveDelegationDepth = computed(() => !agentSettingsLoading.value && !agentSettingsBusy.value
-    && delegationDepth.value !== null && Number.isInteger(delegationDepth.value)
-    && delegationDepth.value >= 0 && delegationDepth.value <= maxDelegationDepth.value
-    && delegationDepth.value !== savedDelegationDepth.value)
-  watch([agentInstructions, delegationDepth], () => { agentSettingsSaved.value = false })
+  const agentSettingsResetKey = ref(0)
+  type AgentField = 'instructions' | 'delegationDepth' | 'automaticTitles'
+  const agentSettingsResetKeys = reactive<Record<AgentField, number>>({ instructions: 0, delegationDepth: 0, automaticTitles: 0 })
+  function canSaveAgentField(field: AgentField) {
+    return !agentSettingsLoading.value && !agentSettingsBusy.value && (field === 'instructions' ? agentInstructions.value !== savedAgentInstructions.value : field === 'delegationDepth' ? delegationDepth.value !== savedDelegationDepth.value : automaticTitles.value !== savedAutomaticTitles.value)
+  }
+  const agentSettingsDraft = computed<Record<string, unknown>>({
+    get: () => ({ instructions: agentInstructions.value, delegationDepth: delegationDepth.value, automaticTitles: automaticTitles.value }),
+    set: value => {
+      if (typeof value.instructions === 'string') agentInstructions.value = value.instructions
+      if (typeof value.delegationDepth === 'number') delegationDepth.value = value.delegationDepth
+      if (typeof value.automaticTitles === 'boolean') automaticTitles.value = value.automaticTitles
+    },
+  })
+  const agentSettingsSchema = computed<JsonSchema7>(() => ({
+    type: 'object', additionalProperties: false,
+    required: ['instructions', 'delegationDepth', 'automaticTitles'],
+    properties: {
+      instructions: { type: 'string', title: t('globalInstructions') },
+      delegationDepth: { type: 'integer', minimum: 0, maximum: maxDelegationDepth.value, title: t('delegationDepth'), description: t('delegationDepthHint', { max: maxDelegationDepth.value }) },
+      automaticTitles: { type: 'boolean', title: t('automaticTitles'), description: t('automaticTitlesHint') },
+    },
+  }))
+  watch([agentInstructions, delegationDepth, automaticTitles], () => { agentSettingsSaved.value = false }, { flush: 'sync' })
+  let agentSettingsRevision = 0
+  onScopeDispose(() => { agentSettingsRevision++ })
   async function loadAgentSettings() {
+    const revision = ++agentSettingsRevision
     agentSettingsLoading.value = true
     agentSettingsError.value = ''
     agentSettingsSaved.value = false
     try {
       const result = await api<AgentSettings>('/agent-settings')
+      if (revision !== agentSettingsRevision) return
       agentInstructions.value = result.instructions
       agentInstructionsPath.value = result.instructionsPath
       savedAgentInstructions.value = result.instructions
@@ -90,32 +113,33 @@ export function useProviderSettings({ client, error, stateSync, modelCatalog }: 
       savedDelegationDepth.value = result.delegationDepth
       maxDelegationDepth.value = result.maxDelegationDepth
       automaticTitles.value = result.automaticTitles
-    } catch (e) { agentSettingsError.value = String(e) }
-    finally { agentSettingsLoading.value = false }
+      savedAutomaticTitles.value = result.automaticTitles
+      agentSettingsResetKey.value++
+      for (const field of ['instructions', 'delegationDepth', 'automaticTitles'] as const) agentSettingsResetKeys[field]++
+    } catch (e) { if (revision === agentSettingsRevision) agentSettingsError.value = String(e) }
+    finally { if (revision === agentSettingsRevision) agentSettingsLoading.value = false }
   }
-  async function saveAgentSettings(field: 'instructions' | 'delegationDepth') {
-    if (!(field === 'instructions' ? canSaveAgentInstructions.value : canSaveDelegationDepth.value)) return
-    const input = field === 'instructions' ? { instructions: agentInstructions.value } : { delegationDepth: delegationDepth.value! }
+  async function saveAgentSettings(field: AgentField) {
+    if (!canSaveAgentField(field)) return
+    // Keep partial-update semantics: unchanged fields may have been edited elsewhere.
+    const input: Partial<Pick<AgentSettings, 'instructions' | 'delegationDepth' | 'automaticTitles'>> = {}
+    if (field === 'instructions' && agentInstructions.value !== savedAgentInstructions.value) input.instructions = agentInstructions.value
+    if (field === 'delegationDepth' && delegationDepth.value !== savedDelegationDepth.value) input.delegationDepth = delegationDepth.value
+    if (field === 'automaticTitles' && automaticTitles.value !== savedAutomaticTitles.value) input.automaticTitles = automaticTitles.value
+    const revision = agentSettingsRevision
     agentSettingsBusy.value = true
     agentSettingsError.value = ''
     agentSettingsSaved.value = false
     try {
       await api('/agent-settings', { method: 'PUT', body: JSON.stringify(input) })
+      if (revision !== agentSettingsRevision) return
       if (input.instructions !== undefined) savedAgentInstructions.value = input.instructions
       if (input.delegationDepth !== undefined) savedDelegationDepth.value = input.delegationDepth
+      if (input.automaticTitles !== undefined) savedAutomaticTitles.value = input.automaticTitles
+      agentSettingsResetKey.value++
+      for (const key of Object.keys(input) as AgentField[]) agentSettingsResetKeys[key]++
       agentSettingsSaved.value = true
-    } catch (e) { agentSettingsError.value = String(e) }
-    finally { agentSettingsBusy.value = false }
-  }
-  async function setAutomaticTitles(enabled: boolean) {
-    if (agentSettingsLoading.value || agentSettingsBusy.value) return
-    agentSettingsBusy.value = true
-    agentSettingsError.value = ''
-    agentSettingsSaved.value = false
-    try {
-      await api('/agent-settings', { method: 'PUT', body: JSON.stringify({ automaticTitles: enabled }) })
-      automaticTitles.value = enabled
-    } catch (e) { agentSettingsError.value = String(e) }
+    } catch (e) { if (revision === agentSettingsRevision) agentSettingsError.value = String(e) }
     finally { agentSettingsBusy.value = false }
   }
   const emptyDraft = () => ({ key: '', kind: '', apiFormat: 'openai-chat', headers: [] as { name: string; value: string }[], copilotAuth: { enterpriseUrl: '', clientId: '' }, name: '', providerId: '', baseUrl: '', apiKey: '', credentialMode: 'apiKey', accessToken: '', region: '', project: '', location: '', resourceName: '', deploymentId: '', apiVersion: '' })
@@ -138,6 +162,12 @@ export function useProviderSettings({ client, error, stateSync, modelCatalog }: 
   const providerOptions = computed(() => providerSetups.value
     .map(setup => ({ label: setup.id === 'custom' ? t('customProvider') : setup.name, value: setup.id, searchText: `${setup.id} ${setup.name} ${setup.aliases || ''} ${setup.id === 'custom' ? t('customProvider') : ''}` }))
     .sort((a, b) => a.label.localeCompare(b.label, 'en', { sensitivity: 'base' })))
+  const providerChoice = computed<Record<string, unknown>>({ get: () => ({ kind: modelDraft.value.kind }), set: value => { if (typeof value.kind === 'string' && value.kind !== modelDraft.value.kind) changeProvider(value.kind) } })
+  const providerChoiceSchema = computed<JsonSchema7>(() => ({ type: 'object', additionalProperties: false, required: ['kind'], properties: { kind: { type: 'string', title: t('provider'), enum: ['', ...providerOptions.value.map(option => option.value)] } } }))
+  const providerChoiceUISchema = computed<ControlElement>(() => ({ type: 'Control', scope: '#/properties/kind', options: {
+    showSearch: true, placeholder: t('chooseProvider'), enumLabels: { '': t('chooseProvider'), ...Object.fromEntries(providerOptions.value.map(option => [option.value, option.label])) },
+    enumSearchText: Object.fromEntries(providerOptions.value.map(option => [option.value, option.searchText])),
+  } }))
   const selectedSetup = computed(() => providerSetups.value.find(setup => setup.id === modelDraft.value.kind))
   const deploymentModelSelection = computed(() => modelDraft.value.kind === 'azure')
   const providerModelOptions = computed(() => selectedSetup.value?.models?.map(model => ({ label: model.name || model.id, value: model.id, searchText: `${model.name} ${model.id}` })) || [])
@@ -146,6 +176,93 @@ export function useProviderSettings({ client, error, stateSync, modelCatalog }: 
   const credentialOptions = computed(() => (selectedSetup.value?.credentialModes || []).map(mode => ({ value: mode, label: mode === 'bearer' ? 'Bearer' : mode === 'x-api-key' || mode === 'x-goog-api-key' ? mode : t(mode === 'apiKey' ? 'apiKey' : mode === 'none' ? 'noAuthentication' : mode === 'accessToken' ? 'providerAccessToken' : modelDraft.value.kind === 'amazon-bedrock' ? 'awsDefaultCredentials' : modelDraft.value.kind === 'google-vertex' ? 'googleDefaultCredentials' : 'noAuthentication') })))
   const usesAPIKey = computed(() => modelDraft.value.credentialMode === 'apiKey' || modelDraft.value.kind === 'custom' && modelDraft.value.credentialMode !== 'none')
   const authenticationHeader = computed(() => modelDraft.value.credentialMode === 'none' ? '' : modelDraft.value.credentialMode === 'bearer' ? 'Authorization: Bearer API_KEY' : `${modelDraft.value.credentialMode}: API_KEY`)
+  const modelConfigValid = ref(true)
+  const modelConfigDirty = ref(false)
+  const modelConfigResetKey = ref(0)
+  // This allowlist is deliberately separate from the credential-bearing connection draft.
+  const publicModelFields = {
+    name: { label: 'providerName', maxLength: 64 },
+    baseUrl: { label: 'baseUrl', maxLength: 2048 },
+    region: { label: 'providerRegion', maxLength: 64 },
+    project: { label: 'googleCloudProject', maxLength: 128 },
+    location: { label: 'providerLocation', maxLength: 64 },
+    resourceName: { label: 'azureResourceName', maxLength: 128 },
+    deploymentId: { label: 'azureDeploymentName', maxLength: 128 },
+    apiVersion: { label: 'azureApiVersion', maxLength: 32 },
+  } as const
+  type PublicModelField = keyof typeof publicModelFields
+  const modelConfigFields = computed(() => ['name', ...(selectedSetup.value?.fields || [])]
+    .filter((field): field is PublicModelField => Object.hasOwn(publicModelFields, field)
+      && (field !== 'baseUrl' || modelDraft.value.credentialMode !== 'oauth')))
+  const modelConfigSchema = computed<JsonSchema7>(() => {
+    const properties: Record<string, JsonSchema7> = {}
+    for (const field of modelConfigFields.value) {
+      properties[field] = { type: 'string', title: t(publicModelFields[field].label), maxLength: publicModelFields[field].maxLength }
+      if (field === 'baseUrl' || field === 'resourceName' || field === 'deploymentId') properties[field]!.pattern = '\\S'
+    }
+    if (modelDraft.value.kind === 'custom') properties.apiFormat = { type: 'string', title: t('conversationAPIFormat'), enum: apiFormatOptions.value.map(option => option.value) }
+    if (credentialOptions.value.length && modelDraft.value.credentialMode !== 'oauth') {
+      properties.credentialMode = { type: 'string', title: t('providerAuthentication'), enum: credentialOptions.value.map(option => option.value) }
+    }
+    if (modelDraft.value.kind === 'github-copilot') properties.copilotAuth = {
+      type: 'object', title: t('advancedSettings'), additionalProperties: false, required: ['enterpriseUrl', 'clientId'],
+      properties: {
+        enterpriseUrl: { type: 'string', title: t('copilotEnterpriseURL'), maxLength: 2048 },
+        clientId: { type: 'string', title: 'OAuth Client ID', maxLength: 200 },
+      },
+    }
+    return {
+      type: 'object', additionalProperties: false, properties, required: Object.keys(properties),
+      ...(modelDraft.value.kind === 'google-vertex' ? {
+        if: { properties: { credentialMode: { not: { const: 'apiKey' } } }, required: ['credentialMode'] },
+        then: { properties: { project: { pattern: '\\S' } } },
+      } : {}),
+    }
+  })
+  const modelConfigUISchema = computed<UISchemaElement>(() => {
+    const control = (field: string, options?: Record<string, unknown>): ControlElement => ({ type: 'Control', scope: `#/properties/${field}`, ...(options ? { options } : {}) })
+    const elements: UISchemaElement[] = modelConfigFields.value.map(field => control(field, {
+      placeholder: field === 'name' ? modelDraft.value.kind === 'custom' ? t('providerNameExample') : selectedSetup.value?.name
+        : field === 'baseUrl' ? selectedSetup.value?.baseUrl || 'https://provider.example/v1' : undefined,
+    }))
+    if (modelDraft.value.kind === 'custom') elements.push(control('apiFormat', { enumLabels: Object.fromEntries(apiFormatOptions.value.map(option => [option.value, option.label])) }))
+    if (credentialOptions.value.length && modelDraft.value.credentialMode !== 'oauth') elements.push(control('credentialMode', { enumLabels: Object.fromEntries(credentialOptions.value.map(option => [option.value, option.label])) }))
+    if (modelDraft.value.kind === 'github-copilot') elements.push({
+      type: 'Group', label: t('advancedSettings'), elements: [
+        control('copilotAuth/properties/enterpriseUrl', { placeholder: 'company.ghe.com' }),
+        control('copilotAuth/properties/clientId', { placeholder: t('copilotDefaultClient') }),
+      ],
+    } as UISchemaElement)
+    return { type: 'VerticalLayout', elements }
+  })
+  const modelConfig = computed<Record<string, unknown>>({
+    get: () => {
+      const form = modelDraft.value
+      const value: Record<string, unknown> = Object.fromEntries(modelConfigFields.value.map(field => [field, form[field]]))
+      if (modelDraft.value.kind === 'custom') value.apiFormat = form.apiFormat
+      if (credentialOptions.value.length && form.credentialMode !== 'oauth') value.credentialMode = form.credentialMode
+      if (form.kind === 'github-copilot') value.copilotAuth = { enterpriseUrl: form.copilotAuth.enterpriseUrl, clientId: form.copilotAuth.clientId }
+      return value
+    },
+    set: value => {
+      if (typeof value.credentialMode === 'string' && value.credentialMode !== modelDraft.value.credentialMode) changeCredentialMode(value.credentialMode)
+      if (typeof value.baseUrl === 'string' && value.baseUrl !== modelDraft.value.baseUrl) changeCustomBaseURL(value.baseUrl)
+      for (const field of modelConfigFields.value) {
+        if (field !== 'baseUrl' && typeof value[field] === 'string') modelDraft.value[field] = value[field]
+      }
+      if (modelDraft.value.kind === 'custom' && typeof value.apiFormat === 'string') modelDraft.value.apiFormat = value.apiFormat
+      const auth = value.copilotAuth as Record<string, unknown> | undefined
+      if (modelDraft.value.kind === 'github-copilot' && auth) {
+        if (typeof auth.enterpriseUrl === 'string') modelDraft.value.copilotAuth.enterpriseUrl = auth.enterpriseUrl
+        if (typeof auth.clientId === 'string') modelDraft.value.copilotAuth.clientId = auth.clientId
+      }
+    },
+  })
+  function resetModelConfigEditor() {
+    modelConfigDirty.value = false
+    modelConfigResetKey.value++
+  }
+  watch([modelConfigValid, modelConfigDirty], () => { draftRevision++ }, { flush: 'sync' })
   function sameCredentialDestination() {
     const previous = editingProvider.value
     const form = modelDraft.value
@@ -155,12 +272,30 @@ export function useProviderSettings({ client, error, stateSync, modelCatalog }: 
   function canReuseHeader(name: string) {
     return sameCredentialDestination() && !!editingProvider.value?.headerNames?.some(saved => saved.toLowerCase() === name.trim().toLowerCase())
   }
+  const modelCredentialsValid = ref(true)
+  const showModelCredentials = computed(() => !!modelDraft.value.kind && (usesAPIKey.value || modelDraft.value.credentialMode === 'accessToken' || modelDraft.value.kind === 'custom'))
+  const modelCredentials = computed<Record<string, unknown>>({
+    get: () => ({ apiKey: modelDraft.value.apiKey, accessToken: modelDraft.value.accessToken, headers: modelDraft.value.headers.map(header => ({ ...header })) }),
+    set: value => { modelDraft.value.apiKey = value.apiKey as string; modelDraft.value.accessToken = value.accessToken as string; modelDraft.value.headers = value.headers as { name: string; value: string }[] },
+  })
+  const modelCredentialsSchema = computed<JsonSchema7>(() => ({ type: 'object', additionalProperties: false, required: ['apiKey', 'accessToken', 'headers'], properties: {
+    apiKey: { type: 'string', title: t(modelDraft.value.kind === 'opencode' || modelDraft.value.kind === 'opencode-go' ? 'opencodeApiKey' : 'providerApiKey'), writeOnly: true, minLength: usesAPIKey.value && !(editingProvider.value?.hasApiKey && sameCredentialDestination()) ? 1 : 0, maxLength: 4096 },
+    accessToken: { type: 'string', title: t('providerAccessToken'), writeOnly: true, minLength: modelDraft.value.credentialMode === 'accessToken' && !(editingProvider.value?.hasAccessToken && sameCredentialDestination()) ? 1 : 0, maxLength: 4096 },
+    headers: { type: 'array', title: t('customHeaders'), maxItems: 32, items: { type: 'object', additionalProperties: false, required: ['name', 'value'], properties: {
+      name: { type: 'string', title: t('headerName'), minLength: 1, maxLength: 256, default: '' },
+      value: { type: 'string', title: t('headerValue'), writeOnly: true, maxLength: 8192, default: '' },
+    } } },
+  } }))
+  const modelCredentialsUISchema = computed<UISchemaElement>(() => {
+    const elements: ControlElement[] = []
+    if (usesAPIKey.value) elements.push({ type: 'Control', scope: '#/properties/apiKey', options: { placeholder: editingProvider.value?.hasApiKey ? t('reuseSavedKey') : t('enterApiKey') } })
+    if (modelDraft.value.credentialMode === 'accessToken') elements.push({ type: 'Control', scope: '#/properties/accessToken', options: { placeholder: editingProvider.value?.hasAccessToken ? t('reuseSavedKey') : t('enterAccessToken') } })
+    if (modelDraft.value.kind === 'custom') elements.push({ type: 'Control', scope: '#/properties/headers' })
+    return { type: 'VerticalLayout', elements }
+  })
   const canSaveProvider = computed(() => {
     const form = modelDraft.value
-    if (!selectedSetup.value || selectedSetup.value.fields?.includes('baseUrl') && !form.baseUrl.trim()) return false
-    if (form.kind === 'custom' && !apiFormatOptions.value.some(option => option.value === form.apiFormat)) return false
-    if (form.kind === 'azure' && (!form.resourceName.trim() || !form.deploymentId.trim())) return false
-    if (form.kind === 'google-vertex' && form.credentialMode !== 'apiKey' && !form.project.trim()) return false
+    if (!modelConfigValid.value || !selectedSetup.value || showModelCredentials.value && !modelCredentialsValid.value) return false
     const headerNames = form.headers.map(header => header.name.trim().toLowerCase())
     if (new Set(headerNames).size !== headerNames.length || form.headers.some(header => !header.name.trim() || !header.value && !canReuseHeader(header.name))) return false
     if ((manualModelIDs.value || deploymentModelSelection.value) && (!chosenModels.value.length || chosenModels.value.length > (form.kind === 'azure' ? 1 : 16) || chosenModels.value.some(id => !id.trim() || id.length > 200))) return false
@@ -176,6 +311,7 @@ export function useProviderSettings({ client, error, stateSync, modelCatalog }: 
   function changeProvider(kind: string) {
     const setup = providerSetups.value.find(item => item.id === kind)
     modelDraft.value = { ...emptyDraft(), kind, baseUrl: setup?.baseUrl || '', credentialMode: setup?.credentialModes?.[0] || 'apiKey', region: kind === 'amazon-bedrock' ? 'us-east-1' : '', location: kind === 'google-vertex' ? 'us-central1' : '' }
+    resetModelConfigEditor()
     clearCustomModels()
   }
   function changeCustomBaseURL(value: string) { modelDraft.value.baseUrl = value; if (modelDraft.value.kind === 'custom') { clearCustomModels() } }
@@ -189,6 +325,7 @@ export function useProviderSettings({ client, error, stateSync, modelCatalog }: 
   }
   function resetModelDraft() {
     modelDraft.value = emptyDraft()
+    resetModelConfigEditor()
     clearCustomModels()
   }
   function showModelForm() {
@@ -238,6 +375,7 @@ export function useProviderSettings({ client, error, stateSync, modelCatalog }: 
     modelDraft.value = { ...emptyDraft(), key: model.key, kind: model.kind || '', apiFormat: model.provider, headers: (model.headerNames || []).map(name => ({ name, value: '' })), copilotAuth: { enterpriseUrl: model.copilotAuth?.enterpriseUrl || '', clientId: model.copilotAuth?.clientId || '' }, name: model.name || '', providerId: model.providerId || '', baseUrl: model.baseUrl || '', credentialMode: model.credentialMode || 'apiKey', region: model.region || '', project: model.project || '', location: model.location || '', resourceName: model.resourceName || '', deploymentId: model.deploymentId || '', apiVersion: model.apiVersion || '' }
     chosenModels.value = settings.value.models.filter(item => model.connectionId ? item.connectionId === model.connectionId : item.key === model.key).map(item => item.id)
     settingsError.value = ''
+    resetModelConfigEditor()
     showModelForm()
   }
   const providerGroups = computed(() => {
@@ -282,7 +420,7 @@ export function useProviderSettings({ client, error, stateSync, modelCatalog }: 
     finally { if (connectionRequest === request) connectionRequest = undefined; settingsBusy.value = false }
   }
   async function retryModelDiscovery() {
-    if (settingsBusy.value || modelDraft.value.kind !== 'custom') return
+    if (settingsBusy.value || !modelConfigValid.value || modelDraft.value.kind !== 'custom') return
     manualModelIDs.value = false
     chosenModels.value = []
     await saveProvider()
@@ -327,12 +465,17 @@ export function useProviderSettings({ client, error, stateSync, modelCatalog }: 
     showUnrecognizedModels, visibilityBusy, setShowUnrecognizedModels,
     providerDisconnectTarget, providerDisconnectError, settings,
     agentInstructions, agentInstructionsPath, savedAgentInstructions,
-    delegationDepth, maxDelegationDepth, canSaveAgentInstructions, canSaveDelegationDepth, automaticTitles, setAutomaticTitles,
+    maxDelegationDepth,
+    agentSettingsDraft, agentSettingsSchema, agentSettingsResetKey,
+    agentSettingsResetKeys, canSaveAgentField,
     agentSettingsBusy, agentSettingsLoading, agentSettingsError, agentSettingsSaved,
     loadAgentSettings, saveAgentSettings, modelDraft, modelFormOpen, chosenModels,
     manualModelIDs, canReuseHeader, editingProvider, providerOptions, canSaveProvider,
-    selectedSetup, deploymentModelSelection, providerModelOptions, apiFormatOptions, credentialOptions, usesAPIKey, authenticationHeader, changeCredentialMode,
-    updateSelectedModels, changeProvider, changeCustomBaseURL,
+    providerChoice, providerChoiceSchema, providerChoiceUISchema,
+    selectedSetup, deploymentModelSelection, providerModelOptions, usesAPIKey, authenticationHeader,
+    modelConfig, modelConfigSchema, modelConfigUISchema, modelConfigValid, modelConfigDirty, modelConfigResetKey,
+    modelCredentials, modelCredentialsSchema, modelCredentialsUISchema, modelCredentialsValid, showModelCredentials,
+    updateSelectedModels, changeProvider,
     startProviderConnection, cancelModelForm, loadModelSettings, editProvider, providerGroups,
     saveProvider, retryModelDiscovery, providerConnected, setDefaultModel, confirmDisconnectProvider, updateProviderDisconnect,
   }

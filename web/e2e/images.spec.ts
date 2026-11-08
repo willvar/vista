@@ -65,7 +65,7 @@ test('multiple images send once with empty-text Enter and render automatically w
   await textarea.dispatchEvent('compositionend')
   expect(messagePosts).toHaveLength(0)
   await textarea.fill('')
-  await page.waitForTimeout(220)
+  // A fresh Enter after composition ends sends immediately, without a time window.
   await textarea.press('Enter')
 
   await expect(sender.locator('.sender-attachment')).toHaveCount(0)
@@ -120,7 +120,7 @@ test('multiple images send once with empty-text Enter and render automatically w
   await expect(page.locator('article.assistant').last()).toContainText('Mock reply: Hi')
 })
 
-test('queued image-only input restores all attachments to the draft', async ({ page, vista }, testInfo) => {
+test('pending image-only input restores all attachments to the draft', async ({ page, vista }, testInfo) => {
   test.skip(testInfo.project.name !== 'desktop', 'The same queue API is shared across layouts; the image workflow above covers all viewports.')
   const release = vista.pauseModelReplies()
   try {
@@ -131,7 +131,7 @@ test('queued image-only input restores all attachments to the draft', async ({ p
     const files = await imageFiles(page, 3)
     await sender.locator('input[type=file]').setInputFiles(files)
     await expect(sender.locator('.sender-attachment')).toHaveCount(3)
-    await sender.getByRole('button', { name: 'Queue', exact: true }).click()
+    await sender.getByRole('button', { name: 'Send', exact: true }).click()
     await expect(page.locator('.pending-input')).toHaveCount(1)
     await expect(page.locator('.pending-input')).toContainText('3 image(s)')
     await expect(sender.locator('.sender-attachment')).toHaveCount(0)

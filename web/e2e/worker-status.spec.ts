@@ -9,7 +9,7 @@ test('worker metrics stay behind an icon and their popup fits the viewport', asy
   await vista.api('/preferences', { method: 'PATCH', body: JSON.stringify({ feedbackInvitationSeen: true }) })
   const session = await vista.api('/sessions', { method: 'POST', body: '{}' })
   const catalog = await vista.api('/models')
-  const budget: CompactionStatus = { runId: 'mock-compaction', manual: false, phase: 'compacted', sequence: 1 }
+  const budget: CompactionStatus = { runId: 'mock-compaction', manual: false, phase: 'failed', error: 'The previous context was retained.', sequence: 1 }
   await page.route('**/api/sessions/*/context', route => route.fulfill({ json: budget }))
   await page.goto(`${vista.origin}/sessions/${session.id}`)
   const header = page.locator('.workspace:not(.modal-page) > .conversation-header')
@@ -70,7 +70,7 @@ test('worker metrics stay behind an icon and their popup fits the viewport', asy
   await expect(popup).toHaveCount(0)
   await expect(worker).toHaveAttribute('aria-expanded', 'false')
   await expect(context).toHaveAttribute('aria-expanded', 'true')
-  await expect(contextPopup).toContainText('Context saved. The task continues automatically.')
+  await expect(contextPopup).toContainText('The previous context was retained.')
   await expect(context.locator('.ui-progress')).toHaveCount(0)
   const contextGeometry = await contextPopup.evaluate(element => {
     const bounds = element.getBoundingClientRect()
@@ -85,7 +85,7 @@ test('worker metrics stay behind an icon and their popup fits the viewport', asy
   expect(await header.boundingBox()).toEqual(headerBefore)
   expect(await sender.boundingBox()).toEqual(senderBefore)
   await page.screenshot({ path: testInfo.outputPath('context-status-open.png'), animations: 'disabled' })
-  await contextPopup.getByText('Context saved. The task continues automatically.', { exact: true }).click()
+  await contextPopup.getByText('The previous context was retained.', { exact: true }).click()
   await expect(contextPopup).toBeVisible()
   await worker.click()
   await expect(contextPopup).toHaveCount(0)

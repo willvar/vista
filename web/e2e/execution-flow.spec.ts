@@ -1111,7 +1111,8 @@ test('execution overview and complete task details survive live updates, finish,
   const pagesBeforeUpdate = fixture.historyPages.length
   fixture.append('model_request', { taskId: 'main', depth: 0, turn: 198, provider: 'openai-chat', key: 'replay-model', id: 'gpt-6-astra', reasoningEffort: 'high' })
   fixture.append('model_delta', { taskId: 'main', depth: 0, turn: 198, content: 'New activity while inspecting an older tool. ' })
-  await expect(overview.locator('.trace-last-activity')).toContainText('Model output')
+  await expect(overview.locator('.trace-last-activity time')).toHaveAttribute('datetime', fixture.events.at(-1)!.createdAt!)
+  await expect(overview.locator('.trace-last-activity')).not.toContainText('Model output')
   await expect(toolOutput.locator('pre')).toBeVisible()
   const afterLivePosition = await captureLivePosition()
   writeFileSync(testInfo.outputPath('live-summary-reading-position.json'), JSON.stringify({ before: beforeLivePosition, after: afterLivePosition }, null, 2))

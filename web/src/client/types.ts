@@ -74,6 +74,14 @@ export type RunProgress = { runId: string; phase: 'starting' | 'model' | 'retry'
 export type Job = { id: string; runId: string; callId?: string; taskId?: string; parentTaskId?: string; directory: string; command: string; status: string; bytes: number; exitCode: number; complete: boolean; error?: string; createdAt?: string; startedAt?: string; expiresAt?: string; finishedAt?: string; signal?: string; terminationReason?: string }
 export type Artifact = { id: string; runId: string; callId?: string; taskId?: string; parentTaskId?: string; status: string; bytes: number; complete: boolean; error?: string }
 export type OutputView = { content: string; offset: number; nextOffset: number; availableBytes: number; lastSequence?: number; complete?: boolean }
+export type ServerConfig = {
+  config: { port: number }
+  revision: string
+  version: string
+  source: 'file' | 'default'
+  runningPort: number
+  schema: import('@jsonforms/core').JsonSchema
+}
 export type MemoryConfig = { budgetMiB: number; workerMiB: number; concurrentRuns: number }
 export type ServerStatus = {
   instanceId?: string // Server process identity; unchanged by an in-process reset.

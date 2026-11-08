@@ -20,7 +20,7 @@ async function mockWorkspace(page: Page, origin: string) {
   const session: Session = { id: 'iteration-session', title: 'Plan a small garden', modelKey: 'first', manualModelKey: 'first', manualReasoningEffort: 'high', selectionMode: 'manual', selectionTier: 'speed', selectionReasoningEffort: '', open: true, running: true, executing: true, inputQueuePaused: false, createdAt: '2026-01-01T12:00:00Z' }
   const preferences = { userId: 'test-user', lastMode: 'manual', lastTier: 'speed', manualModelKey: 'first', reasoningByModelId: { 'model-alpha': 'high', 'model-beta': 'low' }, feedbackInvitationSeen: false }
   const models = [{ key: 'first', name: 'Example', provider: 'openai-chat', id: 'model-alpha', recognized: true, tools: true, reasoningOptions: ['low', 'high'] }, { key: 'second', name: 'Example', provider: 'openai-chat', id: 'model-beta', recognized: true, tools: true, reasoningOptions: ['low', 'high'], inputModalities: ['text', 'image'] }]
-  let inputs = [{ id: 'pending-1', mode: 'later', status: 'queued', content: 'Add drought-resistant plants and keep the budget under $100.' }, { id: 'pending-2', mode: 'now', status: 'queued', content: 'Use the sunny corner.' }]
+  let inputs = [{ id: 'pending-1', status: 'queued', content: 'Add drought-resistant plants and keep the budget under $100.' }, { id: 'pending-2', status: 'queued', content: 'Use the sunny corner.' }]
   const feedback: Record<string, string> = {}
   const posts: any[] = []
   let sequence = 10
@@ -81,6 +81,7 @@ async function mockWorkspace(page: Page, origin: string) {
       return reply({ feedback })
     }
     if (path.endsWith('/context')) return reply(budget)
+    if (path.endsWith('/context-usage')) return reply({ tokens: 5600, sequence: 4 })
     if (path.endsWith('/cancel') || path.endsWith('/inputs/resume')) {
       const paused = path.endsWith('/cancel')
       if (paused) session.executing = false
@@ -103,7 +104,7 @@ async function mockWorkspace(page: Page, origin: string) {
     }
     if (path.endsWith('/inputs')) return reply(inputs)
     if (path.endsWith('/messages')) {
-      if (method === 'POST') { posts.push(body); const input = { id: `pending-${++sequence}`, mode: body.mode, status: session.inputQueuePaused ? 'paused' : 'queued', content: body.content }; inputs.push(input); return reply({ input }) }
+      if (method === 'POST') { posts.push(body); const input = { id: `pending-${++sequence}`, status: session.inputQueuePaused ? 'paused' : 'queued', content: body.content }; inputs.push(input); return reply({ input }) }
       return reply(messages)
     }
     if (path.endsWith('/event-page')) return reply(events)
@@ -244,15 +245,15 @@ test('independent selection, voluntary feedback, pending controls, and context f
   await first.getByRole('textbox', { name: 'Edit pending message', exact: true }).fill('Edited gardening note')
   await first.getByRole('button', { name: 'Save changes', exact: true }).click()
   await expect(first).toContainText('Edited gardening note')
-  await first.getByRole('button', { name: 'Add to current task', exact: true }).click()
+  await expect(first.getByRole('button', { name: 'Add to current task', exact: true })).toHaveCount(0)
   await expect(first).toContainText('Before the next model request')
   await first.getByRole('button', { name: 'Move back to draft', exact: true }).click()
   await expect(page.locator('.sender-card textarea')).toHaveValue('Edited gardening note')
   await expect(first).toHaveCount(0)
-  await page.locator('.sender-card textarea').fill('Queue this note')
+  await page.locator('.sender-card textarea').fill('Send this note')
   await page.locator('.sender-card textarea').press('Control+Enter')
   await expect.poll(() => fixture.posts.length).toBe(1)
-  expect(fixture.posts[0].mode).toBe('later')
+  expect(fixture.posts[0]).not.toHaveProperty('mode')
   await page.getByRole('button', { name: 'Stop current execution', exact: true }).click()
   await expect(page.locator('.pending-inputs')).toContainText('Pending messages paused')
   await page.getByRole('button', { name: 'Resume', exact: true }).click()
@@ -264,12 +265,12 @@ test('independent selection, voluntary feedback, pending controls, and context f
   fixture.session.title = 'Plan a small garden with native plants, a narrow path, and a practical budget '.repeat(6).trim()
   await page.reload()
   const header = page.locator('.workspace:not(.modal-page) > .conversation-header')
-  const context = page.locator('.sender-card .context-status')
+  const context = page.locator('.sender-card .context-usage')
   await expect(header.getByRole('heading', { name: fixture.session.title, exact: true })).toBeVisible()
   await expect(context).toBeVisible()
   await expect(context).toHaveAttribute('aria-expanded', 'false')
   await expect(context.locator('.ui-progress')).toHaveCount(0)
-  await expect(context).toContainText('Context compacted')
+  await expect(page.locator('.sender-card .context-status')).toHaveCount(0)
   await expect(header.locator('.context-status')).toHaveCount(0)
   await page.locator('.sender-card textarea').fill('A follow-up draft stays ready while viewing context usage.')
   await expect(page.getByRole('button', { name: 'Send', exact: true })).toBeVisible()
@@ -282,10 +283,10 @@ test('independent selection, voluntary feedback, pending controls, and context f
   const headerBefore = await header.boundingBox()
   const composerBefore = await page.locator('.sender-card').boundingBox()
   await context.click()
-  const panel = page.locator('.context-status-detail:visible')
+  const panel = page.locator('.context-usage-hint:visible')
   await expect(context).toHaveAttribute('aria-expanded', 'true')
   await expect(panel).toBeVisible()
-  await expect(panel).toContainText('Context saved. The task continues automatically.')
+  await expect(panel).toContainText('Estimated from retained instructions, messages, summaries and tool content.')
   const headerAfter = await header.boundingBox()
   const composerAfter = await page.locator('.sender-card').boundingBox()
   expect(headerBefore).not.toBeNull()
@@ -308,7 +309,7 @@ test('independent selection, voluntary feedback, pending controls, and context f
   await withinViewport(page)
   const sendBox = await page.getByRole('button', { name: 'Send', exact: true }).boundingBox()
   expect(sendBox!.y + sendBox!.height).toBeLessThanOrEqual(page.viewportSize()!.height + 1)
-  await panel.getByText('Context saved. The task continues automatically.', { exact: true }).click()
+  await panel.click()
   await expect(panel).toBeVisible()
   await context.click()
   await expect(panel).toBeHidden()
@@ -316,7 +317,8 @@ test('independent selection, voluntary feedback, pending controls, and context f
   await context.click()
   await expect(panel).toBeVisible()
   const draft = page.locator('.sender-card textarea')
-  await draft.click()
+  // The context popup can cover the textarea's center on narrow screens.
+  await draft.click({ position: { x: 8, y: 8 } })
   await expect(panel).toBeHidden()
   await expect(context).toHaveAttribute('aria-expanded', 'false')
   await expect(draft).toBeFocused()

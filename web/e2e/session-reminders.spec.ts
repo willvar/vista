@@ -75,7 +75,7 @@ test.describe('action reminders', () => {
     const release = vista.pauseModelReplies()
     try {
       await vista.api(`/sessions/${queue.id}/messages`, { method: 'POST', body: JSON.stringify({ content: 'In progress', modelKey: 'test' }) })
-      await vista.api(`/sessions/${queue.id}/messages`, { method: 'POST', body: JSON.stringify({ content: 'Keep for later', mode: 'later', modelKey: 'test' }) })
+      await vista.api(`/sessions/${queue.id}/messages`, { method: 'POST', body: JSON.stringify({ content: 'Keep for later', modelKey: 'test' }) })
       await vista.api(`/sessions/${queue.id}/cancel`, { method: 'POST' })
       await expect.poll(async () => (await vista.api('/sessions') as Session[]).find(item => item.id === queue.id)?.executing).toBe(false)
     } finally { release() }
@@ -92,13 +92,13 @@ test.describe('action reminders', () => {
       await page.locator('.sender-card textarea').press('Enter')
       await expect(page.locator('article.user .markdown').filter({ hasText: 'New task after cancellation' })).toBeVisible()
       await expect(page.getByRole('button', { name: 'Stop current execution', exact: true })).toBeEnabled()
-      await vista.api(`/sessions/${queue.id}/messages`, { method: 'POST', body: JSON.stringify({ content: 'New follow-up', mode: 'later', modelKey: 'test' }) })
+      await vista.api(`/sessions/${queue.id}/messages`, { method: 'POST', body: JSON.stringify({ content: 'New follow-up', modelKey: 'test' }) })
       const oldInput = page.locator('.pending-input').filter({ hasText: 'Keep for later' })
       const newInput = page.locator('.pending-input').filter({ hasText: 'New follow-up' })
       for (const reload of [false, true]) {
         if (reload) await page.reload()
         await expect(oldInput.locator('.pending-input-label')).toHaveText('Paused')
-        await expect(newInput.locator('.pending-input-label')).toHaveText('After the current task')
+        await expect(newInput.locator('.pending-input-label')).toHaveText('Before the next model request')
         await expect(page.locator('.pending-inputs-heading')).toContainText('Pending input')
         await expect(queueCard.locator('.session-indicator.waiting')).toHaveText('Messages paused')
       }

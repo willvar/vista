@@ -21,6 +21,7 @@ writeFileSync(input, contents)
 const modelID = 'efficiency-fixture'
 const providerName = 'Boundary fixture'
 const providerKey = 'fixture-connection-key'
+const seedKey = 'fixture-seed-key'
 const instructions = 'Keep the execution evidence in the final reply.'
 let mainRequests = 0, childRequests = 0, failure, releaseSlow
 const slowReady = new Promise(resolve => { releaseSlow = resolve })
@@ -104,7 +105,7 @@ const provider = createServer(async (request, response) => {
 })
 await new Promise(resolve => provider.listen(0, '127.0.0.1', resolve))
 writeFileSync(join(config, 'models.json'), JSON.stringify({ default: 'fixture', models: [{
-  key: 'fixture', provider: 'openai-chat', id: modelID, inputModalities: ['text'], apiKey: 'fixture',
+  key: 'fixture', provider: 'openai-chat', id: modelID, inputModalities: ['text'], apiKey: seedKey,
   baseUrl: `http://127.0.0.1:${provider.address().port}/v1`, context: 128000,
 }] }), { mode: 0o600 })
 prepareVistaTestConfig(state)
@@ -133,10 +134,22 @@ try {
   assert.ok(!JSON.stringify(catalog).includes(providerKey), 'public catalog leaked provider credentials')
   const settings = await api('/model-config')
   assert.ok(!JSON.stringify(settings).includes(providerKey), 'model settings leaked provider credentials')
-  const saved = JSON.parse(readFileSync(join(config, 'models.json'), 'utf8'))
-  const savedModel = saved.models.find(model => model.key === configured.key)
-  assert.equal(savedModel.apiKey, providerKey)
-  assert.deepEqual(Object.keys(savedModel).sort(), ['apiKey', 'authentication', 'baseUrl', 'connectionId', 'id', 'key', 'name', 'provider', 'providerId'], 'derived catalog fields were written into user settings')
+  const publicText = readFileSync(join(config, 'config.json'), 'utf8')
+  assert.ok(!publicText.includes(providerKey) && !publicText.includes(seedKey), 'public configuration leaked fixture credentials')
+  const saved = JSON.parse(publicText)
+  assert.equal(saved.version, 2)
+  for (const model of saved.models.models) {
+    for (const name of Object.keys(model)) assert.ok(!['apikey', 'accesstoken', 'authtoken', 'appcode', 'headers'].includes(name.toLowerCase()), 'public model contains an inline credential field')
+  }
+  const savedModel = saved.models.models.find(model => model.key === configured.key)
+  assert.equal(typeof savedModel.credentialRef, 'string')
+  const keys = JSON.parse(readFileSync(join(config, 'key.json'), 'utf8'))
+  assert.equal(keys.version, 1)
+  const bundle = keys.entries[savedModel.credentialRef]
+  assert.equal(bundle.section, 'models')
+  assert.equal(bundle.owner, `connection:${savedModel.connectionId}`)
+  assert.equal(bundle.values.apiKey, providerKey)
+  assert.deepEqual(Object.keys(savedModel).sort(), ['authentication', 'baseUrl', 'connectionId', 'credentialRef', 'id', 'key', 'name', 'provider', 'providerId'], 'derived catalog fields were written into user settings')
   await api('/agent-settings', { method: 'PUT', body: JSON.stringify({ instructions }) })
   const session = await api('/sessions', { method: 'POST', body: '{}' })
   const sent = await api(`/sessions/${session.id}/messages`, { method: 'POST', body: JSON.stringify({ content: 'Inspect evidence in parallel.', modelKey: configured.key }) })

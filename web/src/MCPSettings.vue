@@ -1,10 +1,13 @@
 <script setup lang="ts">
 import { computed, onUnmounted, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { Empty as VEmpty, Alert as VAlert, Button as VButton, Input as VInput, InputPassword as VInputPassword, Modal as VModal, Select as VSelect, Switch as VSwitch, TextArea as VTextarea } from './ui'
+import { RuleEffect, type ControlElement, type JsonSchema7, type VerticalLayout } from '@jsonforms/core'
+import { Empty as VEmpty, Alert as VAlert, Button as VButton, Input as VInput, Modal as VModal, Switch as VSwitch } from './ui'
 import { EditOutlined, LinkOutlined, ReloadOutlined, DeleteOutlined } from '@antdv-next/icons'
 import ConfirmPopover from './ConfirmPopover.vue'
 import CopyAction from './ui/CopyAction.vue'
+import SchemaForm from './SchemaForm.vue'
+import type { FormIssue } from './schema/validation'
 import { VistaAPIError } from './client/vista'
 import { useWorkspace } from './composables/useWorkspace'
 import { formatDateTime } from './ui/datetime.ts'
@@ -12,6 +15,11 @@ import type { MCPCheck as Check, MCPServer, MCPConfig, LoginUpdate } from './cli
 
 type Tool = { name: string; description: string; inputSchema: unknown }
 type Login = { id: string; name: string; status: string; authorizationUrl?: string; error?: string; expiresAt: string }
+type MCPDocument = Record<string, unknown> & {
+  name: string; transport: 'http' | 'stdio'; disabled: boolean
+  command?: string; args?: string[]; directory?: string; endpoint?: string
+  auth?: 'none' | 'token' | 'oauth'; clientId?: string
+}
 const emit = defineEmits<{ 'modal-open': [open: boolean] }>()
 const { t, locale } = useI18n({ useScope: 'global' })
 const { client, stateSync } = useWorkspace()
@@ -28,16 +36,125 @@ const deleteError = ref('')
 const editorOpen = ref(false)
 const editing = ref<MCPServer | null>(null)
 const formError = ref('')
-const draft = reactive({ name: '', transport: 'http', command: '', args: '', directory: '', endpoint: '', auth: 'none', token: '', clientId: '', clientSecret: '', clearClientSecret: false, disabled: false, headers: [] as { name: string; value: string }[] })
-const transportOptions = computed(() => [{ label: t('mcpHTTP'), value: 'http' }, { label: t('mcpStdio'), value: 'stdio' }])
-const argsExample = '-y\n@modelcontextprotocol/server-filesystem\n/home/user/project'
-const authOptions = computed(() => [{ label: t('mcpAuthNone'), value: 'none' }, { label: t('mcpBearerToken'), value: 'token' }, { label: 'OAuth', value: 'oauth' }])
+// This is a public connection draft, not raw config.json or an authentication snapshot.
+// Keep credential values, header names/values, source IDs and login state separate.
+const draft = ref<MCPDocument>({ name: '', transport: 'http', disabled: false })
+const credentials = reactive({ token: '', clientSecret: '', clearClientSecret: false, headers: [] as { name: string; value: string }[] })
+const schemaEditor = ref<InstanceType<typeof SchemaForm>>()
+const editorValid = ref(false)
+const credentialValid = ref(true)
+const editorResetKey = ref(0)
+// Both platform path forms are accepted here; the server validates its own OS.
+const absolutePathPattern = String.raw`^(?:/|[A-Za-z]:[\\/]|\\\\[^\\/]+[\\/][^\\/]+)`
+const schema = computed((): JsonSchema7 => ({
+  type: 'object',
+  additionalProperties: false,
+  required: ['name', 'transport', 'disabled'],
+  properties: {
+    name: { type: 'string', minLength: 1, maxLength: 64, pattern: String.raw`^(?=[\s\S]*\S)[^\u0000-\u001f\u007f-\u009f]+$`, description: t('mcpNameHint') },
+    transport: { type: 'string', enum: ['http', 'stdio'] },
+    disabled: { type: 'boolean' },
+    command: { type: 'string' },
+    args: { type: 'array', maxItems: 32, items: { type: 'string', maxLength: 1024 } },
+    directory: { type: 'string' },
+    endpoint: { type: 'string', maxLength: 2048, description: t('mcpEndpointHint') },
+    auth: { type: 'string', enum: ['none', 'token', 'oauth'] },
+    clientId: { type: 'string' },
+  },
+  // Known inactive public fields remain draft-only so transport/auth switches
+  // retain edits. Unknown fields are rejected in every branch, never passed on.
+  allOf: [
+    {
+      if: { properties: { transport: { const: 'stdio' } }, required: ['transport'] },
+      then: { required: ['command', 'directory'], properties: { command: { pattern: absolutePathPattern }, directory: { pattern: absolutePathPattern } } },
+    },
+    {
+      if: { properties: { transport: { const: 'http' } }, required: ['transport'] },
+      then: {
+        required: ['endpoint', 'auth'],
+        properties: { endpoint: { minLength: 1, pattern: '^https?://[^/?#@]+(?:[/?][^#]*)?#?$' } },
+        allOf: [{ if: { properties: { auth: { const: 'oauth' } }, required: ['auth'] }, then: { properties: { clientId: { maxLength: 1024 } } } }],
+      },
+    },
+  ],
+}))
+const uischema = computed<VerticalLayout>(() => {
+  const control = (field: string, label: string, options?: Record<string, unknown>): ControlElement => ({ type: 'Control', scope: `#/properties/${field}`, label, ...(options ? { options } : {}) })
+  const show = (field: string, value: string) => ({ effect: RuleEffect.SHOW, condition: { scope: `#/properties/${field}`, schema: { const: value }, failWhenUndefined: true } })
+  return {
+    type: 'VerticalLayout',
+    elements: [
+      control('name', t('mcpName')),
+      control('transport', t('mcpTransport'), { enumLabels: { http: t('mcpHTTP'), stdio: t('mcpStdio') } }),
+      control('disabled', t('mcpDisabled')),
+      {
+        type: 'VerticalLayout', rule: show('transport', 'stdio'),
+        elements: [
+          control('command', t('mcpCommand')),
+          control('args', t('mcpArguments'), { multi: true, rows: 2 }),
+          control('directory', t('mcpDirectory')),
+        ],
+      },
+      {
+        type: 'VerticalLayout', rule: show('transport', 'http'),
+        elements: [
+          control('endpoint', t('mcpEndpoint')),
+          control('auth', t('providerAuthentication'), { enumLabels: { none: t('mcpAuthNone'), token: t('mcpBearerToken'), oauth: 'OAuth' } }),
+          { ...control('clientId', 'Client ID'), rule: show('auth', 'oauth') },
+        ],
+      },
+    ],
+  }
+})
+function updateDraft(value: Record<string, unknown>) { draft.value = value as MCPDocument }
+function validEndpoint(value: string) {
+  try {
+    const url = new URL(value)
+    if (!url.hostname || url.username || url.password || url.hash) return false
+    if (url.protocol === 'https:') return true
+    return url.protocol === 'http:' && (url.hostname === 'localhost' || url.hostname === '[::1]' ||
+      /^127(?:\.\d{1,3}){3}$/.test(url.hostname) || /^\[::ffff:7f[0-9a-f]{2}:[0-9a-f]{1,4}\]$/.test(url.hostname))
+  } catch { return false }
+}
+const utf8 = new TextEncoder()
+function validPublicDocument(value: Record<string, unknown>): FormIssue[] {
+  if (value.transport === 'stdio') return Array.isArray(value.args) ? value.args.flatMap((arg, index) => typeof arg === 'string' && utf8.encode(arg).length > 1024 ? [{ path: `/args/${index}`, message: t('configByteLimit', { limit: 1024 }) }] : []) : []
+  const issues: FormIssue[] = []
+  if (value.transport === 'http' && typeof value.endpoint === 'string' && value.endpoint.trim() && !validEndpoint(value.endpoint.trim())) issues.push({ path: '/endpoint', message: t('configSecureEndpoint') })
+  if (value.auth === 'oauth' && typeof value.clientId === 'string' && utf8.encode(value.clientId.trim()).length > 1024) issues.push({ path: '/clientId', message: t('configByteLimit', { limit: 1024 }) })
+  return issues
+}
+const credentialDocument = computed<Record<string, unknown>>({
+  get: () => ({ token: credentials.token, clientSecret: credentials.clientSecret, clearClientSecret: credentials.clearClientSecret, headers: credentials.headers.map(header => ({ ...header })) }),
+  set: value => { credentials.token = value.token as string; credentials.clientSecret = value.clientSecret as string; credentials.clearClientSecret = value.clearClientSecret as boolean; credentials.headers = value.headers as { name: string; value: string }[] },
+})
+const credentialSchema = computed<JsonSchema7>(() => ({ type: 'object', additionalProperties: false, required: ['token', 'clientSecret', 'clearClientSecret', 'headers'], properties: {
+  token: { type: 'string', title: t('mcpBearerToken'), writeOnly: true, minLength: draft.value.auth === 'token' && !editing.value?.hasToken ? 1 : 0, maxLength: 4096 },
+  clientSecret: { type: 'string', title: 'Client secret', writeOnly: true, maxLength: 4096 },
+  clearClientSecret: { type: 'boolean', title: t('mcpClearSecret') },
+  headers: { type: 'array', title: t('customHeaders'), maxItems: 32, items: { type: 'object', additionalProperties: false, required: ['name', 'value'], properties: {
+    name: { type: 'string', title: t('headerName'), minLength: 1, maxLength: 256, default: '' },
+    value: { type: 'string', title: t('headerValue'), writeOnly: true, maxLength: 8192, default: '' },
+  } } },
+} }))
+const credentialUISchema = computed<VerticalLayout>(() => {
+  const elements: ControlElement[] = []
+  if (draft.value.auth === 'token') elements.push({ type: 'Control', scope: '#/properties/token', options: { placeholder: editing.value?.hasToken ? t('reuseSavedKey') : t('enterApiKey') } })
+  if (draft.value.auth === 'oauth') {
+    elements.push({ type: 'Control', scope: '#/properties/clientSecret', options: { placeholder: editing.value?.hasClientSecret ? t('reuseSavedKey') : '' } })
+    if (editing.value?.hasClientSecret) elements.push({ type: 'Control', scope: '#/properties/clearClientSecret' })
+  }
+  elements.push({ type: 'Control', scope: '#/properties/headers' })
+  return { type: 'VerticalLayout', elements }
+})
 const canSave = computed(() => {
-  if (!draft.name.trim() || [...draft.name.trim()].length > 64 || /\p{Cc}/u.test(draft.name)) return false
-  if (draft.transport === 'stdio') return !!draft.command.trim() && !!draft.directory.trim()
-  const names = draft.headers.map(header => header.name.trim().toLowerCase()).filter(Boolean)
-  if (new Set(names).size !== names.length || draft.headers.some(header => !header.name.trim() && header.value)) return false
-  return !!draft.endpoint.trim() && (draft.auth !== 'token' || !!draft.token.trim() || !!editing.value?.hasToken)
+  // Invalid local fields never replace the draft; validity gates the last valid value.
+  if (!editorValid.value) return false
+  if (draft.value.transport === 'stdio') return true
+  if (!credentialValid.value) return false
+  const names = credentials.headers.map(header => header.name.trim().toLowerCase()).filter(Boolean)
+  if (new Set(names).size !== names.length || credentials.headers.some(header => !header.name.trim() && header.value)) return false
+  return draft.value.auth !== 'token' || !!credentials.token.trim() || !!editing.value?.hasToken
 })
 
 let configRevision = 0
@@ -63,26 +180,28 @@ async function load() {
 function edit(server?: MCPServer) {
   if (busy.value) return
   editing.value = server || null
-  Object.assign(draft, {
+  draft.value = {
     name: server?.name || '', transport: server?.transport || 'http',
-    command: server?.command || '', args: server?.args?.join('\n') || '',
+    command: server?.command || '', args: [...(server?.args || [])],
     directory: server?.directory || defaultDirectory.value, endpoint: server?.endpoint || '',
     auth: server?.oauth ? 'oauth' : server?.hasToken ? 'token' : 'none',
-    token: '', clientId: server?.clientId || '', clientSecret: '', clearClientSecret: false,
+    clientId: server?.clientId || '', disabled: !!server?.disabled,
+  }
+  Object.assign(credentials, {
+    token: '', clientSecret: '', clearClientSecret: false,
     headers: (server?.headerNames || []).map(name => ({ name, value: '' })),
-    disabled: !!server?.disabled,
   })
+  editorValid.value = false
+  editorResetKey.value++
   formError.value = ''
   editorOpen.value = true
 }
 function closeEditor() {
   if (busy.value) return
   editorOpen.value = false
-  draft.token = draft.clientSecret = ''
-  draft.headers = []
-}
-function canReuseHeader(name: string) {
-  return editing.value?.headerNames?.some(saved => saved.toLowerCase() === name.trim().toLowerCase())
+  editorValid.value = false
+  credentials.token = credentials.clientSecret = ''
+  credentials.headers = []
 }
 async function save() {
   if (busy.value || !canSave.value) return
@@ -90,38 +209,30 @@ async function save() {
   formError.value = ''
   error.value = ''
   saved.value = false
-  const http = draft.transport === 'http'
+  const value = draft.value
+  const http = value.transport === 'http'
+  // Only active, explicitly supported fields enter the existing settings API.
+  // Identity and blank-preserve/explicit-clear semantics stay outside the JSON.
   const body = {
     ...(editing.value ? { id: editing.value.id } : {}),
-    name: draft.name.trim(), transport: draft.transport, disabled: draft.disabled,
-    ...(http ? { endpoint: draft.endpoint.trim(), oauth: draft.auth === 'oauth',
-      token: draft.auth === 'token' ? draft.token.trim() : '', clearToken: draft.auth !== 'token',
-      clientId: draft.auth === 'oauth' ? draft.clientId.trim() : '',
-      clientSecret: draft.auth === 'oauth' ? draft.clientSecret.trim() : '', clearClientSecret: draft.clearClientSecret,
-      headers: Object.fromEntries(draft.headers.filter(header => header.name.trim()).map(header => [header.name.trim(), header.value])),
-    } : { command: draft.command.trim(), directory: draft.directory.trim(), args: draft.args ? draft.args.split('\n') : [] }),
+    name: value.name.trim(), transport: value.transport, disabled: value.disabled,
+    ...(http ? { endpoint: value.endpoint!.trim(), oauth: value.auth === 'oauth',
+      token: value.auth === 'token' ? credentials.token.trim() : '', clearToken: value.auth !== 'token',
+      clientId: value.auth === 'oauth' ? (value.clientId || '').trim() : '',
+      clientSecret: value.auth === 'oauth' ? credentials.clientSecret.trim() : '', clearClientSecret: credentials.clearClientSecret,
+      headers: Object.fromEntries(credentials.headers.filter(header => header.name.trim()).map(header => [header.name.trim(), header.value])),
+    } : { command: value.command!.trim(), directory: value.directory!.trim(), args: [...(value.args || [])] }),
   }
   try {
     await client.request('/mcp-config', { method: editing.value ? 'PUT' : 'POST', body: JSON.stringify(body), signal: lifetime.signal })
     if (lifetime.signal.aborted) return
+    schemaEditor.value?.reset()
     editorOpen.value = false
-    draft.token = draft.clientSecret = ''
-    draft.headers = []
+    editorValid.value = false
+    credentials.token = credentials.clientSecret = ''
+    credentials.headers = []
     saved.value = true
   } catch (cause) { if (!lifetime.signal.aborted) formError.value = String(cause) }
-  finally { busy.value = false }
-}
-async function toggle(server: MCPServer, enabled: boolean) {
-  if (busy.value) return
-  busy.value = true
-  error.value = ''
-  saved.value = false
-  try {
-    await client.request('/mcp-config', { method: 'PATCH', body: JSON.stringify({ id: server.id, disabled: !enabled }), signal: lifetime.signal })
-    if (lifetime.signal.aborted) return
-    server.disabled = !enabled
-    saved.value = true
-  } catch (cause) { if (!lifetime.signal.aborted) error.value = String(cause) }
   finally { busy.value = false }
 }
 async function remove(server: MCPServer) {
@@ -329,7 +440,7 @@ defineExpose({ imported: () => { saved.value = true }, headerAction: computed(()
     <v-empty v-else-if="!servers.length && !error" class="vista-empty-state mcp-empty" :description="t('mcpEmpty')" role="status" />
     <p v-if="saved" class="mcp-saved" role="status">{{ t('mcpSaved') }}</p>
     <article v-for="server in servers" :key="server.id" class="mcp-server" :data-mcp="server.name" :data-mcp-id="server.id">
-      <div class="mcp-server-heading"><div class="mcp-name"><strong>{{ server.name }}</strong><span class="mcp-badge">{{ server.transport === 'stdio' ? 'stdio' : 'HTTP' }}</span></div><v-switch :checked="!server.disabled" :disabled="busy" :aria-label="t('mcpEnable', { name: server.name })" @update:checked="toggle(server, !!$event)" /></div>
+      <div class="mcp-server-heading"><div class="mcp-name"><strong>{{ server.name }}</strong><span class="mcp-badge">{{ server.transport === 'stdio' ? 'stdio' : 'HTTP' }}</span></div></div>
       <p class="mcp-address">{{ server.transport === 'http' ? server.endpoint : [server.command, ...(server.args || [])].join(' ') }}</p>
       <div class="mcp-status" :class="{ available: !server.disabled && server.check.status === 'available', failed: !server.disabled && server.check.status === 'error' }"><span class="mcp-status-dot" aria-hidden="true"></span>{{ status(server) }}<span v-if="!server.disabled && server.check.status === 'available' && server.check.toolCount >= 0">· {{ t('mcpToolCount', { count: server.check.toolCount }) }}</span></div>
       <p v-if="server.check.error && !server.disabled" class="mcp-error">{{ server.check.error }}</p>
@@ -347,36 +458,13 @@ defineExpose({ imported: () => { saved.value = true }, headerAction: computed(()
   <v-modal :open="editorOpen" centered :z-index="1200" width="min(560px, calc(100vw - 2rem))" :title="t(editing ? 'mcpEdit' : 'mcpAdd')" :footer="null" :closable="!busy" :keyboard="!busy" :mask-closable="!busy" destroy-on-hidden :styles="{ body: { maxHeight: 'calc(100dvh - 10rem)', overflowY: 'auto', overscrollBehavior: 'contain' } }" @cancel="closeEditor">
     <form v-if="editorOpen" class="mcp-form" @submit.prevent="save">
       <v-alert v-if="formError" type="error" role="alert" :message="formError" />
-      <label for="mcp-name">{{ t('mcpName') }}<v-input id="mcp-name" v-model:value="draft.name" :aria-label="t('mcpName')" aria-describedby="mcp-name-hint" placeholder="my-server" :maxlength="64" required :disabled="busy" /><small id="mcp-name-hint" class="mcp-hint">{{ t('mcpNameHint') }}</small></label>
-      <label for="mcp-transport">{{ t('mcpTransport') }}<v-select id="mcp-transport" v-model:value="draft.transport" :options="transportOptions" :virtual="false" :disabled="busy" :aria-label="t('mcpTransport')" /></label>
-      <template v-if="draft.transport === 'stdio'">
-        <label for="mcp-command">{{ t('mcpCommand') }}<v-input id="mcp-command" v-model:value="draft.command" placeholder="/usr/bin/npx" required :disabled="busy" /></label>
-        <label for="mcp-args">{{ t('mcpArguments') }}<v-textarea id="mcp-args" v-model:value="draft.args" :aria-label="t('mcpArguments')" aria-describedby="mcp-args-hint" :auto-size="{ minRows: 3, maxRows: 8 }" :placeholder="argsExample" :disabled="busy" /><small id="mcp-args-hint" class="mcp-hint">{{ t('mcpArgsHint') }}</small></label>
-        <label for="mcp-directory">{{ t('mcpDirectory') }}<v-input id="mcp-directory" v-model:value="draft.directory" placeholder="/home/user/project" required :disabled="busy" /></label>
-      </template>
-      <template v-else>
-        <label for="mcp-endpoint">{{ t('mcpEndpoint') }}<v-input id="mcp-endpoint" v-model:value="draft.endpoint" :aria-label="t('mcpEndpoint')" aria-describedby="mcp-endpoint-hint" placeholder="https://example.com/mcp" :maxlength="2048" required :disabled="busy" /><small id="mcp-endpoint-hint" class="mcp-hint">{{ t('mcpEndpointHint') }}</small></label>
-        <label for="mcp-auth">{{ t('providerAuthentication') }}<v-select id="mcp-auth" v-model:value="draft.auth" :options="authOptions" :virtual="false" :disabled="busy" :aria-label="t('providerAuthentication')" /></label>
-        <label v-if="draft.auth === 'token'" for="mcp-token">{{ t('mcpBearerToken') }}<v-input-password id="mcp-token" v-model:value="draft.token" :aria-label="t('mcpBearerToken')" aria-describedby="mcp-token-hint" :maxlength="4096" :placeholder="editing?.hasToken ? t('reuseSavedKey') : ''" :disabled="busy" /><small id="mcp-token-hint" class="mcp-hint">{{ t('mcpTokenHint') }}</small></label>
-        <template v-if="draft.auth === 'oauth'">
-          <p class="mcp-hint">{{ t('mcpOAuthHint') }}</p>
-          <details class="mcp-oauth-advanced"><summary>{{ t('mcpOAuthAdvanced') }}</summary>
-            <label for="mcp-client-id">Client ID<v-input id="mcp-client-id" v-model:value="draft.clientId" :maxlength="1024" :disabled="busy" /></label>
-            <label for="mcp-client-secret">Client secret<v-input-password id="mcp-client-secret" v-model:value="draft.clientSecret" :maxlength="4096" :disabled="busy" :placeholder="editing?.hasClientSecret && !draft.clearClientSecret ? t('reuseSavedKey') : ''" /></label>
-            <v-button v-if="editing?.hasClientSecret" :disabled="busy" @click="draft.clearClientSecret = !draft.clearClientSecret; draft.clientSecret = ''">{{ t(draft.clearClientSecret ? 'mcpKeepSecret' : 'mcpClearSecret') }}</v-button>
-          </details>
-        </template>
-        <details class="provider-advanced" :open="editing?.headerNames?.length ? true : undefined">
-          <summary>{{ t('advancedSettings') }}</summary>
-          <div class="provider-headers">
-            <div v-for="(header, index) in draft.headers" :key="index" class="provider-header-row">
-              <label>{{ t('headerName') }}<v-input v-model:value="header.name" :aria-label="`${t('headerName')} ${index + 1}`" placeholder="X-API-Key" :maxlength="256" :disabled="busy" /></label>
-              <label>{{ t('headerValue') }}<v-input-password v-model:value="header.value" :aria-label="`${t('headerValue')} ${index + 1}`" :placeholder="canReuseHeader(header.name) ? t('reuseSavedHeader') : t('headerValue')" :maxlength="8192" :disabled="busy" /></label>
-              <v-button variant="text" type="button" :disabled="busy" :aria-label="`${t('removeHeader')} ${index + 1}`" @click="draft.headers.splice(index, 1)">×</v-button>
-            </div>
-            <v-button type="button" :disabled="busy || draft.headers.length >= 32" @click="draft.headers.push({ name: '', value: '' })">{{ t('addHeader') }}</v-button>
-          </div>
-        </details>
+      <p id="mcp-public-config-hint" class="mcp-hint">{{ t('configEditorPrivateHint') }}</p>
+      <SchemaForm id="mcp-config" ref="schemaEditor" :model-value="draft" :schema="schema" :uischema="uischema" :validate="validPublicDocument" :disabled="busy"
+        :reset-key="editorResetKey" aria-describedby="mcp-public-config-hint" @update:model-value="updateDraft" @validity="editorValid = $event" />
+      <template v-if="draft.transport === 'http'">
+        <p v-if="draft.auth === 'token'" class="mcp-hint">{{ t('mcpTokenHint') }}</p>
+        <p v-if="draft.auth === 'oauth'" class="mcp-hint">{{ t('mcpOAuthHint') }}</p>
+        <SchemaForm id="mcp-credentials" v-model="credentialDocument" :schema="credentialSchema" :uischema="credentialUISchema" :disabled="busy" :reset-key="editorResetKey" @validity="credentialValid = $event" />
       </template>
       <div class="mcp-form-actions"><v-button :disabled="busy" @click="closeEditor">{{ t('cancel') }}</v-button><v-button type="submit" variant="primary" :loading="busy" :disabled="busy || !canSave">{{ t('saveChanges') }}</v-button></div>
     </form>
@@ -436,7 +524,6 @@ defineExpose({ imported: () => { saved.value = true }, headerAction: computed(()
 .mcp-actions { display: flex; flex-wrap: wrap; gap: .4rem; margin-top: .8rem; }
 .mcp-form { display: flex; flex-direction: column; gap: 1rem; }
 .mcp-form label { display: flex; flex-direction: column; gap: .4rem; min-width: 0; }
-.mcp-form .ui-select { width: 100%; }
 .mcp-oauth-advanced { display: flex; flex-direction: column; gap: .8rem; }
 .mcp-oauth-advanced summary { cursor: pointer; color: var(--muted); font-size: var(--font-size-body); margin-bottom: .6rem; }
 .mcp-oauth-advanced label { margin-top: .8rem; }

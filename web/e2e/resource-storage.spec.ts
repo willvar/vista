@@ -25,7 +25,7 @@ test('originals survive compaction and closing, and become cleanable only after 
   await page.getByRole('button', { name: 'Conversation options', exact: true }).click()
   await page.getByRole('menuitem', { name: 'Compact context', exact: true }).click()
   await expect.poll(async () => (await vista.api(`/sessions/${first.id}/context`))?.phase).toBe('compacted')
-  expect(await vista.api(`/sessions/${first.id}/messages`)).toEqual(messages)
+  expect((await vista.api(`/sessions/${first.id}/messages`)).filter((item: any) => !item.contextSummary)).toEqual(messages)
   await page.reload()
   const thumbnail = page.locator('article.user .message-images img')
   await expect(thumbnail).toHaveCount(1)

@@ -494,9 +494,8 @@ a {
   flex-direction: column;
   gap: .75rem;
 }
-.instructions-file-location { margin: 0; color: var(--muted); font-size: var(--font-size-body); line-height: 1.6; }
-.instructions-file-location code { display: block; font: var(--font-size-small)/1.6 var(--font-mono, monospace); overflow-wrap: anywhere; }
-.instructions-editor-input.ui-input {
+.instructions-editor-input.schema-form,.instructions-editor-input .schema-control { flex: 1; min-height: 0; }
+.instructions-editor-input textarea.ui-input {
   flex: 1;
   min-height: 0;
   padding: 1rem 1.25rem;
@@ -509,7 +508,7 @@ a {
   .instructions-editor-modal .ui-modal-container {
     padding: max(.75rem, env(safe-area-inset-top)) max(1rem, env(safe-area-inset-right)) max(.75rem, env(safe-area-inset-bottom)) max(1rem, env(safe-area-inset-left));
   }
-  .instructions-editor-input.ui-input { padding: .75rem; }
+  .instructions-editor-input textarea.ui-input { padding: .75rem; }
 }
 .confirmation-content {
   max-height: min(360px,calc(50dvh - 8rem));

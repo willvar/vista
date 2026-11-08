@@ -1,19 +1,22 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { Alert as VAlert, Button as VButton, Checkbox as VCheckbox, InputNumber as VInputNumber, InputPassword as VInputPassword, Modal as VModal } from './ui'
-import { ArrowDownOutlined, ArrowUpOutlined, EditOutlined, SearchOutlined, FileTextOutlined, RobotOutlined, GlobalOutlined } from '@antdv-next/icons'
+import { Alert as VAlert, Button as VButton, Modal as VModal } from './ui'
+import { EditOutlined, SearchOutlined, FileTextOutlined, RobotOutlined, GlobalOutlined } from '@antdv-next/icons'
 import { useWorkspace } from './composables/useWorkspace'
 import ConfirmPopover from './ConfirmPopover.vue'
+import SchemaForm from './SchemaForm.vue'
+import type { FormIssue } from './schema/validation'
+import type { JsonSchema, ControlElement, VerticalLayout } from '@jsonforms/core'
 
 type SearchProvider = { name: string; source: 'settings' | 'environment' | 'none' }
 const names: Record<string, string> = { exa: 'Exa', firecrawl: 'Firecrawl', parallel: 'Parallel', tavily: 'Tavily', deepseek: 'DeepSeek', 'deepseek-fetch': 'DeepSeek' }
 const jinaName = 'Jina Reader'
 type OrderKind = 'order' | 'fetchOrder'
 type PreviewKind = 'searchPreviewBytes' | 'fetchPreviewBytes'
-const orderSections: { key: OrderKind; title: string; hint: string; preview: PreviewKind; previewTitle: string; previewHint: string; defaultLength: number }[] = [
-  { key: 'order', title: 'searchOrder', hint: 'searchOrderHint', preview: 'searchPreviewBytes', previewTitle: 'searchPreviewLength', previewHint: 'searchPreviewHint', defaultLength: 50 },
-  { key: 'fetchOrder', title: 'fetchOrder', hint: 'fetchOrderHint', preview: 'fetchPreviewBytes', previewTitle: 'fetchPreviewLength', previewHint: 'fetchPreviewHint', defaultLength: 50 },
+const orderSections: { key: OrderKind; preview: PreviewKind }[] = [
+  { key: 'order', preview: 'searchPreviewBytes' },
+  { key: 'fetchOrder', preview: 'fetchPreviewBytes' },
 ]
 const emit = defineEmits<{ 'modal-open': [open: boolean] }>()
 const { t } = useI18n({ useScope: 'global' })
@@ -21,18 +24,18 @@ const { client } = useWorkspace()
 const providers = ref<SearchProvider[]>([])
 const jinaReader = ref<SearchProvider>({ name: 'jina', source: 'none' })
 const deepseekFetch = ref<SearchProvider>({ name: 'deepseek', source: 'none' })
-const previews = reactive<Record<PreviewKind, { length: number | null; unlimited: boolean; saved: number }>>({
-  searchPreviewBytes: { length: 50, unlimited: false, saved: 50 * 1024 },
-  fetchPreviewBytes: { length: 50, unlimited: false, saved: 50 * 1024 },
+const previews = reactive<Record<PreviewKind, { value: number; saved: number }>>({
+  searchPreviewBytes: { value: 51200, saved: 51200 },
+  fetchPreviewBytes: { value: 51200, saved: 51200 },
 })
-function previewValue(key: PreviewKind) { return previews[key].unlimited ? 0 : previews[key].length === null ? null : previews[key].length! * 1024 }
-function previewDirty(key: PreviewKind) { return previewValue(key) !== previews[key].saved }
-function validPreview(key: PreviewKind) { return previews[key].unlimited || Number.isSafeInteger(previewValue(key)) && previewValue(key)! > 0 }
+function previewValue(key: PreviewKind) { return previews[key].value }
+function previewDirty(key: PreviewKind) { return previews[key].value !== previews[key].saved }
 const orders = reactive<Record<OrderKind, string[]>>({ order: [], fetchOrder: [] })
 const savedOrders = reactive<Record<OrderKind, string[]>>({ order: [], fetchOrder: [] })
 function orderDirty(key: OrderKind) { return orders[key].join(',') !== savedOrders[key].join(',') }
 const editing = ref('')
 const keyDraft = ref('')
+const credentialChoice = ref('exa'), keyFormValid = ref(false), keyFormEpoch = ref(0)
 const keyError = ref('')
 const removingKey = ref(false)
 const removeKeyError = ref('')
@@ -42,12 +45,13 @@ const removalName = computed(() => editing.value.startsWith('deepseek')
 const editingSource = computed(() => keySource(editing.value))
 const canSaveKey = computed(() => {
   const key = keyDraft.value.trim()
-  return !!key && new TextEncoder().encode(key).length <= 4096 && !/[\s\p{Cc}]/u.test(key)
+  return keyFormValid.value && !!key && new TextEncoder().encode(key).length <= 4096 && !/[\s\p{Cc}]/u.test(key)
 })
 const loading = ref(true)
 const busy = ref('')
 const error = ref('')
 const updated = ref('')
+const editorValid = ref(false), editorDirty = ref(false), editorEpoch = ref(0)
 const controller = new AbortController()
 watch(editing, value => emit('modal-open', !!value), { flush: 'sync' })
 onUnmounted(() => { controller.abort(); emit('modal-open', false) })
@@ -56,12 +60,11 @@ async function refresh() {
   const result = await client.request<{ providers: SearchProvider[]; order: string[]; fetchOrder: string[]; jinaReader: SearchProvider; deepseekFetch: SearchProvider } & Record<PreviewKind, number>>('/search-config', { signal: controller.signal })
   if (!controller.signal.aborted) {
     // Saving a key or retrying a read must preserve unsaved ordering edits.
-    for (const { key, preview, defaultLength } of orderSections) {
-      if (!orderDirty(key)) orders[key] = [...result[key]]
+    for (const { key, preview } of orderSections) {
+      if (!editorDirty.value && !orderDirty(key)) orders[key] = [...result[key]]
       savedOrders[key] = result[key]
-      if (!previewDirty(preview)) {
-        previews[preview].unlimited = result[preview] === 0
-        previews[preview].length = result[preview] ? result[preview] / 1024 : defaultLength
+      if (!editorDirty.value && !previewDirty(preview)) {
+        previews[preview].value = result[preview]
       }
       previews[preview].saved = result[preview]
     }
@@ -92,10 +95,30 @@ function keyStatus(source: SearchProvider['source'], name: string) {
   if (source === 'none' && name.startsWith('deepseek')) return t('searchKeyUnconfigured')
   return t(source === 'settings' ? 'searchKeySaved' : source === 'environment' ? 'searchKeyEnvironment' : 'searchKeyAnonymous')
 }
+const credentialGroups = computed(() => orderSections.map(section => ({
+  key: section.key, label: t(section.key === 'order' ? 'webSearchLabel' : 'webFetchLabel'),
+  values: orders[section.key].map(name => credentialName(name, section.key)),
+})))
+const credentialChoices = computed(() => credentialGroups.value.flatMap(group => group.values.map(name => ({ name, label: providerName(name), fullLabel: `${providerName(name)} · ${group.label}` }))))
+const choiceDocument = computed<Record<string, unknown>>({ get: () => ({ provider: credentialChoice.value }), set: value => { credentialChoice.value = value.provider as string } })
+const choiceSchema = computed<JsonSchema>(() => ({ type: 'object', additionalProperties: false, required: ['provider'], properties: { provider: { type: 'string', title: t('provider'), enum: credentialChoices.value.map(item => item.name) } } }))
+const choiceUISchema = computed<ControlElement>(() => ({ type: 'Control', scope: '#/properties/provider', options: {
+  enumGroups: credentialGroups.value,
+  enumLabels: Object.fromEntries(credentialChoices.value.map(item => [item.name, item.label])),
+  enumFullLabels: Object.fromEntries(credentialChoices.value.map(item => [item.name, item.fullLabel])),
+} }))
+const keyDocument = computed<Record<string, unknown>>({ get: () => ({ apiKey: keyDraft.value }), set: value => { keyDraft.value = value.apiKey as string } })
+const keySchema = computed<JsonSchema>(() => ({ type: 'object', additionalProperties: false, required: ['apiKey'], properties: { apiKey: { type: 'string', title: t('apiKey'), minLength: 1, maxLength: 4096, writeOnly: true } } }))
+const keyUISchema = computed<ControlElement>(() => ({ type: 'Control', scope: '#/properties/apiKey', options: { placeholder: editingSource.value === 'settings' ? t('reuseSavedKey') : t('enterApiKey') } }))
+function validKeyDocument(value: Record<string, unknown>): FormIssue[] {
+  if (typeof value.apiKey !== 'string' || !value.apiKey.trim()) return [] // Schema supplies the required-field message.
+  if (new TextEncoder().encode(value.apiKey.trim()).length > 4096) return [{ path: '/apiKey', message: t('configByteLimit', { limit: 4096 }) }]
+  return /[\s\p{Cc}]/u.test(value.apiKey.trim()) ? [{ path: '/apiKey', message: t('configKeyWhitespace') }] : []
+}
 function editKey(name: string) {
   if (loading.value || busy.value) return
   editing.value = name
-  keyDraft.value = ''
+  keyDraft.value = ''; keyFormEpoch.value++
   keyError.value = ''
   removingKey.value = false
   removeKeyError.value = ''
@@ -108,43 +131,40 @@ function closeKeyEditor() {
   removingKey.value = false
   removeKeyError.value = ''
 }
-function move(key: OrderKind, index: number, direction: number) {
-  const target = index + direction
-  if (loading.value || busy.value || target < 0 || target >= orders[key].length) return
-  const next = [...orders[key]]
-  ;[next[index], next[target]] = [next[target]!, next[index]!]
-  orders[key] = next
-  updated.value = ''
-}
-async function saveOrder(key: OrderKind) {
-  if (busy.value || loading.value || !orderDirty(key)) return
-  busy.value = key
-  error.value = ''
-  updated.value = ''
-  const next = [...orders[key]]
-  try {
-    await client.request('/search-config', {
-      method: 'PATCH', signal: controller.signal, body: JSON.stringify({ [key]: next }),
-    })
-    if (!controller.signal.aborted) {
-      savedOrders[key] = next
-      updated.value = key
+const document = computed<Record<string, unknown>>({
+  get: () => ({ order: [...orders.order], fetchOrder: [...orders.fetchOrder], searchPreviewBytes: previewValue('searchPreviewBytes'), fetchPreviewBytes: previewValue('fetchPreviewBytes') }),
+  set: value => {
+    orders.order = [...value.order as string[]]; orders.fetchOrder = [...value.fetchOrder as string[]]
+    for (const key of ['searchPreviewBytes', 'fetchPreviewBytes'] as const) {
+      previews[key].value = value[key] as number
     }
-  } catch (cause) { if (!controller.signal.aborted) error.value = String(cause) }
-  finally { busy.value = '' }
-}
-
-async function savePreview(key: PreviewKind) {
-  if (busy.value || loading.value || !previewDirty(key) || !validPreview(key)) return
-  busy.value = key
-  error.value = ''
-  updated.value = ''
-  const next = previewValue(key)!
+    updated.value = ''
+  },
+})
+const schema = computed<JsonSchema>(() => ({ type: 'object', additionalProperties: false, required: ['order', 'fetchOrder', 'searchPreviewBytes', 'fetchPreviewBytes'], properties: {
+  order: { type: 'array', title: t('searchOrder'), uniqueItems: true, minItems: 5, maxItems: 5, items: { type: 'string', enum: ['firecrawl', 'parallel', 'tavily', 'exa', 'deepseek'] } },
+  fetchOrder: { type: 'array', title: t('fetchOrder'), uniqueItems: true, minItems: 2, maxItems: 2, items: { type: 'string', enum: ['jina', 'deepseek'] } },
+  searchPreviewBytes: { type: 'integer', title: `${t('searchPreviewLength')} (${t('configEditorBytes')})`, description: t('configEditorBytesHint'), minimum: 0, maximum: Number.MAX_SAFE_INTEGER },
+  fetchPreviewBytes: { type: 'integer', title: `${t('fetchPreviewLength')} (${t('configEditorBytes')})`, description: t('configEditorBytesHint'), minimum: 0, maximum: Number.MAX_SAFE_INTEGER },
+} }))
+const preferencesUISchema = computed<VerticalLayout>(() => ({ type: 'VerticalLayout', elements: [
+  { type: 'Control', scope: '#/properties/order', options: { reorderOnly: true, enumLabels: names, description: t('searchOrderHint') } },
+  { type: 'Control', scope: '#/properties/fetchOrder', options: { reorderOnly: true, enumLabels: { jina: jinaName, deepseek: names.deepseek }, description: t('fetchOrderHint') } },
+  { type: 'Control', scope: '#/properties/searchPreviewBytes' },
+  { type: 'Control', scope: '#/properties/fetchPreviewBytes' },
+] }))
+const preferencesDirty = computed(() => orderDirty('order') || orderDirty('fetchOrder') || previewDirty('searchPreviewBytes') || previewDirty('fetchPreviewBytes'))
+async function savePreferences() {
+  if (busy.value || loading.value || !editorValid.value || !preferencesDirty.value) return
+  busy.value = 'preferences'; error.value = ''; updated.value = ''
+  const next = document.value
   try {
-    await client.request('/search-config', { method: 'PATCH', signal: controller.signal, body: JSON.stringify({ [key]: next }) })
+    await client.request('/search-config', { method: 'PATCH', signal: controller.signal, body: JSON.stringify(next) })
     if (!controller.signal.aborted) {
-      previews[key].saved = next
-      updated.value = key
+      savedOrders.order = [...next.order as string[]]; savedOrders.fetchOrder = [...next.fetchOrder as string[]]
+      previews.searchPreviewBytes.saved = next.searchPreviewBytes as number
+      previews.fetchPreviewBytes.saved = next.fetchPreviewBytes as number
+      editorEpoch.value++; updated.value = 'preferences'
     }
   } catch (cause) { if (!controller.signal.aborted) error.value = String(cause) }
   finally { busy.value = '' }
@@ -220,31 +240,9 @@ async function updateKey(remove = false) {
     <v-alert v-if="error" type="error" role="alert" :message="error" />
     <v-button v-if="error" :disabled="loading || !!busy" @click="load">{{ t('retry') }}</v-button>
     <p v-if="loading" role="status">{{ t('loadingSearchSettings') }}</p>
-    <div class="web-order-sections">
-    <template v-for="section in orderSections" :key="section.key">
-    <form v-if="orders[section.key].length" class="web-order-form" :class="section.key === 'order' ? 'search-order-form' : 'fetch-order-form'" :aria-label="t(section.title)" @submit.prevent="saveOrder(section.key)">
-      <h2>{{ t(section.title) }}</h2>
-      <p class="search-settings-hint">{{ t(section.hint) }}</p>
-      <ol :aria-label="t(section.title)">
-        <li v-for="(name, index) in orders[section.key]" :key="name" :data-provider="name">
-          <span class="search-order-number" aria-hidden="true">{{ index + 1 }}</span>
-          <span class="search-order-name">
-            <span class="search-provider-name">{{ providerName(name) }}</span>
-            <span class="search-quota-tag" :class="{ 'has-key': keySource(credentialName(name, section.key)) !== 'none' }" :title="keyStatus(keySource(credentialName(name, section.key)), name)">{{ t(keySource(credentialName(name, section.key)) !== 'none' ? 'searchPaidQuota' : name === 'deepseek' ? 'searchKeyUnconfigured' : 'searchFreeQuota') }}</span>
-          </span>
-          <div class="search-order-actions">
-            <v-button class="icon-button" type="button" variant="text" :aria-label="t('editSearchKey', { name: providerName(name) })" :title="t('editSearchKey', { name: providerName(name) })" :disabled="loading || !!busy" @click="editKey(credentialName(name, section.key))"><EditOutlined /></v-button>
-            <v-button class="icon-button" type="button" variant="text" :aria-label="t('searchMoveUp', { name: providerName(name) })" :title="t('searchMoveUp', { name: providerName(name) })" :disabled="loading || !!busy || index === 0" @click="move(section.key, index, -1)"><ArrowUpOutlined /></v-button>
-            <v-button class="icon-button" type="button" variant="text" :aria-label="t('searchMoveDown', { name: providerName(name) })" :title="t('searchMoveDown', { name: providerName(name) })" :disabled="loading || !!busy || index === orders[section.key].length - 1" @click="move(section.key, index, 1)"><ArrowDownOutlined /></v-button>
-          </div>
-        </li>
-      </ol>
-      <div class="search-provider-actions"><v-button type="submit" variant="primary" :loading="busy === section.key" :disabled="loading || !!busy || !orderDirty(section.key)">{{ t('saveSearchOrder') }}</v-button></div>
-      <p v-if="updated === section.key || orders[section.key].some(name => credentialName(name, section.key) === updated)" class="search-settings-updated" role="status">{{ t('searchSettingsUpdated') }}</p>
-    </form>
-
-    </template>
-    </div>
+    <form v-if="!loading && orders.order.length" class="search-config-form" @submit.prevent="savePreferences">
+      <SchemaForm id="search-config" v-model="document" :schema="schema" :uischema="preferencesUISchema" :disabled="!!busy" :reset-key="editorEpoch" @validity="editorValid = $event" @dirty="editorDirty = $event">
+        <template #searchPreviewBytes-before>
     <section v-if="!loading" class="web-preview-section" :aria-label="t('webPreviewLength')">
       <h2>{{ t('webPreviewLength') }}</h2>
     <figure id="web-preview-hint" class="web-preview-tradeoff" role="img" :aria-label="t('webPreviewHint')">
@@ -262,20 +260,20 @@ async function updateKey(remove = false) {
       </div>
       <figcaption aria-hidden="true"><span>{{ t('webPreviewShorter') }}</span><span>{{ t('webPreviewLength') }}</span><span>{{ t('webPreviewLonger') }}</span></figcaption>
     </figure>
-    <div class="web-preview-forms">
-    <form v-for="section in orderSections" :key="section.preview" class="web-preview-form" :aria-label="t(section.previewTitle)" @submit.prevent="savePreview(section.preview)">
-      <label :for="section.preview">{{ t(section.previewTitle) }}</label>
-      <p :id="`${section.preview}-hint`" class="search-settings-hint">{{ t(section.previewHint) }}</p>
-      <div class="web-preview-controls">
-        <v-input-number :id="section.preview" v-model:value="previews[section.preview].length" :aria-label="t(section.previewTitle)" :aria-describedby="`${section.preview}-hint web-preview-hint`" :min="1 / 1024" :step="1" :disabled="loading || !!busy || previews[section.preview].unlimited" />
-        <span>{{ t('webPreviewKiB') }}</span>
-        <v-checkbox v-model:checked="previews[section.preview].unlimited" :disabled="loading || !!busy">{{ t('webPreviewUnlimited') }}</v-checkbox>
-      </div>
-      <div class="search-provider-actions"><v-button type="submit" variant="primary" :loading="busy === section.preview" :disabled="loading || !!busy || !previewDirty(section.preview) || !validPreview(section.preview)">{{ t('saveChanges') }}</v-button></div>
-      <p v-if="updated === section.preview" class="search-settings-updated" role="status">{{ t('searchSettingsUpdated') }}</p>
-    </form>
-    </div>
     </section>
+        </template>
+      </SchemaForm>
+      <v-button type="submit" variant="primary" :loading="busy === 'preferences'" :disabled="!!busy || !editorValid || !preferencesDirty">{{ t('saveChanges') }}</v-button>
+      <p v-if="updated === 'preferences'" class="search-settings-updated" role="status">{{ t('searchSettingsUpdated') }}</p>
+    </form>
+    <section v-if="!loading && orders.order.length" class="search-credentials" :aria-label="t('apiKey')">
+      <h2>{{ t('apiKey') }}</h2>
+      <SchemaForm id="search-credential-choice" v-model="choiceDocument" :schema="choiceSchema" :uischema="choiceUISchema" :disabled="!!busy" />
+      <p class="search-settings-hint">{{ keyStatus(keySource(credentialChoice), credentialChoice) }}</p>
+      <v-button :disabled="!!busy" @click="editKey(credentialChoice)"><EditOutlined aria-hidden="true" />{{ t('editSearchKey', { name: providerName(credentialChoice) }) }}</v-button>
+      <p v-if="updated && updated !== 'preferences'" class="search-settings-updated" role="status">{{ t('searchSettingsUpdated') }}</p>
+    </section>
+
   </div>
   <v-modal :open="!!editing" centered :z-index="1200" width="min(480px, calc(100vw - 2rem))"
     :title="t('editSearchKey', { name: providerName(editing) })" :footer="null" :closable="!busy" :keyboard="!busy && !removingKey" :mask-closable="!busy && !removingKey" destroy-on-hidden
@@ -285,8 +283,7 @@ async function updateKey(remove = false) {
       <p class="search-settings-hint">{{ keyStatus(editingSource, editing) }}</p>
       <p v-if="editing === 'jina'" class="search-settings-hint">{{ t('jinaReaderHint') }}</p>
       <p v-if="editing === 'deepseek' || editing === 'deepseek-fetch'" class="search-settings-hint">{{ t(editing === 'deepseek' ? 'deepseekSearchKeyHint' : 'deepseekFetchKeyHint') }}</p>
-      <label for="search-provider-key">{{ t('apiKey') }}</label>
-      <v-input-password id="search-provider-key" v-model:value="keyDraft" :aria-label="`${providerName(editing)} API Key`" :maxlength="4096" :disabled="!!busy" autocomplete="new-password" :placeholder="editingSource === 'settings' ? t('reuseSavedKey') : t('enterApiKey')" />
+      <SchemaForm id="search-provider-key" v-model="keyDocument" :schema="keySchema" :uischema="keyUISchema" :validate="validKeyDocument" :disabled="!!busy" :reset-key="keyFormEpoch" @validity="keyFormValid = $event" />
       <p v-if="editingSource === 'environment'" class="search-settings-hint">{{ t('searchKeyEnvironmentHint') }}</p>
       <div class="search-key-actions">
         <ConfirmPopover v-if="editingSource === 'settings'" :show="removingKey" :message="t('removeSearchKeyConfirm', { name: removalName })" :cancel-text="t('cancel')" :confirm-text="t('delete')" :busy="!!busy" :error="removeKeyError" :z-index="1300" popover-class="search-key-remove-popover" @update:show="removingKey = $event; removeKeyError = ''" @confirm="updateKey(true)">
@@ -338,9 +335,8 @@ async function updateKey(remove = false) {
   .web-flow-actor h3 { font-size: var(--font-size-small); }
   .web-capability-details { grid-template-columns: minmax(0, 1fr); }
 }
-.web-order-sections, .web-preview-forms { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 22rem), 1fr)); gap: 1.5rem; }
 .web-preview-section { display: flex; flex-direction: column; gap: 1.25rem; min-width: 0; padding-top: 1.5rem; border-top: 1px solid var(--border); }
-.web-preview-section>h2 { margin: 0; font-size: 1rem; font-weight: 600; }
+.web-preview-section>h2, .search-credentials>h2 { margin: 0; font-size: 1rem; font-weight: 600; }
 .web-preview-tradeoff { margin: 0; padding: 1rem; border: 1px solid var(--border-subtle); border-radius: 12px; background: var(--surface-subtle); }
 .web-preview-legend { display: flex; flex-wrap: wrap; gap: .5rem 1.25rem; margin-bottom: .75rem; }
 .web-preview-legend>span { display: inline-flex; align-items: center; gap: .5rem; }
@@ -355,18 +351,7 @@ async function updateKey(remove = false) {
 .web-preview-chart .preview-cost { stroke-dasharray: 6 5; }
 .web-preview-chart .preview-guide { stroke: var(--border); stroke-width: 1; }
 .web-preview-tradeoff figcaption { display: flex; justify-content: space-between; gap: .5rem; margin: .5rem 0 0 2.75rem; color: var(--muted); }
-.search-key-form, .web-order-form, .web-preview-form { display: flex; flex-direction: column; gap: .65rem; min-width: 0; }
-.web-preview-form>label { font-weight: 600; }
-.web-preview-controls { display: flex; align-items: center; flex-wrap: wrap; gap: .5rem; }
-.web-preview-controls .ui-input-number { width: 8rem; max-width: 100%; }
-.web-order-form h2 { margin: 0; font-size: 1rem; font-weight: 600; }
-.web-order-form ol { list-style: none; padding: 0; margin: 0; }
-.web-order-form li { display: flex; align-items: center; gap: .65rem; padding: .4rem 0; border-bottom: 1px solid var(--border); }
-.search-order-number { color: var(--muted); min-width: 1rem; text-align: center; }
-.search-order-name { display: flex; align-items: center; flex-wrap: wrap; gap: .35rem .5rem; flex: 1; min-width: 0; overflow-wrap: anywhere; }
-.search-quota-tag { flex-shrink: 0; border: 1px solid var(--border); border-radius: 4px; padding: 0 .4rem; color: var(--muted); background: var(--surface-subtle); font-size: var(--font-size-small); line-height: 1.7; }
-.search-quota-tag.has-key { color: var(--accent); background: var(--accent-soft); }
-.search-order-actions { display: flex; flex-shrink: 0; gap: .25rem; }
+.search-key-form, .search-config-form, .search-credentials { display: flex; flex-direction: column; gap: .65rem; min-width: 0; }
 .search-provider-actions, .search-key-actions, .search-key-actions>div { display: flex; align-items: center; flex-wrap: wrap; gap: .5rem; }
 .search-key-actions { margin-top: .5rem; }
 .search-key-actions>div { margin-left: auto; }

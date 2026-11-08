@@ -54,8 +54,28 @@ test('legacy OpenCode MCP entries retain custom headers through import and editi
   seedOpenCode(vista, { provider: {}, mcp: {
     context7: { type: 'remote', url: 'https://example.invalid/mcp', headers: { CONTEXT7_API_KEY: 'source-secret' }, enabled: true },
   } })
-  const configPath = join(dirname(vista.workspacePath), 'vista', 'mcp.json')
-  const savedServers = () => JSON.parse(readFileSync(configPath, 'utf8'))
+  const configPath = join(dirname(vista.workspacePath), 'vista', 'config.json')
+  const savedServers = () => {
+    const publicText = readFileSync(configPath, 'utf8')
+    expect(publicText).not.toContain('source-secret')
+    expect(publicText).not.toContain('replacement-secret')
+    const config = JSON.parse(publicText)
+    expect(config.version).toBe(2)
+    for (const server of config.mcp) {
+      for (const name of Object.keys(server)) expect(['token', 'clientsecret', 'headers']).not.toContain(name.toLowerCase())
+      if (server.credentialRef === undefined) continue
+      expect(typeof server.credentialRef).toBe('string')
+      expect(server.credentialRef).not.toBe('')
+      const keys = JSON.parse(readFileSync(join(dirname(configPath), 'key.json'), 'utf8'))
+      expect(keys.version).toBe(1)
+      const bundle = keys.entries[server.credentialRef]
+      expect(bundle).toMatchObject({ section: 'mcp', owner: `id:${server.id}` })
+      for (const name of Object.keys(bundle.values)) expect(['token', 'clientSecret', 'headers']).toContain(name)
+      delete server.credentialRef
+      Object.assign(server, bundle.values)
+    }
+    return config.mcp
+  }
   await page.goto(`${vista.origin}/settings/mcp`)
   await page.getByRole('button', { name: 'Import MCP services', exact: true }).click()
   const modal = page.locator('.provider-import-modal')

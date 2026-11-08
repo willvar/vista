@@ -14,11 +14,20 @@ const state = mkdtempSync(join(stateParent, 'vista-escaped-input-'))
 const prompt = '<'.repeat(8 << 10)
 let calls = 0
 let promptCalls = 0
+let firstRequestStarted = false
+let releaseFirstReply
+const firstReply = new Promise(resolve => { releaseFirstReply = resolve })
 const provider = createServer(async (request, response) => {
   let body = ''
   for await (const chunk of request) body += chunk
   const messages = JSON.parse(body).messages || []
-  if (messages.some(message => message.role === 'user' && message.content === prompt)) promptCalls++
+  if (messages.some(message => message.role === 'user' && message.content === prompt)) {
+    promptCalls++
+    if (promptCalls === 1) {
+      firstRequestStarted = true
+      await firstReply
+    }
+  }
   calls++
   await new Promise(resolve => setTimeout(resolve, 500))
   response.writeHead(200, { 'Content-Type': 'text/event-stream' })
@@ -45,28 +54,32 @@ try {
   const session = await api('/sessions', { method: 'POST', body: JSON.stringify({ title: 'escaped input' }) })
   const run = await api(`/sessions/${session.id}/messages`, { method: 'POST', body: JSON.stringify({ content: prompt }) })
   if (run.message.content !== prompt || run.event.data.content !== prompt) throw new Error('initial message changed during persistence')
-  const queued = await api(`/sessions/${session.id}/messages`, { method: 'POST', body: JSON.stringify({ content: prompt, mode: 'later' }) })
+  for (let attempt = 0; !firstRequestStarted && attempt < 200; attempt++) await new Promise(resolve => setTimeout(resolve, 50))
+  if (!firstRequestStarted) throw new Error('initial model request did not start')
+  const queued = await api(`/sessions/${session.id}/messages`, { method: 'POST', body: JSON.stringify({ content: prompt }) })
   if (queued.input.content !== prompt || queued.event.data.content !== prompt) throw new Error('queued message changed during persistence')
+  releaseFirstReply()
   let cursor = queued.event.sequence
   let finished = 0
   let delivered = false
   let replayed = false
-  for (let attempt = 0; attempt < 200 && finished < 2; attempt++) {
+  for (let attempt = 0; attempt < 200 && finished < 1; attempt++) {
     const events = await api(`/sessions/${session.id}/event-page?after=${cursor}`)
     for (const event of events) {
       cursor = event.sequence
       if (event.kind === 'input_delivered' && event.data.id === queued.input.id) delivered = true
-      if (event.kind === 'message' && event.data.role === 'user' && event.data.runId !== run.runId && event.data.content === prompt) replayed = true
+      if (event.kind === 'message' && event.data.role === 'user' && event.data.runId === run.runId && event.data.content === prompt) replayed = true
       if (event.kind === 'run_finished') {
         if (event.data.status !== 'succeeded') throw new Error(`run failed: ${JSON.stringify(event.data)}`)
         finished++
       }
     }
-    if (finished < 2) await new Promise(resolve => setTimeout(resolve, 50))
+    if (finished < 1) await new Promise(resolve => setTimeout(resolve, 50))
   }
-  if (promptCalls !== 2 || finished !== 2 || !delivered || !replayed) throw new Error(`expected two completed runs and a durable queued delivery, got ${promptCalls} prompt calls, ${calls} Provider calls, ${finished} finished runs, delivered=${delivered}, replayed=${replayed}`)
+  if (promptCalls !== 2 || finished !== 1 || !delivered || !replayed) throw new Error(`expected two model requests in one run and a durable follow-up delivery, got ${promptCalls} prompt calls, ${calls} Provider calls, ${finished} finished runs, delivered=${delivered}, replayed=${replayed}`)
   console.log(JSON.stringify({ promptBytes: prompt.length, promptCalls, providerCalls: calls, finishedRuns: finished }))
 } finally {
+  releaseFirstReply()
   if (started) try { await promisify(execFile)(binary, ['stop'], { env }) } catch {}
   await new Promise(resolve => provider.close(resolve))
   rmSync(state, { recursive: true, force: true })

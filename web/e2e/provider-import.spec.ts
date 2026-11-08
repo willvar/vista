@@ -8,7 +8,28 @@ function seedOpenCode(vista: VistaFixture, config: object) {
   const configPath = join(root, 'opencode', 'opencode.jsonc')
   mkdirSync(dirname(configPath), { recursive: true })
   writeFileSync(configPath, '// OpenCode configuration\n' + JSON.stringify(config), { mode: 0o600 })
-  return { configPath, modelsPath: join(root, 'vista', 'models.json') }
+  return { configPath, vistaConfigPath: join(root, 'vista', 'config.json') }
+}
+
+function savedModels(path: string) {
+  const publicText = readFileSync(path, 'utf8')
+  expect(publicText).not.toContain('test-secret')
+  const config = JSON.parse(publicText)
+  expect(config.version).toBe(2)
+  const keys = JSON.parse(readFileSync(join(dirname(path), 'key.json'), 'utf8'))
+  expect(keys.version).toBe(1)
+  for (const model of config.models.models) {
+    for (const name of Object.keys(model)) expect(['apikey', 'accesstoken', 'authtoken', 'appcode', 'headers']).not.toContain(name.toLowerCase())
+    const ref = model.credentialRef
+    expect(typeof ref).toBe('string')
+    expect(ref).not.toBe('')
+    const bundle = keys.entries[ref]
+    expect(bundle).toMatchObject({ section: 'models', owner: model.connectionId ? `connection:${model.connectionId}` : `key:${model.key}` })
+    for (const name of Object.keys(bundle.values)) expect(['apiKey', 'accessToken', 'authToken', 'appCode', 'headers']).toContain(name)
+    delete model.credentialRef
+    Object.assign(model, bundle.values)
+  }
+  return config.models
 }
 
 test.describe('provider import', () => {
@@ -20,7 +41,7 @@ test.describe('provider import', () => {
       unsupported: { name: 'Unsupported connection', package: 'unsupported-package' },
       deepseek: { settings: { apiKey: 'deepseek-test-secret' } },
     }, plugins: [{ package: './extensions/gateway', options: { apiKey: 'plugin-test-secret' } }] })
-    const before = readFileSync(paths.modelsPath, 'utf8')
+    const before = readFileSync(paths.vistaConfigPath, 'utf8')
     let reads = 0
     page.on('request', request => { if (request.url().endsWith('/api/provider-import')) reads++ })
     await page.goto(vista.origin + '/settings/models')
@@ -45,11 +66,11 @@ test.describe('provider import', () => {
     await expect(modal.locator('.provider-import-hint').filter({ hasText: 'Read connections and sign-in credentials' })).toContainText('For connections that were not detected, try asking the agent to help import them.')
     await expect(modal.locator('.ui-alert-warning')).toHaveCount(0)
     expect(await modal.textContent()).not.toContain('test-secret')
-    expect(readFileSync(paths.modelsPath, 'utf8')).toBe(before)
+    expect(readFileSync(paths.vistaConfigPath, 'utf8')).toBe(before)
     await page.keyboard.press('Escape')
     await expect(modal).toBeHidden()
     await expect(settings).toBeVisible()
-    expect(readFileSync(paths.modelsPath, 'utf8')).toBe(before)
+    expect(readFileSync(paths.vistaConfigPath, 'utf8')).toBe(before)
 
     await open.click()
     await expect(modal.locator('.provider-import-list')).toHaveCount(0)
@@ -62,7 +83,7 @@ test.describe('provider import', () => {
     await expect(modal).toBeHidden()
     await expect(settings.getByText('Imported 1 connections.', { exact: true })).toBeVisible()
     await expect(settings.locator('.configured-provider').filter({ hasText: 'OpenCode gateway' })).toBeVisible()
-    const saved = JSON.parse(readFileSync(paths.modelsPath, 'utf8'))
+    const saved = savedModels(paths.vistaConfigPath)
     expect(saved.models).toHaveLength(1)
     expect(saved.models[0]).toMatchObject({ name: 'OpenCode gateway', provider: 'openai-chat', providerId: 'custom', apiKey: 'import-test-secret' })
 
@@ -101,7 +122,7 @@ test.describe('provider import', () => {
     await expect(confirm).toBeEnabled()
     await confirm.click()
     await expect(modal).toBeHidden()
-    const saved = JSON.parse(readFileSync(paths.modelsPath, 'utf8'))
+    const saved = savedModels(paths.vistaConfigPath)
     expect(saved.models[0].apiKey).toBe('second-test-secret')
   })
 
@@ -139,7 +160,7 @@ test.describe('provider import', () => {
     expect(await modal.textContent()).not.toContain('test-secret')
     await modal.getByRole('button', { name: 'Import (1)', exact: true }).click()
     await expect(modal).toBeHidden()
-    const saved = JSON.parse(readFileSync(paths.modelsPath, 'utf8'))
+    const saved = savedModels(paths.vistaConfigPath)
     expect(saved.models).toHaveLength(1)
     expect(saved.models[0]).toMatchObject({ name: 'Mixed gateway', provider: 'openai-chat', apiKey: 'legacy-test-secret' })
     expect(readFileSync(authPath, 'utf8')).toBe(auth)
