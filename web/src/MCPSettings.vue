@@ -235,6 +235,19 @@ async function save() {
   } catch (cause) { if (!lifetime.signal.aborted) formError.value = String(cause) }
   finally { busy.value = false }
 }
+async function toggle(server: MCPServer, enabled: boolean) {
+  if (busy.value) return
+  busy.value = true
+  error.value = ''
+  saved.value = false
+  try {
+    await client.request('/mcp-config', { method: 'PATCH', body: JSON.stringify({ id: server.id, disabled: !enabled }), signal: lifetime.signal })
+    if (lifetime.signal.aborted) return
+    server.disabled = !enabled
+    saved.value = true
+  } catch (cause) { if (!lifetime.signal.aborted) error.value = String(cause) }
+  finally { busy.value = false }
+}
 async function remove(server: MCPServer) {
   if (busy.value) return
   busy.value = true
@@ -440,7 +453,7 @@ defineExpose({ imported: () => { saved.value = true }, headerAction: computed(()
     <v-empty v-else-if="!servers.length && !error" class="vista-empty-state mcp-empty" :description="t('mcpEmpty')" role="status" />
     <p v-if="saved" class="mcp-saved" role="status">{{ t('mcpSaved') }}</p>
     <article v-for="server in servers" :key="server.id" class="mcp-server" :data-mcp="server.name" :data-mcp-id="server.id">
-      <div class="mcp-server-heading"><div class="mcp-name"><strong>{{ server.name }}</strong><span class="mcp-badge">{{ server.transport === 'stdio' ? 'stdio' : 'HTTP' }}</span></div></div>
+      <div class="mcp-server-heading"><div class="mcp-name"><strong>{{ server.name }}</strong><span class="mcp-badge">{{ server.transport === 'stdio' ? 'stdio' : 'HTTP' }}</span></div><v-switch :checked="!server.disabled" :disabled="busy" :aria-label="t('mcpEnable', { name: server.name })" @update:checked="toggle(server, !!$event)" /></div>
       <p class="mcp-address">{{ server.transport === 'http' ? server.endpoint : [server.command, ...(server.args || [])].join(' ') }}</p>
       <div class="mcp-status" :class="{ available: !server.disabled && server.check.status === 'available', failed: !server.disabled && server.check.status === 'error' }"><span class="mcp-status-dot" aria-hidden="true"></span>{{ status(server) }}<span v-if="!server.disabled && server.check.status === 'available' && server.check.toolCount >= 0">· {{ t('mcpToolCount', { count: server.check.toolCount }) }}</span></div>
       <p v-if="server.check.error && !server.disabled" class="mcp-error">{{ server.check.error }}</p>
