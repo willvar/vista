@@ -19,11 +19,15 @@ type instructionRead struct {
 	hasEnd bool
 }
 
+func (read instructionRead) complete() bool {
+	return read.hasEnd && len(read.ranges) == 1 && read.ranges[0].start == 0 && read.ranges[0].end == read.total
+}
+
 // Each task owns its model's read coverage. The run loop rebuilds it from the
 // context consumed by a successful model request, before starting its tools.
 // Tool goroutines only inspect it, so a concurrent read cannot authorize a
-// write from the same model turn. Compacted-away pages and other tasks' reads
-// cannot authorize an operation either.
+// write from the same model turn. Summaries without the original pages and
+// other tasks' reads cannot authorize an operation either.
 type projectInstructionState struct {
 	global tools.InstructionFile // The exact version loaded into the system prompt.
 	read   map[string]instructionRead
@@ -70,7 +74,7 @@ func (s *projectInstructionState) prepare(ctx context.Context, call provider.Too
 			continue
 		}
 		read := s.read[file.Path]
-		if read.hash != file.SHA256 || !read.hasEnd || len(read.ranges) != 1 || read.ranges[0].start != 0 || read.ranges[0].end != read.total {
+		if read.hash != file.SHA256 || !read.complete() {
 			unread = append(unread, file)
 		}
 	}
@@ -85,10 +89,15 @@ func (s *projectInstructionState) prepare(ctx context.Context, call provider.Too
 
 // Only complete tool pages actually present in the request acknowledge text.
 // Discovery metadata, previews, skipped pages and changed hashes never suffice.
-func (s *projectInstructionState) acknowledge(messages []provider.ChatMessage) {
-	s.read = nil
+type instructionPage struct {
+	index, offset int
+	page          tools.SkillPage
+}
+
+func projectInstructionPages(messages []provider.ChatMessage) []instructionPage {
+	var pages []instructionPage
 	calls := make(map[string]provider.ToolCall)
-	for _, message := range messages {
+	for index, message := range messages {
 		if message.Role == "assistant" {
 			for _, call := range message.ToolCalls {
 				if call.Function.Name == "read_project_instruction" {
@@ -113,6 +122,15 @@ func (s *projectInstructionState) acknowledge(messages []provider.ChatMessage) {
 			page.SHA256 == "" || page.Path != filepath.Clean(input.Path) || input.Offset < 0 || page.NextOffset-input.Offset != len(page.Content) {
 			continue
 		}
+		pages = append(pages, instructionPage{index: index, offset: input.Offset, page: page})
+	}
+	return pages
+}
+
+func (s *projectInstructionState) acknowledge(messages []provider.ChatMessage) {
+	s.read = nil
+	for _, item := range projectInstructionPages(messages) {
+		page := item.page
 		if s.read == nil {
 			s.read = make(map[string]instructionRead)
 		}
@@ -120,7 +138,7 @@ func (s *projectInstructionState) acknowledge(messages []provider.ChatMessage) {
 		if read.hash != page.SHA256 {
 			read = instructionRead{hash: page.SHA256}
 		}
-		read.ranges = append(read.ranges, instructionRange{input.Offset, page.NextOffset})
+		read.ranges = append(read.ranges, instructionRange{item.offset, page.NextOffset})
 		sort.Slice(read.ranges, func(i, j int) bool { return read.ranges[i].start < read.ranges[j].start })
 		merged := read.ranges[:0]
 		for _, span := range read.ranges {
@@ -136,4 +154,32 @@ func (s *projectInstructionState) acknowledge(messages []provider.ChatMessage) {
 		}
 		s.read[page.Path] = read
 	}
+}
+
+// Preserve actual, fully read, still-current rule pages through compaction.
+// Keeping their complete assistant/tool groups also preserves native replay
+// state and scope; no synthetic "already read" authorization is introduced.
+func retainedProjectInstructionResults(ctx context.Context, messages []provider.ChatMessage) (map[int]bool, error) {
+	state := projectInstructionState{}
+	state.acknowledge(messages)
+	current := make(map[string]string)
+	for path, read := range state.read {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		if !read.complete() {
+			continue
+		}
+		page, err := tools.ReadProjectInstruction(path, 0)
+		if err == nil && page.SHA256 == read.hash {
+			current[path] = read.hash
+		}
+	}
+	keep := make(map[int]bool)
+	for _, item := range projectInstructionPages(messages) {
+		if hash, ok := current[item.page.Path]; ok && hash == item.page.SHA256 {
+			keep[item.index] = true
+		}
+	}
+	return keep, ctx.Err()
 }

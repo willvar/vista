@@ -38,8 +38,13 @@ reason, or silently truncates input, cannot be reliably detected by these rules.
 Automatic recovery runs only between model/tool decision boundaries. It keeps
 fixed system instructions, the current run's original user task, latest user input,
 incomplete call groups, and newest complete assistant/tool group. It summarizes
-older complete groups with the current selected model and no tools. Estimates
-are used to partition the work, never to assert model capacity.
+older complete groups with the current selected model and no tools.
+Fully read project rules whose source hashes are still current retain their
+original assistant/tool groups, including scope, page offsets and native replay
+state. Partial, changed or missing rules are not protected this way; operation
+checks still require complete, current text in the consumed context. A summary
+mentioning rules does not authorize filesystem work.
+Estimates partition work only after an explicit overflow, never assert model capacity.
 
 Automatically joined child reports carry a local `RuntimeData` marker. Their
 wire role remains system, but they are evidence rather than fixed instructions:
@@ -56,8 +61,19 @@ summarize the last completed reply, including a conversation with only one
 user/assistant pair. It keeps the latest user input verbatim. A pending question
 or request for user input still protects the last group until it is answered.
 
-Summary requests that explicitly overflow halve the transcript batch. Each
-compaction has at most 32 summary requests, including rejected requests. A
+The first summary request includes the entire selected transcript and existing
+summary. Only explicit upstream context overflow halves the transcript budget;
+the remaining text is then divided evenly across a fixed number of requests.
+UTF-8 boundaries and integer rounding do not create an extra tiny remainder
+request. Requests keep the selected model and reasoning effort.
+Each attempt emits a paired, uniquely numbered `model_request`/`model_result`
+with `purpose: "summary"`, outcome, elapsed duration and upstream usage when
+available, including failed and cancelled attempts. Diagnostics use the same
+turn identity. Token statistics keep the provider-dispatch accounting path;
+these result records do not count the same usage twice.
+The summary prompt preserves goals, constraints, existing authorization,
+verified work and side effects, pending work, uncertainties and evidence references.
+Each compaction has at most 32 summary requests, including rejected requests. A
 summary must be nonempty text within 8 KiB, with no tool calls, and the resulting
 context must be smaller. Failure retains the active checkpoint. The failed main
 request gets at most two recovery compactions before surfacing an error; a
