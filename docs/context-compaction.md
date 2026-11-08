@@ -116,8 +116,8 @@ see [resource storage](resources.md).
 It reserves the session execution slot atomically. Active execution rejects it;
 normal send/interjection and a second compaction cannot overlap it. A successful
 manual recovery releases a paused empty queue so the next explicit send starts
-normally; existing pending inputs retain their paused state. It produces
-no user/assistant message and never launches queued input on completion.
+normally; existing pending inputs retain their paused state. It creates no new
+user input or model turn and never launches queued input on completion.
 Cancellation, Worker loss, and restart release the slot through the same
 terminal transaction. The committed checkpoint is the success boundary.
 
@@ -125,14 +125,21 @@ terminal transaction. The committed checkpoint is the success boundary.
 events expose progress and outcome. The frontend compares event sequences,
 retains its session cancellation guards, and does not let a late POST restore
 an older status. There is no capacity, remaining-token, or percentage display. The composer's
-context status shows progress, outcomes and an estimated token total for the retained main context,
+context status shows compaction progress or a failure and an estimated token total for the retained main context,
 including instructions, summaries, messages and tool content. Runtime
 `context_usage` events and committed compaction notices update the total;
 `GET /api/sessions/:id/context-usage` restores it outside the recent event window.
 While idle, the same context assembly used for the next request recomputes the
 estimate, including retained tool turns from completed or interrupted runs. This number
-is never cumulative request usage or an automatic compaction threshold. After manual
-success, Continue is offered in the placeholder only while idle with an empty
+is never cumulative request usage or an automatic compaction threshold.
+Successful automatic and manual compaction hide the composer status and display
+the committed summary as a normal assistant message, with Markdown and copying,
+at its event position in the conversation. The execution details do not repeat
+the summary. Message pages and snapshots derive this display from the existing
+`context_notice`, including notices outside the recent event window; replay uses
+the same message identity. This projection adds no model request or canonical
+history entry and does not duplicate reply usage, feedback or unread counts.
+After manual success, Continue is offered in the placeholder only while idle with an empty
 draft and no images. Activating a conversation focuses its enabled composer;
 pressing Tab fills the draft without sending. Shift+Tab and Tab without a suggestion retain normal focus navigation.
 A newer user message dismisses

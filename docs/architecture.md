@@ -19,6 +19,7 @@ This document describes the current source. Product tradeoffs are in [product be
 | `internal/tools/`, `internal/mcpclient/` | File, process, web, Skills, and MCP operations |
 | `internal/mcphost/` | Shared MCP connections, execution leases, and supervised host process |
 | `internal/agentconfig/` | Global instructions and delegation settings |
+| `internal/configstore/` | Private main/credential documents, section updates, migration and read cache |
 | `internal/appdirs/`, `internal/platform/` | OS directories, process ownership, browser launch, and metrics |
 | `internal/buildinfo/` | Version, executable hash, and Go VCS metadata |
 | `web/src/` | Vue UI, conversation state, HTTP/SSE client, and virtual scrolling |
@@ -31,9 +32,100 @@ Each open conversation normally owns a resident Worker, subject to admission and
 
 The Server owns SQLite writes and per-conversation event sequences. Workers send results over local pipes. Boundaries including tool starts, task startup/termination, and checkpoints wait for persistence acknowledgments. Browsers receive persisted events and deduplicate SSE replay by sequence. Model text is chunked; tool and process artifacts are read on demand. See [process lifecycle](./process-lifecycle.md).
 
-[Directory resolution](../internal/appdirs/dirs.go) uses `os.UserConfigDir()/vista`. Settings and credentials, including `models.json`, `mcp.json`, `search.json`, `user-agent.json`, global `AGENTS.md`, `skills/`, `omp-models.json`, and `model-catalog-status.json`, live at this root. SQLite, instance records, locks, logs, outputs, and resource originals live in `state/`. Model catalog files are not under `state/`.
+[Directory resolution](../internal/appdirs/dirs.go) uses `os.UserConfigDir()/vista`. The main `config.json`, static-credential `key.json`, global `AGENTS.md`, `skills/`, separate account authorization directories, and generated `omp-models.json`/`model-catalog-status.json` live at this root. SQLite, instance records, locks, logs, outputs, and resource originals live in `state/`. Generated model catalog files remain outside `state/` and are not user settings.
 
 `GET /api/status` exposes version, cached executable SHA-256, Go source revision/dirty state, and the server OS/version. `internal/buildinfo.Version` defaults to `dev`; the Makefile supplies release versions. No build timestamp is injected. The hash is calculated at startup and is not embedded back into the executable.
+
+## Unified configuration storage
+
+[`internal/configstore/`](../internal/configstore/) owns the private main and static-credential documents; typed section validators and settings APIs remain authoritative.
+
+### Documents and credential boundaries
+
+The `config.json` root must be one JSON object with mandatory integer `version: 2` and optional raw JSON sections `server`, `capacity`, `agent`, `search`, `userAgent`, `models`, and `mcp`.
+For example, a complete main document containing only a saved port is `{"version":2,"server":{"port":6186}}`; the service editor instead receives only `{"port":6186}`.
+An absent section keeps the previous default/environment fallback; explicit `null`, empty objects/arrays and empty values remain distinct from absence through storage and credential splitting, subject to the section's typed validation.
+
+`key.json` is a JSON object with mandatory integer `version: 1` and an `entries` object mapping opaque references to `{section, owner, values}` bundles.
+Managed model and MCP records, or the `search` object, hold `credentialRef` in the main file to reference a private bundle.
+Resolution checks the bundle's section and stable identity owner; display names and array indexes are not owners.
+Reference and owner encodings are internal storage details, not user-editable names.
+
+| Section | Fields moved to bundle `values` |
+| --- | --- |
+| `models` | `apiKey`, `accessToken`, `authToken`, `appCode`, `headers` |
+| `mcp` | `token`, `clientSecret`, `headers` |
+| `search` | `apiKeys`, `jinaApiKey`, `deepseekFetchApiKey` |
+
+The entire custom `headers` object moves conservatively, including values of headers not recognized as authentication headers; there is no header-name allowlist for leaving values in the main file.
+Public `clientId`, route and identity settings stay in `config.json`.
+SDK OAuth account/refresh/login directories remain separate; this storage split does not migrate OAuth tokens or redesign authorization.
+The fixed user filenames are `config.json`, `key.json` and optional `AGENTS.md`; caches, generated catalogs, skills, authorization directories and runtime state are outside that count.
+
+Both JSON files are private `0600` regular files in a private configuration root (`0700` where Unix permissions apply).
+This is plaintext file isolation only: there is no encryption, system keyring or cloud KMS, and no security boundary against processes running as the same user.
+The main file may still disclose internal addresses and project/account identifiers; it is not automatically safe to publish.
+JSON Forms receives setting-specific field projections and separate write-only credential-input buffers, never the whole main root, saved secret values or `key.json`; there is no raw JSON text editor.
+Typed APIs resolve bundles internally for runtime consumers while retaining existing masking, blank-to-reuse, explicit-clear, validation and save behavior; public/redacted API responses are not credential-storage input.
+
+### Migration and authority
+
+Only Vista Server startup can perform the one-time conversion of old state: it acquires the instance lock, then validates or prepares configuration storage before application settings load.
+The seven old filenames in the [section table](./product.md#configuration-editing) are startup migration inputs only when no main file exists.
+An existing previous unified `config.json` v1 is the other supported migration source; its inline static fields are split into v2 references and private bundles.
+While holding the shared configuration lock, migration collects actual source bytes, validates JSON and size limits, and prepares the conversion; it does not reconstruct sections from redacted/public API projections or resolved defaults.
+
+Before publishing migrated data, `.config-backup-<time>-<id>/` within the private root stores exact source files and `SHA256SUMS`, with directory mode `0700` and file mode `0600`, and verifies the saved bytes and hashes.
+The backup covers the actual inputs: legacy JSON files or v1 `config.json`, and an existing `key.json` as applicable, not merely the seven legacy filenames.
+`AGENTS.md` and account authorization/OAuth/login data are neither migrated nor overwritten from backups.
+On Unix, backup and configuration directories are synchronized, replacement file contents are synced, and the configuration root is synchronized after publication.
+Windows uses synced file contents and native replacement semantics, not Unix directory fsync.
+Credential publication follows the key-first ordering below; replacing two files is not one atomic transaction.
+Startup migration verifies the published current pair and required durability before removing only unchanged legacy source originals. A v1 main is replaced by the current main at the same path, not deleted after publication.
+Post-publication durability or source-retirement issues are logged as warnings; uncertain directory durability leaves the old migration inputs in place. The private backup is retained, not automatically restored.
+
+An existing main file is always the sole source, including during a v1 upgrade: leftover legacy files are ignored, never merged, even for a missing section.
+Once the current v2 main is present, later starts only validate the current format and referenced keys. Healthy starts do not scan legacy paths, import old data, create another migration backup or retry source cleanup; leftover originals are ignored, not reimported.
+Malformed JSON and missing/unsupported versions are errors, never a trigger for reimport, legacy fallback or an automatic reset.
+Once references are used, invalid/missing entries or section/owner mismatches fail closed; old inline secrets, legacy files and backups are not a fallback.
+Older binaries must not open the same migrated configuration directory.
+Old account identities are never automatically restored; neither this migration nor key-entry pruning promises secure erasure or automatic cleanup/recovery of old identities.
+Backups may retain plaintext credentials and remain private.
+
+### Publication, reads and runtime boundaries
+
+Normal `Read`/`Write` operations use only current `config.json` v2 and `key.json` v1; they do not migrate or fall back to legacy data, inline credentials or backups. Libraries and first writes do not perform conversion.
+Normal access to old or unmigrated data reports “start Vista to migrate” instead of reading and copying old values. An explicit write may initialize the current files in a fresh empty root only; this does not convert old state.
+
+All cooperating main/key-document writers share the cross-process `state/config.lock`, read the latest main document while holding it, and update only their section.
+Other sections and credentials are preserved; section writes do not serialize a public settings response over the root.
+For a credential-changing update, the ordering is:
+
+1. Stage new immutable credential references and entries in `key.json` first, retaining old entries and never changing an already-published reference's bundle in place.
+2. Publish `config.json` with the new references only after those entries are available. This main-file publication commits the update.
+3. Only after that commit, remove references that were active in the previous main document and are no longer referenced by the newly committed main document.
+
+Each replacement uses atomic rename, but the pair is not a single atomic transaction and has no journal or separate recovery system.
+A write interrupted before main publication can leave unreferenced new entries; one interrupted after publication can leave old entries.
+Pre-existing or interrupted unreferenced entries are not blindly garbage-collected; pruning is limited to previously active references dropped by that committed update, not a scan for every unused key.
+
+Secret-bearing section reads take a main snapshot, read the referenced private bundles, then recheck the main snapshot before returning or treating a reference as invalid.
+If publication or pruning changed the main snapshot, the read retries rather than mixing generations or treating a pruned old reference as a permanent credential failure.
+A stable snapshot with an invalid/missing reference still fails closed.
+Nonsecret section reads do not load `key.json` per request, and runtime consumers receive resolved sections rather than learning a second credential-file API.
+Each file read verifies current private bytes and SHA-256 before reusing decoded content, including metadata-preserving edits; cache reuse avoids repeated decoding, not file reads, and is not a runtime hot-reload mechanism.
+
+The service editor's SHA-256 revision covers the compact `server` section, not the whole document, so unrelated section changes do not conflict; a missing section remains distinct from explicit `null` or an empty object.
+Other typed APIs retain their existing conflict and save semantics rather than gaining whole-file optimistic concurrency.
+Confirmed full reset holds the same writer lock while clearing data and establishing a new empty configuration baseline; it retains the live lock file.
+After a normal main-file update commits, post-commit durability issues are logged as warnings rather than reported as an unsaved edit; legacy-source cleanup belongs only to startup migration, not normal writes.
+
+Typed API saves keep their existing runtime side effects, including capacity updates to resident processes and the model/MCP/search configuration lifecycle.
+Direct file edits do not introduce global hot reload: agent and UA settings retain their existing direct-read boundaries, while cached model, MCP, search and capacity settings still need their existing reload/start behavior.
+The Server resolves the actual startup port after migration or current-format validation; priority remains startup CLI `--port` > `VISTA_PORT` > current `server.port` > default.
+The CLI may read startup port inputs read-only for validation before a restart; it does not write configuration, perform conversion or promote a saved/default port into a synthetic explicit `--port`.
+A changed-port `PUT /api/server-config` requires `confirmRestart: true`. The independent successor reserves `127.0.0.1:<port>` before the section compare-and-swap, waits for the old instance lock after commit, and starts HTTP on that same socket. Ordinary same-port saves do not restart. Typed port-unavailable, configuration-conflict and lifecycle errors remain distinct. Acceptance returns HTTP 202 with the target address and accepting process identity, not readiness. See [port-change restart](./process-lifecycle.md#port-change-restart).
+The regular WebUI Restart intentionally keeps the actual port; it does not promote a pending saved/default value into an override.
 
 ## Conversation synchronization
 
@@ -123,7 +215,7 @@ Reopening across an hour boundary invalidates the local chart cache even if no w
 
 ## Execution and child tasks
 
-Normal sends during execution steer at the next decision boundary; explicitly queued messages wait until the run ends. Cancellation/failure pauses undelivered inputs. A fresh message after execution stops starts independently; it does not resume the old paused queue. Changes to the selected model apply to later runs.
+Messages sent during execution join at the next decision boundary, before the next model request; there is no deferred-send mode. Cancellation/failure pauses undelivered inputs. A fresh message after execution stops starts independently; it does not automatically resume previously paused messages. Changes to the selected model apply to later runs.
 
 The [delegation registry](../internal/agent/delegation.go) associates stable task IDs with the parent and original run:
 
@@ -176,7 +268,7 @@ The continuation asks the model to reuse recorded results and verify uncertain e
 ## Model HTTP diagnostics
 
 Debug mode opts new executions into model HTTP capture through the submitting browser's `vista-debug-mode` cookie.
-Queued inputs retain that choice; child tasks inherit it, and title and compaction requests carry their own purpose.
+Pending inputs retain that choice; child tasks inherit it, and title and compaction requests carry their own purpose.
 `internal/modeltrace` observes inference after credential refresh and authentication/signing, excluding login and token exchanges.
 It records request URLs, headers and consumed body bytes, HTTP status, response headers and consumed response bytes, receive timings, completion/errors, and available parser counters.
 Chat diagnostics include the current SSE line/event, observed reasoning fields, fragment count, merged block count, and retained byte count.
@@ -204,7 +296,7 @@ Earlier uncaptured requests and requests interrupted by process termination cann
 
 OMP and models.dev supply model metadata. Vista owns routing and authentication; a custom connection's API format is explicit. Both catalog sources update as one staged installation, with the old catalog retained on failure. Existing executions keep their configuration snapshots. See [provider routing](./providers.md).
 
-`websearch` tries configured external providers in saved order; `webfetch` tries Jina Reader and DeepSeek in its separate saved order, defaulting to Jina first. The first search order is shuffled once. Each reader response is fully decoded and staged before selection; empty extracted content, explicit error/verification pages, JS-only placeholders and unsupported response formats fail over to the next configured reader. Short useful content remains valid. There is no built-in origin fetch/converter; local or private downloads use `shell`. Search and fetch DeepSeek keys are independent. Initial output defaults to 50 KiB of UTF-8 text for all results of one search and 50 KiB per page; zero removes that initial truncation. Search source metadata and summaries share one payload budget; artifact/continuation metadata is additional. Saved character-based defaults migrate to the new defaults, unlimited stays unlimited, and custom limits migrate using the maximum UTF-8 capacity, rounded up to KiB. There is no second fixed tool-result cutoff for these network results. Explicit artifact rereads remain byte-paged. These settings live in `search.json` and apply from the next run.
+`websearch` tries configured external providers in saved order; `webfetch` tries Jina Reader and DeepSeek in its separate saved order, defaulting to Jina first. The first search order is shuffled once. Each reader response is fully decoded and staged before selection; empty extracted content, explicit error/verification pages, JS-only placeholders and unsupported response formats fail over to the next configured reader. Short useful content remains valid. There is no built-in origin fetch/converter; local or private downloads use `shell`. Search and fetch DeepSeek keys are independent. Initial output defaults to 50 KiB of UTF-8 text for all results of one search and 50 KiB per page; zero removes that initial truncation. Search source metadata and summaries share one payload budget; artifact/continuation metadata is additional. Saved character-based defaults migrate to the new defaults, unlimited stays unlimited, and custom limits migrate using the maximum UTF-8 capacity, rounded up to KiB. There is no second fixed tool-result cutoff for these network results. Explicit artifact rereads remain byte-paged. Public settings live in `config.json` · `search`, while its static keys resolve from `key.json`; typed settings API saves apply from the next run, while manual file edits retain the reload/start boundary described above.
 
 File search applies ancestor/nested `.gitignore` rules, including exceptions, before scanning ignored subtrees. Explicit reads are unaffected. `read_file` uses 1-based `startLine` and `lineCount` (default 200), returns original line numbers and `nextLine`, and streams the full original file for SHA-256 and total line count while spooling selected lines to disk. Oversized lines use saved artifacts without a whole-line RAM allocation. Search includes files larger than 1 MiB, with a shared 32 MiB / 10,000-file / 100-result budget and an explicit incomplete-result flag. `read_tool_output` remains byte-based.
 
@@ -227,7 +319,7 @@ Read coverage is rebuilt from paired tool results in each successful request, se
 Checks do not cache empty directories or parse shell commands for other target paths; explicit `project_instructions` remains available for cross-directory work.
 Embedded `skill://` documents and hash-addressed resources have no filesystem target to check.
 
-MCP settings save `mcp.json`. Stable IDs are separate from display names. One supervised MCP host process owns local stdio servers and remote connections, including MCP-backed network search. It asynchronously preconnects enabled services with bounded concurrency and reuses connections across executions. Each execution retains its configuration versions until it and its detached children finish; edits and disable/delete operations affect subsequent executions, and old versions close when unused. Renaming preserves the connection. Settings connection checks use the same host. Workers exchange tool data directly with the private host endpoint; large results use temporary files outside the main Server. Connection failures reconnect with backoff; interrupted calls with uncertain side effects are never replayed. The MCP service itself may share browser or workspace state across conversations. OAuth publishes credentials after authorization and a successful handshake only if connection configuration remains unchanged. See [frontend](../web/README.md) for UI/state entry points.
+MCP public definitions save the `mcp` section in `config.json`; static credentials resolve internally from `key.json`. Stable IDs are separate from display names. One supervised MCP host process owns local stdio servers and remote connections, including MCP-backed network search. It asynchronously preconnects enabled services with bounded concurrency and reuses connections across executions. Each execution retains its configuration versions until it and its detached children finish; edits and disable/delete operations affect subsequent executions, and old versions close when unused. Renaming preserves the connection. Settings connection checks use the same host. Workers exchange tool data directly with the private host endpoint; large results use temporary files outside the main Server. Connection failures reconnect with backoff; interrupted calls with uncertain side effects are never replayed. The MCP service itself may share browser or workspace state across conversations. OAuth publishes credentials after authorization and a successful handshake only if connection configuration remains unchanged. See [frontend](../web/README.md) for UI/state entry points.
 
 MCP OAuth uses the SDK's authorization-code and PKCE flow without a callback listener (`internal/mcpclient/oauth.go`).
 The redirect URI is `http://127.0.0.1:5186/callback`, independent of Vista's listener port; it identifies the authorization response and does not need to load in the browser.
@@ -252,6 +344,6 @@ Original attachments live at `state/resources/<hash prefix>/<SHA-256>`. SQLite s
 
 Withdrawal/edit submission stops the conversation's work before truncating history at the selected user message. It does not undo files or other tool effects. Event sequences are not reused. See [message rollback](./message-revert.md).
 
-About Vista exposes memory presets and custom limits through `capacity.json` and `GET`/`PUT /api/memory-config`; shared status SSE includes the saved configuration and measured main/Worker/MCP-host RSS. Defaults are a 2,048 MiB total admission budget, 1,024 MiB per Worker or MCP host and four concurrent executing conversations, including background activity. There is no fixed open-conversation count cap. The [admission implementation](../internal/server/admission.go) rejects new Workers, runs and image work when measured usage reaches the budget or available host memory drops below 128 MiB. Existing Workers and the MCP host receive changed limits; Go soft memory limits target 75% of each Worker limit and 90% of the MCP-host limit, and one-second RSS checks stop processes over their configured limit. These are soft guards, not OS-enforced ceilings or predicted peak usage; transient peaks can occur between samples, and external shell/MCP subprocess memory is outside the admission total. Interrupted work is recorded without automatic replay. Component buffer limits and per-operation timeouts do not establish a general workload-capacity guarantee; see [verification](./testing.md).
+About Vista exposes memory presets and custom limits through `config.json` · `capacity` and `GET`/`PUT /api/memory-config`; shared status SSE includes the saved configuration and measured main/Worker/MCP-host RSS. Defaults are a 2,048 MiB total admission budget, 1,024 MiB per Worker or MCP host and four concurrent executing conversations, including background activity. There is no fixed open-conversation count cap. The [admission implementation](../internal/server/admission.go) rejects new Workers, runs and image work when measured usage reaches the budget or available host memory drops below 128 MiB. Existing Workers and the MCP host receive changed limits; Go soft memory limits target 75% of each Worker limit and 90% of the MCP-host limit, and one-second RSS checks stop processes over their configured limit. These are soft guards, not OS-enforced ceilings or predicted peak usage; transient peaks can occur between samples, and external shell/MCP subprocess memory is outside the admission total. Interrupted work is recorded without automatic replay. Component buffer limits and per-operation timeouts do not establish a general workload-capacity guarantee; see [verification](./testing.md).
 
 The service binds to loopback, validates Host/Origin, and runs tools with local user permissions without per-call approval. HTTP/stream failures preserve redacted provider diagnostics for the message area; actual step errors remain in their steps. The platform layer implements Linux, Windows, and macOS process handling.

@@ -31,7 +31,7 @@ Use these principles when changing the product:
 - The sidebar session menu offers renaming, confirmed closing, and confirmed deletion. Sidebar, conversation-header, and session-manager titles save inline when the editor loses focus.
 - Pinned sessions appear first in the sidebar and session manager. The sidebar orders each group by descending creation time, with descending IDs breaking ties; the session manager applies its selected sort within each group.
 - The session manager requires confirmation before closing sessions with running tasks or background processes, including batches. Idle sessions close directly from the manager.
-- Main-thread execution is sequential per conversation. Other conversations, child tasks, and tools may run concurrently. Normal sends during execution steer at a decision boundary; explicitly queued sends wait. Cancellation and failure pause undelivered inputs; a fresh send after execution stops can start new work without releasing the old queue.
+- Main-thread execution is sequential per conversation. Other conversations, child tasks, and tools may run concurrently. Messages sent during execution join at the next decision boundary, before the next model request. Cancellation and failure pause undelivered inputs; a fresh send after execution stops can start new work without automatically resuming paused messages.
 - Restart restores Workers for open conversations and records unfinished work as interrupted. It does not resume interrupted model requests or replay tool side effects.
 - Text, execution details, questions, checklists, and usage remain with their originating messages. The sidebar distinguishes foreground execution, background-only activity, unread replies, pending answers, paused input, Worker unavailability, and failure.
 - Viewing an error clears its unread reminder while retaining the session's execution-failed state. Pending questions, paused inputs, and unavailable Workers continue to need attention.
@@ -71,6 +71,50 @@ Editing and withdrawing sent messages roll back conversation/model history only.
 - MCP and skills settings can import OpenCode v1/v2 configuration through an explicit read, selection, and confirmation. Existing entries are kept. Skill imports copy complete folders, including supporting and binary files; MCP imports save compatible configuration; enabled services connect asynchronously after import. Unsupported entries are shown with reasons. See [import contracts](./architecture.md#providers-and-tools).
 - Network Queries configures separate search and page-reading services, order, keys, and initial output lengths. Search returns sources and summaries; page reading retrieves a known public URL through Jina Reader or DeepSeek.
 
+## Configuration editing
+
+Settings and About Vista use JSON Forms for the seven configuration sections below. The agent editor also includes global instructions from `AGENTS.md`. Scalar, choice, object and list fields reuse Vista controls. There is no raw JSON text editor or mode switch. Schema-validated form drafts require an explicit Save changes action; invalid field values block saving. Existing business groups keep their descriptions and figures beside the relevant controls; JSON Forms renders those groups rather than deciding their placement. Search/page-reading service lists show fixed names and only move up/down: they are permutations, not per-row service replacements. Schema and business validation show specific messages and visible invalid borders on the actual fields, not a generic highlighted-fields notice. Personalization retains instructions, memory, delegation with its figure, then automatic titles; group saves submit only their own changed field, and automatic titles keeps its direct toggle behavior. Preview limits count UTF-8 bytes; 0 means unlimited.
+
+When a settings view receives changed values while a draft is active, the form keeps the draft, including invalid field values, and blocks saving until current values are reloaded. Reloading asks for confirmation before discarding the draft. This is local draft protection: only service configuration also checks a server-side SHA-256 revision of the compact `server` section on save, not of the whole file, so changes to unrelated sections do not cause a conflict. Other settings retain their existing save behavior.
+
+Forms contain the editable fields for each setting type, never the complete `config.json` root or `key.json`. Newly entered credentials use masked, write-only form controls; saved credential values are not returned to the form. Provider selection, model discovery, OAuth and imports retain their existing workflow and typed APIs. Schema renderers replace the ordinary and password/header inputs instead of maintaining parallel handwritten forms, preserving masking, blank-to-reuse and explicit-clear behavior.
+
+The configuration root has three fixed user configuration filenames: the main `config.json`, static-credential `key.json`, and optional global `AGENTS.md`. Both JSON files are private `0600` documents in a private configuration root (`0700` where Unix permissions apply). The main requires integer `version: 2`; its seven raw JSON sections are optional. In a fresh empty root, Server startup or an explicit write may initialize the current files; this is initialization, not conversion of old state. An absent section retains its existing defaults or environment fallback. Explicit `null` and empty values remain distinct from absence through storage and credential splitting; the section's typed validator and API still determine valid values and behavior.
+
+| Section in `config.json` | Purpose | Startup migration input only |
+| --- | --- | --- |
+| `server` | Saved listening port, separate from the running listener | `server.json` |
+| `capacity` | Memory budgets and execution-concurrency limits | `capacity.json` |
+| `agent` | Delegation depth and automatic conversation titles | `agent-settings.json` |
+| `search` | Search/page-reading services, order and output preview limits | `search.json` |
+| `userAgent` | HTTP client identity settings | `user-agent.json` |
+| `models` | Model connections and model settings | `models.json` |
+| `mcp` | MCP server definitions and connection settings | `mcp.json` |
+
+`key.json` requires integer `version: 1`; its `entries` object maps opaque references to `{section, owner, values}` bundles. Managed model and MCP records, or the `search` object, carry `credentialRef` in the main document when they refer to such a bundle. Owners follow stable identities, not display names or array positions; reference/owner spellings are not user-editable identifiers.
+
+| Section | Static fields stored in `key.json` |
+| --- | --- |
+| `models` | `apiKey`, `accessToken`, `authToken`, `appCode`, `headers` |
+| `mcp` | `token`, `clientSecret`, `headers` |
+| `search` | `apiKeys`, `jinaApiKey`, `deepseekFetchApiKey` |
+
+Custom header values are treated conservatively: the entire `headers` object moves, not just headers whose names resemble authorization fields. Public `clientId`, routing and identity settings stay in `config.json`. SDK-managed OAuth accounts, refresh tokens and login directories stay separate; this does not migrate OAuth tokens or redesign authorization.
+
+This is file isolation only, not encryption or a system-keyring/cloud-KMS integration. The key file remains plaintext, and private permissions do not protect it from processes running as the same user. The main file can still reveal internal addresses and project/account identifiers, so moving credentials out does not automatically make it safe to share publicly. Backups may retain old plaintext credentials; this does not promise secure erasure or automatic cleanup/recovery of old identities.
+
+`AGENTS.md` remains a separate global-instructions file, included in the agent editor and untouched by migration. The old JSON filenames above are startup migration inputs only, not alternative save locations. One-time conversion runs exclusively at Server startup, after acquiring the instance lock and before application settings load. It accepts those seven files only if no main exists, or upgrades the previous inline-credential `config.json` v1. Under the shared configuration lock, it collects actual source bytes, validates JSON and limits, prepares the conversion, and verifies exact private backups with `SHA256SUMS` under `.config-backup-<time>-<id>/`. Backups include v1 `config.json` and an existing `key.json` as applicable, not just the legacy filenames. It publishes keys before main-file references, verifies the published pair and required durability, then removes only unchanged legacy source originals. The converted v1 main is replaced by the current main, not deleted afterward. The private backup is retained, not automatically restored. See [storage contracts](./architecture.md#unified-configuration-storage).
+
+An existing `config.json` is always the sole source, including for a v1 upgrade: leftover old files are ignored, not merged, even for a missing section. Once the current main is present, later starts only validate the current format and referenced keys; healthy starts do not scan legacy paths, import old data or create another migration backup. Malformed JSON, a missing/unsupported version, or invalid references/missing referenced key entries fail closed, never triggering reimport, fallback to old files, inline secrets or backups, or an automatic reset. Section validation keeps its existing typed behavior. Older binaries must not open the same migrated configuration directory. Account authorization directories and OAuth/login snapshots are untouched; old account identities are never restored automatically.
+
+Normal reads and writes use only the current `config.json` v2 and `key.json` v1. There is no runtime legacy data or credential fallback, and no migration on a library’s first write. Normal access to old or unmigrated data reports “start Vista to migrate” instead of importing or copying old values. The fresh-empty-root initialization described above is the only initialization case for explicit writes; it does not convert old state.
+
+These are runtime user files, separate from repository source and embedded defaults. Two additional files are generated, not editable configuration: `omp-models.json` holds the downloaded model catalog, and `model-catalog-status.json` holds catalog update status and scheduling. They do not count toward the three fixed user files; per-account authorizations, skill folders, SQLite/runtime `state/` and browser preferences also stay separate.
+
+All main/key-document writers share the cross-process `state/config.lock` and update their section in the latest main document, preserving other sections and credentials rather than replacing the root with a public API projection. A credential update first stages new immutable references and key entries while retaining old entries, then publishes the main references, and only then removes previously active references dropped by that committed update. Existing unreferenced entries, including those left by interrupted writes, are not blindly garbage-collected. Each file replacement is atomic, but the two files are not a single atomic transaction. Secret-bearing reads recheck the main snapshot after reading keys and retry publication/pruning races; nonsecret section reads do not load the key file.
+
+Typed settings APIs resolve bundles internally for runtime consumers and keep their existing save and runtime side effects. This storage change does not add global hot reload for direct file edits: agent and client-identity settings retain their existing direct-read boundaries; cached model, MCP, search and capacity settings still require their existing reload/start behavior.
+
 ## About Vista and service controls
 
 About Vista presents these sections in order:
@@ -78,10 +122,19 @@ About Vista presents these sections in order:
 1. Brand, version, and introduction.
 2. The existing model catalog and client identity controls.
 3. Memory and capacity controls.
-4. The Debug mode toggle.
-5. Full reset, visible only in Debug mode.
-6. Restart Vista, visible whether or not Debug mode is enabled.
-7. Build information.
+4. Service configuration for the listening port.
+5. The Debug mode toggle.
+6. Full reset, visible only in Debug mode.
+7. Restart Vista, visible whether or not Debug mode is enabled.
+8. Build information.
+
+Service configuration edits the listening port, an integer from 1 to 65535.
+Changing it uses **Save and restart** with a separate confirmation showing the impact on active tasks and managed background processes.
+Before saving, an independent successor binds the target loopback port and keeps that socket through startup. If reservation fails, the current instance and saved configuration remain unchanged, and the form preserves the draft and displays the error.
+A revision conflict aborts the reservation instead of overwriting another edit. Unchanged listening ports can be saved without a restart.
+After acceptance, the old tab stays open with the new address and an explicit **Open Vista in a new tab** link. Acceptance is not readiness; a bounded, credential-free readiness image check confirms that the new address serves HTTP. Lost responses and timeouts remain unconfirmed and never automatically repeat a lifecycle mutation.
+Port changes retain server-side data. Origin-local browser preferences and drafts remain at the old origin; Vista does not copy browser identity or login state across origins.
+Ordinary startup priority remains CLI `--port` > `VISTA_PORT` > saved port > default. The separate **Restart Vista** action keeps the actual listening port rather than applying a pending saved port.
 
 Restart Vista is a regular secondary button and always opens a confirmation dialog.
 The dialog shows active-conversation and managed-background-process counts when available; unavailable counts are identified as unknown, not zero.
