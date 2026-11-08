@@ -11,7 +11,7 @@ import (
 )
 
 // Connected providers supply their own live model inventory.
-// The connection stays in models.json; discovered IDs stay in memory so a
+// The connection stays in config.json models; discovered IDs stay in memory so a
 // provider with a large catalog does not rewrite the user's configuration.
 type customSource struct {
 	connectionID, name, provider, providerID, baseURL, apiKey, authentication string

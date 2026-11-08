@@ -70,7 +70,7 @@ func TestSettingsPersistenceAndValidation(t *testing.T) {
 		t.Fatalf("rejected writes changed configuration: %+v, %v", got, err)
 	}
 	for _, data := range []string{`{`, `{}`, `{"preset":"missing"}`, `{"preset":"vista","extra":true}`, `{"preset":"vista"} {}`, `null`} {
-		if err := os.WriteFile(filepath.Join(dir, Filename), []byte(data), 0600); err != nil {
+		if err := os.WriteFile(filepath.Join(dir, Filename), []byte(`{"version":2,"userAgent":`+data+`}`), 0600); err != nil {
 			t.Fatal(err)
 		}
 		if _, err := Read(dir); err == nil {
@@ -148,7 +148,7 @@ func TestHTTPHotReloadAndOverride(t *testing.T) {
 
 	// Channel-owned clients do not depend on the configurable default, even
 	// when its settings cannot be read. Explicit SDK headers still win.
-	if err := os.WriteFile(filepath.Join(dir, Filename), []byte(`{"preset":`), 0600); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, Filename), []byte(`{"version":2,"userAgent":{"preset":`), 0600); err != nil {
 		t.Fatal(err)
 	}
 	request.Header.Del("User-Agent")

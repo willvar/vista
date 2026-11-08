@@ -5,8 +5,6 @@ import (
 	"errors"
 	"maps"
 	"net/http"
-	"os"
-	"path/filepath"
 	"time"
 
 	"vista/internal/codexauth"
@@ -67,7 +65,7 @@ func (a *App) commitModelSettingsLocked(ctx context.Context, snapshot modelSetti
 		if err != nil {
 			return err
 		}
-		if err := os.Remove(filepath.Join(a.configDir, "models.json")); err != nil && !errors.Is(err, os.ErrNotExist) {
+		if err := modelcatalog.Remove(a.configDir); err != nil {
 			return modelcatalog.NewSettingsError("settings_unavailable", "Could not remove model settings.", nil)
 		}
 		a.publishBaseModelsLocked(fallback)

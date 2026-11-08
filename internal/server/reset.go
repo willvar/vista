@@ -13,6 +13,7 @@ import (
 	"strings"
 	"sync"
 
+	"vista/internal/configstore"
 	"vista/internal/mcphost"
 	"vista/internal/platform"
 	"vista/internal/provider"
@@ -288,30 +289,27 @@ func clearUserData(configDir, stateDir string) error {
 	if err := validateResetDirectories(configDir, stateDir); err != nil {
 		return err
 	}
-	root, err := os.OpenRoot(configDir)
-	if err != nil {
-		return err
-	}
-	defer root.Close()
-	state, err := root.OpenRoot("state")
-	if err != nil {
-		return err
-	}
-	defer state.Close()
-	if err := removeResetEntries(root, map[string]bool{"state": true}); err != nil {
-		return err
-	}
-	if err := removeResetEntries(state, map[string]bool{"server.lock": true, "instance.json": true, "server.log": true}); err != nil {
-		return err
-	}
-	file, err := state.OpenFile("server.log", os.O_WRONLY|os.O_TRUNC, 0600)
-	if errors.Is(err, os.ErrNotExist) {
-		return nil
-	}
-	if err != nil {
-		return err
-	}
-	return file.Close()
+	return configstore.Reset(configDir, func(root *os.Root) error {
+		state, err := root.OpenRoot("state")
+		if err != nil {
+			return err
+		}
+		defer state.Close()
+		if err := removeResetEntries(root, map[string]bool{"state": true}); err != nil {
+			return err
+		}
+		if err := removeResetEntries(state, map[string]bool{"server.lock": true, "config.lock": true, "instance.json": true, "server.log": true}); err != nil {
+			return err
+		}
+		file, err := state.OpenFile("server.log", os.O_WRONLY|os.O_TRUNC, 0600)
+		if errors.Is(err, os.ErrNotExist) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		return file.Close()
+	})
 }
 
 func removeResetEntries(root *os.Root, keep map[string]bool) error {

@@ -9,10 +9,10 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 
+	"vista/internal/configstore"
 	"vista/internal/copilotauth"
 	modelcfg "vista/internal/model"
 	"vista/internal/provider"
@@ -54,8 +54,11 @@ func TestPinnedCopilotProtocolAndHeaders(t *testing.T) {
 			}))
 			defer endpoint.Close()
 			root := t.TempDir()
+			if err := os.Chmod(root, 0700); err != nil {
+				t.Fatal(err)
+			}
 			data := []byte(fmt.Sprintf(`{"default":"copilot","models":[{"key":"copilot","provider":"catalog","providerId":"github-copilot","id":%q,"baseUrl":%q}]}`, check.id, endpoint.URL))
-			if err := os.WriteFile(filepath.Join(root, "models.json"), data, 0600); err != nil {
+			if err := configstore.Write(root, configstore.Models, data); err != nil {
 				t.Fatal(err)
 			}
 			t.Setenv("GITHUB_TOKEN", "copilot-token")
@@ -104,8 +107,11 @@ func TestCopilotImageRequestsSetVisionHeaderAcrossRoutes(t *testing.T) {
 			}))
 			defer endpoint.Close()
 			root := t.TempDir()
+			if err := os.Chmod(root, 0700); err != nil {
+				t.Fatal(err)
+			}
 			data := []byte(fmt.Sprintf(`{"default":"copilot","models":[{"key":"copilot","provider":"catalog","providerId":"github-copilot","id":%q,"baseUrl":%q}]}`, check.id, endpoint.URL))
-			if err := os.WriteFile(filepath.Join(root, "models.json"), data, 0600); err != nil {
+			if err := configstore.Write(root, configstore.Models, data); err != nil {
 				t.Fatal(err)
 			}
 			t.Setenv("GITHUB_TOKEN", "copilot-token")

@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/klauspost/compress/zstd"
+	"vista/internal/configstore"
 	"vista/internal/modelcatalog"
 	"vista/internal/provider"
 )
@@ -80,7 +81,7 @@ func catalogUpdateTestApp(t *testing.T) *App {
 	t.Helper()
 	app := directoryTestApp(t)
 	raw := []byte(`{"default":"saved","models":[{"key":"saved","connectionId":"openai-connection","name":"My OpenAI","provider":"catalog","providerId":"openai","id":"gpt-6-luna","apiKey":"private-model-credential"}]}`)
-	if err := os.WriteFile(filepath.Join(app.configDir, "models.json"), raw, 0600); err != nil {
+	if err := configstore.Write(app.configDir, configstore.Models, raw); err != nil {
 		t.Fatal(err)
 	}
 	resolved, err := modelcatalog.Load(app.configDir)
@@ -96,7 +97,14 @@ func catalogUpdateTestApp(t *testing.T) *App {
 
 func TestOMPCatalogAPIUpdatesLiveModelsAndPersistsWithoutChangingConnections(t *testing.T) {
 	app := catalogUpdateTestApp(t)
-	before, _ := os.ReadFile(filepath.Join(app.configDir, "models.json"))
+	before := map[string][]byte{}
+	for _, name := range []string{configstore.Filename, configstore.KeyFilename} {
+		data, err := os.ReadFile(filepath.Join(app.configDir, name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		before[name] = data
+	}
 	response := httptest.NewRecorder()
 	app.ompCatalog(response, httptest.NewRequest(http.MethodPost, "/api/model-catalog", nil))
 	var result struct {
@@ -115,9 +123,11 @@ func TestOMPCatalogAPIUpdatesLiveModelsAndPersistsWithoutChangingConnections(t *
 			t.Fatalf("existing connection retained stale metadata: %+v", model)
 		}
 	}
-	after, _ := os.ReadFile(filepath.Join(app.configDir, "models.json"))
-	if string(before) != string(after) {
-		t.Fatal("catalog update rewrote model connections")
+	for name, original := range before {
+		after, err := os.ReadFile(filepath.Join(app.configDir, name))
+		if err != nil || !bytes.Equal(original, after) {
+			t.Fatal("catalog update rewrote model connections")
+		}
 	}
 	cache, err := os.ReadFile(provider.OMPCatalogPath(app.configDir))
 	if err != nil || strings.Contains(string(cache), "private-model-credential") {
@@ -276,7 +286,7 @@ func TestModelsDevZenDiscoverySelectionAndRestart(t *testing.T) {
 	write := func(catalog modelCatalog) {
 		t.Helper()
 		data, _ := json.Marshal(catalog)
-		if err := os.WriteFile(filepath.Join(app.configDir, "models.json"), data, 0600); err != nil {
+		if err := configstore.Write(app.configDir, configstore.Models, data); err != nil {
 			t.Fatal(err)
 		}
 	}

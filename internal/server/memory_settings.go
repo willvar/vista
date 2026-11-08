@@ -1,13 +1,12 @@
 package server
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
-	"io"
 	"net/http"
-	"os"
-	"path/filepath"
 
+	"vista/internal/configstore"
 	"vista/internal/workerproto"
 )
 
@@ -24,15 +23,14 @@ func validMemoryConfig(c memoryConfig) bool {
 }
 func loadMemoryConfig(dir string) (memoryConfig, error) {
 	config := defaultMemoryConfig
-	file, err := os.Open(filepath.Join(dir, "capacity.json"))
-	if errors.Is(err, os.ErrNotExist) {
-		return config, nil
-	}
+	data, exists, err := configstore.Read(dir, configstore.Capacity)
 	if err != nil {
 		return config, err
 	}
-	defer file.Close()
-	if err = decodeSettingsRequest(io.LimitReader(file, 4097), &config); err != nil || !validMemoryConfig(config) {
+	if !exists {
+		return config, nil
+	}
+	if len(data) > 4096 || decodeSettingsRequest(bytes.NewReader(data), &config) != nil || !validMemoryConfig(config) {
 		return memoryConfig{}, errors.New("invalid memory settings")
 	}
 	return config, nil
@@ -60,22 +58,13 @@ func (a *App) memorySettingsHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "budgetMiB: 256–1048576; workerMiB: 128–budgetMiB; concurrentRuns: 1–128", 400)
 		return
 	}
-	a.memoryMu.Lock()
-	file, err := os.CreateTemp(a.configDir, ".capacity-*")
-	if err == nil {
-		defer os.Remove(file.Name())
-		defer file.Close()
-		err = json.NewEncoder(file).Encode(input)
-		if err == nil {
-			err = file.Sync()
-		}
-		if closeErr := file.Close(); err == nil {
-			err = closeErr
-		}
-		if err == nil {
-			err = os.Rename(file.Name(), filepath.Join(a.configDir, "capacity.json"))
-		}
+	data, err := json.Marshal(input)
+	if err != nil {
+		http.Error(w, "could not save memory settings", 500)
+		return
 	}
+	a.memoryMu.Lock()
+	err = configstore.Write(a.configDir, configstore.Capacity, data)
 	if err == nil {
 		a.memoryConfig = input
 	}

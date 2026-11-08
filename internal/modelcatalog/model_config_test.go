@@ -13,14 +13,17 @@ import (
 	"strings"
 	"testing"
 
+	"vista/internal/configstore"
 	"vista/internal/provider"
 )
 
 func TestModelCatalogIsPrivateAndDoesNotExposeCredentials(t *testing.T) {
 	root := t.TempDir()
-	path := filepath.Join(root, "models.json")
+	if err := os.Chmod(root, 0700); err != nil {
+		t.Fatal(err)
+	}
 	data := `{"default":"claude","models":[{"key":"gpt","provider":"openai-chat","providerId":"custom-host","id":"gpt-test","baseUrl":"http://127.0.0.1:1234/v1","apiKey":"openai-secret","tools":false,"context":8192},{"key":"claude","provider":"anthropic","id":"claude-test","apiKey":"anthropic-secret"}]}`
-	if err := os.WriteFile(path, []byte(data), 0600); err != nil {
+	if err := configstore.Write(root, configstore.Models, []byte(data)); err != nil {
 		t.Fatal(err)
 	}
 	catalog, err := Load(root)
@@ -41,7 +44,7 @@ func TestModelCatalogIsPrivateAndDoesNotExposeCredentials(t *testing.T) {
 	if public[1].ProviderID != "custom-host" || public[1].Tools == nil || *public[1].Tools || public[1].Context != 8192 {
 		t.Fatalf("custom model metadata: %+v", public[1])
 	}
-	if err := os.Chmod(path, 0644); err != nil {
+	if err := os.Chmod(filepath.Join(root, configstore.KeyFilename), 0644); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := Load(root); err == nil {
@@ -51,10 +54,12 @@ func TestModelCatalogIsPrivateAndDoesNotExposeCredentials(t *testing.T) {
 
 func TestDirectAnthropicThinkingConfiguration(t *testing.T) {
 	root := t.TempDir()
-	path := filepath.Join(root, "models.json")
+	if err := os.Chmod(root, 0700); err != nil {
+		t.Fatal(err)
+	}
 	write := func(entry string) (Catalog, error) {
 		data := `{"default":"claude","models":[` + entry + `]}`
-		if err := os.WriteFile(path, []byte(data), 0600); err != nil {
+		if err := configstore.Write(root, configstore.Models, []byte(data)); err != nil {
 			t.Fatal(err)
 		}
 		return Load(root)
@@ -88,7 +93,9 @@ func TestDirectAnthropicThinkingConfiguration(t *testing.T) {
 func TestGeminiThinkingBudgetConfiguration(t *testing.T) {
 	useExplicitReasoningCatalog(t)
 	root := t.TempDir()
-	path := filepath.Join(root, "models.json")
+	if err := os.Chmod(root, 0700); err != nil {
+		t.Fatal(err)
+	}
 	for _, entry := range []string{
 		`{"key":"gemini","provider":"gemini","id":"gemini-2.5-flash","apiKey":"key","thinkingBudget":1024}`,
 		`{"key":"gemini","provider":"catalog","providerId":"google","id":"gemini-2.5-flash","apiKey":"key","thinkingBudget":1024}`,
@@ -97,7 +104,7 @@ func TestGeminiThinkingBudgetConfiguration(t *testing.T) {
 		`{"key":"gemini","provider":"gemini","id":"gemini-3-flash-preview","apiKey":"key","thinkingLevel":"low"}`,
 		`{"key":"gemini","provider":"catalog","providerId":"google","id":"gemini-3-flash-preview","apiKey":"key","thinkingLevel":"low"}`,
 	} {
-		if err := os.WriteFile(path, []byte(`{"default":"gemini","models":[`+entry+`]}`), 0600); err != nil {
+		if err := configstore.Write(root, configstore.Models, []byte(`{"default":"gemini","models":[`+entry+`]}`)); err != nil {
 			t.Fatal(err)
 		}
 		catalog, err := Load(root)
@@ -118,7 +125,7 @@ func TestGeminiThinkingBudgetConfiguration(t *testing.T) {
 		`{"key":"gemini","provider":"gemini","id":"gemini-2.5-flash","apiKey":"key","thinkingBudget":32769}`,
 		`{"key":"gemini","provider":"openai-chat","id":"gemini-2.5-flash","apiKey":"key","thinkingBudget":1024}`,
 	} {
-		if err := os.WriteFile(path, []byte(`{"default":"gemini","models":[`+entry+`]}`), 0600); err != nil {
+		if err := configstore.Write(root, configstore.Models, []byte(`{"default":"gemini","models":[`+entry+`]}`)); err != nil {
 			t.Fatal(err)
 		}
 		if _, err := Load(root); err == nil {
@@ -129,10 +136,12 @@ func TestGeminiThinkingBudgetConfiguration(t *testing.T) {
 
 func TestDirectAnthropicAuthTokenConfiguration(t *testing.T) {
 	root := t.TempDir()
-	path := filepath.Join(root, "models.json")
+	if err := os.Chmod(root, 0700); err != nil {
+		t.Fatal(err)
+	}
 	write := func(entry string) (Catalog, error) {
 		data := `{"default":"claude","models":[` + entry + `]}`
-		if err := os.WriteFile(path, []byte(data), 0600); err != nil {
+		if err := configstore.Write(root, configstore.Models, []byte(data)); err != nil {
 			t.Fatal(err)
 		}
 		return Load(root)
@@ -166,7 +175,9 @@ func TestDirectAnthropicAuthTokenConfiguration(t *testing.T) {
 
 func TestDirectOpenAIAccountHeaders(t *testing.T) {
 	root := t.TempDir()
-	path := filepath.Join(root, "models.json")
+	if err := os.Chmod(root, 0700); err != nil {
+		t.Fatal(err)
+	}
 	requests := 0
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requests++
@@ -186,7 +197,7 @@ func TestDirectOpenAIAccountHeaders(t *testing.T) {
 	}))
 	defer server.Close()
 	write := func(entry string) (Catalog, error) {
-		if err := os.WriteFile(path, []byte(`{"default":"openai","models":[`+entry+`]}`), 0600); err != nil {
+		if err := configstore.Write(root, configstore.Models, []byte(`{"default":"openai","models":[`+entry+`]}`)); err != nil {
 			t.Fatal(err)
 		}
 		return Load(root)
@@ -228,9 +239,11 @@ func TestDirectOpenAIAccountHeaders(t *testing.T) {
 
 func TestExplicitImageInputCapabilityForProtocolModel(t *testing.T) {
 	root := t.TempDir()
-	path := filepath.Join(root, "models.json")
+	if err := os.Chmod(root, 0700); err != nil {
+		t.Fatal(err)
+	}
 	write := func(data string) (Catalog, error) {
-		if err := os.WriteFile(path, []byte(data), 0600); err != nil {
+		if err := configstore.Write(root, configstore.Models, []byte(data)); err != nil {
 			t.Fatal(err)
 		}
 		return Load(root)
@@ -279,9 +292,11 @@ func TestExplicitImageInputCapabilityForProtocolModel(t *testing.T) {
 
 func TestResponsesReasoningSummaryConfiguration(t *testing.T) {
 	root := t.TempDir()
-	path := filepath.Join(root, "models.json")
+	if err := os.Chmod(root, 0700); err != nil {
+		t.Fatal(err)
+	}
 	write := func(data string) (Catalog, error) {
-		if err := os.WriteFile(path, []byte(data), 0600); err != nil {
+		if err := configstore.Write(root, configstore.Models, []byte(data)); err != nil {
 			t.Fatal(err)
 		}
 		return Load(root)
@@ -308,13 +323,15 @@ func TestResponsesReasoningSummaryConfiguration(t *testing.T) {
 
 func TestOpenAIResponsesReasoningEffortConfiguration(t *testing.T) {
 	root := t.TempDir()
-	path := filepath.Join(root, "models.json")
+	if err := os.Chmod(root, 0700); err != nil {
+		t.Fatal(err)
+	}
 	for _, check := range []struct{ data, summary string }{
 		{`{"default":"reasoning","models":[{"key":"reasoning","provider":"openai-responses","id":"gpt-5","apiKey":"key","reasoningEffort":"high"}]}`, ""},
 		{`{"default":"reasoning","models":[{"key":"reasoning","provider":"catalog","providerId":"azure","id":"gpt-5","apiKey":"key","baseUrl":"http://127.0.0.1:1234/openai/v1","reasoningEffort":"high"}]}`, ""},
 		{`{"default":"reasoning","models":[{"key":"reasoning","provider":"catalog","providerId":"amazon-bedrock","id":"openai.gpt-5.4","region":"us-east-1","apiKey":"key","reasoningEffort":"high","reasoningSummary":"concise"}]}`, "concise"},
 	} {
-		if err := os.WriteFile(path, []byte(check.data), 0600); err != nil {
+		if err := configstore.Write(root, configstore.Models, []byte(check.data)); err != nil {
 			t.Fatal(err)
 		}
 		catalog, err := Load(root)
@@ -330,7 +347,7 @@ func TestOpenAIResponsesReasoningEffortConfiguration(t *testing.T) {
 		`{"default":"reasoning","models":[{"key":"reasoning","provider":"openai-chat","id":"gpt-5","apiKey":"key","reasoningEffort":"high"}]}`,
 		`{"default":"reasoning","models":[{"key":"reasoning","provider":"openai-responses","id":"gpt-5","apiKey":"key","reasoningEffort":"invalid"}]}`,
 	} {
-		if err := os.WriteFile(path, []byte(data), 0600); err != nil {
+		if err := configstore.Write(root, configstore.Models, []byte(data)); err != nil {
 			t.Fatal(err)
 		}
 		if _, err := Load(root); err == nil {
@@ -349,10 +366,12 @@ func TestCatalogOpenAIChatVendorRoutes(t *testing.T) {
 	} {
 		t.Run(check.provider, func(t *testing.T) {
 			root := t.TempDir()
-			path := filepath.Join(root, "models.json")
+			if err := os.Chmod(root, 0700); err != nil {
+				t.Fatal(err)
+			}
 			write := func(base string) Catalog {
 				data := fmt.Sprintf(`{"default":"vendor","models":[{"key":"vendor","provider":"catalog","providerId":%q,"id":%q,"baseUrl":%q,"apiKey":"test-key"}]}`, check.provider, check.id, base)
-				if err := os.WriteFile(path, []byte(data), 0600); err != nil {
+				if err := configstore.Write(root, configstore.Models, []byte(data)); err != nil {
 					t.Fatal(err)
 				}
 				catalog, err := Load(root)
@@ -411,10 +430,12 @@ func TestCatalogPackageOverridesKeepProviderEndpoint(t *testing.T) {
 	} {
 		t.Run(check.provider+"/"+check.id, func(t *testing.T) {
 			root := t.TempDir()
-			path := filepath.Join(root, "models.json")
+			if err := os.Chmod(root, 0700); err != nil {
+				t.Fatal(err)
+			}
 			write := func(base string) (Catalog, error) {
 				data := fmt.Sprintf(`{"default":"vendor","models":[{"key":"vendor","provider":"catalog","providerId":%q,"id":%q,"baseUrl":%q,"apiKey":"test-key"}]}`, check.provider, check.id, base)
-				if err := os.WriteFile(path, []byte(data), 0600); err != nil {
+				if err := configstore.Write(root, configstore.Models, []byte(data)); err != nil {
 					return Catalog{}, err
 				}
 				return Load(root)
@@ -471,10 +492,12 @@ func TestCatalogPackageOverridesKeepProviderEndpoint(t *testing.T) {
 
 func TestCatalogXAIResponsesTextAndToolRoute(t *testing.T) {
 	root := t.TempDir()
-	path := filepath.Join(root, "models.json")
+	if err := os.Chmod(root, 0700); err != nil {
+		t.Fatal(err)
+	}
 	write := func(base string) (Catalog, error) {
 		data := fmt.Sprintf(`{"default":"grok","models":[{"key":"grok","provider":"catalog","providerId":"xai","id":"grok-4.3","baseUrl":%q,"apiKey":"xai-test-key","reasoningEffort":"high"}]}`, base)
-		if err := os.WriteFile(path, []byte(data), 0600); err != nil {
+		if err := configstore.Write(root, configstore.Models, []byte(data)); err != nil {
 			return Catalog{}, err
 		}
 		return Load(root)
@@ -537,12 +560,14 @@ func TestCatalogXAIResponsesTextAndToolRoute(t *testing.T) {
 
 func TestCloudflareGatewayRequiresAccountOrBaseURL(t *testing.T) {
 	root := t.TempDir()
-	path := filepath.Join(root, "models.json")
+	if err := os.Chmod(root, 0700); err != nil {
+		t.Fatal(err)
+	}
 	t.Setenv("CLOUDFLARE_API_TOKEN", "gateway-secret")
 	t.Setenv("CLOUDFLARE_ACCOUNT_ID", "account123")
 	t.Setenv("CLOUDFLARE_GATEWAY_ID", "gateway-one")
 	data := `{"default":"claude","models":[{"key":"claude","provider":"catalog","providerId":"cloudflare-ai-gateway","id":"anthropic/claude-opus-4.5"}]}`
-	if err := os.WriteFile(path, []byte(data), 0600); err != nil {
+	if err := configstore.Write(root, configstore.Models, []byte(data)); err != nil {
 		t.Fatal(err)
 	}
 	catalog, err := Load(root)
@@ -561,7 +586,7 @@ func TestCloudflareGatewayRequiresAccountOrBaseURL(t *testing.T) {
 		t.Fatalf("missing Cloudflare account was accepted: %v", err)
 	}
 	data = `{"default":"chat","models":[{"key":"chat","provider":"catalog","providerId":"cloudflare-ai-gateway","id":"alibaba/qwen3-max","baseUrl":"http://127.0.0.1:1234/ai/v1","gatewayId":"alternate","apiKey":"key"}]}`
-	if err := os.WriteFile(path, []byte(data), 0600); err != nil {
+	if err := configstore.Write(root, configstore.Models, []byte(data)); err != nil {
 		t.Fatal(err)
 	}
 	catalog, err = Load(root)
@@ -581,8 +606,18 @@ func TestModelCatalogWithoutProvidersIsEmpty(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			dir := t.TempDir()
-			if data != "" {
+			if err := os.Chmod(dir, 0700); err != nil {
+				t.Fatal(err)
+			}
+			if name == "legacy placeholder" {
 				if err := os.WriteFile(filepath.Join(dir, "models.json"), []byte(data), 0600); err != nil {
+					t.Fatal(err)
+				}
+				if err := configstore.Migrate(dir); err != nil {
+					t.Fatal(err)
+				}
+			} else if data != "" {
+				if err := configstore.Write(dir, configstore.Models, []byte(data)); err != nil {
 					t.Fatal(err)
 				}
 			}
@@ -608,8 +643,11 @@ func TestModelCatalogWithoutProvidersIsEmpty(t *testing.T) {
 
 func TestConfiguredModelMayUseDemoKey(t *testing.T) {
 	dir := t.TempDir()
+	if err := os.Chmod(dir, 0700); err != nil {
+		t.Fatal(err)
+	}
 	data := `{"default":"demo","models":[{"key":"demo","provider":"openai-chat","id":"test-model","apiKey":"test-key"}]}`
-	if err := os.WriteFile(filepath.Join(dir, "models.json"), []byte(data), 0600); err != nil {
+	if err := configstore.Write(dir, configstore.Models, []byte(data)); err != nil {
 		t.Fatal(err)
 	}
 	catalog, err := Load(dir)
@@ -655,9 +693,11 @@ func TestMistralEnvironmentModelCanBeConfigured(t *testing.T) {
 
 func TestPinnedCatalogModelResolvesProtocolAndRoute(t *testing.T) {
 	root := t.TempDir()
-	path := filepath.Join(root, "models.json")
+	if err := os.Chmod(root, 0700); err != nil {
+		t.Fatal(err)
+	}
 	data := `{"default":"deepseek","models":[{"key":"deepseek","provider":"catalog","providerId":"deepseek","id":"deepseek-flash","apiKey":"private-key"}]}`
-	if err := os.WriteFile(path, []byte(data), 0600); err != nil {
+	if err := configstore.Write(root, configstore.Models, []byte(data)); err != nil {
 		t.Fatal(err)
 	}
 	catalog, err := Load(root)
@@ -672,20 +712,20 @@ func TestPinnedCatalogModelResolvesProtocolAndRoute(t *testing.T) {
 	if err != nil || model.Provider != "openai-chat" || model.ProviderID != "deepseek" || model.BaseURL != "https://api.deepseek.com/v1" || model.APIKey != "private-key" || model.Context != 1000000 || model.InputLimit != 0 {
 		t.Fatalf("catalog route: %+v %v", model, err)
 	}
-	if err := os.WriteFile(path, []byte(`{"default":"bad","models":[{"key":"bad","provider":"catalog","providerId":"amazon-bedrock","id":"x","apiKey":"key"}]}`), 0600); err != nil {
+	if err := configstore.Write(root, configstore.Models, []byte(`{"default":"bad","models":[{"key":"bad","provider":"catalog","providerId":"amazon-bedrock","id":"x","apiKey":"key"}]}`)); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := Load(root); err == nil {
 		t.Fatal("unimplemented native Provider route was accepted")
 	}
-	if err := os.WriteFile(path, []byte(`{"default":"openai","models":[{"key":"openai","provider":"catalog","providerId":"openai","id":"gpt-4.1-mini","apiKey":"key"}]}`), 0600); err != nil {
+	if err := configstore.Write(root, configstore.Models, []byte(`{"default":"openai","models":[{"key":"openai","provider":"catalog","providerId":"openai","id":"gpt-4.1-mini","apiKey":"key"}]}`)); err != nil {
 		t.Fatal(err)
 	}
 	catalog, err = Load(root)
 	if err != nil || catalog.Models[0].Provider != "openai-responses" {
 		t.Fatalf("OpenAI Responses route: %+v %v", catalog, err)
 	}
-	if err := os.WriteFile(path, []byte(`{"default":"mistral","models":[{"key":"mistral","provider":"catalog","providerId":"mistral","id":"codestral-latest","apiKey":"key"}]}`), 0600); err != nil {
+	if err := configstore.Write(root, configstore.Models, []byte(`{"default":"mistral","models":[{"key":"mistral","provider":"catalog","providerId":"mistral","id":"codestral-latest","apiKey":"key"}]}`)); err != nil {
 		t.Fatal(err)
 	}
 	catalog, err = Load(root)
@@ -696,10 +736,12 @@ func TestPinnedCatalogModelResolvesProtocolAndRoute(t *testing.T) {
 
 func TestPinnedCatalogCredentialUsesProviderEnvironmentWithoutWorkerLeak(t *testing.T) {
 	root := t.TempDir()
+	if err := os.Chmod(root, 0700); err != nil {
+		t.Fatal(err)
+	}
 	t.Setenv("DEEPSEEK_API_KEY", "catalog-env-secret")
-	path := filepath.Join(root, "models.json")
 	data := `{"default":"deepseek","models":[{"key":"deepseek","provider":"catalog","providerId":"deepseek","id":"deepseek-flash"}]}`
-	if err := os.WriteFile(path, []byte(data), 0600); err != nil {
+	if err := configstore.Write(root, configstore.Models, []byte(data)); err != nil {
 		t.Fatal(err)
 	}
 	catalog, err := Load(root)
@@ -718,11 +760,13 @@ func TestPinnedCatalogCredentialUsesProviderEnvironmentWithoutWorkerLeak(t *test
 
 func TestCatalogCredentialSkipsResourceEnvironment(t *testing.T) {
 	root := t.TempDir()
+	if err := os.Chmod(root, 0700); err != nil {
+		t.Fatal(err)
+	}
 	t.Setenv("AZURE_RESOURCE_NAME", "resource-is-not-a-key")
 	t.Setenv("AZURE_API_KEY", "actual-secret")
-	path := filepath.Join(root, "models.json")
 	data := `{"default":"azure","models":[{"key":"azure","provider":"catalog","providerId":"azure","id":"gpt-4.1-mini","baseUrl":"http://127.0.0.1:1234/models"}]}`
-	if err := os.WriteFile(path, []byte(data), 0600); err != nil {
+	if err := configstore.Write(root, configstore.Models, []byte(data)); err != nil {
 		t.Fatal(err)
 	}
 	catalog, err := Load(root)
@@ -737,14 +781,16 @@ func TestCatalogCredentialSkipsResourceEnvironment(t *testing.T) {
 
 func TestCatalogModelCapabilitiesRejectInvalidConfiguration(t *testing.T) {
 	root := t.TempDir()
-	path := filepath.Join(root, "models.json")
+	if err := os.Chmod(root, 0700); err != nil {
+		t.Fatal(err)
+	}
 	for _, check := range []struct{ name, model string }{
 		{"unknown", `{"key":"x","provider":"catalog","providerId":"deepseek","id":"not-in-snapshot","apiKey":"key"}`},
 		{"context override", `{"key":"x","provider":"catalog","providerId":"openai","id":"gpt-4.1-mini","apiKey":"key","context":9999999}`},
 		{"image output", `{"key":"x","provider":"catalog","providerId":"openai","id":"gpt-image-1","apiKey":"key"}`},
 	} {
 		t.Run(check.name, func(t *testing.T) {
-			if err := os.WriteFile(path, []byte(`{"default":"x","models":[`+check.model+`]}`), 0600); err != nil {
+			if err := configstore.Write(root, configstore.Models, []byte(`{"default":"x","models":[`+check.model+`]}`)); err != nil {
 				t.Fatal(err)
 			}
 			if _, err := Load(root); err == nil {

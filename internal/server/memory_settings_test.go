@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"vista/internal/configstore"
 	"vista/internal/workerproto"
 )
 
@@ -38,7 +39,7 @@ func TestMemorySettingsCommitUpdatesLiveWorkersAndSurvivesReload(t *testing.T) {
 			t.Fatalf("invalid settings changed runtime: %d", w.Code)
 		}
 	}
-	path := filepath.Join(app.configDir, "capacity.json")
+	path := filepath.Join(app.configDir, configstore.Filename)
 	if err := os.Remove(path); err != nil {
 		t.Fatal(err)
 	}

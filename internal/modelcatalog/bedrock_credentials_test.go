@@ -3,16 +3,19 @@ package modelcatalog
 import (
 	"context"
 	"os"
-	"path/filepath"
 	"strings"
 	"testing"
+
+	"vista/internal/configstore"
 )
 
 func TestBedrockCatalogCredentialsStayInServer(t *testing.T) {
 	root := t.TempDir()
-	path := filepath.Join(root, "models.json")
+	if err := os.Chmod(root, 0700); err != nil {
+		t.Fatal(err)
+	}
 	data := []byte(`{"default":"bedrock","models":[{"key":"bedrock","provider":"catalog","providerId":"amazon-bedrock","id":"us.anthropic.claude-haiku-4-5-20251001-v1:0","region":"us-east-1"}]}`)
-	if err := os.WriteFile(path, data, 0600); err != nil {
+	if err := configstore.Write(root, configstore.Models, data); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("AWS_ACCESS_KEY_ID", "test-access")
@@ -44,7 +47,7 @@ func TestBedrockCatalogCredentialsStayInServer(t *testing.T) {
 	if err != nil || model.APIKey != "private-bearer" || model.AWSAccessID != "" || len(catalog.CredentialEnvironment()) != 1 || catalog.CredentialEnvironment()[0] != "AWS_BEARER_TOKEN_BEDROCK" {
 		t.Fatalf("Bedrock bearer precedence: %+v, env=%q, err=%v", model, catalog.CredentialEnvironment(), err)
 	}
-	if err := os.WriteFile(path, []byte(strings.Replace(string(data), "us-east-1", "unsafe.example/region", 1)), 0600); err != nil {
+	if err := configstore.Write(root, configstore.Models, []byte(strings.Replace(string(data), "us-east-1", "unsafe.example/region", 1))); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := Load(root); err == nil {
@@ -54,10 +57,12 @@ func TestBedrockCatalogCredentialsStayInServer(t *testing.T) {
 
 func TestBedrockExplicitAuthMode(t *testing.T) {
 	root := t.TempDir()
-	path := filepath.Join(root, "models.json")
+	if err := os.Chmod(root, 0700); err != nil {
+		t.Fatal(err)
+	}
 	write := func(auth, apiKey string) error {
 		body := `{"default":"bedrock","models":[{"key":"bedrock","provider":"catalog","providerId":"amazon-bedrock","id":"us.anthropic.claude-haiku-4-5-20251001-v1:0","region":"us-east-1","auth":"` + auth + `","apiKey":"` + apiKey + `"}]}`
-		return os.WriteFile(path, []byte(body), 0600)
+		return configstore.Write(root, configstore.Models, []byte(body))
 	}
 	t.Setenv("AWS_ACCESS_KEY_ID", "test-access")
 	t.Setenv("AWS_SECRET_ACCESS_KEY", "test-secret")
@@ -104,9 +109,11 @@ func TestBedrockExplicitAuthMode(t *testing.T) {
 
 func TestBedrockDefaultRegionFallback(t *testing.T) {
 	root := t.TempDir()
-	path := filepath.Join(root, "models.json")
+	if err := os.Chmod(root, 0700); err != nil {
+		t.Fatal(err)
+	}
 	data := []byte(`{"default":"bedrock","models":[{"key":"bedrock","provider":"catalog","providerId":"amazon-bedrock","id":"us.anthropic.claude-haiku-4-5-20251001-v1:0","auth":"bearer","apiKey":"test-token"}]}`)
-	if err := os.WriteFile(path, data, 0600); err != nil {
+	if err := configstore.Write(root, configstore.Models, data); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("AWS_REGION", "")
@@ -123,10 +130,12 @@ func TestBedrockDefaultRegionFallback(t *testing.T) {
 
 func TestBedrockThinkingConfiguration(t *testing.T) {
 	root := t.TempDir()
-	path := filepath.Join(root, "models.json")
+	if err := os.Chmod(root, 0700); err != nil {
+		t.Fatal(err)
+	}
 	write := func(thinking string) error {
 		body := `{"default":"bedrock","models":[{"key":"bedrock","provider":"catalog","providerId":"amazon-bedrock","id":"us.anthropic.claude-haiku-4-5-20251001-v1:0","region":"us-east-1","auth":"bearer","apiKey":"test-token","thinking":` + thinking + `}]}`
-		return os.WriteFile(path, []byte(body), 0600)
+		return configstore.Write(root, configstore.Models, []byte(body))
 	}
 	if err := write(`{"type":"enabled","budgetTokens":4096}`); err != nil {
 		t.Fatal(err)
@@ -151,10 +160,12 @@ func TestBedrockThinkingConfiguration(t *testing.T) {
 
 func TestBedrockReasoningEffortConfiguration(t *testing.T) {
 	root := t.TempDir()
-	path := filepath.Join(root, "models.json")
+	if err := os.Chmod(root, 0700); err != nil {
+		t.Fatal(err)
+	}
 	write := func(effort string) error {
 		body := `{"default":"bedrock","models":[{"key":"bedrock","provider":"catalog","providerId":"amazon-bedrock","id":"us.amazon.nova-2-lite-v1:0","region":"us-east-1","auth":"bearer","apiKey":"test-token","reasoningEffort":"` + effort + `"}]}`
-		return os.WriteFile(path, []byte(body), 0600)
+		return configstore.Write(root, configstore.Models, []byte(body))
 	}
 	if err := write("high"); err != nil {
 		t.Fatal(err)

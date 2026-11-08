@@ -7,10 +7,10 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 
+	"vista/internal/configstore"
 	"vista/internal/provider"
 )
 
@@ -40,9 +40,11 @@ func TestPinnedMiniMaxMessagesUseBearerAuthentication(t *testing.T) {
 			}))
 			defer endpoint.Close()
 			root := t.TempDir()
-			path := filepath.Join(root, "models.json")
+			if err := os.Chmod(root, 0700); err != nil {
+				t.Fatal(err)
+			}
 			data := fmt.Sprintf(`{"default":"minimax","models":[{"key":"minimax","provider":"catalog","providerId":%q,"id":"MiniMax-M2.7","apiKey":"minimax-key"}]}`, check.id)
-			if err := os.WriteFile(path, []byte(data), 0600); err != nil {
+			if err := configstore.Write(root, configstore.Models, []byte(data)); err != nil {
 				t.Fatal(err)
 			}
 			catalog, err := Load(root)
@@ -54,7 +56,7 @@ func TestPinnedMiniMaxMessagesUseBearerAuthentication(t *testing.T) {
 				t.Fatalf("MiniMax route: %+v, err=%v", model, err)
 			}
 			data = fmt.Sprintf(`{"default":"minimax","models":[{"key":"minimax","provider":"catalog","providerId":%q,"id":"MiniMax-M2.7","baseUrl":%q,"thinking":{"type":"adaptive"},"apiKey":"minimax-key"}]}`, check.id, endpoint.URL+"/anthropic/v1")
-			if err := os.WriteFile(path, []byte(data), 0600); err != nil {
+			if err := configstore.Write(root, configstore.Models, []byte(data)); err != nil {
 				t.Fatal(err)
 			}
 			catalog, err = Load(root)
@@ -86,6 +88,9 @@ func TestPinnedMiniMaxChatAndResponsesRoutes(t *testing.T) {
 	} {
 		t.Run(check.id+"/"+check.route, func(t *testing.T) {
 			root := t.TempDir()
+			if err := os.Chmod(root, 0700); err != nil {
+				t.Fatal(err)
+			}
 			write := func(base string) (Catalog, error) {
 				options := ""
 				if check.route == "responses" {
@@ -94,7 +99,7 @@ func TestPinnedMiniMaxChatAndResponsesRoutes(t *testing.T) {
 					options = `,"thinking":{"type":"disabled"}`
 				}
 				data := fmt.Sprintf(`{"default":"minimax","models":[{"key":"minimax","provider":"catalog","providerId":%q,"id":"MiniMax-M2.7","route":%q,"baseUrl":%q,"apiKey":"minimax-key"%s}]}`, check.id, check.route, base, options)
-				if err := os.WriteFile(filepath.Join(root, "models.json"), []byte(data), 0600); err != nil {
+				if err := configstore.Write(root, configstore.Models, []byte(data)); err != nil {
 					t.Fatal(err)
 				}
 				return Load(root)
@@ -182,6 +187,9 @@ func TestPinnedMiniMaxChatAndResponsesRoutes(t *testing.T) {
 
 func TestMiniMaxNativeOptionsValidation(t *testing.T) {
 	root := t.TempDir()
+	if err := os.Chmod(root, 0700); err != nil {
+		t.Fatal(err)
+	}
 	for _, data := range []string{
 		`{"default":"mini","models":[{"key":"mini","provider":"catalog","providerId":"minimax","id":"MiniMax-M2.7","route":"bad","apiKey":"key"}]}`,
 		`{"default":"mini","models":[{"key":"mini","provider":"catalog","providerId":"minimax","id":"MiniMax-M2.7","route":"chat","reasoningEffort":"high","apiKey":"key"}]}`,
@@ -191,7 +199,7 @@ func TestMiniMaxNativeOptionsValidation(t *testing.T) {
 		`{"default":"mini","models":[{"key":"mini","provider":"catalog","providerId":"minimax","id":"MiniMax-M2.7","route":"chat","thinking":{"type":"enabled"},"apiKey":"key"}]}`,
 		`{"default":"mini","models":[{"key":"mini","provider":"catalog","providerId":"minimax","id":"MiniMax-M2.7","route":"messages","thinking":{"type":"adaptive","clear_thinking":false},"apiKey":"key"}]}`,
 	} {
-		if err := os.WriteFile(filepath.Join(root, "models.json"), []byte(data), 0600); err != nil {
+		if err := configstore.Write(root, configstore.Models, []byte(data)); err != nil {
 			t.Fatal(err)
 		}
 		if _, err := Load(root); err == nil {
@@ -199,7 +207,7 @@ func TestMiniMaxNativeOptionsValidation(t *testing.T) {
 		}
 	}
 	valid := `{"default":"mini","models":[{"key":"mini","provider":"catalog","providerId":"minimax","id":"MiniMax-M2.7","route":"chat","reasoningSplit":false,"apiKey":"key"}]}`
-	if err := os.WriteFile(filepath.Join(root, "models.json"), []byte(valid), 0600); err != nil {
+	if err := configstore.Write(root, configstore.Models, []byte(valid)); err != nil {
 		t.Fatal(err)
 	}
 	catalog, err := Load(root)
@@ -220,7 +228,7 @@ func TestMiniMaxNativeOptionsValidation(t *testing.T) {
 	}))
 	defer endpoint.Close()
 	valid = fmt.Sprintf(`{"default":"mini","models":[{"key":"mini","provider":"catalog","providerId":"minimax","id":"MiniMax-M2.7","route":"chat","reasoningSplit":false,"baseUrl":%q,"apiKey":"key"}]}`, endpoint.URL+"/v1")
-	if err := os.WriteFile(filepath.Join(root, "models.json"), []byte(valid), 0600); err != nil {
+	if err := configstore.Write(root, configstore.Models, []byte(valid)); err != nil {
 		t.Fatal(err)
 	}
 	catalog, err = Load(root)

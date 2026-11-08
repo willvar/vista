@@ -4,11 +4,16 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"vista/internal/configstore"
 )
 
 func TestRuntimePortConfigurationPrecedence(t *testing.T) {
 	t.Setenv("VISTA_PORT", "")
 	dir := t.TempDir()
+	if err := os.Chmod(dir, 0700); err != nil {
+		t.Fatal(err)
+	}
 	check := func(override, want int) {
 		t.Helper()
 		config, err := LoadRuntimeConfig(dir, override)
@@ -20,7 +25,7 @@ func TestRuntimePortConfigurationPrecedence(t *testing.T) {
 		}
 	}
 	check(0, DefaultPort)
-	if err := os.WriteFile(filepath.Join(dir, "server.json"), []byte(`{"port":6186}`), 0600); err != nil {
+	if err := configstore.Write(dir, configstore.Server, []byte(`{"port":6186}`)); err != nil {
 		t.Fatal(err)
 	}
 	check(0, 6186)
@@ -39,7 +44,10 @@ func TestRuntimePortRejectsEphemeralAndInvalidConfiguration(t *testing.T) {
 	} {
 		t.Run(input, func(t *testing.T) {
 			dir := t.TempDir()
-			if err := os.WriteFile(filepath.Join(dir, "server.json"), []byte(input), 0600); err != nil {
+			if err := os.Chmod(dir, 0700); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(dir, configstore.Filename), []byte(`{"version":2,"server":`+input+`}`), 0600); err != nil {
 				t.Fatal(err)
 			}
 			if _, err := LoadRuntimeConfig(dir, 0); err == nil {
@@ -48,6 +56,9 @@ func TestRuntimePortRejectsEphemeralAndInvalidConfiguration(t *testing.T) {
 		})
 	}
 	dir := t.TempDir()
+	if err := os.Chmod(dir, 0700); err != nil {
+		t.Fatal(err)
+	}
 	for _, value := range []string{"0", "-1", "65536", "invalid"} {
 		t.Setenv("VISTA_PORT", value)
 		if _, err := LoadRuntimeConfig(dir, 0); err == nil {

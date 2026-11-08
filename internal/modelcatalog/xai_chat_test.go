@@ -7,19 +7,21 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 
+	"vista/internal/configstore"
 	"vista/internal/provider"
 )
 
 func TestXAIChatRouteAndToolContinuation(t *testing.T) {
 	root := t.TempDir()
-	path := filepath.Join(root, "models.json")
+	if err := os.Chmod(root, 0700); err != nil {
+		t.Fatal(err)
+	}
 	write := func(base string) (Catalog, error) {
 		data := fmt.Sprintf(`{"default":"grok","models":[{"key":"grok","provider":"catalog","providerId":"xai","id":"grok-4.3","route":"chat","baseUrl":%q,"apiKey":"xai-key","reasoningEffort":"high","promptCacheKey":"conversation-42"}]}`, base)
-		if err := os.WriteFile(path, []byte(data), 0600); err != nil {
+		if err := configstore.Write(root, configstore.Models, []byte(data)); err != nil {
 			return Catalog{}, err
 		}
 		return Load(root)
@@ -78,6 +80,9 @@ func TestXAIChatRouteAndToolContinuation(t *testing.T) {
 
 func TestXAIChatRouteRejectsInvalidOptions(t *testing.T) {
 	root := t.TempDir()
+	if err := os.Chmod(root, 0700); err != nil {
+		t.Fatal(err)
+	}
 	for _, options := range []string{
 		`"route":"unknown"`,
 		`"route":"responses","promptCacheKey":"cache"`,
@@ -85,7 +90,7 @@ func TestXAIChatRouteRejectsInvalidOptions(t *testing.T) {
 		`"route":"chat","reasoningEffort":"wrong"`,
 	} {
 		data := fmt.Sprintf(`{"default":"grok","models":[{"key":"grok","provider":"catalog","providerId":"xai","id":"grok-4.3","apiKey":"key",%s}]}`, options)
-		if err := os.WriteFile(filepath.Join(root, "models.json"), []byte(data), 0600); err != nil {
+		if err := configstore.Write(root, configstore.Models, []byte(data)); err != nil {
 			t.Fatal(err)
 		}
 		if _, err := Load(root); err == nil {

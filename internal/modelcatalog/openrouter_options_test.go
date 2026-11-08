@@ -7,16 +7,18 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 
+	"vista/internal/configstore"
 	"vista/internal/provider"
 )
 
 func TestOpenRouterNativeRoutingAndHeaders(t *testing.T) {
 	root := t.TempDir()
-	path := filepath.Join(root, "models.json")
+	if err := os.Chmod(root, 0700); err != nil {
+		t.Fatal(err)
+	}
 	options := `"openRouter":{"appName":"Vista test","appUrl":"https://example.com/vista","api_keys":{"Anthropic":"private-anthropic-key"},"usage":false,"models":["anthropic/claude-sonnet-4"],"provider":{"order":["Anthropic","Google"],"only":["Anthropic"],"ignore":["Other"],"quantizations":["fp8"],"max_price":{"prompt":"0.000001","completion":0.00001},"allow_fallbacks":false,"require_parameters":true,"data_collection":"deny","sort":"latency","zdr":true},"reasoning":{"enabled":true,"exclude":false,"effort":"high","max_tokens":30000},"plugins":[{"id":"file-parser","max_files":2,"pdf":{"engine":"mistral-ocr"}},{"id":"auto-router","allowed_models":["openai/gpt-5"]}],"user":"vista-user"}`
 	requests := 0
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -62,7 +64,7 @@ func TestOpenRouterNativeRoutingAndHeaders(t *testing.T) {
 	}))
 	defer server.Close()
 	data := fmt.Sprintf(`{"default":"router","models":[{"key":"router","provider":"catalog","providerId":"openrouter","id":"aion-labs/aion-2.0","baseUrl":%q,"apiKey":"openrouter-key",%s}]}`, server.URL+"/api/v1", options)
-	if err := os.WriteFile(path, []byte(data), 0600); err != nil {
+	if err := configstore.Write(root, configstore.Models, []byte(data)); err != nil {
 		t.Fatal(err)
 	}
 	catalog, err := Load(root)
@@ -92,7 +94,9 @@ func TestOpenRouterNativeRoutingAndHeaders(t *testing.T) {
 
 func TestOpenRouterOptionsValidation(t *testing.T) {
 	root := t.TempDir()
-	path := filepath.Join(root, "models.json")
+	if err := os.Chmod(root, 0700); err != nil {
+		t.Fatal(err)
+	}
 	for _, options := range []string{
 		`{"provider":{"sort":"random"}}`,
 		`{"provider":{"data_collection":"unrestricted"}}`,
@@ -121,7 +125,7 @@ func TestOpenRouterOptionsValidation(t *testing.T) {
 		`{"api_keys":{"A":"1","B":"2","C":"3","D":"4","E":"5","F":"6","G":"7","H":"8","I":"9"}}`,
 	} {
 		data := fmt.Sprintf(`{"default":"router","models":[{"key":"router","provider":"catalog","providerId":"openrouter","id":"aion-labs/aion-2.0","apiKey":"key","openRouter":%s}]}`, options)
-		if err := os.WriteFile(path, []byte(data), 0600); err != nil {
+		if err := configstore.Write(root, configstore.Models, []byte(data)); err != nil {
 			t.Fatal(err)
 		}
 		if _, err := Load(root); err == nil {
@@ -129,7 +133,7 @@ func TestOpenRouterOptionsValidation(t *testing.T) {
 		}
 	}
 	data := `{"default":"router","models":[{"key":"router","provider":"catalog","providerId":"deepseek","id":"deepseek-chat","apiKey":"key","openRouter":{"provider":{"allow_fallbacks":false}}}]}`
-	if err := os.WriteFile(path, []byte(data), 0600); err != nil {
+	if err := configstore.Write(root, configstore.Models, []byte(data)); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := Load(root); err == nil {

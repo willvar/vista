@@ -1,18 +1,17 @@
 package agentconfig
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
-	"os"
-	"path/filepath"
+
+	"vista/internal/configstore"
 )
 
 const DefaultDelegationDepth = 1
 const MaxDelegationDepth = 8
-
-const settingsFilename = "agent-settings.json"
 
 // DelegationDepth counts the levels below the main Agent: 0 disables
 // delegation, 1 allows direct subagents, and 2 also allows their children.
@@ -29,26 +28,29 @@ func ValidateDelegationDepth(depth int) error {
 }
 
 func ReadSettings(dir string) (Settings, error) {
-	settings := Settings{DelegationDepth: DefaultDelegationDepth, AutomaticTitles: true}
-	file, err := os.Open(filepath.Join(dir, settingsFilename))
-	if errors.Is(err, os.ErrNotExist) {
-		return settings, nil
-	}
+	data, exists, err := configstore.Read(dir, configstore.Agent)
 	if err != nil {
 		return Settings{}, err
 	}
-	defer file.Close()
+	return decodeSettings(data, exists)
+}
+
+func decodeSettings(data []byte, exists bool) (Settings, error) {
+	settings := Settings{DelegationDepth: DefaultDelegationDepth, AutomaticTitles: true}
+	if !exists {
+		return settings, nil
+	}
 	var input struct {
 		DelegationDepth *int            `json:"delegationDepth"`
 		AutomaticTitles json.RawMessage `json:"automaticTitles"`
 	}
-	decoder := json.NewDecoder(io.LimitReader(file, 4097))
+	decoder := json.NewDecoder(bytes.NewReader(data))
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(&input); err != nil {
 		return Settings{}, err
 	}
 	if err := decoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
-		return Settings{}, errors.New("invalid agent settings file")
+		return Settings{}, errors.New("invalid agent settings")
 	}
 	if input.DelegationDepth == nil {
 		return Settings{}, errors.New("delegationDepth is required")
@@ -75,5 +77,40 @@ func WriteSettings(dir string, settings Settings) error {
 	if err != nil {
 		return err
 	}
-	return writePrivateFile(dir, settingsFilename, append(data, '\n'), false)
+	return configstore.Write(dir, configstore.Agent, data)
+}
+
+// UpdateSettings applies only supplied fields under the shared configuration lock.
+// An omitted automaticTitles field stays omitted rather than becoming explicit.
+func UpdateSettings(dir string, delegationDepth *int, automaticTitles *bool) error {
+	if delegationDepth == nil && automaticTitles == nil {
+		return nil
+	}
+	if delegationDepth != nil {
+		if err := ValidateDelegationDepth(*delegationDepth); err != nil {
+			return err
+		}
+	}
+	return configstore.Update(dir, configstore.Agent, func(data []byte, exists bool) ([]byte, error) {
+		if _, err := decodeSettings(data, exists); err != nil {
+			return nil, err
+		}
+		var saved struct {
+			DelegationDepth int   `json:"delegationDepth"`
+			AutomaticTitles *bool `json:"automaticTitles,omitempty"`
+		}
+		saved.DelegationDepth = DefaultDelegationDepth
+		if exists {
+			if err := json.Unmarshal(data, &saved); err != nil {
+				return nil, err
+			}
+		}
+		if delegationDepth != nil {
+			saved.DelegationDepth = *delegationDepth
+		}
+		if automaticTitles != nil {
+			saved.AutomaticTitles = automaticTitles
+		}
+		return json.Marshal(saved)
+	})
 }

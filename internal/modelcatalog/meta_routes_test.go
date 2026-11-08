@@ -7,10 +7,10 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 
+	"vista/internal/configstore"
 	"vista/internal/provider"
 )
 
@@ -21,9 +21,12 @@ func TestMetaChatAndMessagesRoutes(t *testing.T) {
 	} {
 		t.Run(check.route, func(t *testing.T) {
 			root := t.TempDir()
+			if err := os.Chmod(root, 0700); err != nil {
+				t.Fatal(err)
+			}
 			write := func(base string) (Catalog, error) {
 				data := fmt.Sprintf(`{"default":"meta","models":[{"key":"meta","provider":"catalog","providerId":"meta","id":"muse-spark-1.1","route":%q,"baseUrl":%q,"apiKey":"meta-key"}]}`, check.route, base)
-				if err := os.WriteFile(filepath.Join(root, "models.json"), []byte(data), 0600); err != nil {
+				if err := configstore.Write(root, configstore.Models, []byte(data)); err != nil {
 					t.Fatal(err)
 				}
 				return Load(root)
@@ -106,8 +109,11 @@ func TestMetaChatAndMessagesRoutes(t *testing.T) {
 
 func TestMetaRejectsUnknownRoute(t *testing.T) {
 	root := t.TempDir()
+	if err := os.Chmod(root, 0700); err != nil {
+		t.Fatal(err)
+	}
 	data := `{"default":"meta","models":[{"key":"meta","provider":"catalog","providerId":"meta","id":"muse-spark-1.1","route":"unknown","apiKey":"key"}]}`
-	if err := os.WriteFile(filepath.Join(root, "models.json"), []byte(data), 0600); err != nil {
+	if err := configstore.Write(root, configstore.Models, []byte(data)); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := Load(root); err == nil {
@@ -141,8 +147,11 @@ func TestMetaMessagesThinkingAndEffortOptions(t *testing.T) {
 			}))
 			defer endpoint.Close()
 			root := t.TempDir()
+			if err := os.Chmod(root, 0700); err != nil {
+				t.Fatal(err)
+			}
 			data := fmt.Sprintf(`{"default":"meta","models":[{"key":"meta","provider":"catalog","providerId":"meta","id":"muse-spark-1.1","route":"messages","baseUrl":%q,"apiKey":"meta-key","thinking":%s,"effort":"high"}]}`, endpoint.URL+"/v1", check.thinking)
-			if err := os.WriteFile(filepath.Join(root, "models.json"), []byte(data), 0600); err != nil {
+			if err := configstore.Write(root, configstore.Models, []byte(data)); err != nil {
 				t.Fatal(err)
 			}
 			catalog, err := Load(root)
@@ -163,6 +172,9 @@ func TestMetaMessagesThinkingAndEffortOptions(t *testing.T) {
 
 func TestMetaMessagesRejectInvalidThinkingOptions(t *testing.T) {
 	root := t.TempDir()
+	if err := os.Chmod(root, 0700); err != nil {
+		t.Fatal(err)
+	}
 	for _, options := range []string{
 		`"route":"chat","thinking":{"type":"adaptive"}`,
 		`"route":"responses","effort":"high"`,
@@ -176,7 +188,7 @@ func TestMetaMessagesRejectInvalidThinkingOptions(t *testing.T) {
 		`"route":"messages","effort":"none"`,
 	} {
 		data := fmt.Sprintf(`{"default":"meta","models":[{"key":"meta","provider":"catalog","providerId":"meta","id":"muse-spark-1.1","apiKey":"key",%s}]}`, options)
-		if err := os.WriteFile(filepath.Join(root, "models.json"), []byte(data), 0600); err != nil {
+		if err := configstore.Write(root, configstore.Models, []byte(data)); err != nil {
 			t.Fatal(err)
 		}
 		if _, err := Load(root); err == nil {
@@ -187,8 +199,11 @@ func TestMetaMessagesRejectInvalidThinkingOptions(t *testing.T) {
 
 func TestMetaResponsesReasoningEffortConfiguration(t *testing.T) {
 	root := t.TempDir()
+	if err := os.Chmod(root, 0700); err != nil {
+		t.Fatal(err)
+	}
 	data := `{"default":"meta","models":[{"key":"meta","provider":"catalog","providerId":"meta","id":"muse-spark-1.1","reasoningEffort":"high","apiKey":"key"}]}`
-	if err := os.WriteFile(filepath.Join(root, "models.json"), []byte(data), 0600); err != nil {
+	if err := configstore.Write(root, configstore.Models, []byte(data)); err != nil {
 		t.Fatal(err)
 	}
 	catalog, err := Load(root)

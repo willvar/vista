@@ -80,7 +80,7 @@ func newRootCommand() *cobra.Command {
 }
 
 func addPortFlag(command *cobra.Command, port *int) {
-	command.Flags().IntVar(port, "port", 0, fmt.Sprintf("HTTP port (VISTA_PORT or server.json; default %d)", server.DefaultPort))
+	command.Flags().IntVar(port, "port", 0, fmt.Sprintf("HTTP port (VISTA_PORT or config.json; default %d)", server.DefaultPort))
 	command.PreRunE = func(command *cobra.Command, _ []string) error {
 		if command.Flags().Changed("port") && (*port < 1 || *port > 65535) {
 			return errors.New("--port must be from 1 to 65535")
@@ -89,10 +89,7 @@ func addPortFlag(command *cobra.Command, port *int) {
 		if err != nil {
 			return err
 		}
-		config, err := server.LoadRuntimeConfig(configDir, *port)
-		if err == nil {
-			*port = config.Port
-		}
+		_, err = server.PreviewRuntimeConfig(configDir, *port)
 		return err
 	}
 }
@@ -129,8 +126,7 @@ func start(portOverride int, showBrowser bool) error {
 	if err != nil {
 		return err
 	}
-	config, err := server.LoadRuntimeConfig(configDir, portOverride)
-	if err != nil {
+	if _, err := server.PreviewRuntimeConfig(configDir, portOverride); err != nil {
 		return err
 	}
 	d, err := dir()
@@ -144,7 +140,11 @@ func start(portOverride int, showBrowser bool) error {
 	if err := os.MkdirAll(d, 0700); err != nil {
 		return err
 	}
-	proc, err := startDetached(nil, "serve", "--port", fmt.Sprint(config.Port))
+	args := []string{"serve"}
+	if portOverride != 0 {
+		args = append(args, "--port", fmt.Sprint(portOverride))
+	}
+	proc, err := startDetached(nil, args...)
 	if err != nil {
 		return err
 	}

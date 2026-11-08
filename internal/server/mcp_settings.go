@@ -7,18 +7,16 @@ import (
 	"maps"
 	"net/http"
 	"os"
-	"path/filepath"
 	"reflect"
 	"slices"
 	"strings"
 	"time"
 
 	"github.com/google/uuid"
+	"vista/internal/configstore"
 	"vista/internal/mcpclient"
 	"vista/internal/mcphost"
 	"vista/internal/workerproto"
-
-	"vista/internal/platform"
 )
 
 type mcpCheck struct {
@@ -233,36 +231,20 @@ func (a *App) mcpSettings(w http.ResponseWriter, r *http.Request) {
 }
 
 func writeMCPConfig(dir string, configs []workerproto.MCPServer) error {
-	info, err := os.Lstat(dir)
-	if err != nil || !info.IsDir() || !platform.PrivateMode(info.Mode()) {
-		return errors.New("Vista configuration directory must be private")
+	if err := validateMCPConfig(configs); err != nil {
+		return err
 	}
 	if configs == nil {
 		configs = []workerproto.MCPServer{}
 	}
-	data, err := json.MarshalIndent(configs, "", "  ")
+	data, err := json.Marshal(configs)
 	if err != nil {
 		return err
 	}
-	if len(data)+1 > 8<<10 {
+	if len(data) > 8<<10 {
 		return errors.New("MCP configuration exceeds 8 KiB")
 	}
-	file, err := os.CreateTemp(dir, ".mcp-*")
-	if err != nil {
-		return err
-	}
-	defer os.Remove(file.Name())
-	defer file.Close()
-	if _, err := file.Write(append(data, '\n')); err != nil {
-		return err
-	}
-	if err := file.Sync(); err != nil {
-		return err
-	}
-	if err := file.Close(); err != nil {
-		return err
-	}
-	return os.Rename(file.Name(), filepath.Join(dir, "mcp.json"))
+	return configstore.Write(dir, configstore.MCP, data)
 }
 
 func (a *App) mcpServerAction(w http.ResponseWriter, r *http.Request) {

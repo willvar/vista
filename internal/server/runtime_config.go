@@ -8,9 +8,10 @@ import (
 	"io"
 	"net"
 	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
+
+	"vista/internal/configstore"
 )
 
 const DefaultPort = 5186
@@ -25,28 +26,50 @@ func (c RuntimeConfig) Address() string {
 	return net.JoinHostPort("127.0.0.1", strconv.Itoa(c.Port))
 }
 
+func parseRuntimeConfig(data []byte) (RuntimeConfig, error) {
+	config := RuntimeConfig{Port: DefaultPort}
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.DisallowUnknownFields()
+	file := &config
+	if err := decoder.Decode(&file); err != nil {
+		return RuntimeConfig{}, err
+	}
+	if file == nil {
+		return RuntimeConfig{}, errors.New("expected a JSON object")
+	}
+	if err := decoder.Decode(new(any)); err != io.EOF {
+		return RuntimeConfig{}, errors.New("expected one JSON object")
+	}
+	return config, nil
+}
+
 // LoadRuntimeConfig resolves CLI > environment > file > default. A zero CLI
 // override means the command did not specify a port; configured port zero is
 // rejected so production startup never requests an ephemeral listener.
 func LoadRuntimeConfig(configDir string, portOverride int) (RuntimeConfig, error) {
-	config := RuntimeConfig{Port: DefaultPort}
-	path := filepath.Join(configDir, "server.json")
-	data, err := os.ReadFile(path)
-	if err != nil && !errors.Is(err, os.ErrNotExist) {
+	data, present, err := configstore.Read(configDir, configstore.Server)
+	if err != nil {
 		return RuntimeConfig{}, fmt.Errorf("read server configuration: %w", err)
 	}
-	if err == nil {
-		decoder := json.NewDecoder(bytes.NewReader(data))
-		decoder.DisallowUnknownFields()
-		file := &config
-		if err := decoder.Decode(&file); err != nil {
-			return RuntimeConfig{}, fmt.Errorf("parse %s: %w", path, err)
-		}
-		if file == nil {
-			return RuntimeConfig{}, fmt.Errorf("parse %s: expected a JSON object", path)
-		}
-		if err := decoder.Decode(new(any)); err != io.EOF {
-			return RuntimeConfig{}, fmt.Errorf("parse %s: expected one JSON object", path)
+	return resolveRuntimeConfig(data, present, portOverride)
+}
+
+// PreviewRuntimeConfig is startup-only and read-only. It validates old startup
+// inputs before a CLI restart can stop the current process, without migrating.
+func PreviewRuntimeConfig(configDir string, portOverride int) (RuntimeConfig, error) {
+	data, present, err := configstore.PreviewServer(configDir)
+	if err != nil {
+		return RuntimeConfig{}, fmt.Errorf("read startup configuration: %w", err)
+	}
+	return resolveRuntimeConfig(data, present, portOverride)
+}
+func resolveRuntimeConfig(data []byte, present bool, portOverride int) (RuntimeConfig, error) {
+	config := RuntimeConfig{Port: DefaultPort}
+	var err error
+	if present {
+		config, err = parseRuntimeConfig(data)
+		if err != nil {
+			return RuntimeConfig{}, fmt.Errorf("parse config.json server section: %w", err)
 		}
 	}
 	if value := strings.TrimSpace(os.Getenv("VISTA_PORT")); value != "" && portOverride == 0 {

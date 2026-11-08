@@ -5,11 +5,11 @@ import (
 	"context"
 	"encoding/json"
 	"os"
-	"path/filepath"
 	"reflect"
 	"slices"
 	"testing"
 
+	"vista/internal/configstore"
 	modelcfg "vista/internal/model"
 	"vista/internal/modelcatalog"
 	"vista/internal/provider"
@@ -33,8 +33,8 @@ func TestSaveKeepsRawConfigurationSeparateFromResolvedCatalog(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	onDisk, err := os.ReadFile(filepath.Join(dir, "models.json"))
-	if err != nil || !bytes.Equal(onDisk, want) {
+	onDisk, exists, err := configstore.Read(dir, configstore.Models)
+	if err != nil || !exists || !bytes.Equal(onDisk, want) {
 		t.Fatalf("saved configuration gained resolved fields: %s, %v", onDisk, err)
 	}
 	unchanged, _ := json.Marshal(raw)
@@ -59,8 +59,8 @@ func TestSaveKeepsRawConfigurationSeparateFromResolvedCatalog(t *testing.T) {
 	if _, err := modelcatalog.Save(dir, invalid); err == nil {
 		t.Fatal("invalid default was persisted")
 	}
-	after, err := os.ReadFile(filepath.Join(dir, "models.json"))
-	if err != nil || !bytes.Equal(after, want) {
+	after, exists, err := configstore.Read(dir, configstore.Models)
+	if err != nil || !exists || !bytes.Equal(after, want) {
 		t.Fatal("failed validation changed the existing configuration")
 	}
 }

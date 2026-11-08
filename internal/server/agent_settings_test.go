@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"vista/internal/agentconfig"
+	"vista/internal/configstore"
 )
 
 func TestAgentSettingsAPI(t *testing.T) {
@@ -139,10 +140,13 @@ func TestAgentSettingsPreserveLongExternalAndEditedInstructions(t *testing.T) {
 func TestAgentSettingsReadErrorsIdentifyFailedDocument(t *testing.T) {
 	for _, tc := range []struct{ file, content, want string }{
 		{"AGENTS.md", "invalid UTF-8: \xff", "could not read global instructions: agent instructions must be UTF-8"},
-		{"agent-settings.json", "{", "could not read agent settings:"},
+		{configstore.Filename, "{", "could not read agent settings:"},
 	} {
 		t.Run(tc.file, func(t *testing.T) {
 			app := &App{configDir: t.TempDir()}
+			if err := os.Chmod(app.configDir, 0700); err != nil {
+				t.Fatal(err)
+			}
 			if err := os.WriteFile(filepath.Join(app.configDir, tc.file), []byte(tc.content), 0600); err != nil {
 				t.Fatal(err)
 			}

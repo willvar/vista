@@ -12,6 +12,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"vista/internal/configstore"
 	"vista/internal/modelcatalog"
 
 	modelcfg "vista/internal/model"
@@ -201,7 +202,7 @@ func TestCustomModelDiscoveryAndBatchSave(t *testing.T) {
 		t.Fatal("batch did not preserve models and default")
 	}
 	input.Key, input.APIKey = models.Default, ""
-	before, err := os.ReadFile(filepath.Join(app.configDir, "models.json"))
+	before, _, err := configstore.Read(app.configDir, configstore.Models)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -209,7 +210,10 @@ func TestCustomModelDiscoveryAndBatchSave(t *testing.T) {
 	if err := app.changeProviderSettings(context.Background(), http.MethodPut, input); err == nil {
 		t.Fatal("duplicate IDs accepted")
 	}
-	after, _ := os.ReadFile(filepath.Join(app.configDir, "models.json"))
+	after, _, err := configstore.Read(app.configDir, configstore.Models)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if !bytes.Equal(before, after) {
 		t.Fatal("failed batch changed settings")
 	}
@@ -256,12 +260,18 @@ func TestZenProviderBatchKeepsOneDefaultAndStableKeys(t *testing.T) {
 		t.Fatal("Zen models or default missing")
 	}
 	input.Key, input.APIKey = models.Default, ""
-	before, _ := os.ReadFile(filepath.Join(app.configDir, "models.json"))
+	before, _, err := configstore.Read(app.configDir, configstore.Models)
+	if err != nil {
+		t.Fatal(err)
+	}
 	input.IDs = []string{"claude-sonnet-4-6", "not-in-catalog"}
 	if err := app.changeProviderSettings(context.Background(), http.MethodPut, input); err == nil {
 		t.Fatal("invalid batch accepted")
 	}
-	after, _ := os.ReadFile(filepath.Join(app.configDir, "models.json"))
+	after, _, err := configstore.Read(app.configDir, configstore.Models)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if !bytes.Equal(before, after) {
 		t.Fatal("invalid Zen batch changed settings")
 	}
@@ -417,7 +427,7 @@ func TestModelSettingsSaveLiveAndKeepCredentialsPrivate(t *testing.T) {
 	if selected, _, err := app.modelsSnapshot().Resolve(input.Key); err != nil || selected.APIKey != "private-key" || selected.BaseURL != input.BaseURL {
 		t.Fatal("live model was not updated")
 	}
-	info, err := os.Stat(filepath.Join(app.configDir, "models.json"))
+	info, err := os.Stat(filepath.Join(app.configDir, configstore.Filename))
 	if err != nil || info.Mode().Perm() != 0600 {
 		t.Fatalf("settings file is not private: %v", err)
 	}
@@ -426,12 +436,18 @@ func TestModelSettingsSaveLiveAndKeepCredentialsPrivate(t *testing.T) {
 	if get.Code != http.StatusOK || bytes.Contains(get.Body.Bytes(), []byte("private-key")) || !bytes.Contains(get.Body.Bytes(), []byte(`"hasApiKey":true`)) {
 		t.Fatal("settings response leaked or lost credential metadata")
 	}
-	before, _ := os.ReadFile(filepath.Join(app.configDir, "models.json"))
+	before, _, err := configstore.Read(app.configDir, configstore.Models)
+	if err != nil {
+		t.Fatal(err)
+	}
 	input.BaseURL, input.APIKey = "ftp://example.com/v1", "replacement"
 	if err := app.changeProviderSettings(context.Background(), http.MethodPut, input); err == nil {
 		t.Fatal("invalid endpoint accepted")
 	}
-	after, _ := os.ReadFile(filepath.Join(app.configDir, "models.json"))
+	after, _, err := configstore.Read(app.configDir, configstore.Models)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if !bytes.Equal(before, after) {
 		t.Fatal("invalid endpoint changed settings")
 	}
@@ -467,7 +483,7 @@ func TestModelSettingsUseConfigurationDirectory(t *testing.T) {
 		t.Fatal(err)
 	}
 	// A state file must not be interpreted as configuration or changed by settings.
-	stateFile := filepath.Join(stateDir, "models.json")
+	stateFile := filepath.Join(stateDir, configstore.Filename)
 	stateContents := []byte("not a model configuration")
 	if err := os.WriteFile(stateFile, stateContents, 0600); err != nil {
 		t.Fatal(err)
@@ -484,8 +500,8 @@ func TestModelSettingsUseConfigurationDirectory(t *testing.T) {
 	if err := app.changeProviderSettings(context.Background(), http.MethodDelete, providerSettingsInput{Key: raw.Models[0].Key}); err != nil {
 		t.Fatalf("delete configuration: %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(configDir, "models.json")); !os.IsNotExist(err) {
-		t.Fatalf("configuration file remains after disconnect: %v", err)
+	if _, exists, err := configstore.Read(configDir, configstore.Models); err != nil || exists {
+		t.Fatalf("models section remains after disconnect: exists=%v err=%v", exists, err)
 	}
 	if data, err := os.ReadFile(stateFile); err != nil || !bytes.Equal(data, stateContents) {
 		t.Fatalf("settings changed the state directory: %v", err)

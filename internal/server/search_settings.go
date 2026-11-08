@@ -1,24 +1,19 @@
 package server
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
-	"io"
-	"maps"
 	"math/rand/v2"
 	"net/http"
-	"os"
-	"path/filepath"
 	"strings"
 	"unicode"
 	"unicode/utf8"
 
+	"vista/internal/configstore"
 	"vista/internal/workerproto"
-
-	"vista/internal/platform"
 )
 
-const searchSettingsFilename = "search.json"
 const maxSearchAPIKeyBytes = 4096
 
 type searchSettingsConfig struct {
@@ -80,16 +75,26 @@ func validWebfetchOrder(order []string) bool {
 // Initialize once per configuration directory.
 // Persist the initial order before serving requests so restarts never reshuffle it.
 func loadSearchSettings(dir string) (searchSettingsConfig, error) {
+	data, exists, err := configstore.Read(dir, configstore.Search)
+	if err != nil {
+		return searchSettingsConfig{}, errors.New("could not read search settings")
+	}
+	settings, initialize, err := decodeSearchSettings(data, exists)
+	if err != nil || !initialize {
+		return settings, err
+	}
+	// Re-read under the write lock so concurrent initialization or edits win.
+	settings, err = updateSearchSettings(dir, nil)
+	if err != nil {
+		return searchSettingsConfig{}, errors.New("could not initialize search settings")
+	}
+	return settings, nil
+}
+
+func decodeSearchSettings(data []byte, exists bool) (searchSettingsConfig, bool, error) {
 	settings := searchSettingsConfig{SearchPreviewBytes: workerproto.DefaultNetworkPreviewBytes, FetchPreviewBytes: workerproto.DefaultNetworkPreviewBytes}
 	migrate := false
-	file, err := os.Open(filepath.Join(dir, searchSettingsFilename))
-	if err != nil && !errors.Is(err, os.ErrNotExist) {
-		return settings, errors.New("could not read search settings")
-	}
-	if file != nil {
-		// The credentials and order fit comfortably within this bounded file.
-		data, readErr := io.ReadAll(io.LimitReader(file, (256<<10)+1))
-		file.Close()
+	if exists {
 		var saved struct {
 			searchSettingsConfig
 			SearchPreviewBytes *int `json:"searchPreviewBytes"`
@@ -97,8 +102,8 @@ func loadSearchSettings(dir string) (searchSettingsConfig, error) {
 			SummaryLength      *int `json:"summaryLength"`
 			FetchPreviewLength *int `json:"fetchPreviewLength"`
 		}
-		if readErr != nil || len(data) > 256<<10 || decodeSettingsRequest(strings.NewReader(string(data)), &saved) != nil {
-			return searchSettingsConfig{}, errors.New("invalid search settings")
+		if len(data) > 256<<10 || decodeSettingsRequest(bytes.NewReader(data), &saved) != nil {
+			return searchSettingsConfig{}, false, errors.New("invalid search settings")
 		}
 		settings = saved.searchSettingsConfig
 		settings.SearchPreviewBytes = workerproto.DefaultNetworkPreviewBytes
@@ -117,14 +122,14 @@ func loadSearchSettings(dir string) (searchSettingsConfig, error) {
 	}
 	for name, key := range settings.APIKeys {
 		if !validSearchProvider(name) || !validSearchAPIKey(key) {
-			return searchSettingsConfig{}, errors.New("invalid search settings")
+			return searchSettingsConfig{}, false, errors.New("invalid search settings")
 		}
 	}
 	if settings.JinaAPIKey != "" && !validSearchAPIKey(settings.JinaAPIKey) {
-		return searchSettingsConfig{}, errors.New("invalid search settings")
+		return searchSettingsConfig{}, false, errors.New("invalid search settings")
 	}
 	if settings.DeepSeekFetchAPIKey != "" && !validSearchAPIKey(settings.DeepSeekFetchAPIKey) || settings.SearchPreviewBytes < 0 || settings.FetchPreviewBytes < 0 {
-		return searchSettingsConfig{}, errors.New("invalid search settings")
+		return searchSettingsConfig{}, false, errors.New("invalid search settings")
 	}
 	if settings.APIKeys == nil {
 		settings.APIKeys = map[string]string{}
@@ -135,7 +140,7 @@ func loadSearchSettings(dir string) (searchSettingsConfig, error) {
 		rand.Shuffle(len(external), func(i, j int) { external[i], external[j] = external[j], external[i] })
 		settings.Order = external
 	} else if !validSearchOrder(settings.Order) {
-		return searchSettingsConfig{}, errors.New("invalid search settings")
+		return searchSettingsConfig{}, false, errors.New("invalid search settings")
 	}
 	// Preserve external-reader order and credentials from earlier versions.
 	if len(settings.FetchOrder) == 3 {
@@ -156,14 +161,9 @@ func loadSearchSettings(dir string) (searchSettingsConfig, error) {
 	if settings.FetchOrder == nil {
 		settings.FetchOrder = []string{"jina", "deepseek"}
 	} else if !validWebfetchOrder(settings.FetchOrder) {
-		return searchSettingsConfig{}, errors.New("invalid webfetch order")
+		return searchSettingsConfig{}, false, errors.New("invalid webfetch order")
 	}
-	if initialize {
-		if err := writeSearchSettings(dir, settings); err != nil {
-			return searchSettingsConfig{}, errors.New("could not initialize search settings")
-		}
-	}
-	return settings, nil
+	return settings, initialize, nil
 }
 
 // Character limits have no exact byte equivalent. Upgrade the old defaults to
@@ -184,34 +184,22 @@ func legacyPreviewBytes(characters, oldDefault, results int) int {
 	return (characters*factor + 1023) / 1024 * 1024
 }
 
-func writeSearchSettings(dir string, settings searchSettingsConfig) error {
-	info, err := os.Lstat(dir)
-	if err != nil || !info.IsDir() || !platform.PrivateMode(info.Mode()) {
-		return errors.New("Vista configuration directory must be private")
-	}
-	data, err := json.MarshalIndent(settings, "", "  ")
-	if err != nil {
-		return err
-	}
-	file, err := os.CreateTemp(dir, ".search-*")
-	if err != nil {
-		return err
-	}
-	defer os.Remove(file.Name())
-	defer file.Close()
-	if err := file.Chmod(0600); err != nil {
-		return err
-	}
-	if _, err := file.Write(append(data, '\n')); err != nil {
-		return err
-	}
-	if err := file.Sync(); err != nil {
-		return err
-	}
-	if err := file.Close(); err != nil {
-		return err
-	}
-	return os.Rename(file.Name(), filepath.Join(dir, searchSettingsFilename))
+// Partial edits use the latest private section, never a redacted API response
+// or a process-local snapshot that may predate another client's write.
+func updateSearchSettings(dir string, edit func(*searchSettingsConfig)) (searchSettingsConfig, error) {
+	var settings searchSettingsConfig
+	err := configstore.Update(dir, configstore.Search, func(data []byte, exists bool) ([]byte, error) {
+		var err error
+		settings, _, err = decodeSearchSettings(data, exists)
+		if err != nil {
+			return nil, err
+		}
+		if edit != nil {
+			edit(&settings)
+		}
+		return json.Marshal(settings)
+	})
+	return settings, err
 }
 
 // Each run keeps its own order and credentials; changes apply to the next run.
@@ -300,20 +288,21 @@ func (a *App) searchSettings(w http.ResponseWriter, r *http.Request) {
 		}
 		a.searchMu.Lock()
 		defer a.searchMu.Unlock()
-		settings := a.searchConfig
-		if input.Order != nil {
-			settings.Order = input.Order
-		}
-		if input.FetchOrder != nil {
-			settings.FetchOrder = input.FetchOrder
-		}
-		if input.SearchPreviewBytes != nil {
-			settings.SearchPreviewBytes = *input.SearchPreviewBytes
-		}
-		if input.FetchPreviewBytes != nil {
-			settings.FetchPreviewBytes = *input.FetchPreviewBytes
-		}
-		if err := writeSearchSettings(a.configDir, settings); err != nil {
+		settings, err := updateSearchSettings(a.configDir, func(settings *searchSettingsConfig) {
+			if input.Order != nil {
+				settings.Order = input.Order
+			}
+			if input.FetchOrder != nil {
+				settings.FetchOrder = input.FetchOrder
+			}
+			if input.SearchPreviewBytes != nil {
+				settings.SearchPreviewBytes = *input.SearchPreviewBytes
+			}
+			if input.FetchPreviewBytes != nil {
+				settings.FetchPreviewBytes = *input.FetchPreviewBytes
+			}
+		})
+		if err != nil {
 			http.Error(w, "could not save search settings", http.StatusInternalServerError)
 			return
 		}
@@ -345,28 +334,18 @@ func (a *App) searchSettings(w http.ResponseWriter, r *http.Request) {
 		}
 		a.searchMu.Lock()
 		defer a.searchMu.Unlock()
-		settings := a.searchConfig
-		if input.Name == "deepseek-fetch" {
-			settings.DeepSeekFetchAPIKey = key
-		} else if input.Name == "jina" {
-			if r.Method == http.MethodPut {
+		settings, err := updateSearchSettings(a.configDir, func(settings *searchSettingsConfig) {
+			if input.Name == "deepseek-fetch" {
+				settings.DeepSeekFetchAPIKey = key
+			} else if input.Name == "jina" {
 				settings.JinaAPIKey = key
+			} else if r.Method == http.MethodPut {
+				settings.APIKeys[input.Name] = key
 			} else {
-				settings.JinaAPIKey = ""
+				delete(settings.APIKeys, input.Name)
 			}
-		} else {
-			keys := maps.Clone(settings.APIKeys)
-			if keys == nil {
-				keys = map[string]string{}
-			}
-			if r.Method == http.MethodPut {
-				keys[input.Name] = key
-			} else {
-				delete(keys, input.Name)
-			}
-			settings.APIKeys = keys
-		}
-		if err := writeSearchSettings(a.configDir, settings); err != nil {
+		})
+		if err != nil {
 			http.Error(w, "could not save search settings", http.StatusInternalServerError)
 			return
 		}

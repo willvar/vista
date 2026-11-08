@@ -25,6 +25,7 @@ import (
 	"vista/internal/appdirs"
 	"vista/internal/buildinfo"
 	"vista/internal/codexauth"
+	"vista/internal/configstore"
 	"vista/internal/copilotauth"
 	"vista/internal/instance"
 	"vista/internal/mcphost"
@@ -127,10 +128,6 @@ func Run(portOverride int, onReady func(context.Context) func(), startRestart fu
 	if err != nil {
 		return err
 	}
-	config, err := LoadRuntimeConfig(configDir, portOverride)
-	if err != nil {
-		return err
-	}
 	if err := os.MkdirAll(configDir, 0700); err != nil {
 		return fmt.Errorf("create configuration directory: %w", err)
 	}
@@ -146,6 +143,13 @@ func Run(portOverride int, onReady func(context.Context) func(), startRestart fu
 		return fmt.Errorf("lock Vista instance: %w", err)
 	}
 	defer instance.Unlock(lock)
+	if err := configstore.Migrate(configDir); err != nil {
+		return fmt.Errorf("prepare configuration: %w", err)
+	}
+	config, err := LoadRuntimeConfig(configDir, portOverride)
+	if err != nil {
+		return err
+	}
 	socket, err := net.Listen("tcp", config.Address())
 	if err != nil {
 		return fmt.Errorf("listen on %s: %w", config.Address(), err)

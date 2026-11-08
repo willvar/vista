@@ -7,9 +7,9 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
-	"path/filepath"
 	"testing"
 
+	"vista/internal/configstore"
 	"vista/internal/provider"
 )
 
@@ -37,8 +37,11 @@ func TestAlibabaChatGenerationControls(t *testing.T) {
 			}))
 			defer endpoint.Close()
 			root := t.TempDir()
+			if err := os.Chmod(root, 0700); err != nil {
+				t.Fatal(err)
+			}
 			data := fmt.Sprintf(`{"default":"qwen","models":[{"key":"qwen","provider":"catalog","providerId":%q,"id":%q,"baseUrl":%q,"apiKey":"test-key","maxCompletionTokens":1000,"thinkingBudget":900,"repetitionPenalty":1.2,"reasoningEffort":"high","responseFormat":{"type":"json_schema","json_schema":{"name":"answer","schema":{"type":"object"}}}}]}`, check.providerID, check.modelID, endpoint.URL+"/v1")
-			if err := os.WriteFile(filepath.Join(root, "models.json"), []byte(data), 0600); err != nil {
+			if err := configstore.Write(root, configstore.Models, []byte(data)); err != nil {
 				t.Fatal(err)
 			}
 			catalog, err := Load(root)

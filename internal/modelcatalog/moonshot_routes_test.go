@@ -7,10 +7,10 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 
+	"vista/internal/configstore"
 	"vista/internal/provider"
 )
 
@@ -25,6 +25,9 @@ func TestCatalogNativeAlternateRoutesAndToolContinuation(t *testing.T) {
 	} {
 		t.Run(check.providerID+"/"+check.route, func(t *testing.T) {
 			root := t.TempDir()
+			if err := os.Chmod(root, 0700); err != nil {
+				t.Fatal(err)
+			}
 			write := func(base string) (Catalog, error) {
 				options := ""
 				if strings.HasPrefix(check.providerID, "moonshot") {
@@ -35,7 +38,7 @@ func TestCatalogNativeAlternateRoutesAndToolContinuation(t *testing.T) {
 					}
 				}
 				data := fmt.Sprintf(`{"default":"model","models":[{"key":"model","provider":"catalog","providerId":%q,"id":%q,"route":%q,"baseUrl":%q,"apiKey":"test-key"%s}]}`, check.providerID, check.modelID, check.route, base, options)
-				if err := os.WriteFile(filepath.Join(root, "models.json"), []byte(data), 0600); err != nil {
+				if err := configstore.Write(root, configstore.Models, []byte(data)); err != nil {
 					t.Fatal(err)
 				}
 				return Load(root)
@@ -130,8 +133,11 @@ func TestCatalogNativeAlternateRoutesAndToolContinuation(t *testing.T) {
 
 func TestMoonshotRejectsUnknownRoute(t *testing.T) {
 	root := t.TempDir()
+	if err := os.Chmod(root, 0700); err != nil {
+		t.Fatal(err)
+	}
 	valid := `{"default":"kimi","models":[{"key":"kimi","provider":"catalog","providerId":"moonshotai","id":"kimi-k2.7-code","route":"chat","reasoningEffort":"high","apiKey":"key"}]}`
-	if err := os.WriteFile(filepath.Join(root, "models.json"), []byte(valid), 0600); err != nil {
+	if err := configstore.Write(root, configstore.Models, []byte(valid)); err != nil {
 		t.Fatal(err)
 	}
 	catalog, err := Load(root)
@@ -154,7 +160,7 @@ func TestMoonshotRejectsUnknownRoute(t *testing.T) {
 		`{"default":"kimi","models":[{"key":"kimi","provider":"catalog","providerId":"moonshotai","id":"kimi-k2.7-code","route":"chat","thinking":{"type":"adaptive"},"apiKey":"key"}]}`,
 		`{"default":"kimi","models":[{"key":"kimi","provider":"catalog","providerId":"moonshotai","id":"kimi-k2.7-code","route":"chat","thinking":{"type":"enabled","keep":"unknown"},"apiKey":"key"}]}`,
 	} {
-		if err := os.WriteFile(filepath.Join(root, "models.json"), []byte(data), 0600); err != nil {
+		if err := configstore.Write(root, configstore.Models, []byte(data)); err != nil {
 			t.Fatal(err)
 		}
 		if _, err := Load(root); err == nil {
@@ -183,8 +189,11 @@ func TestMoonshotChatThinkingOption(t *testing.T) {
 			}))
 			defer endpoint.Close()
 			root := t.TempDir()
+			if err := os.Chmod(root, 0700); err != nil {
+				t.Fatal(err)
+			}
 			data := fmt.Sprintf(`{"default":"kimi","models":[{"key":"kimi","provider":"catalog","providerId":%q,"id":"kimi-k2.7-code","route":"chat","baseUrl":%q,"apiKey":"test-key","reasoningEffort":"high","thinking":{"type":"enabled","keep":"all"}}]}`, providerID, endpoint.URL+"/v1")
-			if err := os.WriteFile(filepath.Join(root, "models.json"), []byte(data), 0600); err != nil {
+			if err := configstore.Write(root, configstore.Models, []byte(data)); err != nil {
 				t.Fatal(err)
 			}
 			catalog, err := Load(root)

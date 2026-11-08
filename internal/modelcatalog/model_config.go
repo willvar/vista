@@ -9,17 +9,15 @@ import (
 	"net"
 	"net/url"
 	"os"
-	"path/filepath"
 	"slices"
 	"sort"
 	"strings"
 
 	"vista/internal/codexauth"
+	"vista/internal/configstore"
 	"vista/internal/copilotauth"
 	modelcfg "vista/internal/model"
 	"vista/internal/provider"
-
-	"vista/internal/platform"
 )
 
 type Configured struct {
@@ -152,35 +150,22 @@ func LoadWithOMPCatalog(dir string, snapshot *provider.OMPCatalogSnapshot) (Cata
 // Read leaves catalog routes and credentials in their original form,
 // so a WebUI edit cannot serialize resolved URLs or environment secrets.
 func Read(dir string) (Catalog, bool, error) {
-	path := filepath.Join(dir, "models.json")
-	info, err := os.Lstat(path)
-	if errors.Is(err, os.ErrNotExist) {
-		return Catalog{}, false, nil
+	data, exists, err := configstore.Read(dir, configstore.Models)
+	if err != nil || !exists {
+		return Catalog{}, exists, err
 	}
-	if err != nil {
-		return Catalog{}, false, err
-	}
-	if !info.Mode().IsRegular() || !platform.PrivateMode(info.Mode()) || info.Size() > 32<<10 {
-		return Catalog{}, false, errors.New("models.json must be a private regular file of at most 32 KiB")
-	}
-	file, err := os.Open(path)
-	if err != nil {
-		return Catalog{}, false, err
-	}
-	defer file.Close()
-	data, err := io.ReadAll(io.LimitReader(file, (32<<10)+1))
-	if err != nil || len(data) > 32<<10 {
-		return Catalog{}, false, errors.New("models.json exceeds 32 KiB")
+	if len(data) > 32<<10 {
+		return Catalog{}, false, errors.New("models section in config.json exceeds 32 KiB")
 	}
 	var catalog Catalog
 	decoder := json.NewDecoder(bytes.NewReader(data))
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(&catalog); err != nil {
-		return Catalog{}, false, fmt.Errorf("parse models.json: %w", err)
+		return Catalog{}, false, fmt.Errorf("parse models section in config.json: %w", err)
 	}
 	var extra any
 	if err := decoder.Decode(&extra); err != io.EOF {
-		return Catalog{}, false, errors.New("models.json has extra data")
+		return Catalog{}, false, errors.New("models section in config.json has extra data")
 	}
 	// Read previously saved empty catalogs without restoring their placeholder.
 	if catalog.Default == "demo" && len(catalog.Models) == 1 && catalog.Models[0].Key == "demo" && catalog.Models[0].Provider == "" {
@@ -418,7 +403,7 @@ func localLoopback(host string) bool {
 // CredentialEnvironment names must be excluded from worker process environments.
 func (c Catalog) CredentialEnvironment() []string { return slices.Clone(c.credentialEnv) }
 
-// WithDiscoverySource labels a live inventory entry without writing derived data to models.json.
+// WithDiscoverySource labels a live inventory entry without writing derived data to the saved models section.
 func (m Configured) WithDiscoverySource(source string) Configured {
 	m.discoverySource = source
 	return m

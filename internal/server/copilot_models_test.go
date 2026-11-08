@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"vista/internal/configstore"
 	"vista/internal/copilotauth"
 	"vista/internal/modelcatalog"
 	"vista/internal/store"
@@ -43,8 +44,11 @@ func TestCopilotDiscoveryOverridesPinnedRouteAndRetainsInventoryOnFailure(t *tes
 	}))
 	defer endpoint.Close()
 	root := t.TempDir()
+	if err := os.Chmod(root, 0700); err != nil {
+		t.Fatal(err)
+	}
 	data := []byte(fmt.Sprintf(`{"default":"copilot","models":[{"key":"copilot","provider":"catalog","providerId":"github-copilot","id":"gpt-6-sol","baseUrl":%q}]}`, endpoint.URL))
-	if err := os.WriteFile(filepath.Join(root, "models.json"), data, 0600); err != nil {
+	if err := configstore.Write(root, configstore.Models, data); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("GITHUB_TOKEN", "copilot-token")

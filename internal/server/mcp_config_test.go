@@ -6,13 +6,17 @@ import (
 	"path/filepath"
 	"testing"
 
+	"vista/internal/configstore"
 	"vista/internal/workerproto"
 )
 
 func TestMCPConfigRequiresPrivateValidatedFile(t *testing.T) {
 	root := t.TempDir()
-	path := filepath.Join(root, "mcp.json")
-	if err := os.WriteFile(path, []byte(`[{"id":"local","name":"local","transport":"http","endpoint":"http://127.0.0.1:7000/mcp","token":"secret"}]`), 0600); err != nil {
+	if err := os.Chmod(root, 0700); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(root, configstore.KeyFilename)
+	if err := configstore.Write(root, configstore.MCP, []byte(`[{"id":"local","name":"local","transport":"http","endpoint":"http://127.0.0.1:7000/mcp","token":"secret"}]`)); err != nil {
 		t.Fatal(err)
 	}
 	configs, err := loadMCPConfig(root)
@@ -28,13 +32,13 @@ func TestMCPConfigRequiresPrivateValidatedFile(t *testing.T) {
 	if err := os.Chmod(path, 0600); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(path, []byte(`[{"id":"bad","name":"bad","transport":"http","endpoint":"http://example.com","token":"secret"}]`), 0600); err != nil {
+	if err := configstore.Write(root, configstore.MCP, []byte(`[{"id":"bad","name":"bad","transport":"http","endpoint":"http://example.com","token":"secret"}]`)); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := loadMCPConfig(root); err == nil {
 		t.Fatal("unsafe remote token endpoint was accepted")
 	}
-	if err := os.WriteFile(path, []byte(`[{"id":"remote","name":"remote","transport":"http","endpoint":"https://example.com/mcp","oauth":true,"clientId":"vista-client"}]`), 0600); err != nil {
+	if err := configstore.Write(root, configstore.MCP, []byte(`[{"id":"remote","name":"remote","transport":"http","endpoint":"https://example.com/mcp","oauth":true,"clientId":"vista-client"}]`)); err != nil {
 		t.Fatal(err)
 	}
 	configs, err = loadMCPConfig(root)
@@ -63,7 +67,10 @@ func TestMCPConfigRequiresUniqueStableIDsAndNames(t *testing.T) {
 				t.Fatal(err)
 			}
 			dir := t.TempDir()
-			if err := os.WriteFile(filepath.Join(dir, "mcp.json"), data, 0600); err != nil {
+			if err := os.Chmod(dir, 0700); err != nil {
+				t.Fatal(err)
+			}
+			if err := configstore.Write(dir, configstore.MCP, data); err != nil {
 				t.Fatal(err)
 			}
 			if _, err := loadMCPConfig(dir); err == nil {

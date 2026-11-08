@@ -7,19 +7,21 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
-	"path/filepath"
 	"testing"
 
+	"vista/internal/configstore"
 	"vista/internal/provider"
 )
 
 func TestVercelGatewayPinnedV3RouteAndToolContinuation(t *testing.T) {
 	const modelID = "alibaba/qwen-3-14b"
 	root := t.TempDir()
-	path := filepath.Join(root, "models.json")
+	if err := os.Chmod(root, 0700); err != nil {
+		t.Fatal(err)
+	}
 	t.Setenv("AI_GATEWAY_API_KEY", "private-gateway-key")
 	data := []byte(`{"default":"gateway","models":[{"key":"gateway","provider":"catalog","providerId":"vercel","id":"alibaba/qwen-3-14b"}]}`)
-	if err := os.WriteFile(path, data, 0600); err != nil {
+	if err := configstore.Write(root, configstore.Models, data); err != nil {
 		t.Fatal(err)
 	}
 	catalog, err := Load(root)
@@ -73,7 +75,7 @@ func TestVercelGatewayPinnedV3RouteAndToolContinuation(t *testing.T) {
 	}))
 	defer endpoint.Close()
 	data = []byte(fmt.Sprintf(`{"default":"gateway","models":[{"key":"gateway","provider":"catalog","providerId":"vercel","id":%q,"baseUrl":%q,"apiKey":"private-gateway-key"}]}`, modelID, endpoint.URL+"/v3/ai"))
-	if err := os.WriteFile(path, data, 0600); err != nil {
+	if err := configstore.Write(root, configstore.Models, data); err != nil {
 		t.Fatal(err)
 	}
 	catalog, err = Load(root)

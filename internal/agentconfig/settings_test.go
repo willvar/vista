@@ -4,6 +4,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"vista/internal/configstore"
 )
 
 func TestDelegationSettingsRoundTripAndBounds(t *testing.T) {
@@ -25,7 +27,7 @@ func TestDelegationSettingsRoundTripAndBounds(t *testing.T) {
 			t.Fatalf("saved delegation depth %d: %+v, %v", depth, got, err)
 		}
 	}
-	if info, err := os.Stat(filepath.Join(dir, settingsFilename)); err != nil || info.Mode().Perm() != 0600 {
+	if info, err := os.Stat(filepath.Join(dir, configstore.Filename)); err != nil || info.Mode().Perm() != 0600 {
 		t.Fatalf("settings file permissions: %v, %v", info, err)
 	}
 	for _, depth := range []int{-1, MaxDelegationDepth + 1} {
@@ -51,7 +53,10 @@ func TestDelegationSettingsRejectCorruptFile(t *testing.T) {
 	for _, body := range []string{`{}`, `null`, `{"delegationDepth":null}`, `{"delegationDepth":9}`, `{"delegationDepth":"2"}`, `{"delegationDepth":1.5}`, `{"delegationDepth":2,"other":true}`, `{"delegationDepth":2}{}`} {
 		t.Run(body, func(t *testing.T) {
 			dir := t.TempDir()
-			if err := os.WriteFile(filepath.Join(dir, settingsFilename), []byte(body), 0600); err != nil {
+			if err := os.Chmod(dir, 0700); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(dir, configstore.Filename), []byte(`{"version":2,"agent":`+body+`}`), 0600); err != nil {
 				t.Fatal(err)
 			}
 			if settings, err := ReadSettings(dir); err == nil {
@@ -60,7 +65,10 @@ func TestDelegationSettingsRejectCorruptFile(t *testing.T) {
 		})
 	}
 	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, settingsFilename), []byte(`{"delegationDepth":0}`), 0600); err != nil {
+	if err := os.Chmod(dir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := configstore.Write(dir, configstore.Agent, []byte(`{"delegationDepth":0}`)); err != nil {
 		t.Fatal(err)
 	}
 	if settings, err := ReadSettings(dir); err != nil || settings.DelegationDepth != 0 {

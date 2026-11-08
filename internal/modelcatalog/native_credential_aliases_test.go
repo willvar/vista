@@ -3,9 +3,9 @@ package modelcatalog
 import (
 	"fmt"
 	"os"
-	"path/filepath"
 	"testing"
 
+	"vista/internal/configstore"
 	"vista/internal/provider"
 )
 
@@ -28,8 +28,11 @@ func TestNativeCredentialAliases(t *testing.T) {
 			t.Setenv(check.pinnedEnv, "")
 			t.Setenv(check.nativeEnv, "native-key")
 			root := t.TempDir()
+			if err := os.Chmod(root, 0700); err != nil {
+				t.Fatal(err)
+			}
 			data := fmt.Sprintf(`{"default":"native","models":[{"key":"native","provider":"catalog","providerId":%q,"id":%q}]}`, check.providerID, check.modelID)
-			if err := os.WriteFile(filepath.Join(root, "models.json"), []byte(data), 0600); err != nil {
+			if err := configstore.Write(root, configstore.Models, []byte(data)); err != nil {
 				t.Fatal(err)
 			}
 			catalog, err := Load(root)

@@ -7,19 +7,21 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
-	"path/filepath"
 	"testing"
 
+	"vista/internal/configstore"
 	"vista/internal/provider"
 )
 
 func TestVeniceCatalogTextAndToolContinuation(t *testing.T) {
 	const modelID = "aion-labs-aion-3-0"
 	root := t.TempDir()
-	path := filepath.Join(root, "models.json")
+	if err := os.Chmod(root, 0700); err != nil {
+		t.Fatal(err)
+	}
 	t.Setenv("VENICE_API_KEY", "private-venice-key")
 	data := []byte(`{"default":"venice","models":[{"key":"venice","provider":"catalog","providerId":"venice","id":"aion-labs-aion-3-0"}]}`)
-	if err := os.WriteFile(path, data, 0600); err != nil {
+	if err := configstore.Write(root, configstore.Models, data); err != nil {
 		t.Fatal(err)
 	}
 	catalog, err := Load(root)
@@ -57,7 +59,7 @@ func TestVeniceCatalogTextAndToolContinuation(t *testing.T) {
 	}))
 	defer endpoint.Close()
 	data = []byte(fmt.Sprintf(`{"default":"venice","models":[{"key":"venice","provider":"catalog","providerId":"venice","id":%q,"baseUrl":%q,"apiKey":"private-venice-key"}]}`, modelID, endpoint.URL+"/api/v1"))
-	if err := os.WriteFile(path, data, 0600); err != nil {
+	if err := configstore.Write(root, configstore.Models, data); err != nil {
 		t.Fatal(err)
 	}
 	catalog, err = Load(root)

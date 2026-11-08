@@ -2,9 +2,9 @@ package modelcatalog
 
 import (
 	"os"
-	"path/filepath"
 	"testing"
 
+	"vista/internal/configstore"
 	"vista/internal/provider"
 )
 
@@ -12,8 +12,11 @@ func TestMetaNativeCredentialAliasIsIsolated(t *testing.T) {
 	t.Setenv("META_API_KEY", "native-meta-key")
 	t.Setenv("META_MODEL_API_KEY", "")
 	root := t.TempDir()
+	if err := os.Chmod(root, 0700); err != nil {
+		t.Fatal(err)
+	}
 	data := `{"default":"meta","models":[{"key":"meta","provider":"catalog","providerId":"meta","id":"muse-spark-1.1"}]}`
-	if err := os.WriteFile(filepath.Join(root, "models.json"), []byte(data), 0600); err != nil {
+	if err := configstore.Write(root, configstore.Models, []byte(data)); err != nil {
 		t.Fatal(err)
 	}
 	catalog, err := Load(root)

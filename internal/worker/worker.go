@@ -315,7 +315,7 @@ func Run() error {
 			switch {
 			case command.Model.Provider == "":
 				result.Status = "failed"
-				result.Content = "No model is configured. Add a model to Vista's models.json and restart Vista. No task was performed."
+				result.Content = "No model is configured. Connect a model in Settings before sending a message. No task was performed."
 			case provider.SupportsProtocol(command.Model.Provider):
 				var content string
 				var err error

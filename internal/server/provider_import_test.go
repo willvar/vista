@@ -14,6 +14,7 @@ import (
 	"testing"
 
 	"vista/internal/codexauth"
+	"vista/internal/configstore"
 	"vista/internal/modelcatalog"
 )
 
@@ -93,7 +94,7 @@ func TestProviderImportPreviewDoesNotWriteOrContactProvider(t *testing.T) {
 	if len(preview.Connections) != 1 || preview.Connections[0].Reason != "" || requests.Load() != 0 {
 		t.Fatal("preview made an upstream request or failed to read connection")
 	}
-	if _, err := os.Stat(filepath.Join(app.configDir, "models.json")); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(app.configDir, configstore.Filename)); !os.IsNotExist(err) {
 		t.Fatal("preview wrote model configuration")
 	}
 	input["ids"] = []string{"gateway"}
@@ -203,7 +204,7 @@ func TestProviderImportRejectsChangedSourceAndInvalidSelection(t *testing.T) {
 	if w.Code != 409 || !strings.Contains(w.Body.String(), "settings_conflict") {
 		t.Fatalf("stale import accepted: %d %s", w.Code, w.Body)
 	}
-	if _, err := os.Stat(filepath.Join(app.configDir, "models.json")); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(app.configDir, configstore.Filename)); !os.IsNotExist(err) {
 		t.Fatal("rejected import changed model configuration")
 	}
 }
@@ -263,7 +264,7 @@ func TestProviderImportSavesCodexCredentialsAndRollsBackOnFailure(t *testing.T) 
 			app := directoryTestApp(t)
 			upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				if fail {
-					if err := os.Mkdir(filepath.Join(app.configDir, "models.json"), 0700); err != nil {
+					if err := os.Mkdir(filepath.Join(app.configDir, configstore.Filename), 0700); err != nil {
 						t.Error(err)
 					}
 				}

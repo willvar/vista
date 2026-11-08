@@ -12,6 +12,7 @@ import (
 	"sync"
 	"testing"
 
+	"vista/internal/configstore"
 	modelcfg "vista/internal/model"
 	"vista/internal/store"
 	"vista/internal/workerproto"
@@ -98,7 +99,7 @@ func TestSearchSettingsPersistenceAndPrecedence(t *testing.T) {
 		}
 	}
 	checkSources([]searchProviderSetting{{"firecrawl", "settings"}, {"parallel", "settings"}, {"tavily", "settings"}, {"exa", "settings"}, {"deepseek", "settings"}})
-	path := filepath.Join(app.configDir, searchSettingsFilename)
+	path := filepath.Join(app.configDir, configstore.Filename)
 	if info, err := os.Stat(path); err != nil || info.Mode().Perm() != 0600 {
 		t.Fatalf("search keys file is not private: %v %v", info, err)
 	}
@@ -289,7 +290,7 @@ func TestSearchSettingsRejectInvalidRequestsAndFailedWrites(t *testing.T) {
 	if w := searchSettingsRequest(app, http.MethodPut, `{"name":"exa","apiKey":"original-secret"}`); w.Code != http.StatusNoContent {
 		t.Fatal(w.Body.String())
 	}
-	path := filepath.Join(app.configDir, searchSettingsFilename)
+	path := filepath.Join(app.configDir, configstore.Filename)
 	original, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatal(err)
@@ -450,7 +451,7 @@ func TestWebfetchOrderPersistsIndependentlyOfSearchAndKeys(t *testing.T) {
 	snapshot.Order[0] = "invalid"
 	get([]string{"deepseek", "jina"})
 	// A failed atomic write must leave both the saved and active order intact.
-	path := filepath.Join(app.configDir, searchSettingsFilename)
+	path := filepath.Join(app.configDir, configstore.Filename)
 	if err := os.Remove(path); err != nil {
 		t.Fatal(err)
 	}
@@ -529,9 +530,12 @@ func TestSearchSettingsInitialOrderIsPersistedOnce(t *testing.T) {
 			if err := os.Chmod(dir, 0700); err != nil {
 				t.Fatal(err)
 			}
-			path := filepath.Join(dir, searchSettingsFilename)
+			path := filepath.Join(dir, configstore.Filename)
 			if legacy {
-				if err := os.WriteFile(path, []byte(`{"apiKeys":{"exa":"legacy-secret"}}`), 0600); err != nil {
+				if err := os.WriteFile(filepath.Join(dir, "search.json"), []byte(`{"apiKeys":{"exa":"legacy-secret"}}`), 0600); err != nil {
+					t.Fatal(err)
+				}
+				if err := configstore.Migrate(dir); err != nil {
 					t.Fatal(err)
 				}
 			}
@@ -614,15 +618,24 @@ func TestSearchSettingsInitializationFailureAndInvalidSavedOrder(t *testing.T) {
 	}
 	for _, order := range []string{`[]`, `["native","exa","exa","tavily","parallel"]`, `["other","exa","firecrawl","tavily","parallel"]`} {
 		data := `{"apiKeys":{"exa":"secret"},"order":` + order + `}`
-		path := filepath.Join(dir, searchSettingsFilename)
-		if err := os.WriteFile(path, []byte(data), 0600); err != nil {
+		if err := configstore.Write(dir, configstore.Search, []byte(data)); err != nil {
 			t.Fatal(err)
+		}
+		before := map[string][]byte{}
+		for _, name := range []string{configstore.Filename, configstore.KeyFilename} {
+			data, err := os.ReadFile(filepath.Join(dir, name))
+			if err != nil {
+				t.Fatal(err)
+			}
+			before[name] = data
 		}
 		if _, err := loadSearchSettings(dir); err == nil {
 			t.Fatal("invalid saved order accepted")
 		}
-		if got, err := os.ReadFile(path); err != nil || string(got) != data {
-			t.Fatal("invalid settings were overwritten")
+		for name, original := range before {
+			if got, err := os.ReadFile(filepath.Join(dir, name)); err != nil || string(got) != string(original) {
+				t.Fatal("invalid settings were overwritten")
+			}
 		}
 	}
 }
@@ -634,7 +647,10 @@ func TestSearchSettingsRemoveBuiltInReaderPreservingExternalOrderAndKeys(t *test
 			t.Fatal(err)
 		}
 		original := `{"order":["exa","firecrawl","parallel","tavily","deepseek"],"fetchOrder":` + order + `,"apiKeys":{"exa":"search-key"},"jinaApiKey":"reader-key","deepseekFetchApiKey":"fetch-key","searchPreviewBytes":123,"fetchPreviewBytes":456}`
-		if err := os.WriteFile(filepath.Join(dir, searchSettingsFilename), []byte(original), 0600); err != nil {
+		if err := os.WriteFile(filepath.Join(dir, "search.json"), []byte(original), 0600); err != nil {
+			t.Fatal(err)
+		}
+		if err := configstore.Migrate(dir); err != nil {
 			t.Fatal(err)
 		}
 		config, err := loadSearchSettings(dir)
@@ -663,16 +679,19 @@ func TestSearchSettingsMigrateCharacterLimitsToBytesOnce(t *testing.T) {
 			if err := os.Chmod(dir, 0700); err != nil {
 				t.Fatal(err)
 			}
-			path := filepath.Join(dir, searchSettingsFilename)
+			path := filepath.Join(dir, "search.json")
 			original := `{"apiKeys":{"exa":"search-key"},"jinaApiKey":"reader-key","order":["exa","firecrawl","parallel","tavily","deepseek"],"fetchOrder":["deepseek","jina"],` + tc.limits + `}`
 			if err := os.WriteFile(path, []byte(original), 0600); err != nil {
+				t.Fatal(err)
+			}
+			if err := configstore.Migrate(dir); err != nil {
 				t.Fatal(err)
 			}
 			settings, err := loadSearchSettings(dir)
 			if err != nil || settings.SearchPreviewBytes != tc.search || settings.FetchPreviewBytes != tc.fetch || settings.APIKeys["exa"] != "search-key" || settings.JinaAPIKey != "reader-key" || !reflect.DeepEqual(settings.FetchOrder, []string{"deepseek", "jina"}) {
 				t.Fatalf("migration lost limits, order or keys: search=%d fetch=%d err=%v", settings.SearchPreviewBytes, settings.FetchPreviewBytes, err)
 			}
-			data, err := os.ReadFile(path)
+			data, err := os.ReadFile(filepath.Join(dir, configstore.Filename))
 			if err != nil || strings.Contains(string(data), `"summaryLength"`) || strings.Contains(string(data), `"fetchPreviewLength"`) {
 				t.Fatal("legacy units remain in saved settings")
 			}

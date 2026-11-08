@@ -86,7 +86,7 @@ func TestResetAllReopensEmptyDataAndKeepsInstanceLock(t *testing.T) {
 	if _, _, err := app.store.BeginRunWithImages(ctx, "old-session", "old-run", "image", "attached", []store.Image{{MediaType: "image/png", Data: testPNG(t)}}); err != nil {
 		t.Fatal(err)
 	}
-	paths := []string{"models.json", "codex-auth/account.json", "mcp.json", "mcp-auth/token.json", "AGENTS.md", "skills/example/SKILL.md", "agent-settings.json", "search.json", "user-agent.json", "server.json", "model-catalog-status.json", ".mcp-login-old/token.json", "state/outputs/old", "state/worker.log", "future-setting.json"}
+	paths := []string{"config.json", ".config-backup-fixture/search.json", "models.json", "codex-auth/account.json", "mcp.json", "mcp-auth/token.json", "AGENTS.md", "skills/example/SKILL.md", "agent-settings.json", "search.json", "user-agent.json", "server.json", "model-catalog-status.json", ".mcp-login-old/token.json", "state/outputs/old", "state/worker.log", "future-setting.json"}
 	for _, path := range paths {
 		writeResetFixture(t, filepath.Join(app.configDir, path), "old private data")
 	}
@@ -266,6 +266,9 @@ func TestResetReopenFailureIsVisibleAndRetryable(t *testing.T) {
 
 func TestResetDoesNotFollowExternalSymlinks(t *testing.T) {
 	config := t.TempDir()
+	if err := os.Chmod(config, 0700); err != nil {
+		t.Fatal(err)
+	}
 	state := filepath.Join(config, "state")
 	if err := os.Mkdir(state, 0700); err != nil {
 		t.Fatal(err)

@@ -7,16 +7,18 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 
+	"vista/internal/configstore"
 	"vista/internal/provider"
 )
 
 func TestAzureNativeCatalogResourceAndCredential(t *testing.T) {
 	root := t.TempDir()
-	path := filepath.Join(root, "models.json")
+	if err := os.Chmod(root, 0700); err != nil {
+		t.Fatal(err)
+	}
 	for _, check := range []struct{ id, resourceEnv, keyEnv, resource string }{
 		{"azure", "AZURE_RESOURCE_NAME", "AZURE_API_KEY", "my-openai"},
 	} {
@@ -24,7 +26,7 @@ func TestAzureNativeCatalogResourceAndCredential(t *testing.T) {
 			t.Setenv(check.resourceEnv, check.resource)
 			t.Setenv(check.keyEnv, "private-azure-key")
 			data := fmt.Sprintf(`{"default":"azure","models":[{"key":"azure","provider":"catalog","providerId":%q,"id":"gpt-4.1-mini"}]}`, check.id)
-			if err := os.WriteFile(path, []byte(data), 0600); err != nil {
+			if err := configstore.Write(root, configstore.Models, []byte(data)); err != nil {
 				t.Fatal(err)
 			}
 			catalog, err := Load(root)
@@ -66,9 +68,11 @@ func TestAzureNativeCatalogToolAndTextStream(t *testing.T) {
 	}))
 	defer server.Close()
 	root := t.TempDir()
-	path := filepath.Join(root, "models.json")
+	if err := os.Chmod(root, 0700); err != nil {
+		t.Fatal(err)
+	}
 	data := fmt.Sprintf(`{"default":"azure","models":[{"key":"azure","provider":"catalog","providerId":"azure","id":"gpt-4.1-mini","baseUrl":%q,"apiVersion":"v1","apiKey":"azure-test-key"}]}`, server.URL+"/openai/v1")
-	if err := os.WriteFile(path, []byte(data), 0600); err != nil {
+	if err := configstore.Write(root, configstore.Models, []byte(data)); err != nil {
 		t.Fatal(err)
 	}
 	catalog, err := Load(root)
@@ -94,11 +98,13 @@ func TestAzureNativeCatalogToolAndTextStream(t *testing.T) {
 
 func TestAzureNativeCatalogRejectsMissingOrInvalidResource(t *testing.T) {
 	root := t.TempDir()
-	path := filepath.Join(root, "models.json")
+	if err := os.Chmod(root, 0700); err != nil {
+		t.Fatal(err)
+	}
 	t.Setenv("AZURE_RESOURCE_NAME", "")
 	for _, resource := range []string{"", "bad.example.com", "-bad"} {
 		data := fmt.Sprintf(`{"default":"azure","models":[{"key":"azure","provider":"catalog","providerId":"azure","id":"gpt-4.1-mini","resourceName":%q,"apiKey":"key"}]}`, resource)
-		if err := os.WriteFile(path, []byte(data), 0600); err != nil {
+		if err := configstore.Write(root, configstore.Models, []byte(data)); err != nil {
 			t.Fatal(err)
 		}
 		if _, err := Load(root); err == nil || !strings.Contains(err.Error(), "resourceName") {
@@ -109,10 +115,12 @@ func TestAzureNativeCatalogRejectsMissingOrInvalidResource(t *testing.T) {
 
 func TestAzureNativeCompletionAndDeploymentURLs(t *testing.T) {
 	root := t.TempDir()
-	path := filepath.Join(root, "models.json")
+	if err := os.Chmod(root, 0700); err != nil {
+		t.Fatal(err)
+	}
 	write := func(options string) (Catalog, error) {
 		data := fmt.Sprintf(`{"default":"azure","models":[{"key":"azure","provider":"catalog","providerId":"azure","id":"gpt-4.1-mini","resourceName":"sample","apiKey":"azure-key",%s}]}`, options)
-		if err := os.WriteFile(path, []byte(data), 0600); err != nil {
+		if err := configstore.Write(root, configstore.Models, []byte(data)); err != nil {
 			return Catalog{}, err
 		}
 		return Load(root)
@@ -191,9 +199,11 @@ func TestAzureNativeDeploymentResponsesAndOptionScope(t *testing.T) {
 	}))
 	defer server.Close()
 	root := t.TempDir()
-	path := filepath.Join(root, "models.json")
+	if err := os.Chmod(root, 0700); err != nil {
+		t.Fatal(err)
+	}
 	data := fmt.Sprintf(`{"default":"azure","models":[{"key":"azure","provider":"catalog","providerId":"azure","id":"gpt-4.1-mini","baseUrl":%q,"apiKey":"azure-key","useDeploymentBasedUrls":true}]}`, server.URL+"/openai")
-	if err := os.WriteFile(path, []byte(data), 0600); err != nil {
+	if err := configstore.Write(root, configstore.Models, []byte(data)); err != nil {
 		t.Fatal(err)
 	}
 	catalog, err := Load(root)
@@ -214,7 +224,7 @@ func TestAzureNativeDeploymentResponsesAndOptionScope(t *testing.T) {
 		`"provider":"openai-chat","id":"custom","useCompletionUrls":true`,
 	} {
 		data := fmt.Sprintf(`{"default":"azure","models":[{"key":"azure","apiKey":"key",%s}]}`, invalid)
-		if err := os.WriteFile(path, []byte(data), 0600); err != nil {
+		if err := configstore.Write(root, configstore.Models, []byte(data)); err != nil {
 			t.Fatal(err)
 		}
 		if _, err := Load(root); err == nil {

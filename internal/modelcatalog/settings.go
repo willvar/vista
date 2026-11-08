@@ -1,15 +1,12 @@
 package modelcatalog
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"io"
 	"maps"
 	"net/http"
-	"os"
-	"path/filepath"
 	"slices"
 	"sort"
 	"strconv"
@@ -17,7 +14,7 @@ import (
 	"time"
 	"unicode"
 
-	"vista/internal/platform"
+	"vista/internal/configstore"
 	"vista/internal/provider"
 	"vista/internal/useragent"
 )
@@ -206,32 +203,16 @@ func GeneratedModelKey(providerName, id string, used map[string]bool) string {
 	}
 }
 
-// writeFile atomically replaces the private configuration after validation.
+// writeFile atomically replaces only the models section after validation.
 func writeFile(dir string, data []byte) error {
-	info, err := os.Lstat(dir)
-	if err != nil || !info.IsDir() || !platform.PrivateMode(info.Mode()) {
-		return errors.New("Vista configuration directory must be private")
-	}
-	file, err := os.CreateTemp(dir, ".models-*")
-	if err != nil {
-		return err
-	}
-	defer os.Remove(file.Name())
-	defer file.Close()
-	if err := file.Chmod(0600); err != nil {
-		return err
-	}
-	if _, err := io.Copy(file, bytes.NewReader(data)); err != nil {
-		return err
-	}
-	if err := file.Sync(); err != nil {
-		return err
-	}
-	if err := file.Close(); err != nil {
-		return err
-	}
-	return os.Rename(file.Name(), filepath.Join(dir, "models.json"))
+	return configstore.Write(dir, configstore.Models, data)
 }
+
+// Remove restores the environment fallback without changing other settings.
+func Remove(dir string) error {
+	return configstore.Write(dir, configstore.Models, nil)
+}
+
 func SameConnection(first, second Configured) bool {
 	if first.ConnectionID != "" || second.ConnectionID != "" {
 		return first.ConnectionID != "" && first.ConnectionID == second.ConnectionID

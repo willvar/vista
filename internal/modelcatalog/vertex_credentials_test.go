@@ -14,13 +14,17 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+
+	"vista/internal/configstore"
 )
 
 func TestVertexCatalogRoutesAndCredentials(t *testing.T) {
 	root := t.TempDir()
-	path := filepath.Join(root, "models.json")
+	if err := os.Chmod(root, 0700); err != nil {
+		t.Fatal(err)
+	}
 	data := []byte(`{"default":"gemini","models":[{"key":"gemini","provider":"catalog","providerId":"google-vertex","id":"gemini-2.5-flash"},{"key":"claude","provider":"catalog","providerId":"google-vertex","id":"claude-haiku-4-5@20251001"},{"key":"maas","provider":"catalog","providerId":"google-vertex","id":"openai/gpt-oss-120b-maas"}]}`)
-	if err := os.WriteFile(path, data, 0600); err != nil {
+	if err := configstore.Write(root, configstore.Models, data); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("GOOGLE_VERTEX_PROJECT", "test-project")
@@ -41,13 +45,13 @@ func TestVertexCatalogRoutesAndCredentials(t *testing.T) {
 			t.Errorf("Vertex %q: %+v, err=%v", check.key, model, err)
 		}
 	}
-	if err := os.WriteFile(path, []byte(strings.Replace(string(data), `"gemini-2.5-flash"`, `"gemini-2.5-flash","project":"unsafe/path"`, 1)), 0600); err != nil {
+	if err := configstore.Write(root, configstore.Models, []byte(strings.Replace(string(data), `"gemini-2.5-flash"`, `"gemini-2.5-flash","project":"unsafe/path"`, 1))); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := Load(root); err == nil {
 		t.Fatal("unsafe Vertex project accepted")
 	}
-	if err := os.WriteFile(path, data, 0600); err != nil {
+	if err := configstore.Write(root, configstore.Models, data); err != nil {
 		t.Fatal(err)
 	}
 	privateKey, err := rsa.GenerateKey(rand.Reader, 2048)
@@ -90,7 +94,7 @@ func TestVertexCatalogRoutesAndCredentials(t *testing.T) {
 	if len(workerEnv) != 1 || workerEnv[0] != "PATH=/usr/bin" {
 		t.Fatalf("Google credential path reached Worker: %q", workerEnv)
 	}
-	if err := os.WriteFile(path, []byte(`{"default":"gemini","models":[{"key":"gemini","provider":"catalog","providerId":"google-vertex","id":"gemini-2.5-flash"}]}`), 0600); err != nil {
+	if err := configstore.Write(root, configstore.Models, []byte(`{"default":"gemini","models":[{"key":"gemini","provider":"catalog","providerId":"google-vertex","id":"gemini-2.5-flash"}]}`)); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("GOOGLE_VERTEX_PROJECT", "")
@@ -106,7 +110,7 @@ func TestVertexCatalogRoutesAndCredentials(t *testing.T) {
 	if err != nil || model.APIKey != "express-key" || !model.VertexAPIKey || model.BaseURL != "https://aiplatform.googleapis.com/v1/publishers/google" || requestCount != 2 {
 		t.Fatalf("Vertex Express Mode: %+v, token requests=%d, err=%v", model, requestCount, err)
 	}
-	if err := os.WriteFile(path, []byte(`{"default":"gemini","models":[{"key":"gemini","provider":"catalog","providerId":"google-vertex","id":"gemini-2.5-flash","accessToken":"short-token","project":"test-project"}]}`), 0600); err != nil {
+	if err := configstore.Write(root, configstore.Models, []byte(`{"default":"gemini","models":[{"key":"gemini","provider":"catalog","providerId":"google-vertex","id":"gemini-2.5-flash","accessToken":"short-token","project":"test-project"}]}`)); err != nil {
 		t.Fatal(err)
 	}
 	catalog, err = Load(root)

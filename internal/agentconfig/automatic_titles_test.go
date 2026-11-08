@@ -4,6 +4,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"vista/internal/configstore"
 )
 
 func TestAutomaticTitlesDefaultAndPersistence(t *testing.T) {
@@ -13,7 +15,10 @@ func TestAutomaticTitlesDefaultAndPersistence(t *testing.T) {
 	}
 	for _, body := range []string{"", `{"delegationDepth":2}`} {
 		if body != "" {
-			if err := os.WriteFile(filepath.Join(dir, settingsFilename), []byte(body), 0600); err != nil {
+			if err := os.WriteFile(filepath.Join(dir, "agent-settings.json"), []byte(body), 0600); err != nil {
+				t.Fatal(err)
+			}
+			if err := configstore.Migrate(dir); err != nil {
 				t.Fatal(err)
 			}
 		}
@@ -31,7 +36,7 @@ func TestAutomaticTitlesDefaultAndPersistence(t *testing.T) {
 		}
 	}
 	for _, value := range []string{`null`, `0`, `"true"`, `{}`} {
-		if err := os.WriteFile(filepath.Join(dir, settingsFilename), []byte(`{"delegationDepth":1,"automaticTitles":`+value+`}`), 0600); err != nil {
+		if err := os.WriteFile(filepath.Join(dir, configstore.Filename), []byte(`{"version":2,"agent":{"delegationDepth":1,"automaticTitles":`+value+`}}`), 0600); err != nil {
 			t.Fatal(err)
 		}
 		if _, err := ReadSettings(dir); err == nil {

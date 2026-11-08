@@ -7,10 +7,10 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 
+	"vista/internal/configstore"
 	"vista/internal/provider"
 )
 
@@ -26,10 +26,12 @@ func TestZAICodingPlanRouteSelectionAndToolContinuation(t *testing.T) {
 	} {
 		t.Run(check.providerID+"/"+check.route, func(t *testing.T) {
 			root := t.TempDir()
-			path := filepath.Join(root, "models.json")
+			if err := os.Chmod(root, 0700); err != nil {
+				t.Fatal(err)
+			}
 			write := func(base string) (Catalog, error) {
 				data := fmt.Sprintf(`{"default":"glm","models":[{"key":"glm","provider":"catalog","providerId":%q,"id":%q,"route":%q,"baseUrl":%q,"apiKey":"private-key"%s}]}`, check.providerID, check.modelID, check.route, base, check.options)
-				if err := os.WriteFile(path, []byte(data), 0600); err != nil {
+				if err := configstore.Write(root, configstore.Models, []byte(data)); err != nil {
 					t.Fatal(err)
 				}
 				return Load(root)
@@ -150,6 +152,9 @@ func TestZAICodingPlanRouteSelectionAndToolContinuation(t *testing.T) {
 
 func TestZAICodingPlanRejectsUnsupportedRouteSelection(t *testing.T) {
 	root := t.TempDir()
+	if err := os.Chmod(root, 0700); err != nil {
+		t.Fatal(err)
+	}
 	for _, data := range []string{
 		`{"default":"glm","models":[{"key":"glm","provider":"catalog","providerId":"zai-coding-plan","id":"glm-5.2","route":"unknown","apiKey":"key"}]}`,
 		`{"default":"glm","models":[{"key":"glm","provider":"catalog","providerId":"zai","id":"glm-5","route":"messages","apiKey":"key"}]}`,
@@ -169,7 +174,7 @@ func TestZAICodingPlanRejectsUnsupportedRouteSelection(t *testing.T) {
 		`{"default":"glm","models":[{"key":"glm","provider":"openai-chat","providerId":"zai","id":"glm-5","toolStream":true,"apiKey":"key"}]}`,
 		`{"default":"glm","models":[{"key":"glm","provider":"anthropic","providerId":"zai-coding-plan","id":"glm-5.2","thinking":{"type":"enabled"},"apiKey":"key"}]}`,
 	} {
-		if err := os.WriteFile(filepath.Join(root, "models.json"), []byte(data), 0600); err != nil {
+		if err := configstore.Write(root, configstore.Models, []byte(data)); err != nil {
 			t.Fatal(err)
 		}
 		if _, err := Load(root); err == nil {
@@ -186,8 +191,11 @@ func TestZAIChatOptionsAcrossCatalogProviderIDs(t *testing.T) {
 	} {
 		t.Run(check.providerID, func(t *testing.T) {
 			root := t.TempDir()
+			if err := os.Chmod(root, 0700); err != nil {
+				t.Fatal(err)
+			}
 			data := fmt.Sprintf(`{"default":"glm","models":[{"key":"glm","provider":"catalog","providerId":%q,"id":%q,"thinking":{"type":"enabled"},"reasoningEffort":"high","toolStream":false,"doSample":false,"responseFormat":{"type":"json_object"},"requestID":"request-one","userID":"user-one","apiKey":"key"}]}`, check.providerID, check.modelID)
-			if err := os.WriteFile(filepath.Join(root, "models.json"), []byte(data), 0600); err != nil {
+			if err := configstore.Write(root, configstore.Models, []byte(data)); err != nil {
 				t.Fatal(err)
 			}
 			catalog, err := Load(root)

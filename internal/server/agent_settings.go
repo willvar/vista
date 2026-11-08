@@ -70,22 +70,13 @@ func (a *App) agentSettings(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 		}
-		// Partial edits from different clients must retain each other's fields.
+		// Serialize instruction edits locally; section edits also hold the shared store lock.
 		a.agentSettingsMu.Lock()
 		defer a.agentSettingsMu.Unlock()
-		var settings agentconfig.Settings
 		if depth != nil || automaticTitles != nil {
-			var err error
-			settings, err = agentconfig.ReadSettings(a.configDir)
-			if err != nil {
+			if _, err := agentconfig.ReadSettings(a.configDir); err != nil {
 				http.Error(w, fmt.Sprintf("could not read agent settings: %v", err), http.StatusInternalServerError)
 				return
-			}
-			if depth != nil {
-				settings.DelegationDepth = *depth
-			}
-			if automaticTitles != nil {
-				settings.AutomaticTitles = *automaticTitles
 			}
 		}
 		if input.Instructions != nil {
@@ -95,7 +86,7 @@ func (a *App) agentSettings(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		if depth != nil || automaticTitles != nil {
-			if err := agentconfig.WriteSettings(a.configDir, settings); err != nil {
+			if err := agentconfig.UpdateSettings(a.configDir, depth, automaticTitles); err != nil {
 				http.Error(w, fmt.Sprintf("could not save agent settings: %v", err), http.StatusInternalServerError)
 				return
 			}

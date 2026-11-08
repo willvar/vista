@@ -7,10 +7,10 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 
+	"vista/internal/configstore"
 	"vista/internal/provider"
 )
 
@@ -24,10 +24,12 @@ func TestNativeCompatibleChatHosts(t *testing.T) {
 	} {
 		t.Run(check.providerID, func(t *testing.T) {
 			root := t.TempDir()
-			path := filepath.Join(root, "models.json")
+			if err := os.Chmod(root, 0700); err != nil {
+				t.Fatal(err)
+			}
 			write := func(base string) (Catalog, error) {
 				data := fmt.Sprintf(`{"default":"native","models":[{"key":"native","provider":"catalog","providerId":%q,"id":%q,"baseUrl":%q,"apiKey":"test-key"}]}`, check.providerID, check.modelID, base)
-				if err := os.WriteFile(path, []byte(data), 0600); err != nil {
+				if err := configstore.Write(root, configstore.Models, []byte(data)); err != nil {
 					t.Fatal(err)
 				}
 				return Load(root)

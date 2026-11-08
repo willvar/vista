@@ -1,5 +1,6 @@
 // Package useragent owns Vista's default outbound HTTP identity. Settings are
-// read per request so the server and resident Workers observe the same changes.
+// read through the cached configuration store so the server and resident Workers
+// observe the same changes without reparsing the full document per request.
 package useragent
 
 import (
@@ -9,17 +10,16 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"os"
-	"path/filepath"
 	"runtime"
 	"strings"
 
 	"vista/internal/appdirs"
 	"vista/internal/buildinfo"
-	"vista/internal/platform"
+	"vista/internal/configstore"
 )
 
-const Filename = "user-agent.json"
+// Filename is the shared settings document; this package owns its userAgent section.
+const Filename = configstore.Filename
 const MaxLength = 512
 
 // CopilotUserAgent is shared by the preset and native Copilot transport.
@@ -114,16 +114,14 @@ func (c Config) Value() string {
 }
 
 func Read(dir string) (Config, error) {
-	file, err := os.Open(filepath.Join(dir, Filename))
-	if errors.Is(err, os.ErrNotExist) {
-		return Config{Preset: "vista"}, nil
-	}
+	data, exists, err := configstore.Read(dir, configstore.UserAgent)
 	if err != nil {
 		return Config{}, err
 	}
-	defer file.Close()
-	data, err := io.ReadAll(io.LimitReader(file, 4097))
-	if err != nil || len(data) > 4096 {
+	if !exists {
+		return Config{Preset: "vista"}, nil
+	}
+	if len(data) > 4096 {
 		return Config{}, errors.New("could not read User-Agent settings within 4 KiB")
 	}
 	var c Config
@@ -142,34 +140,12 @@ func Write(dir string, c Config) error {
 	if err := c.Validate(); err != nil {
 		return err
 	}
-	info, err := os.Lstat(dir)
-	if err != nil || !info.IsDir() || !platform.PrivateMode(info.Mode()) {
-		return errors.New("Vista configuration directory must be private")
-	}
 	c.Custom = strings.TrimSpace(c.Custom)
 	data, err := json.Marshal(c)
 	if err != nil {
 		return err
 	}
-	file, err := os.CreateTemp(dir, ".user-agent-*")
-	if err != nil {
-		return err
-	}
-	defer os.Remove(file.Name())
-	defer file.Close()
-	if err := file.Chmod(0600); err != nil {
-		return err
-	}
-	if _, err := file.Write(append(data, '\n')); err != nil {
-		return err
-	}
-	if err := file.Sync(); err != nil {
-		return err
-	}
-	if err := file.Close(); err != nil {
-		return err
-	}
-	return os.Rename(file.Name(), filepath.Join(dir, Filename))
+	return configstore.Write(dir, configstore.UserAgent, data)
 }
 
 func Current() (string, error) {

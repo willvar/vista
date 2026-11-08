@@ -7,16 +7,18 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
-	"path/filepath"
 	"testing"
 
+	"vista/internal/configstore"
 	"vista/internal/provider"
 )
 
 func TestCohereCustomConnectionAndToolContinuation(t *testing.T) {
 	const modelID = "command-r-plus-08-2024"
 	root := t.TempDir()
-	path := filepath.Join(root, "models.json")
+	if err := os.Chmod(root, 0700); err != nil {
+		t.Fatal(err)
+	}
 	requests := 0
 	endpoint := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requests++
@@ -63,7 +65,7 @@ func TestCohereCustomConnectionAndToolContinuation(t *testing.T) {
 	}))
 	defer endpoint.Close()
 	data := []byte(fmt.Sprintf(`{"default":"cohere","models":[{"key":"cohere","provider":"cohere","providerId":"custom","authentication":"bearer","id":%q,"baseUrl":%q,"apiKey":"private-cohere-key"}]}`, modelID, endpoint.URL+"/v2"))
-	if err := os.WriteFile(path, data, 0600); err != nil {
+	if err := configstore.Write(root, configstore.Models, data); err != nil {
 		t.Fatal(err)
 	}
 	catalog, err := Load(root)

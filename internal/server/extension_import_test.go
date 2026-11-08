@@ -12,6 +12,7 @@ import (
 	"strings"
 	"testing"
 
+	"vista/internal/configstore"
 	"vista/internal/workerproto"
 )
 
@@ -85,7 +86,7 @@ func TestMCPImportPreviewsWithoutConnectingAndPreservesCredentialsAndDisabledSta
 			input.IDs = append(input.IDs, entry.ID)
 		}
 	}
-	if _, err := os.Stat(filepath.Join(app.configDir, "mcp.json")); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(app.configDir, configstore.Filename)); !os.IsNotExist(err) {
 		t.Fatal("preview saved MCP settings")
 	}
 	if app.updates.snapshot().Revisions["mcp"] != 0 {

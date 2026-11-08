@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+	"vista/internal/configstore"
 	"vista/internal/mcpclient"
 	"vista/internal/workerproto"
 )
@@ -78,7 +79,7 @@ func TestMCPSettingsCRUDAndExecutionSnapshots(t *testing.T) {
 	if err != nil || len(loaded) != 1 || !loaded[0].Disabled {
 		t.Fatalf("saved settings failed to reload: %+v %v", loaded, err)
 	}
-	info, err := os.Stat(filepath.Join(a.configDir, "mcp.json"))
+	info, err := os.Stat(filepath.Join(a.configDir, configstore.Filename))
 	if err != nil || info.Mode().Perm() != 0600 {
 		t.Fatalf("config permissions: %v %v", info, err)
 	}
