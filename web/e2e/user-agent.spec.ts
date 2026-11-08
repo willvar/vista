@@ -36,6 +36,7 @@ test('UA presets preview exact headers and custom changes reach a resident Worke
   expect((await vista.api('/user-agent')).preset).toBe('vista')
   await save.click()
   await expect(save).toBeDisabled()
+  await expect(region).toHaveAttribute('aria-busy', 'false')
   const selected = initial.presets.at(-1)!
   expect((await vista.api('/user-agent')).preset).toBe(selected.id)
   await send('Preset request', selected.value)
@@ -51,6 +52,7 @@ test('UA presets preview exact headers and custom changes reach a resident Worke
   await expect(preview).toHaveText('User-Agent: ' + custom)
   await save.click()
   await expect(save).toBeDisabled()
+  await expect(region).toHaveAttribute('aria-busy', 'false')
   await send('Custom request', custom)
   const currentPID = (await vista.api('/status')).workerMetrics.find((worker: { sessionId: string }) => worker.sessionId === session.id)?.pid
   expect(currentPID).toBe(workerPID)
@@ -85,6 +87,7 @@ test('UA save errors retain the draft and allow retry', async ({ page, vista }) 
   expect((await vista.api('/user-agent')).preset).toBe('vista')
   await save.click()
   await expect(save).toBeDisabled()
+  await expect(region).toHaveAttribute('aria-busy', 'false')
   await expect(region.getByRole('alert')).toHaveCount(0)
   expect((await vista.api('/user-agent')).value).toBe('RetainedClient/1')
 })

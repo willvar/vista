@@ -215,6 +215,7 @@ test('Personalization saves delegation depth and instructions independently', as
 })
 
 test('full-screen instructions keep an unsaved draft, focus the editor and scroll long content', async ({ page, mockOrigin }, testInfo) => {
+  test.setTimeout(60_000)
   const fixture = await mockAgentSettings(page, mockOrigin, 'personalization')
   const settings = page.locator('.settings-page:visible')
   const expand = settings.getByRole('button', { name: 'Full-screen editor', exact: true })
@@ -225,7 +226,9 @@ test('full-screen instructions keep an unsaved draft, focus the editor and scrol
   await expect(editor).toBeFocused()
   await expect(editor).toHaveValue(fixture.saved.instructions)
   const draft = Array.from({ length: 1800 }, (_, index) => `${index + 1}. Keep this constraint.`).join('\n') + '\n保留用户指定的要求。'
-  await editor.fill(draft)
+  // Chromium's multiline insertion can exceed the normal action deadline on
+  // shared runners; keep the full long-document fixture and scope its budget.
+  await editor.fill(draft, { timeout: 20_000 })
   const viewport = page.viewportSize()!
   const bounds = await dialog.boundingBox()
   expect(bounds!.x).toBe(0)
@@ -258,7 +261,7 @@ test('full-screen instructions keep an unsaved draft, focus the editor and scrol
   await expect(save).toBeEnabled()
   await expand.click()
   await expect(editor).toHaveValue('中'.repeat(18000))
-  await editor.fill(draft)
+  await editor.fill(draft, { timeout: 20_000 })
   await dialog.getByRole('button', { name: 'Exit full screen', exact: true }).click()
   await expect(dialog).toBeHidden()
   await save.scrollIntoViewIfNeeded()

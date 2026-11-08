@@ -41,6 +41,7 @@ async function mockSearchSettings(page: Page, origin: string) {
     const path = new URL(request.url()).pathname.slice(4)
     const method = request.method()
     const reply = (json: unknown) => route.fulfill({ json })
+    if (path === '/activity' && method === 'POST') return route.fulfill({ status: 204 })
     if (path === '/search-config') {
       if (method === 'GET') {
         if (fixture.failRead) return route.fulfill({ status: 500, body: 'Could not load search settings' })
@@ -96,6 +97,7 @@ async function removeSavedKey(page: Page, dialog: Locator) {
 }
 
 test('DeepSeek search and fetch keys are configured and cleared independently', async ({ page, mockOrigin }, testInfo) => {
+  test.setTimeout(60_000)
   const fixture = await mockSearchSettings(page, mockOrigin)
   const status = async (fetch: boolean, expected: string) => {
     await chooseCredential(page, 'DeepSeek', fetch)

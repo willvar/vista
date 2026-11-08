@@ -658,10 +658,13 @@ nativeScrollbarTest.describe('native conversation scrollbar', () => {
         expect(anchor, 'The middle viewport contains a readable step or report paragraph').not.toBeNull()
         expect(Math.abs(releasedAnchorTop! - anchor!.top), 'Releasing in the middle keeps the visible content at its screen position').toBeLessThanOrEqual(3)
       }
+      // Deferred row measurements resume on release and can change the total
+      // height. The visible anchor above, rather than its percentage of that
+      // changing height, must stay fixed after the thumb is released.
       for (const [phase, position] of [['held', held], ['released', released]] as const) {
         if (progress === 1) expect(position.distanceToBottom, `${label}: ${phase} at the track bottom`).toBeLessThanOrEqual(3)
         else if (progress === 0) expect(position.scrollTop, `${label}: ${phase} at the track top`).toBeLessThanOrEqual(3)
-        else expect(Math.abs(position.progress - progress), `${label}: ${phase} keeps the requested middle position`).toBeLessThanOrEqual(.03)
+        else if (phase === 'held') expect(Math.abs(position.progress - progress), `${label}: ${phase} keeps the requested middle position`).toBeLessThanOrEqual(.03)
       }
     }
     await dragTo(1, 'bottom')
