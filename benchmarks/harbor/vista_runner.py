@@ -14,6 +14,8 @@ import urllib.error
 import urllib.request
 import urllib.parse
 
+from benchmark_profile import profile_path, profile_section
+
 
 ROOT = Path(__file__).resolve().parent
 
@@ -75,16 +77,28 @@ def upload_image(address, session_id, image):
             "data": base64.b64encode(path.read_bytes()).decode()}
 
 
-def execute(root, logs, effort=None, image_loader=None):
+def prepare_config(root):
     config = root / "xdg/vista"
+    config.mkdir(parents=True, exist_ok=True, mode=0o700)
+    if profile_path(config).name == "config.json":
+        # Validate existing authority before touching legacy inputs or starting Vista.
+        profile_section(config, "models")
+    else:
+        # Selected legacy inputs also seed historical binaries and migration coverage.
+        selected = profile_section(root, "models")
+        (config / "models.json").write_text(json.dumps(selected))
+        (config / "models.json").chmod(0o600)
+    if (root / "omp-models.json").is_file():
+        shutil.copyfile(root / "omp-models.json", config / "omp-models.json")
+    return config
+
+
+def execute(root, logs, effort=None, image_loader=None):
     logs.mkdir(parents=True, exist_ok=True)
     env = environment(root)
     for name in ("home", "xdg/vista", "data", "state", "cache", "tmp"):
         (root / name).mkdir(parents=True, exist_ok=True, mode=0o700)
-    shutil.copyfile(root / "models.json", config / "models.json")
-    (config / "models.json").chmod(0o600)
-    if (root / "omp-models.json").is_file():
-        shutil.copyfile(root / "omp-models.json", config / "omp-models.json")
+    config = prepare_config(root)
     (config / "model-catalog-status.json").write_text(json.dumps({
         "nextCheckAt": (datetime.now(timezone.utc) + timedelta(days=7)).isoformat(),
     }))
@@ -106,7 +120,7 @@ def execute(root, logs, effort=None, image_loader=None):
         prompt, summary["instruction_delivery"] = prompt_for(
             (root / "instruction.md").read_text(), Path.cwd(), root / "instruction.md")
         (logs / "submitted-prompt.txt").write_text(prompt)
-        selected = json.loads((config / "models.json").read_text())
+        selected = request(address, "/models")
         body = {"content": prompt, "selectionMode": "manual", "modelKey": selected["default"]}
         if effort is not None:
             body["reasoningEffort"] = effort

@@ -68,14 +68,19 @@ class GAIATest(unittest.TestCase):
 
     def configuration(self):
         connection = "00000000-0000-4000-8000-000000000002"
-        self.write("profile/models.json", {"default": "fixture", "models": [
-            {"key": "fixture", "id": "fixture-model", "providerId": "openai-codex", "connectionId": connection},
-            {"key": "unrelated", "id": "other", "apiKey": "unrelated-fixture-key"},
-        ]})
+        self.write("profile/config.json", {"version": 2, "models": {"default": "fixture", "models": [
+            {"key": "fixture", "id": "fixture-model", "providerId": "openai-codex", "connectionId": connection, "credentialRef": "selected-model"},
+            {"key": "unrelated", "id": "other", "credentialRef": "unrelated-model"},
+        ]}, "search": {"fixture": "network-settings", "credentialRef": "selected-search"}})
+        self.write("profile/key.json", {"version": 1, "entries": {
+            "selected-model": {"section": "models", "owner": "connection:" + connection, "values": {"headers": {"X-Selected": "fixture-model-secret"}}},
+            "unrelated-model": {"section": "models", "owner": "key:unrelated", "values": {"apiKey": "unrelated-fixture-key"}},
+            "selected-search": {"section": "search", "owner": "search", "values": {"apiKeys": {"tavily": "fixture-search-secret"},
+                                "jinaApiKey": "fixture-jina-secret", "deepseekFetchApiKey": None}},
+        }})
         self.write("profile/codex-auth/" + connection + ".json", {
             "accountId": "fixture-account", "accessToken": "fixture-access", "refreshToken": "fixture-refresh", "expiresAt": "2030-01-01T00:00:00Z",
         })
-        self.write("profile/search.json", {"fixture": "network-settings"})
         self.write("profile/memory.json", {"private": "must-not-transfer"})
         (self.root / "binary").write_bytes(b"\x7fELFfixture")
         return connection
@@ -216,6 +221,9 @@ class GAIATest(unittest.TestCase):
         process.assert_not_called()
         probe.assert_not_called()
         self.assertEqual(plan["suite"], "gaia")
+        self.assertIn(str(self.root / "profile/key.json"), plan["source_profile_sha256"])
+        self.assertNotIn("fixture-search-secret", output.getvalue())
+        self.assertNotIn("fixture-model-secret", output.getvalue())
         self.assertIn("subset", plan["scope"])
         self.assertIn("reasoning_effort=none", plan["commands"][0])
         self.assertEqual(plan["commands"][0][plan["commands"][0].index("-r") + 1], "0")
@@ -227,6 +235,7 @@ class GAIATest(unittest.TestCase):
         connection = self.configuration()
         source_auth = self.root / "profile/codex-auth" / (connection + ".json")
         original = source_auth.read_bytes()
+        original_keys = (self.root / "profile/key.json").read_bytes()
         with patch.object(runner.importlib.metadata, "version", return_value=runner.HARBOR_VERSION), \
              patch.object(runner.subprocess, "check_output", return_value="fixture-version\n"), \
              patch.object(runner, "execute") as execute:
@@ -234,12 +243,22 @@ class GAIATest(unittest.TestCase):
         output, plan = execute.call_args.args
         selected = json.loads((output / "profile/models.json").read_text())
         self.assertEqual(len(selected["models"]), 1)
+        self.assertEqual(selected["models"][0]["headers"], {"X-Selected": "fixture-model-secret"})
+        self.assertNotIn("credentialRef", selected["models"][0])
+        self.assertNotIn("unrelated-fixture-key", json.dumps(selected))
         self.assertFalse((output / "profile/memory.json").exists())
-        self.assertTrue((output / "profile/search.json").is_file())
+        self.assertFalse((output / "profile/config.json").exists())
+        self.assertFalse((output / "profile/key.json").exists())
+        self.assertEqual(json.loads((output / "profile/search.json").read_text()), {"fixture": "network-settings",
+                         "apiKeys": {"tavily": "fixture-search-secret"}, "jinaApiKey": "fixture-jina-secret", "deepseekFetchApiKey": None})
+        self.assertIn(str(self.root / "profile/config.json"), plan["source_profile_sha256"])
+        self.assertIn(str(self.root / "profile/key.json"), plan["source_profile_sha256"])
+        self.assertNotIn(str(self.root / "profile/models.json"), plan["source_profile_sha256"])
         self.assertEqual((output / "binary/candidate").read_bytes(), (self.root / "binary").read_bytes())
         self.assertFalse(any("codex-auth" in path for path in plan["frozen_sha256"]))
         (output / "profile/codex-auth" / source_auth.name).write_text("updated isolated state")
         self.assertEqual(source_auth.read_bytes(), original)
+        self.assertEqual((self.root / "profile/key.json").read_bytes(), original_keys)
         (self.root / "dataset" / TASK / "instruction.md").write_text("changed task")
         with patch.object(runner.subprocess, "run") as process, redirect_stdout(io.StringIO()):
             with self.assertRaisesRegex(RuntimeError, "Frozen"):
@@ -290,6 +309,11 @@ class GAIATest(unittest.TestCase):
         self.assertEqual(completed.returncode, 0, completed.stderr)
         self.assertIn("--logs-dir", completed.stdout)
         self.assertTrue((installed / "xdg/vista/search.json").is_file())
+        self.assertFalse((installed / "key.json").exists())
+        self.assertFalse((installed / "xdg/vista/key.json").exists())
+        self.assertNotIn("unrelated-fixture-key", (installed / "models.json").read_text())
+        self.assertNotIn("credentialRef", (installed / "models.json").read_text())
+        self.assertEqual(json.loads((installed / "xdg/vista/search.json").read_text())["apiKeys"], {"tavily": "fixture-search-secret"})
 
     @unittest.skipUnless(os.environ.get("VISTA_BENCHMARK_BIN"), "Set VISTA_BENCHMARK_BIN for an isolated application check")
     def test_real_vista_receives_original_image_and_stops_without_a_live_provider(self):

@@ -6,8 +6,7 @@ from pathlib import Path
 import shlex
 import tempfile
 
-import benchmark_profile
-from benchmark_profile import selected_profile
+from benchmark_profile import profile_section, selected_profile
 from vista_agent import REMOTE, VistaAgent
 import vista_runner
 
@@ -19,17 +18,19 @@ class GAIAVistaAgent(VistaAgent):
     async def install(self, environment):
         await super().install(environment)
         await environment.upload_file(Path(vista_runner.__file__), REMOTE + "/vista_runner.py")
-        for name in ("gaia_runner.py", "dataset.py", "instruction.txt", "sources.json", "benchmark_profile.py"):
+        for name in ("gaia_runner.py", "dataset.py", "instruction.txt", "sources.json"):
             source = HERE / name
-            if name == "benchmark_profile.py":
-                source = Path(benchmark_profile.__file__)
             await environment.upload_file(source, REMOTE + "/" + ("runner.py" if name == "gaia_runner.py" else name))
-        network = self.profile / "search.json"
+        network = profile_section(self.profile, "search")
         paths = [REMOTE + "/vista_runner.py", REMOTE + "/runner.py", REMOTE + "/dataset.py", REMOTE + "/instruction.txt",
-                 REMOTE + "/sources.json", REMOTE + "/benchmark_profile.py"]
-        if network.is_file():
+                 REMOTE + "/sources.json"]
+        if network is not None:
             paths.append(REMOTE + "/xdg/vista/search.json")
-            await environment.upload_file(network, paths[-1])
+            with tempfile.TemporaryDirectory(dir=self.logs_dir, prefix="vista-gaia-search-") as directory:
+                path = Path(directory) / "search.json"
+                path.write_text(json.dumps(network))
+                path.chmod(0o600)
+                await environment.upload_file(path, paths[-1])
         command = "chmod 600 " + shlex.join(paths)
         if environment.default_user is not None:
             command += "; chown " + shlex.quote(str(environment.default_user)) + " " + shlex.join(paths)

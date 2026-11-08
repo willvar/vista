@@ -26,6 +26,7 @@ class VistaAgent(BaseInstalledAgent):
     def __init__(self, logs_dir, *, binary_path, profile_path, model_key=None,
                  reasoning_effort=None, **kwargs):
         super().__init__(logs_dir=logs_dir, **kwargs)
+        self.logs_dir.mkdir(parents=True, exist_ok=True)
         self.binary = Path(binary_path).resolve()
         self.profile = Path(profile_path).resolve()
         self.model_key = model_key
@@ -43,7 +44,8 @@ class VistaAgent(BaseInstalledAgent):
             raise RuntimeError("Could not create the isolated Vista directory")
         await environment.upload_file(self.binary, REMOTE + "/vista")
         await environment.upload_file(HERE / "vista_runner.py", REMOTE + "/runner.py")
-        with tempfile.TemporaryDirectory(prefix="vista-harbor-profile-") as directory:
+        await environment.upload_file(HERE / "benchmark_profile.py", REMOTE + "/benchmark_profile.py")
+        with tempfile.TemporaryDirectory(dir=self.logs_dir, prefix="vista-harbor-profile-") as directory:
             path = Path(directory) / "models.json"
             path.write_text(json.dumps(config))
             path.chmod(0o600)
@@ -53,7 +55,7 @@ class VistaAgent(BaseInstalledAgent):
         catalog = self.profile / "omp-models.json"
         if catalog.is_file():
             await environment.upload_file(catalog, REMOTE + "/omp-models.json")
-        command = f"chmod 700 {REMOTE} {REMOTE}/xdg {REMOTE}/xdg/vista {REMOTE}/xdg/vista/codex-auth; chmod 600 {REMOTE}/models.json; chmod 755 {REMOTE}/vista"
+        command = f"chmod 700 {REMOTE} {REMOTE}/xdg {REMOTE}/xdg/vista {REMOTE}/xdg/vista/codex-auth; chmod 600 {REMOTE}/models.json {REMOTE}/runner.py {REMOTE}/benchmark_profile.py; chmod 755 {REMOTE}/vista"
         for _, relative in credentials:
             command += "; chmod 600 " + shlex.quote(REMOTE + "/xdg/vista/" + relative)
         if environment.default_user is not None:
@@ -62,7 +64,7 @@ class VistaAgent(BaseInstalledAgent):
             raise RuntimeError("Could not set isolated Vista permissions")
 
     async def run(self, instruction, environment, context):
-        with tempfile.TemporaryDirectory(prefix="vista-harbor-instruction-") as directory:
+        with tempfile.TemporaryDirectory(dir=self.logs_dir, prefix="vista-harbor-instruction-") as directory:
             path = Path(directory) / "instruction.md"
             path.write_text(instruction)
             await environment.upload_file(path, REMOTE + "/instruction.md")

@@ -16,7 +16,7 @@ HERE = Path(__file__).resolve().parents[1]
 REPO = HERE.parent.parent
 sys.path.insert(0, str(HERE))
 
-from benchmark_profile import selected_profile
+from benchmark_profile import profile_section, selected_profile
 from run import command, schedule
 from summarize import summarize_run, trial, vista_usage
 import vista_runner
@@ -40,7 +40,9 @@ class BenchmarkTest(unittest.TestCase):
         connection = "00000000-0000-4000-8000-000000000001"
         selected = {"key": "selected", "id": "fixture-model", "providerId": "openai-codex",
                     "connectionId": connection, "codexCredentialPath": "/private/host/path"}
-        self.write("models.json", {"default": "selected", "models": [selected, {"key": "other", "id": "other", "apiKey": "unrelated-fixture-key"}]})
+        self.write("config.json", {"version": 1, "models": {"default": "selected", "models": [
+            selected, {"key": "other", "id": "other", "apiKey": "unrelated-fixture-key"},
+        ]}})
         credential = self.write("codex-auth/" + connection + ".json", {"accessToken": "fixture-token"})
         config, credentials = selected_profile(self.root, "fixture-model")
         self.assertEqual(config["default"], "selected")
@@ -52,6 +54,76 @@ class BenchmarkTest(unittest.TestCase):
         credential.unlink()
         with self.assertRaises(ValueError):
             selected_profile(self.root, "fixture-model")
+
+        # Historical inputs remain portable, but an existing unified file wins.
+        inline = {"default": "selected", "models": [{"key": "selected", "id": "fixture-model", "apiKey": "fixture-selected-secret"}]}
+        self.write("models.json", inline)
+        (self.root / "config.json").unlink()
+        self.assertEqual(selected_profile(self.root, "fixture-model"), (inline, []))
+        self.write("config.json", {"version": 1, "models": inline})
+        self.assertEqual(selected_profile(self.root, "fixture-model"), (inline, []))
+        self.write("search.json", {"apiKeys": {"tavily": "stale-fixture-secret"}})
+        self.assertIsNone(profile_section(self.root, "search"))
+
+        values = {"apiKey": "fixture-selected-secret", "accessToken": None, "authToken": "", "appCode": "fixture-code",
+                  "headers": {"X-Selected": "fixture-header-secret"}}
+        for connection_id in (None, connection):
+            with self.subTest(connection=connection_id):
+                record = {"key": "selected", "id": "fixture-model", "credentialRef": "chosen"}
+                if connection_id:
+                    record["connectionId"] = connection_id
+                public = {"version": 2, "models": {"default": "other", "models": [record,
+                          {"key": "other", "id": "other", "credentialRef": "unrelated"}]}}
+                keys = {"version": 1, "entries": {
+                    "chosen": {"section": "models", "owner": "connection:" + connection_id if connection_id else "key:selected", "values": values},
+                    "unrelated": {"section": "models", "owner": "key:other", "values": {"apiKey": "unrelated-fixture-key"}},
+                }}
+                public_path = self.write("config.json", public)
+                key_path = self.write("key.json", keys)
+                original = public_path.read_bytes(), key_path.read_bytes()
+                sources = []
+                resolved, credentials = selected_profile(self.root, "fixture-model", "selected", source_paths=sources)
+                self.assertEqual(credentials, [])
+                self.assertEqual(sources, [public_path, key_path])
+                self.assertEqual(resolved["models"], [{**{name: value for name, value in record.items() if name != "credentialRef"}, **values}])
+                self.assertNotIn("unrelated-fixture-key", json.dumps(resolved))
+                self.assertNotIn("credentialRef", resolved["models"][0])
+                self.assertEqual(original, (public_path.read_bytes(), key_path.read_bytes()))
+                for broken in ({**keys, "version": 2}, {**keys, "version": True}, {"version": 1, "entries": {}},
+                               {"version": 1, "entries": {"chosen": {"section": "models", "owner": "key:wrong", "values": values}}},
+                               {"version": 1, "entries": {"chosen": {"section": "search", "owner": "search", "values": values}}},
+                               {"version": 1, "entries": {"chosen": {"section": "models", "owner": keys["entries"]["chosen"]["owner"], "values": {"APIKEY": "alias"}}}}):
+                    self.write("key.json", broken)
+                    with self.assertRaises(ValueError):
+                        selected_profile(self.root, "fixture-model", "selected")
+                key_path.unlink()
+                with self.assertRaises(FileNotFoundError):
+                    selected_profile(self.root, "fixture-model", "selected")
+                self.write("key.json", keys)
+                for section, fields in {"models": values, "mcp": {"token": "fixture", "clientSecret": "fixture", "headers": {}},
+                                        "search": {"apiKeys": {}, "jinaApiKey": "fixture", "deepseekFetchApiKey": None}}.items():
+                    for field, value in fields.items():
+                        invalid = json.loads(json.dumps(public))
+                        if section == "models":
+                            invalid[section]["models"][1][field.upper()] = value
+                        else:
+                            entry = {field.upper(): value}
+                            invalid[section] = [entry] if section == "mcp" else entry
+                        self.write("config.json", invalid)
+                        with self.assertRaisesRegex(ValueError, "inline static credentials"):
+                            selected_profile(self.root, "fixture-model", "selected")
+        for invalid in ({"version": 2}, {"version": 0, "models": inline}, {"version": True, "models": inline}):
+            self.write("config.json", invalid)
+            with self.assertRaises(ValueError):
+                selected_profile(self.root, "fixture-model", "selected")
+        for malformed in ('{"version":2,"version":1}', '{"version":2,"models":NaN}', '{'):
+            (self.root / "config.json").write_text(malformed)
+            with self.assertRaises(ValueError):
+                selected_profile(self.root, "fixture-model", "selected")
+        (self.root / "config.json").unlink()
+        (self.root / "config.json").symlink_to(self.root / "missing-authority")
+        with self.assertRaises(FileNotFoundError):
+            selected_profile(self.root, "fixture-model", "selected")
 
     def test_usage_deduplicates_events_and_keeps_missing_usage_unknown(self):
         path = self.root / "events.jsonl"
@@ -125,10 +197,10 @@ class BenchmarkTest(unittest.TestCase):
         self.assertEqual(env["XDG_CONFIG_HOME"], str(self.root / "xdg"))
 
     def test_pending_human_interaction_does_not_become_a_successful_completion(self):
-        self.write("models.json", {"default": "fixture"})
+        self.write("models.json", {"default": "fixture", "models": [{"key": "fixture", "id": "fixture"}]})
         self.write("xdg/vista/state/instance.json", {"address": "http://127.0.0.1:1"})
         (self.root / "instruction.md").write_text("Fixture task")
-        replies = [{}, {"id": "session"}, {"runId": "run"}, [
+        replies = [{}, {"id": "session"}, {"default": "live-fixture"}, {"runId": "run"}, [
             {"sequence": 1, "kind": "run_finished", "data": {"runId": "run", "status": "succeeded", "pendingReply": True}},
         ], []]
         with patch.object(vista_runner.subprocess, "run", return_value=SimpleNamespace(returncode=0, stdout="", stderr="")), \
@@ -137,7 +209,9 @@ class BenchmarkTest(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "did not finish autonomously"):
                 vista_runner.execute(self.root, self.root / "logs")
         stop.assert_called_once_with(self.root)
-        self.assertNotIn("reasoningEffort", api.call_args_list[2].args[2])
+        self.assertEqual(api.call_args_list[2].args[1], "/models")
+        self.assertEqual(api.call_args_list[3].args[2]["modelKey"], "live-fixture")
+        self.assertNotIn("reasoningEffort", api.call_args_list[3].args[2])
         self.assertEqual(json.loads((self.root / "logs/vista-summary.json").read_text())["runner_error"], "RuntimeError")
 
     def test_adapter_uses_the_pinned_harbor_interface(self):

@@ -82,8 +82,9 @@ def main():
             raise ValueError("Store benchmark outputs under .vista/")
         candidates = binaries(args.binary)
         revision = check_dataset(args.dataset)
-        selected, credentials = selected_profile(args.profile, args.model, args.model_key)
-        profile_files = [args.profile / "models.json", *(path for path, _ in credentials)]
+        profile_files = []
+        selected, credentials = selected_profile(args.profile, args.model, args.model_key, source_paths=profile_files)
+        profile_files.extend(path for path, _ in credentials)
         if (args.profile / "omp-models.json").is_file():
             profile_files.append(args.profile / "omp-models.json")
         profile_hashes = {str(path): digest(path) for path in profile_files}

@@ -18,7 +18,7 @@ SHARED = HERE.parent / "harbor"
 STATE = REPO / ".vista/benchmarks/gaia"
 sys.path.insert(0, str(SHARED))
 
-from benchmark_profile import binaries, digest, schedule, selected_profile
+from benchmark_profile import binaries, digest, profile_section, schedule, selected_profile
 from dataset import SOURCES, check_dataset, prepare
 from summarize import summarize_run
 
@@ -96,7 +96,7 @@ def main(argv=None):
     parser.add_argument("--cache", type=Path, default=STATE / "hf-cache")
     parser.add_argument("--dataset", type=Path, default=STATE / "dataset")
     parser.add_argument("--binary", action="append", metavar="LABEL=PATH")
-    parser.add_argument("--profile", type=Path, help="Source profile; selected model, credentials and optional search.json are snapshotted")
+    parser.add_argument("--profile", type=Path, help="Source profile; selected model, credentials and optional search section are snapshotted")
     parser.add_argument("--model")
     parser.add_argument("--model-key")
     parser.add_argument("--reasoning-effort")
@@ -126,13 +126,15 @@ def main(argv=None):
             raise ValueError("No tasks match the selection")
         source_binaries = binaries(args.binary)
         args.profile = args.profile.resolve()
-        selected, credentials = selected_profile(args.profile, args.model, args.model_key)
+        source_paths = []
+        selected, credentials = selected_profile(args.profile, args.model, args.model_key, source_paths=source_paths)
         args.model_key = selected["default"]
+        search = profile_section(args.profile, "search", source_paths=source_paths)
         profile_files = {relative: source for source, relative in credentials}
-        for name in ("search.json", "omp-models.json"):
-            if (args.profile / name).is_file():
-                profile_files[name] = args.profile / name
-        source_hashes = {str(path): digest(path) for path in [args.profile / "models.json", *profile_files.values()]}
+        if (args.profile / "omp-models.json").is_file():
+            profile_files["omp-models.json"] = args.profile / "omp-models.json"
+        source_paths.extend(profile_files.values())
+        source_hashes = {str(path): digest(path) for path in source_paths}
         candidates = {label: {"path": str(args.output / "binary" / label), "sha256": value["sha256"]}
                       for label, value in source_binaries.items()}
         by_id = {row["task"]: row for row in tasks}
@@ -163,7 +165,10 @@ def main(argv=None):
     args.output.mkdir(parents=True, mode=0o700)
     for name in ("profile", "binary", "code", "tmp"):
         (args.output / name).mkdir(mode=0o700)
+    # Portable archives keep only selected sections in the legacy input format.
     write_json(args.output / "profile/models.json", selected)
+    if search is not None:
+        write_json(args.output / "profile/search.json", search)
     for relative, source in profile_files.items():
         target = args.output / "profile" / relative
         target.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
