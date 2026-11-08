@@ -618,7 +618,9 @@ nativeScrollbarTest.describe('native conversation scrollbar', () => {
       const thumbHeight = Math.max(before.gutter, trackHeight * before.viewport / before.scrollHeight)
       const x = before.right - before.gutter / 2
       const startY = before.top + before.gutter + thumbHeight / 2 + (trackHeight - thumbHeight) * before.progress
-      const endY = progress === 1 ? before.bottom - 3 : progress === 0 ? before.top + 3
+      // Drag past the track ends so native minimum thumb sizes and pixel
+      // rounding cannot leave a fraction of its travel in a very long list.
+      const endY = progress === 1 ? before.bottom + before.gutter : progress === 0 ? before.top - before.gutter
         : before.top + before.gutter + thumbHeight / 2 + (trackHeight - thumbHeight) * progress
       await page.mouse.move(x, startY)
       await page.mouse.down()
