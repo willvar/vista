@@ -11,7 +11,7 @@ This document describes the current source. Product tradeoffs are in [product be
 | `cmd/vista/`, `internal/instance/` | Lifecycle CLI, background service, instance identification and shutdown |
 | `internal/server/` | HTTP/SSE, configuration, admission, Worker supervision, and persistence coordination |
 | `internal/worker/`, `internal/workerproto/` | Conversation processes, pipe protocol, and persistence acknowledgments |
-| `internal/agent/` | Model loop, tool scheduling, child-task joining, and compaction |
+| `internal/agent/` | Model loop, tool scheduling, child-task completion events, and compaction |
 | `internal/provider/` | Metadata, protocol requests, streaming, authentication, and overflow detection |
 | `internal/modelcatalog/` | Connections, discovery, model selection, and runtime configuration |
 | `internal/store/` | SQLite transactions, messages, events, tasks, and output references |
@@ -221,15 +221,29 @@ The [delegation registry](../internal/agent/delegation.go) associates stable tas
 
 | Policy | Finalization behavior |
 | --- | --- |
-| `required` | Wait for a terminal state, collect persisted reports, and request model synthesis if reports remain uncollected. |
+| `required` | Keep the parent available for completion events and user input until reports have been consumed. |
 | `best_effort` | Does not block submission; unfinished work is canceled when its parent finalizes. |
-| `detached` | Conversation-owned; may outlive the parent execution and cancellation. Reports stay in the original trace without a new formal reply. |
+| `detached` | Conversation-owned; may outlive the parent execution and cancellation. Terminal results retain their original trace and can request a continuation. |
 
-Explicit task cancellation also cancels its descendants. Later runs of the same parent can query or cancel its detached work. Closing the conversation or stopping Vista terminates its managed work.
+Explicit task cancellation also cancels its descendants. Later runs of the same parent can cancel its detached work. Closing the conversation or stopping Vista terminates its managed work.
 
-When a model proposes a tool-free answer, the run loop checks uncollected required children before finishing. Joined reports are structured runtime evidence (`RuntimeData`), with a shared 16 KiB inline preview and references for rereading. The model performs semantic synthesis. A run can retain multiple formal replies at interjection boundaries; it is not limited to one message for its whole lifetime.
+Child reports arrive automatically; there is no model-facing `await_agent` tool.
+The parent consumes committed completions at decision boundaries; a new user message wakes an idle parent without canceling its children.
+Each tool publishes its terminal UI event immediately instead of waiting for sibling tools.
+Tools still executing after a one-second scheduling yield receive exactly one protocol reply with an execution ID; their final result arrives as a runtime event, without a second tool reply or rerunning the operation.
+The yield is not an execution timeout; foreground tools retain their existing cancellation and deadline semantics.
+Network completions restore their saved model-facing result locally before inference, preserving the user's initial-output setting independently of the bounded notification preview.
+Background process exits use the same completion path; output progress does not request inference.
 
-The shared `runScope.modelTurns` allocates turn numbers; it is not a model-call budget. Delegation depth is checked, but there is no unified run-wide deadline, total-call budget, or bounded join-generation counter.
+`internal/store/runtime_events.go` owns the durable completion inbox.
+Source identities deduplicate reports; the main agent commits delivery together with immutable model history, while child delivery has an idempotent acknowledgment.
+Finished child recipients route late background results to their nearest live ancestor.
+When no foreground execution is active, an eligible completion may start a run without inventing a user message, after checking questions, pending user input, current model selection and normal admission limits.
+Capacity release reconsiders pending continuations; failure, interruption, rollback, session closure and Worker recovery suppress stale wakeups.
+A stopped execution is never automatically replayed by restoring the inbox.
+Runtime evidence (`RuntimeData`) has bounded previews and saved output references and remains eligible for compaction.
+A run can retain multiple formal replies at interjection and completion boundaries.
+The shared `runScope.modelTurns` allocates turn numbers; it is not a model-call budget. Delegation depth is checked, but there is no unified run-wide deadline or total-call budget.
 
 Checklists are replacement events scoped to a run, not conversation-global state. New runs start without inheriting the old checklist. Tool-specific validation reports argument errors as tool results. A valid `question` call is main-agent-only and must be alone in its model turn; it persists until answered or superseded. Provider-hosted tools are saved as already executed and are never dispatched as local tools.
 
@@ -298,7 +312,10 @@ OMP and models.dev supply model metadata. Vista owns routing and authentication;
 
 `websearch` tries configured external providers in saved order; `webfetch` tries Jina Reader and DeepSeek in its separate saved order, defaulting to Jina first. The first search order is shuffled once. Each reader response is fully decoded and staged before selection; empty extracted content, explicit error/verification pages, JS-only placeholders and unsupported response formats fail over to the next configured reader. Short useful content remains valid. There is no built-in origin fetch/converter; local or private downloads use `shell`. Search and fetch DeepSeek keys are independent. Initial output defaults to 50 KiB of UTF-8 text for all results of one search and 50 KiB per page; zero removes that initial truncation. Search source metadata and summaries share one payload budget; artifact/continuation metadata is additional. Saved character-based defaults migrate to the new defaults, unlimited stays unlimited, and custom limits migrate using the maximum UTF-8 capacity, rounded up to KiB. There is no second fixed tool-result cutoff for these network results. Explicit artifact rereads remain byte-paged. Public settings live in `config.json` · `search`, while its static keys resolve from `key.json`; typed settings API saves apply from the next run, while manual file edits retain the reload/start boundary described above.
 
-File search applies ancestor/nested `.gitignore` rules, including exceptions, before scanning ignored subtrees. Explicit reads are unaffected. `read_file` uses 1-based `startLine` and `lineCount` (default 200), returns original line numbers and `nextLine`, and streams the full original file for SHA-256 and total line count while spooling selected lines to disk. Oversized lines use saved artifacts without a whole-line RAM allocation. Search includes files larger than 1 MiB, with a shared 32 MiB / 10,000-file / 100-result budget and an explicit incomplete-result flag. `read_tool_output` remains byte-based.
+File search applies ancestor/nested `.gitignore` rules, including exceptions, before scanning ignored subtrees. Explicit reads are unaffected. `read_file` uses 1-based `startLine` and `lineCount` (default 200), returns original line numbers and `nextLine`, and streams the full original file for SHA-256 and total line count while spooling selected lines to disk. Oversized lines use saved artifacts without a whole-line RAM allocation. `find_files` searches path globs (`**` supported) without reading file contents; `search` matches file contents and supports include/exclude globs, literal or regex matching, case folding, surrounding lines, and content/files/count modes.
+Both reuse the same ignore-aware traversal; content search scans bounded fragments and rereads long lines through a bounded-memory matcher.
+Content search includes files larger than 1 MiB with a shared 32 MiB / 10,000-file scan budget, a 100-hit content/files limit and an explicit incomplete-result flag; count mode counts within the scan budget.
+`read_tool_output` remains byte-paged and can search an existing artifact or background output by pattern, returning matching lines, context and byte positions for continuation without rerunning its producer.
 
 Native tool arguments share a 256 KiB complete-JSON budget declared by `internal/toolinput` and reused by provider adapters and runtime validation.
 `delegate.task` accepts up to the 8 KiB prompt budget; its schema declares UTF-8 byte counting and suggests referencing files for longer supporting material.
@@ -309,14 +326,22 @@ Runtime input-size errors report `executed: false`, the field, actual and maximu
 The immutable diff is saved as a conversation artifact; model context and event previews carry its reference rather than the changed file contents.
 New files, replacements, empty files and unchanged content have explicit presentations; originals above 1 MiB omit the diff without blocking a valid replacement.
 Failure to save this optional presentation does not turn an already committed write into a tool failure.
+`apply_patch` accepts standard unified or Git text diffs for every model, using `go-gitdiff` rather than a model-specific patch dialect.
+It validates paths, UTF-8 text, every hunk and expected SHA-256 before any project write; new destinations require `missing`.
+Sorted cross-Worker locks are shared with `write_file`, followed by a second hash check and atomic replacement per destination.
+Creation, deletion, Git rename/copy and executable-mode changes are supported; binary patches and nonregular file modes are rejected.
+A multi-file patch is not one filesystem transaction: an I/O failure reports committed diffs plus distinct applied/unapplied paths, including a rename whose destination was written but source removal failed.
 Shell and MCP file side effects have no automatic diff; Vista does not snapshot their working directories.
 
-Before `read_file`, `write_file`, `search`, filesystem `read_skill`/`read_resource`, `shell`, or `start_background`, the tool runtime discovers ancestor `AGENTS.md`, `CLAUDE.md`, and `.github/copilot-instructions.md` files from the explicit target path or working directory, ordered outer to nearest.
+Before `read_file`, `write_file`, `apply_patch`, `find_files`, `search`, filesystem `read_skill`/`read_resource`, `shell`, or `start_background`, the tool runtime discovers ancestor `AGENTS.md`, `CLAUDE.md`, and `.github/copilot-instructions.md` files from the explicit target path or working directory, ordered outer to nearest.
 When every applicable version is already fully read in the model's retained context, or no rules exist, the operation runs immediately without a separate discovery turn.
 Otherwise it returns `instructions_required` with `executed: false` and unread file paths, sizes and SHA-256 hashes; the original operation has no effects.
 The model reads all pages through `read_project_instruction`, applies their scope and precedence, and retries or revises its operation.
 Read coverage is rebuilt from paired tool results in each successful request, separately per task, so a same-turn read cannot authorize a concurrent operation; omitted pages, changed files, and compacted-away text require rereading.
-Checks do not cache empty directories or parse shell commands for other target paths; explicit `project_instructions` remains available for cross-directory work.
+Children inherit the parent's actual fully acknowledged rule text, paths, scope and content hashes; inherited read flags alone never authorize work.
+Inherited text is retained through compaction while current; target discovery still detects new or changed rules.
+Patch checks cover all affected paths.
+Discovery reuses common directories only within one operation; later operations check for new or changed rules. It does not parse shell commands for other target paths; explicit `project_instructions` remains available for cross-directory work.
 Embedded `skill://` documents and hash-addressed resources have no filesystem target to check.
 
 MCP public definitions save the `mcp` section in `config.json`; static credentials resolve internally from `key.json`. Stable IDs are separate from display names. One supervised MCP host process owns local stdio servers and remote connections, including MCP-backed network search. It asynchronously preconnects enabled services with bounded concurrency and reuses connections across executions. Each execution retains its configuration versions until it and its detached children finish; edits and disable/delete operations affect subsequent executions, and old versions close when unused. Renaming preserves the connection. Settings connection checks use the same host. Workers exchange tool data directly with the private host endpoint; large results use temporary files outside the main Server. Connection failures reconnect with backoff; interrupted calls with uncertain side effects are never replayed. The MCP service itself may share browser or workspace state across conversations. OAuth publishes credentials after authorization and a successful handshake only if connection configuration remains unchanged. See [frontend](../web/README.md) for UI/state entry points.

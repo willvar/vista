@@ -46,14 +46,12 @@ checks still require complete, current text in the consumed context. A summary
 mentioning rules does not authorize filesystem work.
 Estimates partition work only after an explicit overflow, never assert model capacity.
 
-Automatically joined child reports carry a local `RuntimeData` marker. Their
+Automatically delivered child/tool completions carry a local `RuntimeData` marker. Their
 wire role remains system, but they are evidence rather than fixed instructions:
 both automatic and manual compaction can summarize them, including reports just
 appended after the latest assistant/tool group. The marker survives history,
 checkpoints and model/protocol changes; it is never serialized to provider APIs.
-A joined batch shares a 16 KiB inline answer/error text budget, with explicit
-truncation flags and original report references. Full reports remain readable
-through `read_model_output` or `await_agent` after compaction. The summarizer
+Child reports use an inline preview of at most 16 KiB with original output references; tool completions also retain saved output references. Full reports remain readable through `read_model_output`, and saved tool output through `read_tool_output`, after compaction. The summarizer
 receives report text as runtime results and preserves task identity and references.
 
 Manual compaction shares this summarizer and checkpoint path, but may also
@@ -141,13 +139,14 @@ terminal transaction. The committed checkpoint is the success boundary.
 events expose progress and outcome. The frontend compares event sequences,
 retains its session cancellation guards, and does not let a late POST restore
 an older status. There is no capacity, remaining-token, or percentage display. The composer's
-context status shows compaction progress or a failure and an estimated token total for the retained main context,
+context status shows compaction progress or a failure. The conversation header's compaction icon shows an estimated token total on hover for the retained main context,
 including instructions, summaries, messages and tool content. Runtime
 `context_usage` events and committed compaction notices update the total;
 `GET /api/sessions/:id/context-usage` restores it outside the recent event window.
 While idle, the same context assembly used for the next request recomputes the
 estimate, including retained tool turns from completed or interrupted runs. This number
 is never cumulative request usage or an automatic compaction threshold.
+Clicking the icon opens a confirmation explaining automatic compaction, reduced context size, model-call cost and possible loss of detail; only confirmation starts manual compaction.
 Successful automatic and manual compaction hide the composer status and display
 the committed summary as a normal assistant message, with Markdown, copying,
 the actual compression model and its token usage/call details,
@@ -156,7 +155,7 @@ the summary. Message pages and snapshots derive this display from the existing
 `context_notice`, including notices outside the recent event window; replay uses
 the same message identity. This projection adds no model request or canonical
 history entry and does not duplicate reply usage, feedback or unread counts.
-Each summary includes only the root compression calls since that compaction began;
+Each summary retains its own request's connection key and includes only the root compression calls since that compaction began;
 ordinary replies exclude those calls, while child-task usage stays with its reply.
 After manual success, Continue is offered in the placeholder only while idle with an empty
 draft and no images. Activating a conversation focuses its enabled composer;
