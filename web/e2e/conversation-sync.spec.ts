@@ -42,9 +42,26 @@ async function deliveryFault(page: Page) {
     }
   })
 }
-async function send(page: Page, vista: VistaFixture, id: string, round: number) {
-  await page.locator('.sender-card textarea').fill(`Recovery round ${round}`)
-  await page.locator('.sender-card textarea').press('Enter')
+async function send(page: Page, vista: VistaFixture, id: string, round: number, silent = false) {
+  // Sending starts on-demand output/trace reads independently of the event
+  // stream. Finish those reads before replying so this fault really withholds
+  // the reply; a fast upstream could otherwise reach the page through HTTP.
+  const release = silent ? vista.pauseModelReplies() : undefined
+  const indexes = silent ? Promise.all(['main-outputs', 'overview'].map(endpoint =>
+    page.waitForResponse(response => response.request().method() === 'GET'
+      && new RegExp(`/sessions/${id}/runs/[^/]+/${endpoint}(?:\\?|$)`).test(response.url()))
+      .then(async response => {
+        expect(response.ok()).toBe(true)
+        const body = await response.json()
+        if (endpoint === 'main-outputs') expect(body).toEqual([])
+        else expect(body.events.some((event: any) => event.kind === 'model_delta')).toBe(false)
+      }),
+  )) : undefined
+  try {
+    await page.locator('.sender-card textarea').fill(`Recovery round ${round}`)
+    await page.locator('.sender-card textarea').press('Enter')
+    await indexes
+  } finally { release?.() }
   await expect.poll(async () => (await vista.api(`/sessions/${id}/messages`)).filter((message: any) => message.role === 'assistant').length).toBe(round)
 }
 async function start(page: Page, vista: VistaFixture) {
@@ -64,7 +81,7 @@ test('four saved replies recover from a connected silent stream without reload o
   await page.clock.install()
   const id = await start(page, vista)
   await page.evaluate(() => { (window as any).__conversationDelivery.drop = 'silent' })
-  for (let i = 2; i <= 5; i++) await send(page, vista, id, i)
+  for (let i = 2; i <= 5; i++) await send(page, vista, id, i, true)
   await expect(page.locator('.messages article.assistant')).toHaveCount(1)
   await page.locator('.sender-card textarea').fill('Preserve this unsent draft')
   await page.clock.fastForward(46_000)
@@ -148,7 +165,7 @@ test('an unrecoverable view read stays visible after a successful send and manua
 test('restored connectivity reconciles saved replies immediately without waiting for inactivity', async ({ page, vista }) => {
   const id = await start(page, vista)
   await page.evaluate(() => { (window as any).__conversationDelivery.drop = 'silent' })
-  await send(page, vista, id, 2)
+  await send(page, vista, id, 2, true)
   await expect(page.locator('.messages article.assistant')).toHaveCount(1)
   await page.evaluate(() => window.dispatchEvent(new Event('online')))
   await expect(page.locator('.messages article.assistant .markdown').last()).toHaveText('Mock reply: Recovery round 2')
