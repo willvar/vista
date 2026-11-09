@@ -85,19 +85,17 @@ const provider = createServer(async (request, response) => {
         assert.equal(last.content, contents.slice(4096, -4096))
         assert.equal(last.nextOffset, Buffer.byteLength(contents) - 4096)
         assert.equal(last.truncated, true)
-        return calls(tool('first-report', 'await_agent', { taskIds: ['main/fast', 'main/slow'] }))
-      case 6:
-        assert.match(JSON.stringify(last), /fast evidence/)
-        assert.doesNotMatch(JSON.stringify(last), /Conclusion: slow evidence/)
-        resultsSeen.push('fast')
-        releaseSlow()
-        return calls(tool('second-report', 'await_agent', { taskIds: ['main/slow'] }))
-      case 7:
-        assert.match(JSON.stringify(last), /slow evidence/)
-        resultsSeen.push('slow')
-        return send({ content: 'Collected evidence and complete output.' })
-      default:
-        throw new Error('unexpected extra model request')
+        // Final-looking text yields to pending task reports without a wait tool.
+      default: {
+        assert.ok(mainRequests <= 9, 'extra inference without a new completion')
+        const reports = body.messages.filter(message => message.role === 'system' && message.content.includes('"kind":"agent"')).map(message => message.content).join('\n')
+        if (reports.includes('Conclusion: fast evidence') && !resultsSeen.includes('fast')) {
+          resultsSeen.push('fast')
+          releaseSlow()
+        }
+        if (reports.includes('Conclusion: slow evidence') && !resultsSeen.includes('slow')) resultsSeen.push('slow')
+        return send({ content: resultsSeen.includes('slow') ? 'Collected evidence and complete output.' : 'Independent work complete; waiting for remaining reports.' })
+      }
     }
   } catch (error) {
     failure = error

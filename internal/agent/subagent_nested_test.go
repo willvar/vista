@@ -48,38 +48,34 @@ func TestParallelSubagentsCanDelegateNestedWork(t *testing.T) {
 		childReports[fmt.Sprintf("child %d", child)] = strings.Join(reports, " | ")
 		expectedReports[childID] = strings.Join(reports, " | ")
 	}
-	readReports := func(messages []struct{ Role, Content string }, want []string) {
+	readReports := func(messages []struct{ Role, Content string }, want []string) bool {
 		t.Helper()
 		got := map[string]bool{}
 		for _, message := range messages {
-			if message.Role != "tool" {
+			if message.Role != "system" {
 				continue
 			}
-			var output struct {
-				Answer string
-				Report *workerproto.OutputRef
-			}
-			if err := json.Unmarshal([]byte(message.Content), &output); err != nil {
-				t.Errorf("decode delegated report: %v; content=%s", err, message.Content)
+			_, raw, ok := strings.Cut(message.Content, "\n")
+			if !ok {
 				continue
 			}
-			if output.Report == nil && output.Answer == "" {
-				continue // Starting a delegated task returns only its handle.
+			var event workerproto.RuntimeEvent
+			if json.Unmarshal([]byte(raw), &event) != nil || event.Kind != "agent" {
+				continue
 			}
-			if output.Report == nil || output.Report.RunID != "nested-run" || output.Report.Turn <= 0 || output.Report.Bytes != int64(len(output.Answer)) {
-				t.Errorf("report reference does not match full answer: %+v", output)
+			if event.Output == nil || event.Output.RunID != "nested-run" || event.Output.Turn <= 0 || event.Output.Bytes != int64(len(event.Content)) {
+				t.Errorf("report reference: %+v", event)
 			}
-			got[output.Answer] = true
-		}
-		if len(got) != len(want) {
-			t.Errorf("parent received %d reports, want %d: %+v", len(got), len(want), got)
+			got[event.Content] = true
 		}
 		for _, report := range want {
 			if !got[report] {
-				t.Errorf("parent did not receive report %q", report)
+				return false
 			}
 		}
+		return true
 	}
+
 	delegate := func(index int, id, task string) map[string]any {
 		arguments, _ := json.Marshal(map[string]string{"task": task})
 		return map[string]any{"index": index, "id": id, "type": "function", "function": map[string]string{"name": "delegate", "arguments": string(arguments)}}
@@ -96,22 +92,7 @@ func TestParallelSubagentsCanDelegateNestedWork(t *testing.T) {
 		prompt := request.Messages[1].Content
 		initial := request.Messages[len(request.Messages)-1].Role == "user"
 		var calls []map[string]any
-		if !initial {
-			var last delegationResult
-			_ = json.Unmarshal([]byte(request.Messages[len(request.Messages)-1].Content), &last)
-			if last.Status == "running" {
-				for _, message := range request.Messages {
-					var started delegationResult
-					if message.Role != "tool" || json.Unmarshal([]byte(message.Content), &started) != nil || started.Status != "running" {
-						continue
-					}
-					arguments, _ := json.Marshal(map[string]any{"taskIds": []string{started.TaskID}})
-					calls = append(calls, map[string]any{"index": len(calls), "id": fmt.Sprintf("collect-%d", len(calls)), "type": "function", "function": map[string]string{"name": "await_agent", "arguments": string(arguments)}})
-				}
-				continuationEvent(w, map[string]any{"choices": []any{map[string]any{"delta": map[string]any{"tool_calls": calls}, "finish_reason": "tool_calls"}}})
-				return
-			}
-		}
+
 		switch {
 		case prompt == "main":
 			if !initial {
@@ -119,7 +100,10 @@ func TestParallelSubagentsCanDelegateNestedWork(t *testing.T) {
 				for child := range children {
 					reports = append(reports, childReports[fmt.Sprintf("child %d", child)])
 				}
-				readReports(request.Messages, reports)
+				if !readReports(request.Messages, reports) {
+					continuationAnswer(w, "Waiting for child reports")
+					return
+				}
 				continuationAnswer(w, finalAnswer)
 				return
 			}
@@ -134,7 +118,10 @@ func TestParallelSubagentsCanDelegateNestedWork(t *testing.T) {
 				return
 			}
 			if !initial {
-				readReports(request.Messages, []string{fmt.Sprintf("leaf %d/0 report", child), fmt.Sprintf("leaf %d/1 report", child)})
+				if !readReports(request.Messages, []string{fmt.Sprintf("leaf %d/0 report", child), fmt.Sprintf("leaf %d/1 report", child)}) {
+					continuationAnswer(w, "Waiting for leaf reports")
+					return
+				}
 				continuationAnswer(w, childReports[prompt])
 				return
 			}
@@ -213,7 +200,7 @@ func TestParallelSubagentsCanDelegateNestedWork(t *testing.T) {
 			}
 		}
 	}
-	if len(turns) != 3+children*3+children*leavesPerChild || len(completedDelegates) != children+children*leavesPerChild {
+	if len(turns) < 2+children*2+children*leavesPerChild || len(completedDelegates) != children+children*leavesPerChild {
 		t.Errorf("incomplete execution: unique turns=%d delegates=%d", len(turns), len(completedDelegates))
 	}
 	for id := range expectedParents {

@@ -133,17 +133,40 @@ func (r *toolRuntime) readFile(ctx context.Context, call provider.ToolCall) (str
 	return modelToolPreview(output, reference), nil
 }
 
-var searchSchema = map[string]any{"type": "function", "function": map[string]any{"name": "search", "description": "Search UTF-8 files under an explicit absolute directory with a Go regular expression. Matches include 1-based line numbers; use read_file with startLine to read surrounding lines. Respects ancestor and nested .gitignore rules; skips .git and node_modules directories.", "parameters": map[string]any{"type": "object", "properties": map[string]any{"root": map[string]any{"type": "string"}, "pattern": map[string]any{"type": "string"}}, "required": []string{"root", "pattern"}}}}
+var searchSchema = map[string]any{"type": "function", "function": map[string]any{"name": "search", "description": "Search UTF-8 file contents under an absolute root, respecting .gitignore. Use include/exclude path globs, literal for plain text, contextLines for nearby numbered lines, and mode content/files/count. Files mode returns paths whose CONTENT matches; use find_files to match file names without opening files.", "parameters": map[string]any{"type": "object", "properties": map[string]any{
+	"root": map[string]any{"type": "string"}, "pattern": map[string]any{"type": "string"},
+	"include": map[string]any{"type": "array", "items": map[string]any{"type": "string"}}, "exclude": map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
+	"literal": map[string]any{"type": "boolean"}, "ignoreCase": map[string]any{"type": "boolean"},
+	"contextLines": map[string]any{"type": "integer", "minimum": 0, "maximum": tools.MaxToolResultLines}, "mode": map[string]any{"type": "string", "enum": []string{"content", "files", "count"}},
+}, "required": []string{"root", "pattern"}}}}
 
 func (r *toolRuntime) search(ctx context.Context, call provider.ToolCall) (string, error) {
+	var input tools.SearchOptions
+	if err := decodeArguments(call.Function.Arguments, &input); err != nil {
+		return "", err
+	}
+	result, err := tools.SearchFiles(ctx, input)
+	if err != nil {
+		return "", err
+	}
+	return marshalResult(result)
+}
+
+var findFilesSchema = map[string]any{"type": "function", "function": map[string]any{"name": "find_files", "description": "Find file paths by glob, such as **/*settings*.vue, beneath an absolute root without reading file contents. Respects ancestor/nested .gitignore; skips .git, node_modules and symlinks. Results are sorted by traversal path and bounded; narrow pattern/root when truncated.", "parameters": map[string]any{"type": "object", "properties": map[string]any{
+	"root": map[string]any{"type": "string"}, "pattern": map[string]any{"type": "string"}, "exclude": map[string]any{"type": "array", "items": map[string]any{"type": "string"}}, "limit": map[string]any{"type": "integer", "minimum": 1, "maximum": tools.MaxToolResultLines},
+}, "required": []string{"root", "pattern"}}}}
+
+func (r *toolRuntime) findFiles(ctx context.Context, call provider.ToolCall) (string, error) {
 	var input struct {
-		Root    string `json:"root"`
-		Pattern string `json:"pattern"`
+		Root    string
+		Pattern string
+		Exclude []string
+		Limit   int
 	}
 	if err := decodeArguments(call.Function.Arguments, &input); err != nil {
 		return "", err
 	}
-	result, err := tools.Search(ctx, input.Root, input.Pattern)
+	result, err := tools.FindFiles(ctx, input.Root, input.Pattern, input.Exclude, input.Limit)
 	if err != nil {
 		return "", err
 	}

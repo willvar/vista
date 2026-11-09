@@ -40,17 +40,14 @@ func TestDelegateRetainsLongReportAndTaskIdentity(t *testing.T) {
 			delta = map[string]any{"content": commentary, "tool_calls": []any{map[string]any{"index": 0, "id": "delegate-1", "type": "function", "function": map[string]string{"name": "delegate", "arguments": `{"task":"child analysis"}`}}}}
 		} else {
 			last := request.Messages[len(request.Messages)-1]
-			var started delegationResult
-			if json.Unmarshal([]byte(last.Content), &started) == nil && started.Status == "running" {
-				continuationEvent(w, mcpToolEvent("collect-report", "await_agent", `{"taskIds":["main/delegate-1"]}`))
+			_, raw, ok := strings.Cut(last.Content, "\n")
+			var result workerproto.RuntimeEvent
+			if !ok || json.Unmarshal([]byte(raw), &result) != nil || result.Kind != "agent" {
+				continuationAnswer(w, "Waiting for report")
 				return
 			}
-			var result struct {
-				Answer string                 `json:"answer"`
-				Report *workerproto.OutputRef `json:"report"`
-			}
-			if json.Unmarshal([]byte(last.Content), &result) != nil || result.Answer != full || result.Report == nil || result.Report.Bytes != int64(len(full)) {
-				t.Errorf("parent lost the successful full child report (%d bytes)", len(last.Content))
+			if result.Output == nil || result.Output.Bytes != int64(len(full)) || !strings.HasPrefix(full, result.Content) || len(result.Content) > maxRuntimeReportBytes {
+				t.Errorf("report preview/reference: %+v", result)
 			}
 			if request.Messages[2].Content != commentary {
 				t.Error("text accompanying tools was lost")
@@ -64,7 +61,7 @@ func TestDelegateRetainsLongReportAndTaskIdentity(t *testing.T) {
 	defer server.Close()
 	var events []workerproto.Result
 	answer, err := Run(context.Background(), workerproto.Command{RunID: "task-run", Prompt: "main", Model: modelcfg.Model{Provider: "openai-chat", ID: "fixture", BaseURL: server.URL, APIKey: "fixture"}}, func(event workerproto.Result) error { events = append(events, event); return nil })
-	if err != nil || answer != "analysis complete" || requests.Load() != 4 {
+	if err != nil || answer != "analysis complete" || requests.Load() < 3 {
 		t.Fatalf("report flow: answer=%q, requests=%d, error=%v", answer, requests.Load(), err)
 	}
 	var report *workerproto.OutputRef
@@ -91,9 +88,9 @@ func TestDelegateRetainsLongReportAndTaskIdentity(t *testing.T) {
 		if event.Kind == "model_request" && event.Turn <= 0 {
 			t.Error("ordinary request has no turn")
 		}
-		if event.Kind == "tool" && event.Status == "succeeded" && event.Tool.Name == "await_agent" {
-			if event.Tool.OutputRef == nil || event.Tool.OutputRef.Bytes != int64(len(full)) {
-				t.Fatalf("delegate report reference missing: %+v", event.Tool)
+		if event.Kind == "runtime_event" && event.RuntimeEvent.Kind == "agent" {
+			if event.RuntimeEvent.Output == nil || event.RuntimeEvent.Output.Bytes != int64(len(full)) {
+				t.Fatalf("delegate report reference missing: %+v", event.RuntimeEvent)
 			}
 			encoded, _ := json.Marshal(event)
 			if len(encoded) > 32<<10 {

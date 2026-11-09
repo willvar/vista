@@ -131,7 +131,7 @@ func (r *delegationRegistry) startPrepared(ctx context.Context, parentID, callID
 
 func (r *delegationRegistry) ownedTasks(parentID string, ids []string) ([]*delegatedTask, error) {
 	if len(ids) == 0 {
-		return nil, errors.New("await_agent requires at least one taskId")
+		return nil, errors.New("at least one taskId is required")
 	}
 	tasks := make([]*delegatedTask, 0, len(ids))
 	seen := make(map[string]bool)
@@ -203,56 +203,6 @@ func (r *delegationRegistry) await(ctx context.Context, parentID string, ids []s
 	}
 }
 
-// joinRequired waits for every direct required child to reach a terminal
-// state, then marks its report collected and returns a stable snapshot for the
-// parent model. It is a runtime join: model calls to await_agent remain an
-// optional way to inspect a report, but they do not decide whether the parent
-// run may finalize.
-func (r *delegationRegistry) joinRequired(ctx context.Context, parentID string) ([]delegationResult, error) {
-	for {
-		if err := ctx.Err(); err != nil {
-			return nil, err
-		}
-		r.mu.Lock()
-		var pending bool
-		var ready []*delegatedTask
-		for _, task := range r.tasks {
-			if task.runID != r.runID || task.parentID != parentID || task.join != "required" {
-				continue
-			}
-			if task.completed == 0 {
-				pending = true
-				continue
-			}
-			if !task.collected {
-				ready = append(ready, task)
-			}
-		}
-		if !pending {
-			// The completion sequence is assigned under the same lock, so this
-			// gives the model deterministic report order without relying on map
-			// iteration order.
-			sortDelegatedTasks(ready)
-			results := make([]delegationResult, 0, len(ready))
-			for _, task := range ready {
-				result := task.result
-				result.AlreadyCollected = false
-				task.collected = true
-				results = append(results, result)
-			}
-			r.mu.Unlock()
-			return results, nil
-		}
-		changed := r.changed
-		r.mu.Unlock()
-		select {
-		case <-ctx.Done():
-			return nil, ctx.Err()
-		case <-changed:
-		}
-	}
-}
-
 func (r *delegationRegistry) hasUncollectedRequired(parentID string) bool {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -262,14 +212,6 @@ func (r *delegationRegistry) hasUncollectedRequired(parentID string) bool {
 		}
 	}
 	return false
-}
-
-func sortDelegatedTasks(tasks []*delegatedTask) {
-	for i := 1; i < len(tasks); i++ {
-		for j := i; j > 0 && tasks[j].completed < tasks[j-1].completed; j-- {
-			tasks[j], tasks[j-1] = tasks[j-1], tasks[j]
-		}
-	}
 }
 
 func (r *delegationRegistry) cancel(ctx context.Context, parentID, id string) (delegationResult, error) {

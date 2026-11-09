@@ -10,7 +10,7 @@ import (
 	"vista/internal/workerproto"
 )
 
-var delegateSchema = map[string]any{"type": "function", "function": map[string]any{"name": "delegate", "description": "Start a subagent for bounded independent work only when substantial parallel work is likely to reduce completion time or the user explicitly requests independent review. Handle short tasks and quick checks directly. Immediately returns its taskId. It inherits this model, MCP servers, and tools. The default join policy is required, so the runtime collects its report before the parent finalizes. Use best_effort when unfinished work can stop with this parent. Use detached for session-owned background work: it survives parent completion/cancellation and stops on explicit task cancellation, session close, or its own completion/failure.", "parameters": map[string]any{"type": "object", "properties": map[string]any{"task": map[string]any{"type": "string", "description": fmt.Sprintf("Nonempty task instructions, at most %d UTF-8 bytes. Include the goal, scope and acceptance criteria; put longer supporting material in a file and ask the child to read it.", workerproto.MaxPromptBytes)}, "join": map[string]any{"type": "string", "enum": []string{"required", "best_effort", "detached"}}}, "required": []string{"task"}}}}
+var delegateSchema = map[string]any{"type": "function", "function": map[string]any{"name": "delegate", "description": "Start a subagent for bounded independent work only when substantial parallel work is likely to reduce completion time or the user explicitly requests independent review. Handle short tasks and quick checks directly. Immediately returns its taskId. It inherits this model, MCP servers, and tools. The default join policy is required, so completion events are delivered before the parent finalizes. Reports arrive automatically; do not poll. Use best_effort when unfinished work can stop with this parent. Use detached for session-owned background work: it survives parent completion/cancellation and stops on explicit task cancellation, session close, or its own completion/failure.", "parameters": map[string]any{"type": "object", "properties": map[string]any{"task": map[string]any{"type": "string", "description": fmt.Sprintf("Nonempty task instructions, at most %d UTF-8 bytes. Include the goal, scope and acceptance criteria; put longer supporting material in a file and ask the child to read it.", workerproto.MaxPromptBytes)}, "join": map[string]any{"type": "string", "enum": []string{"required", "best_effort", "detached"}}}, "required": []string{"task"}}}}
 
 func (r *toolRuntime) delegate(ctx context.Context, call provider.ToolCall) (string, error) {
 	if r.depth >= r.scope.delegationLimit() {
@@ -33,9 +33,15 @@ func (r *toolRuntime) delegate(ctx context.Context, call provider.ToolCall) (str
 		input.Join = "required"
 	}
 	child := r.parent
+	// A continuation resumes only its own saved context. Every delegated task
+	// starts with its explicit task prompt, even when its parent was resumed.
+	child.Action = ""
 	child.Prompt = input.Task
 	child.History = nil
 	child.Images = nil // Session originals remain available through resource tools.
+	if r.instructions != nil {
+		child.ProjectRules = r.instructions.inherited()
+	}
 	child.Join = input.Join
 	// Persist registration before returning the task ID. The parent may finish
 	// immediately after delegate, before the child's goroutine gets scheduled.
@@ -59,49 +65,23 @@ func (r *toolRuntime) delegate(ctx context.Context, call provider.ToolCall) (str
 			return r.emit(result)
 		}
 		answer, err := r.runChild(childCtx, child, childEmit)
+		status := "succeeded"
+		content := jsonTextPreview(textPrefix(answer, maxRuntimeReportBytes), 24<<10)
+		if err != nil {
+			status = "failed"
+			content = workerproto.TextPreview(err.Error(), workerproto.MaxErrorBytes)
+			if childCtx.Err() != nil {
+				status = "canceled"
+			}
+		}
+		event := workerproto.RuntimeEvent{ID: child.RunID + ":agent:" + taskID, RunID: child.RunID, Recipient: child.ParentTaskID, Kind: "agent", SourceID: taskID, Status: status, Content: content, Output: childReport}
+		if eventErr := r.emit(workerproto.Result{RunID: child.RunID, Kind: "runtime_event", TaskID: taskID, ParentTaskID: child.ParentTaskID, Depth: r.depth + 1, RuntimeEvent: &event}); eventErr != nil {
+			r.scope.events.fail(child.RunID, eventErr)
+		} else {
+			r.scope.events.publish(childCtx, event)
+		}
 		return answer, childReport, err
 	})
-	if err != nil {
-		return "", err
-	}
-	return marshalResult(result)
-}
-
-var awaitAgentSchema = map[string]any{
-	"type": "function",
-	"function": map[string]any{
-		"name":        "await_agent",
-		"description": "Collect the first completed uncollected report among the delegated tasks listed in taskIds. Pass one or more exact task IDs returned by delegate. By default wait until one finishes. Optional timeoutSeconds returns running without canceling; zero checks immediately. Already collected IDs are skipped while others remain, or replay their saved report when all were collected.",
-		"parameters": map[string]any{
-			"type": "object",
-			"properties": map[string]any{
-				"taskIds": map[string]any{
-					"type":     "array",
-					"items":    map[string]any{"type": "string"},
-					"minItems": 1,
-				},
-				"timeoutSeconds": map[string]any{"type": "integer", "minimum": 0},
-			},
-			"required": []string{"taskIds"},
-		},
-	},
-}
-
-func (r *toolRuntime) awaitAgent(ctx context.Context, call provider.ToolCall) (string, error) {
-	if r.scope == nil || r.scope.delegations == nil {
-		return "", errors.New("delegated tasks are unavailable")
-	}
-	var input struct {
-		TaskIDs        []string `json:"taskIds"`
-		TimeoutSeconds *int64   `json:"timeoutSeconds"`
-	}
-	if err := decodeArguments(call.Function.Arguments, &input); err != nil {
-		return "", err
-	}
-	if len(input.TaskIDs) == 0 {
-		return "", errors.New("await_agent requires at least one taskId")
-	}
-	result, err := r.scope.delegations.await(ctx, r.parent.TaskID, input.TaskIDs, input.TimeoutSeconds)
 	if err != nil {
 		return "", err
 	}

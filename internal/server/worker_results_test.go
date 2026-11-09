@@ -46,19 +46,65 @@ func consumeTestResult(t *testing.T, consumer *workerResultConsumer, result work
 	return consumer.consumeFrame(frame)
 }
 
+func TestRuntimeCompletionWakesOnlyAfterCommitAndProgressDoesNotInfer(t *testing.T) {
+	c, sequence := newResultConsumerTest(t)
+	var wakes, ready int
+	c.runtimeReady = func() { ready++ }
+	c.send = func(command workerproto.Command) error {
+		if command.Action != "wake" {
+			return nil
+		}
+		wakes++
+		events, err := c.store.EventsAfter(c.ctx, c.sessionID, sequence, 100)
+		if err != nil || len(events) == 0 || events[len(events)-1].Kind != "runtime_event" {
+			t.Fatal("woke before completion committed")
+		}
+		return nil
+	}
+	// A tool's visible state alone never schedules another inference.
+	if err := consumeTestResult(t, c, workerproto.Result{RunID: "run", Kind: "tool", Status: "started", AckID: "start", Tool: &workerproto.ToolProgress{CallID: "slow", Name: "shell"}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := consumeTestResult(t, c, workerproto.Result{RunID: "run", Kind: "tool", Status: "succeeded", Tool: &workerproto.ToolProgress{CallID: "slow", Name: "shell"}, Content: "done"}); err != nil {
+		t.Fatal(err)
+	}
+	if wakes != 0 || ready != 0 {
+		t.Fatal("tool progress triggered inference")
+	}
+	notice := workerproto.RuntimeEvent{ID: "run:tool:slow", RunID: "run", Recipient: "main", Kind: "tool", SourceID: "slow", Status: "succeeded", Content: "done"}
+	if err := consumeTestResult(t, c, workerproto.Result{RunID: "run", Kind: "runtime_event", AckID: "completion", RuntimeEvent: &notice}); err != nil {
+		t.Fatal(err)
+	}
+	if wakes != 1 || ready != 1 {
+		t.Fatalf("missing completion wake: %d/%d", wakes, ready)
+	}
+	if _, err := c.store.FinishRun(c.ctx, c.sessionID, "run", "stopped", "interrupted", ""); err != nil {
+		t.Fatal(err)
+	}
+	notice.ID = "run:tool:late"
+	if err := consumeTestResult(t, c, workerproto.Result{RunID: "run", Kind: "runtime_event", AckID: "late", RuntimeEvent: &notice}); err != nil {
+		t.Fatal(err)
+	}
+	if wakes != 1 || ready != 1 {
+		t.Fatal("late event revived stopped work")
+	}
+}
+
 func TestWorkerResultConsumerRejectsMalformedFramesWithoutEffects(t *testing.T) {
 	for name, frame := range map[string]string{
-		"invalid JSON":     "{",
-		"unknown kind":     `{"runId":"run","kind":"surprise"}`,
-		"invalid depth":    fmt.Sprintf(`{"runId":"run","depth":%d,"status":"succeeded"}`, agentconfig.MaxDelegationDepth+1),
-		"missing model":    `{"runId":"run","kind":"model_result","turn":1}`,
-		"invalid usage":    `{"runId":"run","kind":"model_result","turn":1,"modelResult":{"provider":"openai-chat","id":"model","usage":{"inputTokens":-1}}}`,
-		"missing tool ACK": `{"runId":"run","kind":"tool","status":"started","tool":{"callId":"call","name":"shell"}}`,
-		"invalid status":   `{"runId":"run","status":"running"}`,
-		"invalid reply":    `{"runId":"run","kind":"input_poll","ackId":"poll","reply":{"turn":0,"fullBytes":5,"content":"hello"}}`,
-		"child reply":      `{"runId":"run","kind":"input_poll","ackId":"poll","depth":1,"reply":{"turn":1,"fullBytes":5,"content":"hello"}}`,
-		"invalid retry":    `{"runId":"run","kind":"model_retry","turn":1,"status":"waiting","modelRetry":{"attempt":4,"maxRetries":3,"retryAt":"2026-11-07T00:00:00Z"}}`,
-		"retry deadline":   `{"runId":"run","kind":"model_retry","turn":1,"status":"waiting","modelRetry":{"attempt":1,"maxRetries":3}}`,
+		"invalid JSON":            "{",
+		"unknown kind":            `{"runId":"run","kind":"surprise"}`,
+		"invalid depth":           fmt.Sprintf(`{"runId":"run","depth":%d,"status":"succeeded"}`, agentconfig.MaxDelegationDepth+1),
+		"missing model":           `{"runId":"run","kind":"model_result","turn":1}`,
+		"invalid usage":           `{"runId":"run","kind":"model_result","turn":1,"modelResult":{"provider":"openai-chat","id":"model","usage":{"inputTokens":-1}}}`,
+		"missing tool ACK":        `{"runId":"run","kind":"tool","status":"started","tool":{"callId":"call","name":"shell"}}`,
+		"completion path":         `{"runId":"run","kind":"runtime_event","ackId":"ack","runtimeEvent":{"id":"completion","runId":"run","recipient":"main","kind":"tool","sourceId":"tool","status":"succeeded","contentOutput":{"artifactId":"00000000-0000-0000-0000-000000000001","outputPath":"/outside-output-root"}}}`,
+		"completion without path": `{"runId":"run","kind":"runtime_event","ackId":"ack","runtimeEvent":{"id":"completion","runId":"run","recipient":"main","kind":"tool","sourceId":"tool","status":"succeeded","contentOutput":{"artifactId":"00000000-0000-0000-0000-000000000001"}}}`,
+		"invalid status":          `{"runId":"run","status":"running"}`,
+		"invalid reply":           `{"runId":"run","kind":"input_poll","ackId":"poll","reply":{"turn":0,"fullBytes":5,"content":"hello"}}`,
+		"child reply":             `{"runId":"run","kind":"input_poll","ackId":"poll","depth":1,"reply":{"turn":1,"fullBytes":5,"content":"hello"}}`,
+		"invalid retry":           `{"runId":"run","kind":"model_retry","turn":1,"status":"waiting","modelRetry":{"attempt":4,"maxRetries":3,"retryAt":"2026-11-07T00:00:00Z"}}`,
+		"retry deadline":          `{"runId":"run","kind":"model_retry","turn":1,"status":"waiting","modelRetry":{"attempt":1,"maxRetries":3}}`,
 	} {
 		t.Run(name, func(t *testing.T) {
 			consumer, sequence := newResultConsumerTest(t)
@@ -170,8 +216,14 @@ func TestWorkerResultConsumerCompletionUsesCommittedStatus(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
-			var notified, launched int
+			var notified, launched, released int
 			consumer.notify = func() { notified++ }
+			consumer.released = func() {
+				released++
+				if _, err := consumer.store.RunningRunID(consumer.ctx, consumer.sessionID); !errors.Is(err, sql.ErrNoRows) {
+					t.Fatalf("capacity released before completion committed: %v", err)
+				}
+			}
 			consumer.finished = func() {
 				launched++
 				if notified != 1 {
@@ -209,15 +261,55 @@ func TestWorkerResultConsumerCompletionUsesCommittedStatus(t *testing.T) {
 			if scenario.launch {
 				wantLaunch = 1
 			}
-			if notified != 1 || launched != wantLaunch {
-				t.Fatalf("notified=%d launched=%d wantLaunch=%t", notified, launched, scenario.launch)
+			if notified != 1 || launched != wantLaunch || released != 1 {
+				t.Fatalf("notified=%d launched=%d released=%d wantLaunch=%t", notified, launched, released, scenario.launch)
 			}
 			// A duplicate terminal frame cannot notify or dispatch again.
 			if err := consumeTestResult(t, consumer, result); err != nil {
 				t.Fatal(err)
 			}
-			if notified != 1 || launched != wantLaunch {
-				t.Fatalf("duplicate result repeated completion effects: notified=%d launched=%d", notified, launched)
+			if notified != 1 || launched != wantLaunch || released != 1 {
+				t.Fatalf("duplicate result repeated completion effects: notified=%d launched=%d released=%d", notified, launched, released)
+			}
+		})
+	}
+}
+
+func TestCompactionCompletionReleasesCapacityAfterCommitExactlyOnce(t *testing.T) {
+	for _, status := range []string{"succeeded", "failed", "interrupted"} {
+		t.Run(status, func(t *testing.T) {
+			consumer, _ := newResultConsumerTest(t)
+			if _, err := consumer.store.FinishRun(consumer.ctx, consumer.sessionID, "run", "answer", "succeeded", "answer"); err != nil {
+				t.Fatal(err)
+			}
+			through, _, err := consumer.store.BeginCompaction(consumer.ctx, consumer.sessionID, "compact")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if status == "succeeded" {
+				_, err := consumer.store.AppendRunEvent(consumer.ctx, consumer.sessionID, "compact", "context_notice", map[string]any{
+					"runId": "compact", "depth": 0, "checkpoint": workerproto.ContextCheckpoint{Path: "checkpoint.gob", ThroughSequence: through},
+				})
+				if err != nil {
+					t.Fatal(err)
+				}
+			}
+			released := 0
+			consumer.released = func() {
+				released++
+				if _, err := consumer.store.RunningRunID(consumer.ctx, consumer.sessionID); !errors.Is(err, sql.ErrNoRows) {
+					t.Fatalf("compaction capacity released before commit: %v", err)
+				}
+			}
+			consumer.finished = func() { t.Fatal("maintenance completion launched queued user input") }
+			result := workerproto.Result{Kind: "compaction_finished", RunID: "compact", Status: status}
+			for i := 0; i < 2; i++ {
+				if err := consumeTestResult(t, consumer, result); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if released != 1 {
+				t.Fatalf("compaction completion released capacity %d times", released)
 			}
 		})
 	}

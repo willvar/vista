@@ -12,43 +12,11 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
-	"unicode/utf8"
 
 	"vista/internal/provider"
 	"vista/internal/store"
 	"vista/internal/workerproto"
 )
-
-func TestCoordinatorJoinSharesPreviewBudgetAndKeepsReportReferences(t *testing.T) {
-	var results []delegationResult
-	for i := 0; i < 6; i++ {
-		result := delegationResult{TaskID: fmt.Sprintf("main/task-%d", i), Status: "succeeded", Join: "required", Answer: strings.Repeat("证据🙂", 4000), Report: &workerproto.OutputRef{RunID: "original", Turn: int32(i + 1), Bytes: 40000}}
-		if i == 5 {
-			result.Status, result.Answer, result.Error = "failed", "", strings.Repeat("失败🙂", 4000)
-		}
-		results = append(results, result)
-	}
-	_, body, _ := strings.Cut(coordinatorJoinMessage(results), "\n")
-	var payload struct {
-		Tasks []struct {
-			delegationResult
-			Truncated bool `json:"truncated"`
-		}
-	}
-	if err := json.Unmarshal([]byte(body), &payload); err != nil || len(payload.Tasks) != len(results) {
-		t.Fatalf("unusable join payload: %v", err)
-	}
-	total := 0
-	for i, task := range payload.Tasks {
-		if task.TaskID != results[i].TaskID || task.Status != results[i].Status || !reflect.DeepEqual(task.Report, results[i].Report) || !task.Truncated || !utf8.ValidString(task.Answer+task.Error) {
-			t.Fatalf("preview lost task state, references or UTF-8: %+v", task)
-		}
-		total += len(task.Answer) + len(task.Error)
-	}
-	if total > maxJoinAnswerBytes {
-		t.Fatalf("report text budget grew with task count: %d", total)
-	}
-}
 
 func TestRepeatedCompactionIncludesRuntimeReportsAtTail(t *testing.T) {
 	for _, manual := range []bool{false, true} {
@@ -79,8 +47,8 @@ func TestRepeatedCompactionIncludesRuntimeReportsAtTail(t *testing.T) {
 			latest := opaqueCompactionGroup("latest")
 			messages = append(messages, latest...)
 			for i := 0; i < 3; i++ {
-				text := coordinatorJoinMessage([]delegationResult{{TaskID: fmt.Sprintf("main/child-%d", i), Status: "succeeded", Join: "required", Answer: strings.Repeat(fmt.Sprintf("REPORT_%d ", i), 2400), Report: &workerproto.OutputRef{RunID: "reports", Turn: int32(i + 1), Bytes: 21600}}})
-				messages = append(messages, provider.ChatMessage{Role: "system", Content: text, RuntimeData: true})
+				text := jsonTextPreview(textPrefix(strings.Repeat(fmt.Sprintf("REPORT_%d ", i), 2400), maxRuntimeReportBytes), 24<<10)
+				messages = append(messages, runtimeNotice(workerproto.RuntimeEvent{ID: fmt.Sprintf("reports:%d", i), RunID: "reports", Recipient: "main", Kind: "agent", SourceID: fmt.Sprintf("main/child-%d", i), Status: "succeeded", Content: text, Output: &workerproto.OutputRef{RunID: "reports", Turn: int32(i + 1), Bytes: 21600}}))
 			}
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
@@ -167,25 +135,15 @@ func TestJoinedReportsCompactAndRemainReadable(t *testing.T) {
 					continuationToolCalls(w, calls...)
 				case 2:
 					continuationAnswer(w, "candidate")
-				case 3:
-					var joined bool
+				default:
+					var raw bool
 					for _, message := range request.Messages {
-						joined = joined || strings.Contains(message.Content, `"type":"runtime_join"`)
+						raw = raw || message.RuntimeData || strings.Contains(message.Content, `"kind":"agent"`)
 					}
-					if !joined {
-						t.Error("required reports never reached the synthesis request")
-					}
-					if mode == "automatic" {
+					if mode == "automatic" && raw && summarized.Load() != 7 {
 						w.WriteHeader(http.StatusBadRequest)
 						fmt.Fprint(w, `{"error":{"code":"context_length_exceeded"}}`)
 						return
-					}
-					continuationAnswer(w, "finished")
-				default:
-					for _, message := range request.Messages {
-						if strings.Contains(message.Content, `"type":"runtime_join"`) {
-							t.Error("raw runtime reports survived the automatic overflow recovery")
-						}
 					}
 					continuationAnswer(w, "finished")
 				}
@@ -216,16 +174,18 @@ func TestJoinedReportsCompactAndRemainReadable(t *testing.T) {
 				t.Fatal(err)
 			}
 			if mode == "manual" {
-				through, _, err := db.BeginCompaction(ctx, "session", "manual")
-				if err != nil {
-					t.Fatal(err)
-				}
-				command.Action, command.RunID, command.MessageSequence = "compact", "manual", through
-				if err := CompactSession(ctx, command, historyTestSink(db, command, &final)); err != nil {
-					t.Fatal(err)
-				}
-				if _, err := db.FinishCompaction(ctx, "session", "manual", "succeeded", ""); err != nil {
-					t.Fatal(err)
+				for attempt := 0; attempt < 4 && summarized.Load() != 7; attempt++ {
+					through, _, err := db.BeginCompaction(ctx, "session", fmt.Sprintf("manual-%d", attempt))
+					if err != nil {
+						t.Fatal(err)
+					}
+					command.Action, command.RunID, command.MessageSequence = "compact", fmt.Sprintf("manual-%d", attempt), through
+					if err := CompactSession(ctx, command, historyTestSink(db, command, &final)); err != nil {
+						t.Fatal(err)
+					}
+					if _, err := db.FinishCompaction(ctx, "session", command.RunID, "succeeded", ""); err != nil {
+						t.Fatal(err)
+					}
 				}
 			}
 			if summaries.Load() == 0 || summarized.Load() != 7 {

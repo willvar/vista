@@ -10,6 +10,7 @@ import (
 )
 
 type runScope struct {
+	events     *runtimeMailbox
 	mcp        *mcphost.Execution
 	modelTurns atomic.Int32
 	// Read once at the root run's start and shared unchanged by all descendants.
@@ -39,5 +40,5 @@ func newRunScope(delegations *delegationRegistry) (*runScope, error) {
 	if delegations == nil {
 		delegations = newDelegationRegistry()
 	}
-	return &runScope{delegationDepth: settings.DelegationDepth, delegationDepthSet: true, delegations: delegations}, nil
+	return &runScope{events: newRuntimeMailbox(), delegationDepth: settings.DelegationDepth, delegationDepthSet: true, delegations: delegations}, nil
 }

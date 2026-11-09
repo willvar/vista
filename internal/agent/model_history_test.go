@@ -26,6 +26,15 @@ func historyTestSink(db *store.Store, command workerproto.Command, final *store.
 	return func(result workerproto.Result) error {
 		ctx := context.Background() // Completed results survive run cancellation.
 		switch result.Kind {
+		case "runtime_event":
+			_, _, err := db.RecordRuntimeEvent(ctx, command.SessionID, *result.RuntimeEvent)
+			return err
+		case "runtime_delivered":
+			_, err := db.DeliverChildRuntimeEvent(ctx, command.SessionID, result.RunID, result.TaskID, result.RuntimeEvent.ID)
+			return err
+		case "reply_checkpoint":
+			_, err := db.SaveCompletedReply(ctx, command.SessionID, result.RunID, store.CompletedReply{ID: fmt.Sprintf("checkpoint-%s-%d", result.RunID, result.Reply.Turn), Content: result.Reply.Content, Output: store.ModelOutputRef{Turn: result.Reply.Turn, Bytes: result.Reply.FullBytes}})
+			return err
 		case "model_history":
 			event, err := db.RecordModelHistory(ctx, command.SessionID, result)
 			if err == nil && event == nil {

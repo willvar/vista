@@ -178,7 +178,13 @@ func TestDelegationLeavesParentImagesAvailableForExplicitReads(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer scope.delegations.close()
-	emit := func(workerproto.Result) error { return nil }
+	completed := make(chan workerproto.RuntimeEvent, 1)
+	emit := func(result workerproto.Result) error {
+		if result.Kind == "runtime_event" {
+			completed <- *result.RuntimeEvent
+		}
+		return nil
+	}
 	runtime := &toolRuntime{scope: scope, emit: emit,
 		parent: workerproto.Command{SessionID: "session", RunID: "run", TaskID: "main", Images: refs},
 		runChild: func(ctx context.Context, child workerproto.Command, _ func(workerproto.Result) error) (string, error) {
@@ -195,8 +201,13 @@ func TestDelegationLeavesParentImagesAvailableForExplicitReads(t *testing.T) {
 	if _, err := runtime.delegate(ctx, resourceCall("delegate", `{"task":"Inspect the retained resource if needed"}`)); err != nil {
 		t.Fatal(err)
 	}
-	results, err := scope.delegations.joinRequired(ctx, "main")
-	if err != nil || len(results) != 1 || results[0].Status != "succeeded" {
-		t.Fatalf("join results: %+v %v", results, err)
+	select {
+	case event := <-completed:
+		if event.Kind != "agent" || event.Status != "succeeded" || event.Recipient != "main" {
+			t.Fatalf("completion event: %+v", event)
+		}
+		scope.delegations.collectedEvent(event)
+	case <-ctx.Done():
+		t.Fatal(ctx.Err())
 	}
 }

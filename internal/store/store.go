@@ -222,6 +222,14 @@ func Open(path string) (*Store, error) {
    PRIMARY KEY(run_id,task_id)
   )`,
 		`CREATE INDEX IF NOT EXISTS active_tasks_by_session ON agent_tasks(session_id) WHERE status='started'`,
+		`CREATE TABLE IF NOT EXISTS runtime_events (
+ session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+ run_id TEXT NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
+ event_id TEXT NOT NULL, recipient TEXT NOT NULL, sequence INTEGER NOT NULL,
+ status TEXT NOT NULL, delivered_run_id TEXT NOT NULL DEFAULT '', data BLOB NOT NULL,
+ PRIMARY KEY(session_id,event_id)
+ )`,
+		`CREATE INDEX IF NOT EXISTS pending_runtime_events ON runtime_events(session_id,recipient,sequence) WHERE status='pending'`,
 		`CREATE TABLE IF NOT EXISTS messages (
    id TEXT PRIMARY KEY, session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
    provider_id TEXT NOT NULL DEFAULT '', model_id TEXT NOT NULL DEFAULT '', model_key TEXT NOT NULL DEFAULT '',
@@ -447,7 +455,15 @@ func (s *Store) SetOpen(ctx context.Context, id string, open bool) error {
 	if open {
 		value = 1
 	}
-	return sessionRowsAffected(s.orm.WithContext(ctx).Model(&sessionRow{}).Where("id = ?", id).Update("is_open", value))
+	return s.orm.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := sessionRowsAffected(tx.Model(&sessionRow{}).Where("id = ?", id).Update("is_open", value)); err != nil {
+			return err
+		}
+		if !open {
+			return tx.Exec(`UPDATE runtime_events SET status='suppressed' WHERE session_id=? AND status='pending'`, id).Error
+		}
+		return nil
+	})
 }
 func (s *Store) SetPinned(ctx context.Context, id string, pinned bool) error {
 	return sessionRowsAffected(s.orm.WithContext(ctx).Model(&sessionRow{}).Where("id = ?", id).Update("pinned", pinned))

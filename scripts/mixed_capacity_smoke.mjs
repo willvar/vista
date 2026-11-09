@@ -73,7 +73,12 @@ async function handleProvider(request, response) {
   if (prompt?.startsWith('shell:')) {
     counts.shell++
     if (results.length === 0) return tool('shell', { directory: state, command: "sleep 3; printf '%65536s' x", timeoutSeconds: 15 }, 'call_shell')
-    const shell = JSON.parse(results[0].content)
+    let shell = JSON.parse(results[0].content)
+    if (shell.status === 'running') {
+      const notice = body.messages.filter(message => message.role === 'system' && message.content.includes('"kind":"tool"')).map(message => JSON.parse(message.content.slice(message.content.indexOf('\n') + 1))).find(event => event.sourceId === 'call_shell')
+      if (!notice) return text('waiting for shell')
+      shell = JSON.parse(notice.content)
+    }
     if (shell.bytes !== 65536 || shell.exitCode !== 0 || !shell.complete) throw new Error(`shell output or exit status incorrect: ${JSON.stringify({ bytes: shell.bytes, exitCode: shell.exitCode, complete: shell.complete, error: shell.error })}`)
     return text('shell completed')
   }
@@ -91,8 +96,7 @@ async function handleProvider(request, response) {
   if (prompt?.startsWith('delegate:')) {
     counts.delegate++
     if (results.length === 0) return tool('delegate', { task: `child:${prompt.slice(9)}` }, 'call_child')
-    if (results.length === 1) return tool('await_agent', { taskIds: [JSON.parse(results[0].content).taskId] }, 'await_child')
-    if (!results[1].content.includes('child result')) throw new Error('subagent result missing')
+    if (!body.messages.some(message => message.role === 'system' && message.content.includes('child result'))) return text('waiting for child')
     return text('subagent completed')
   }
   throw new Error(`unexpected model prompt: ${prompt}`)
@@ -208,7 +212,7 @@ try {
         }
         throw new Error(`Session ${index} did not finish round ${round}`)
       }))
-      const failures = results.filter((result, index) => result.finished.status !== 'succeeded' || result.tools.filter(item => item.tool?.name !== 'read_project_instruction').length !== (index < 8 ? 1 : 2) || result.tools.some(item => item.status !== 'succeeded'))
+      const failures = results.filter((result, index) => result.finished.status !== 'succeeded' || result.tools.filter(item => item.tool?.name !== 'read_project_instruction').length !== (index < 8 || index >= 14 ? 1 : 2) || result.tools.some(item => item.status !== 'succeeded'))
       if (failures.length) throw new Error(`mixed round ${round} failed: ${JSON.stringify(failures.map(result => ({ status: result.finished.status, message: result.finished.message?.content, tools: result.tools.map(item => ({ name: item.tool?.name, status: item.status })) })))}`)
       await delay(5500)
       const status = await api('/status')
@@ -221,7 +225,9 @@ try {
   }
   const after = await api('/status')
   if (JSON.stringify(workerPIDs(after)) !== JSON.stringify(originalWorkers)) throw new Error('a Worker restarted before the final mixed-load check')
-  if (after.sessions.open !== 20 || after.sessions.closed !== closedSessionCount || after.sessions.workers !== 20 || after.sessions.running !== 0 || counts.shell !== 16 * rounds || counts.mcp !== 18 * rounds || counts.delegate !== 18 * rounds || counts.child !== 6 * rounds || !samples.some(item => item.running === 20)) throw new Error(`mixed state: ${JSON.stringify(after.sessions)}, calls=${JSON.stringify(counts)}`)
+  // A completion can arrive before the next request or after one provisional
+  // reply. Neither timing may add more than one waiting turn or repeat work.
+  if (after.sessions.open !== 20 || after.sessions.closed !== closedSessionCount || after.sessions.workers !== 20 || after.sessions.running !== 0 || counts.shell < 16 * rounds || counts.shell > 24 * rounds || counts.mcp !== 18 * rounds || counts.delegate < 12 * rounds || counts.delegate > 18 * rounds || counts.child !== 6 * rounds || !samples.some(item => item.running === 20)) throw new Error(`mixed state: ${JSON.stringify(after.sessions)}, calls=${JSON.stringify(counts)}`)
   const finalCgroup = cgroupMemory()
   if (requiredCgroupMiB && finalCgroup?.maxMiB !== requiredCgroupMiB) throw new Error(`cgroup limit disappeared or changed: ${finalCgroup?.maxMiB ?? 'none'}`)
   if (initialCgroup && finalCgroup && (finalCgroup.oom > initialCgroup.oom || finalCgroup.oomKill > initialCgroup.oomKill)) throw new Error(`cgroup OOM events increased: ${JSON.stringify({ initialCgroup, finalCgroup })}`)

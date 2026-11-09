@@ -116,8 +116,20 @@ func (s *Store) ConversationSnapshot(ctx context.Context, id string) (Conversati
 				seen[message.RunID] = true
 			}
 		}
-		if activeRun == "" && len(snapshot.Messages) > 0 {
-			activeRun = snapshot.Messages[len(snapshot.Messages)-1].RunID
+		// Runtime continuations have no user row. Derive the latest conversational
+		// execution from its durable start instead of reusing the previous user run.
+		var latest struct{ ID string }
+		if err = view.orm.Raw(`SELECT r.id FROM runs r WHERE r.session_id=? AND
+   (EXISTS(SELECT 1 FROM messages m WHERE m.session_id=r.session_id AND m.run_id=r.id AND m.role='user') OR
+    EXISTS(SELECT 1 FROM events e WHERE e.session_id=r.session_id AND e.kind='run_started' AND json_extract(e.data,'$.runId')=r.id))
+   ORDER BY r.rowid DESC LIMIT 1`, id).Scan(&latest).Error; err != nil {
+			return err
+		}
+		if latest.ID != "" {
+			activeRun = latest.ID
+		}
+		if activeRun != "" && !seen[activeRun] {
+			runIDs = append(runIDs, activeRun)
 		}
 		if snapshot.Boundaries, err = view.MessageResultBoundaries(ctx, id, messageIDs); err != nil {
 			return err

@@ -106,8 +106,7 @@ func TestDelegationConfiguredDepthAndRunSnapshot(t *testing.T) {
 				result := request.Messages[len(request.Messages)-1].Content
 				var started delegationResult
 				if json.Unmarshal([]byte(result), &started) == nil && started.Status == "running" {
-					arguments, _ := json.Marshal(map[string]any{"taskIds": []string{started.TaskID}})
-					continuationEvent(w, mcpToolEvent("collect-child", "await_agent", string(arguments)))
+					continuationAnswer(w, "Waiting for child")
 					return
 				}
 				if depth == limit {

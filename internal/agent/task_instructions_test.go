@@ -49,7 +49,7 @@ func TestDelegateRetainsCompleteTaskInstructions(t *testing.T) {
 				}
 				var result delegationResult
 				if json.Unmarshal([]byte(request.Messages[len(request.Messages)-1].Content), &result) == nil && result.Status == "running" {
-					continuationEvent(w, mcpToolEvent("collect-instructions", "await_agent", `{"taskIds":["main/instructions-child"]}`))
+					continuationAnswer(w, "Waiting for child")
 					return
 				}
 				continuationAnswer(w, "parent complete")

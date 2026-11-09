@@ -8,8 +8,9 @@ import (
 )
 
 // Display pages project committed compaction summaries and final checklists.
-// A final checklist shares its run_finished cursor with the formal reply, so
-// paging cannot split the two bodies. Canonical model history is unchanged.
+// A final checklist shares its run_finished page cursor with the formal reply,
+// but retains its update sequence for chronological display. Paging cannot
+// split the two bodies. Canonical model history is unchanged.
 func (s *Store) DisplayMessagesBefore(ctx context.Context, sessionID string, before int64, limit int) ([]Message, error) {
 	return s.displayMessages(ctx, sessionID, before, limit, false)
 }
@@ -37,10 +38,10 @@ func (s *Store) displayMessages(ctx context.Context, sessionID string, cursor in
   WHERE start.session_id=e.session_id AND json_extract(start.data,'$.runId')=json_extract(e.data,'$.runId')
   AND start.sequence<e.sequence AND COALESCE(json_extract(start.data,'$.depth'),0)=0
   AND (start.kind='context_notice' OR (start.kind='context_status' AND json_extract(start.data,'$.phase')='compacting'))),0) ELSE 0 END AS results_after,
- CASE WHEN e.kind='run_finished' THEN (SELECT COALESCE(json_extract(c.data,'$.items'),json_extract(c.data,'$.checklist.items')) FROM events c
+ CASE WHEN e.kind='run_finished' THEN (SELECT json_object('items',COALESCE(json_extract(c.data,'$.items'),json_extract(c.data,'$.checklist.items')),'updatedAt',c.created_at,'updatedSequence',c.sequence) FROM events c
   WHERE c.session_id=e.session_id AND c.kind='checklist' AND json_extract(c.data,'$.runId')=json_extract(e.data,'$.runId')
   AND c.sequence<e.sequence AND COALESCE(json_extract(c.data,'$.depth'),0)=0
-  AND COALESCE(json_extract(c.data,'$.taskId'),'main') IN ('','main') ORDER BY c.sequence DESC LIMIT 1) END AS items
+  AND COALESCE(json_extract(c.data,'$.taskId'),'main') IN ('','main') ORDER BY c.sequence DESC LIMIT 1) END AS checklist
  FROM events e WHERE e.session_id=? AND ((e.kind='context_notice'
  AND COALESCE(json_extract(e.data,'$.depth'),0)=0 AND json_type(e.data,'$.summary')='text' AND length(trim(json_extract(e.data,'$.summary')))>0)
  OR e.kind='run_finished')`
@@ -63,7 +64,16 @@ func (s *Store) displayMessages(ctx context.Context, sessionID string, cursor in
 			args = append(args, messages[0].Sequence)
 		}
 	}
-	query += ") SELECT sequence,run_id,kind,created_at,summary,status,results_after,COALESCE(items,'[]') FROM display WHERE kind='context_notice' OR json_array_length(items)>0 ORDER BY sequence"
+	// Summary results carry a provider/model ID, but that pair can be shared
+	// by several connections. Retain the exact request key even off the event page.
+	query += `) SELECT sequence,run_id,kind,created_at,summary,status,results_after,COALESCE(checklist,'{}'),
+ CASE WHEN kind='context_notice' THEN COALESCE((SELECT json_extract(request.data,'$.key') FROM events request
+  WHERE request.session_id=? AND request.kind='model_request' AND json_extract(request.data,'$.runId')=display.run_id
+  AND json_extract(request.data,'$.purpose')='summary' AND COALESCE(json_extract(request.data,'$.depth'),0)=0
+  AND COALESCE(json_extract(request.data,'$.taskId'),'main') IN ('','main')
+  AND request.sequence>display.results_after AND request.sequence<display.sequence ORDER BY request.sequence DESC LIMIT 1),'') ELSE '' END
+ FROM display WHERE kind='context_notice' OR json_array_length(json_extract(checklist,'$.items'))>0 ORDER BY sequence`
+	args = append(args, sessionID)
 	if !forward {
 		query += " DESC"
 	}
@@ -81,7 +91,7 @@ func (s *Store) displayMessages(ctx context.Context, sessionID string, cursor in
 	for rows.Next() {
 		message := Message{SessionID: sessionID, Role: "assistant"}
 		var kind, status, items string
-		if err := rows.Scan(&message.Sequence, &message.RunID, &kind, &message.CreatedAt, &message.Content, &status, &message.ResultsAfter, &items); err != nil {
+		if err := rows.Scan(&message.Sequence, &message.RunID, &kind, &message.CreatedAt, &message.Content, &status, &message.ResultsAfter, &items, &message.ModelKey); err != nil {
 			return nil, err
 		}
 		if kind == "context_notice" {
@@ -91,7 +101,7 @@ func (s *Store) displayMessages(ctx context.Context, sessionID string, cursor in
 			message.ID = fmt.Sprintf("checklist-summary/%d", message.Sequence)
 			message.Content = ""
 			message.Checklist = &ChecklistSummary{Status: status}
-			if err := json.Unmarshal([]byte(items), &message.Checklist.Items); err != nil {
+			if err := json.Unmarshal([]byte(items), message.Checklist); err != nil {
 				return nil, err
 			}
 			if index, exists := bySequence[message.Sequence]; exists {

@@ -57,6 +57,10 @@ func jsonTextPreview(text string, maximum int) string {
 func exceedsToolBudget(output string) bool { return tools.ExceedsToolBudget(output) }
 
 func modelToolPreview(output string, reference *workerproto.OutputRef) string {
+	return modelToolPreviewLimit(output, reference, maxToolResult)
+}
+
+func modelToolPreviewLimit(output string, reference *workerproto.OutputRef, maximum int) string {
 	location := fmt.Sprintf("run %s, turn %d; use read_model_output", reference.RunID, reference.Turn)
 	if reference.ArtifactID != "" {
 		location = "artifact " + reference.ArtifactID + "; use read_tool_output with artifactId and offset 0"
@@ -80,7 +84,7 @@ func modelToolPreview(output string, reference *workerproto.OutputRef) string {
 	if filePage {
 		notice += " Read the saved output to recover the complete source line; nextLine, when present, is for the following source line."
 	}
-	preview := textPrefix(previewText, maxToolResult)
+	preview := textPrefix(previewText, maximum)
 	lines := strings.SplitAfter(preview, "\n")
 	if len(lines) > maxToolResultLines-2 {
 		preview = strings.Join(lines[:maxToolResultLines-2], "")
@@ -91,9 +95,19 @@ func modelToolPreview(output string, reference *workerproto.OutputRef) string {
 			value["complete"] = complete
 		}
 		if failure, ok := content["error"].(string); ok {
-			value["error"] = failure
+			value["error"] = jsonTextPreview(failure, maximum/4)
 		}
-		// await_agent may return any of several children. Its report identity
+		for _, key := range []string{"exitCode", "signal", "terminationReason", "jobId", "offset", "nextOffset", "availableBytes"} {
+			switch field := content[key].(type) {
+			case float64, bool:
+				value[key] = field
+			case string:
+				if len(field) <= 1024 {
+					value[key] = field
+				}
+			}
+		}
+		// Child report metadata may identify any of several children. Its identity
 		// must survive previewing, including a replay after compaction.
 		if taskID, ok := content["taskId"].(string); ok && len(taskID) <= 1024 {
 			value["taskId"] = taskID
@@ -121,7 +135,7 @@ func modelToolPreview(output string, reference *workerproto.OutputRef) string {
 	for low <= high {
 		probe := low + (high-low)/2
 		prefix := textPrefix(preview, probe)
-		if len(encode(prefix)) <= maxToolResult {
+		if len(encode(prefix)) <= maximum {
 			best = len(prefix)
 			low = probe + 1
 		} else {

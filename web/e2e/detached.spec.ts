@@ -21,13 +21,25 @@ test('background child survives refresh and the next reply, then saves its tool 
   await expect(child).toHaveAttribute('data-task-status', 'succeeded')
   await expect.poll(async () => (await vista.api('/sessions')).find((s: any) => s.id === session.id)?.running).toBe(false)
   const messages = await vista.api(`/sessions/${session.id}/messages`)
-  expect(messages.filter((message: any) => message.role === 'assistant')).toHaveLength(2)
+  expect(messages.filter((message: any) => message.role === 'user').map((message: any) => message.content)).toEqual(['Start background', 'Next question'])
+  expect(messages.filter((message: any) => message.role === 'assistant').map((message: any) => message.content)).toEqual([
+    'Mock reply: Start background', 'Mock reply: Next question', 'Background completion received: succeeded.',
+  ])
+  await expect(page.locator('article.assistant').last()).toContainText('Background completion received: succeeded.')
   const events = await vista.api(`/sessions/${session.id}/event-page`)
+  expect(events.filter((event: any) => event.kind === 'runtime_event')).toHaveLength(1)
+  expect(vista.modelRequests.filter(request => request.messages?.some(message => message.role === 'system'
+    && String(message.content).startsWith('Runtime completion event.')))).toHaveLength(1)
+  expect(vista.modelRequests.filter(request => request.messages?.filter(message => message.role === 'user').at(-1)?.content === 'Background check')).toHaveLength(2)
   const report = events.findLast((event: any) => event.kind === 'agent_task' && event.data.task?.id === 'main/background').data.task.report
   const output = await vista.api(`/sessions/${session.id}/runs/${report.runId}/model-output?turn=${report.turn}&full=1`)
   expect(output.content).toBe('Background report complete.')
   expect(output.complete).toBe(true)
   expect(events.some((event: any) => event.kind === 'tool' && event.data.taskId === 'main/background' && event.data.status === 'succeeded')).toBe(true)
+  const requests = vista.modelRequests.length
+  await page.reload()
+  await expect(page.locator('article.assistant').last()).toContainText('Background completion received: succeeded.')
+  expect(vista.modelRequests.length).toBe(requests)
   await child.scrollIntoViewIfNeeded()
   await page.screenshot({ path: testInfo.outputPath('detached-complete.png'), animations: 'disabled' })
 })
@@ -48,7 +60,11 @@ test('background child can be stopped explicitly after the foreground reply', as
   await expect.poll(async () => (await vista.api('/sessions')).find((s: any) => s.id === session.id)?.running).toBe(false)
   await page.reload()
   await expect(child).toHaveAttribute('data-task-status', 'canceled')
-  expect((await vista.api(`/sessions/${session.id}/messages`)).filter((message: any) => message.role === 'assistant')).toHaveLength(1)
+  const messages = await vista.api(`/sessions/${session.id}/messages`)
+  expect(messages.filter((message: any) => message.role === 'user')).toHaveLength(1)
+  expect(messages.filter((message: any) => message.role === 'assistant').map((message: any) => message.content)).toEqual([
+    'Mock reply: Start background', 'Background completion received: canceled.',
+  ])
 })
 
 test('closing the session stops background work without replay on reopen', async ({ vista }) => {

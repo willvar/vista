@@ -105,6 +105,7 @@ func TestSummaryResultsStayWithinTheirCompactionAcrossSnapshotAndSingleMessagePa
 	var notices []store.Event
 	for i := 0; i < 2; i++ {
 		appendEvent("context_status", map[string]any{"runId": "run", "phase": "compacting"})
+		appendEvent("model_request", map[string]any{"runId": "run", "purpose": "summary", "key": fmt.Sprintf("summary-connection-%d", i), "provider": "custom", "id": "actual-model"})
 		result(int32(i*3+2), "summary", 0)
 		result(int32(i*3+3), "summary", 1)
 		result(int32(i*3+4), "summary", 0)
@@ -143,8 +144,13 @@ func TestSummaryResultsStayWithinTheirCompactionAcrossSnapshotAndSingleMessagePa
 					t.Fatalf("summary lost scoped usage or identity: %+v", message)
 				}
 				wantFirst := int32(2)
+				wantKey := "summary-connection-0"
 				if message.Sequence == notices[1].Sequence {
 					wantFirst = 5
+					wantKey = "summary-connection-1"
+				}
+				if message.ModelKey != wantKey {
+					t.Fatalf("summary used another compaction's connection: got %q, want %q", message.ModelKey, wantKey)
 				}
 				if message.ModelResults[0].Turn != wantFirst || message.ModelResults[1].Turn != wantFirst+2 {
 					t.Fatalf("summary includes another compaction: %+v", message.ModelResults)
@@ -166,7 +172,7 @@ func TestSummaryResultsStayWithinTheirCompactionAcrossSnapshotAndSingleMessagePa
 		t.Fatalf("summary-only page: %+v %v", items, err)
 	}
 	page, err := app.messagesWithResults(httptest.NewRequest(http.MethodGet, "/", nil), sessionID, items)
-	if err != nil || len(page[0].ModelResults) != 2 || page[0].ModelResults[0].Turn != 5 {
+	if err != nil || len(page[0].ModelResults) != 2 || page[0].ModelResults[0].Turn != 5 || page[0].ModelKey != "summary-connection-1" {
 		t.Fatalf("summary-only usage: %+v %v", page, err)
 	}
 }

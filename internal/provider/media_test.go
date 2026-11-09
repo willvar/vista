@@ -197,3 +197,65 @@ func TestToolImagesFollowCompleteParallelResultsAcrossProtocols(t *testing.T) {
 		t.Fatalf("Responses resource turn: %+v %v", turn, err)
 	}
 }
+
+func TestRuntimeCompletionImagesStayInOutgoingProjectionAcrossProtocols(t *testing.T) {
+	image := testImage(t)
+	messages := []ChatMessage{
+		{Role: "system", Content: "Follow the user's request."},
+		{Role: "user", Content: "Inspect the background result"},
+		{Role: "system", RuntimeData: true, Content: "Runtime completion event.\nImage ready", Images: []Image{image}},
+	}
+	before, err := json.Marshal(messages)
+	if err != nil {
+		t.Fatal(err)
+	}
+	projected := projectToolImages(messages)
+	after, err := json.Marshal(messages)
+	if err != nil || !bytes.Equal(before, after) || len(messages[2].Images) != 1 || messages[2].Role != "system" {
+		t.Fatal("runtime attachment modified canonical history")
+	}
+	if len(projected) != 4 || projected[2].Role != "system" || len(projected[2].Images) != 0 || projected[3].Role != "user" || !projected[3].RuntimeData || len(projected[3].Images) != 1 {
+		t.Fatalf("invalid runtime projection: %+v", projected)
+	}
+	chat, err := chatMessagesWithReasoningDetails(projected, "openai")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, anthropic, err := anthropicMessages(projected)
+	if err != nil {
+		t.Fatal(err)
+	}
+	gemini, _, err := geminiContents(projected)
+	if err != nil {
+		t.Fatal(err)
+	}
+	encoded := base64.StdEncoding.EncodeToString(image.Data)
+	for _, wire := range []any{chat, anthropic, gemini} {
+		data, _ := json.Marshal(wire)
+		if bytes.Count(data, []byte(encoded)) != 1 {
+			t.Fatalf("protocol lost or duplicated runtime image: %s", data)
+		}
+	}
+	requests := 0
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests++
+		var body struct {
+			Input        []map[string]any `json:"input"`
+			Instructions string           `json:"instructions"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Error(err)
+		}
+		data, _ := json.Marshal(body.Input)
+		if len(body.Input) != 2 || body.Input[1]["role"] != "user" || bytes.Count(data, []byte(encoded)) != 1 || !strings.Contains(body.Instructions, "Runtime completion event.") {
+			t.Errorf("Responses lost runtime attachment: %s", data)
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		fmt.Fprint(w, "data: {\"type\":\"response.completed\",\"response\":{\"status\":\"completed\",\"output\":[{\"type\":\"message\",\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":\"seen\"}]}]}}\n\n")
+	}))
+	defer upstream.Close()
+	turn, err := ModelTurn(context.Background(), modelcfg.Model{Provider: "openai-responses", ID: "fixture", BaseURL: upstream.URL, APIKey: "fixture"}, messages, nil)
+	if err != nil || turn.Text != "seen" || requests != 1 {
+		t.Fatalf("Responses runtime image: %+v requests=%d err=%v", turn, requests, err)
+	}
+}

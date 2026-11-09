@@ -396,6 +396,9 @@ func (s *Store) FinishRunWithPending(ctx context.Context, sessionID, runID, mess
 		return nil, err
 	}
 	if status == "interrupted" || status == "failed" || unknown > 0 {
+		if err := suppressRuntimeEvents(ctx, tx, sessionID); err != nil {
+			return nil, err
+		}
 		if err := markQueuedInTx(ctx, tx, sessionID, runID, "interrupted"); err != nil {
 			return nil, err
 		}
@@ -412,6 +415,9 @@ func (s *Store) InterruptRunning(ctx context.Context, sessionID string, reason .
 		return nil, err
 	}
 	defer tx.Rollback()
+	if err := suppressRuntimeEvents(ctx, tx, sessionID); err != nil {
+		return nil, err
+	}
 	query := "SELECT id,session_id FROM runs WHERE status='running'"
 	args := []any{}
 	if sessionID != "" {
@@ -489,7 +495,7 @@ func (s *Store) InterruptRunning(ctx context.Context, sessionID string, reason .
 
 func appendUnknownTools(ctx context.Context, tx *sql.Tx, sessionID, runID string, onlyTask ...string) (int, error) {
 	var start int64
-	if err := tx.QueryRowContext(ctx, "SELECT MIN(sequence) FROM messages WHERE session_id=? AND run_id=? AND role='user'", sessionID, runID).Scan(&start); err != nil {
+	if err := tx.QueryRowContext(ctx, `SELECT COALESCE((SELECT MIN(sequence) FROM messages WHERE session_id=? AND run_id=? AND role='user'),(SELECT MIN(sequence) FROM events WHERE session_id=? AND json_extract(data,'$.runId')=?),0)`, sessionID, runID, sessionID, runID).Scan(&start); err != nil {
 		return 0, err
 	}
 	query := `SELECT sequence,data FROM events e WHERE session_id=? AND kind='tool' AND sequence>=?

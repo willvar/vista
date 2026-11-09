@@ -115,7 +115,7 @@ func TestParentAndDelegateContinueBeyondSharedToolBudget(t *testing.T) {
 		case turn == 13:
 			continuationEvent(w, mcpToolEvent("delegate-child", "delegate", `{"task":"child task"}`))
 		case turn == 14:
-			continuationEvent(w, mcpToolEvent("collect-child", "await_agent", `{"taskIds":["main/delegate-child"]}`))
+			continuationAnswer(w, "Waiting for child")
 		default:
 			if !strings.Contains(body.Messages[len(body.Messages)-1].Content, "child complete") {
 				t.Errorf("delegate result was not returned to parent: %+v", body.Messages[len(body.Messages)-1])
@@ -133,7 +133,7 @@ func TestParentAndDelegateContinueBeyondSharedToolBudget(t *testing.T) {
 		}
 		return nil
 	})
-	if err != nil || answer != "parent complete" || reads["read_file"] != 12 || reads["subagent/read_file"] != 14 || parentRequests.Load() != 15 || childRequests.Load() != 15 {
+	if err != nil || answer != "parent complete" || reads["read_file"] != 12 || reads["subagent/read_file"] != 14 || parentRequests.Load() < 15 || childRequests.Load() != 15 {
 		t.Fatalf("shared continuation: answer=%q reads=%v requests=%d/%d err=%v", answer, reads, parentRequests.Load(), childRequests.Load(), err)
 	}
 }

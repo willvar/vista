@@ -117,14 +117,31 @@ func Run() error {
 		ack, err := awaitAck(ctx, workerproto.Result{Kind: "model_credentials", Credential: request})
 		return ack.Model, err
 	})
-	agents := agent.NewSession(sessionCtx)
+	var agents *agent.Session
+	sessionCtx = agent.WithRuntimeSource(sessionCtx, agent.RuntimeSource{Changed: func() <-chan struct{} { return agents.Changed() }, Poll: func(ctx context.Context, runID, taskID string) ([]workerproto.RuntimeEvent, error) {
+		ack, err := awaitAck(ctx, workerproto.Result{RunID: runID, TaskID: taskID, Kind: "runtime_poll"})
+		return ack.RuntimeEvents, err
+	}})
+	agents = agent.NewSession(sessionCtx)
 	jobs := tools.NewBackgroundManager(func(ctx context.Context, job tools.BackgroundJob) error {
 		job.Error = workerproto.TextPreview(job.Error, workerproto.MaxErrorBytes)
 		result := workerproto.Result{RunID: job.RunID, Kind: "job", Status: job.Status, TaskID: job.TaskID, ParentTaskID: job.ParentTaskID, Job: &workerproto.JobProgress{StartedAt: job.StartedAt, ExpiresAt: job.ExpiresAt, Signal: job.Signal, TerminationReason: job.TerminationReason, CallID: job.CallID, TaskID: job.TaskID, ParentTaskID: job.ParentTaskID, ID: job.ID, Directory: job.Directory, Command: job.Command, OutputPath: job.OutputPath, Bytes: job.Bytes, ExitCode: job.ExitCode, Complete: job.Complete, Error: job.Error}}
 		if job.Status == "starting" {
 			return emitPersisted(ctx, result)
 		}
-		return emit(result)
+		if err := emit(result); err != nil {
+			return err
+		}
+		if job.Status != "running" {
+			recipient := job.TaskID
+			if recipient == "" {
+				recipient = "main"
+			}
+			content, _ := json.Marshal(map[string]any{"jobId": job.ID, "command": workerproto.TextPreview(job.Command, 4096), "exitCode": job.ExitCode, "terminationReason": job.TerminationReason, "error": job.Error, "bytes": job.Bytes, "hint": "Read saved output with read_tool_output using jobId."})
+			event := workerproto.RuntimeEvent{ID: job.RunID + ":job:" + job.ID, RunID: job.RunID, Recipient: recipient, Kind: "job", SourceID: job.ID, Status: job.Status, Content: string(content), Output: &workerproto.OutputRef{OutputPath: job.OutputPath, Bytes: job.Bytes}}
+			return emitPersisted(sessionCtx, workerproto.Result{RunID: job.RunID, Kind: "runtime_event", RuntimeEvent: &event})
+		}
+		return nil
 	})
 	defer jobs.Close()
 	done := make(chan struct{})
@@ -195,6 +212,10 @@ func Run() error {
 			setMemoryLimit(command.MemoryLimit)
 			continue
 		}
+		if command.Action == "wake" {
+			agents.Wake()
+			continue
+		}
 		if command.Action == "cancel_rpc" {
 			rpcMu.Lock()
 			if cancel := rpcCancels[command.RPCID]; cancel != nil {
@@ -252,7 +273,7 @@ func Run() error {
 			agents.CancelTask(command.RunID, command.TaskID)
 			continue
 		}
-		if command.Action != "" && command.Action != "run" && command.Action != "compact" {
+		if command.Action != "" && command.Action != "run" && command.Action != "compact" && command.Action != "resume" {
 			return errors.New("invalid worker action")
 		}
 		activeMu.Lock()
@@ -295,13 +316,14 @@ func Run() error {
 					return nil
 				}
 				needsAck := result.Kind == "media_admission" || result.Kind == "resource_import" || result.Kind == "memory_change" || result.Kind == "checklist" || result.Kind == "context_notice" || result.Kind == "model_history" ||
+					result.Kind == "runtime_event" || result.Kind == "runtime_delivered" || result.Kind == "reply_checkpoint" ||
 					(result.Kind == "tool" || result.Kind == "artifact") && result.Status == "started" ||
 					result.Kind == "agent_task"
 				if !needsAck {
 					return emit(result)
 				}
 				ackCtx := agents.TaskContext(result.RunID, result.TaskID, runCtx)
-				if result.Kind == "model_history" || result.Kind == "agent_task" && result.Task != nil && result.Task.Status != "started" {
+				if result.Kind == "model_history" || result.Kind == "runtime_event" || result.Kind == "runtime_delivered" || result.Kind == "reply_checkpoint" || result.Kind == "agent_task" && result.Task != nil && result.Task.Status != "started" {
 					// Canceled runs still commit completed model/tool history and
 					// terminal reports while the Session's IPC connection is alive.
 					if sessionCtx.Err() != nil {

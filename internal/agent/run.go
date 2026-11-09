@@ -16,7 +16,6 @@ import (
 	"vista/internal/platform"
 	"vista/internal/provider"
 	"vista/internal/replylanguage"
-	"vista/internal/resources"
 	"vista/internal/tools"
 	"vista/internal/workerproto"
 )
@@ -79,6 +78,9 @@ func run(ctx context.Context, command workerproto.Command, emit func(workerproto
 	if command.TaskID == "" {
 		command.TaskID = "main"
 	}
+	if scope.events == nil {
+		scope.events = newRuntimeMailbox()
+	}
 	parentEmit := emit
 	emit = func(result workerproto.Result) error {
 		if result.TaskID == "" {
@@ -137,6 +139,9 @@ func run(ctx context.Context, command workerproto.Command, emit func(workerproto
 	command.Model = provider.ForPurpose(command.Model, purpose)
 	mcp := newMCPManager(command.MCPServers)
 	defer mcp.close()
+	toolCtx, cancelTools := context.WithCancel(ctx)
+	var toolWork sync.WaitGroup
+	defer func() { cancelTools(); toolWork.Wait() }()
 	prepared, err := prepareContext(ctx, command, emit, depth, scope.delegationLimit())
 	if err != nil {
 		return "", err
@@ -152,11 +157,14 @@ func run(ctx context.Context, command workerproto.Command, emit func(workerproto
 	}
 	compactor := newExecutionCompactor(messages)
 	overflowRecoveries := 0
+	var wokenInput *workerproto.Command
 	consumeInputs := func(reply *workerproto.CompletedReply) (int, error) {
 		count := 0
 		for {
 			var input workerproto.Command
-			if nextInput != nil {
+			if wokenInput != nil {
+				input, wokenInput = *wokenInput, nil
+			} else if nextInput != nil {
 				pending, err := nextInput(reply)
 				if err != nil {
 					return count, err
@@ -198,12 +206,49 @@ func run(ctx context.Context, command workerproto.Command, emit func(workerproto
 			count++
 		}
 	}
+	source, durableEvents := ctx.Value(runtimeSourceKey{}).(RuntimeSource)
+	consumeEvents := func(reply *workerproto.CompletedReply) (int, error) {
+		if err := scope.events.err(command.RunID); err != nil {
+			return 0, err
+		}
+		var events []workerproto.RuntimeEvent
+		var err error
+		if durableEvents {
+			events, err = source.Poll(ctx, command.RunID, command.TaskID)
+		} else {
+			events = scope.events.local(command.TaskID)
+		}
+		if err != nil {
+			return 0, err
+		}
+		if len(events) > 0 && reply != nil && depth == 0 {
+			if err := emit(workerproto.Result{RunID: command.RunID, Kind: "reply_checkpoint", Reply: reply}); err != nil {
+				return 0, err
+			}
+		}
+		for _, event := range events {
+			notice, err := runtimeMessage(event)
+			if err != nil {
+				return 0, err
+			}
+			if err := retainRuntimeEvent(command, event, scope.modelTurns.Load(), notice, depth, emit); err != nil {
+				return 0, err
+			}
+			messages = append(messages, notice)
+			scope.events.acknowledge(event)
+			scope.delegations.collectedEvent(event)
+		}
+		return len(events), nil
+	}
 turnLoop:
 	for {
 		if err := ctx.Err(); err != nil {
 			return "", err
 		}
 		if _, err := consumeInputs(nil); err != nil {
+			return "", err
+		}
+		if _, err := consumeEvents(nil); err != nil {
 			return "", err
 		}
 		offeredTools := prepared.applyModel(messages, command.Model)
@@ -393,23 +438,48 @@ turnLoop:
 				}
 				messages = append(messages, retained)
 			}
-			if count, err := consumeInputs(reply); err != nil {
-				return "", err
-			} else if count > 0 {
-				continue
-			}
-			if scope.delegations.hasUncollectedRequired(command.TaskID) {
-				results, err := scope.delegations.joinRequired(ctx, command.TaskID)
-				if err != nil {
-					return "", err
+			for {
+				// Capture wake generations before inspecting current state. A result
+				// or input arriving during either read closes one of these channels.
+				changed := scope.events.wake()
+				scope.delegations.mu.Lock()
+				childrenChanged := scope.delegations.changed
+				scope.delegations.mu.Unlock()
+				var inputChanged <-chan struct{}
+				if durableEvents {
+					inputChanged = source.Changed()
 				}
-				if len(results) > 0 {
-					joined := provider.ChatMessage{Role: "system", Content: coordinatorJoinMessage(results), RuntimeData: true}
-					if err := retainModelMessage(command, turnID, "join", 0, joined, depth, emit); err != nil {
+				if count, err := consumeInputs(reply); err != nil {
+					return "", err
+				} else if count > 0 {
+					continue turnLoop
+				}
+				if count, err := consumeEvents(reply); err != nil {
+					return "", err
+				} else if count > 0 {
+					continue turnLoop
+				}
+				if !scope.delegations.hasUncollectedRequired(command.TaskID) && !scope.events.pending(command.RunID, command.TaskID) {
+					break
+				}
+				if reply != nil && depth == 0 {
+					if err := emit(workerproto.Result{RunID: command.RunID, Kind: "reply_checkpoint", Reply: reply}); err != nil {
 						return "", err
 					}
-					messages = append(messages, joined)
-					continue turnLoop
+					reply = nil
+				}
+				select {
+				case <-ctx.Done():
+					return "", ctx.Err()
+				case <-changed:
+				case <-childrenChanged:
+				case <-inputChanged:
+				case input, ok := <-inputs:
+					if ok {
+						wokenInput = &input
+					} else {
+						inputs = nil
+					}
 				}
 			}
 			if depth == 0 {
@@ -477,72 +547,23 @@ turnLoop:
 			return "", err
 		}
 		messages = append(messages, assistantMessage)
+		// Continuations have no user row to anchor their streamed tool-turn text.
+		// Preserve the actual text as a display projection, including when the
+		// model later finishes normally without another textual answer.
+		if depth == 0 && command.Action == "resume" && strings.TrimSpace(turn.Text) != "" {
+			reply := &workerproto.CompletedReply{Turn: turnID, FullBytes: len(turn.Text), Content: answerPreview(turn.Text, command.RunID, turnID)}
+			if err := emit(workerproto.Result{RunID: command.RunID, Kind: "reply_checkpoint", Reply: reply}); err != nil {
+				return "", err
+			}
+		}
 		if err := emitContextUsage(ctx, command, messages, offeredTools, depth, emit); err != nil {
 			return "", err
 		}
-		outputs := make([]string, len(turn.Calls))
-		resourceOutputs := make([][]resources.Ref, len(turn.Calls))
-		eventOutputs := make([]string, len(turn.Calls))
-		outputRefs := make([]*workerproto.OutputRef, len(turn.Calls))
-		truncated := make([]bool, len(turn.Calls))
-		statuses := make([]string, len(turn.Calls))
-		historyErrors := make([]error, len(turn.Calls))
-		for _, call := range turn.Calls {
-			summary := toolSummary(call)
-			if err := emit(workerproto.Result{RunID: command.RunID, Kind: "tool", Turn: turnID, Status: "started", Tool: &workerproto.ToolProgress{CallID: call.ID, Name: call.Function.Name, Summary: summary, Input: toolInput(call, command)}}); err != nil {
-				return "", err
-			}
-		}
-		var wg sync.WaitGroup
-		for index, call := range turn.Calls {
-			wg.Add(1)
-			go func(index int, call provider.ToolCall) {
-				defer wg.Done()
-				toolEmit := func(result workerproto.Result) error {
-					if result.TaskID == "" {
-						result.Turn = turnID
-					}
-					if result.Artifact != nil && result.Artifact.CallID == "" {
-						copy := *result.Artifact
-						copy.CallID = call.ID
-						result.Artifact = &copy
-					}
-					return emit(result)
-				}
-				runtime := &toolRuntime{definitions: prepared.tools, mcp: mcp, scope: scope, depth: depth, parent: command, emit: toolEmit, jobs: jobs, runChild: runChild, instructions: &prepared.instructions}
-				output, toolErr := "", callErrors[index]
-				if toolErr == nil {
-					output, toolErr = runtime.execute(ctx, call)
-				}
-				resourceOutputs[index] = runtime.resourceResults
-				status := "succeeded"
-				if toolErr != nil {
-					status = "failed"
-					output = mergeToolError(output, toolErr)
-				}
-				bounded, boundErr := boundToolOutput(ctx, command.RunID, call.ID, call.Function.Name, output, resultOutputRef(output), toolEmit)
-				if boundErr != nil {
-					status = "failed"
-					encoded, _ := json.Marshal(map[string]string{"error": boundErr.Error()})
-					bounded.model, bounded.event = string(encoded), eventPreview(string(encoded))
-				}
-				outputs[index], eventOutputs[index] = bounded.model, bounded.event
-				outputRefs[index], truncated[index] = bounded.reference, bounded.truncated
-				statuses[index] = status
-				historyErrors[index] = retainModelMessage(command, turnID, "tool", index, provider.ChatMessage{Role: "tool", ToolCallID: call.ID, Content: bounded.model, Resources: resourceOutputs[index]}, depth, toolEmit)
-			}(index, call)
-		}
-		wg.Wait()
-		if err := errors.Join(historyErrors...); err != nil {
+		toolMessages, err := executeToolBatch(toolCtx, command, turnID, turn.Calls, callErrors, &prepared, mcp, scope, depth, jobs, runChild, &toolWork, emit)
+		if err != nil {
 			return "", err
 		}
-		for index, call := range turn.Calls {
-			summary := toolSummary(call)
-			if err := emit(workerproto.Result{RunID: command.RunID, Kind: "tool", Turn: turnID, Status: statuses[index], Content: eventOutputs[index], Tool: &workerproto.ToolProgress{CallID: call.ID, Name: call.Function.Name, Summary: summary, Input: toolInput(call, command), OutputRef: outputRefs[index], Truncated: truncated[index]}}); err != nil {
-				return "", err
-			}
-			messages = append(messages, (provider.ChatMessage{Role: "tool", ToolCallID: call.ID, Content: outputs[index], Resources: resourceOutputs[index]}).WithVisualInput(true))
-		}
+		messages = append(messages, toolMessages...)
 	}
 }
 

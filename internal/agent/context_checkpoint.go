@@ -135,7 +135,7 @@ func loadConversationContext(ctx context.Context, command workerproto.Command, d
 		}
 	}
 	before := command.MessageSequence
-	if command.Action == "compact" {
+	if command.Action == "compact" || command.Action == "resume" {
 		// Interrupted runs may have retained tools after the last formal input.
 		before = 0
 	}

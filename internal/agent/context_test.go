@@ -61,7 +61,7 @@ func TestPreparedContextRetainsTaskInstructionsHistoryAndToolOrder(t *testing.T)
 	if _, err := db.ReplaceChecklist(ctx, "context-session", "current-run", []store.ChecklistItem{{Text: "Inspect", Status: "done"}, {Text: "Verify", Status: "pending"}}); err != nil {
 		t.Fatal(err)
 	}
-	always := []string{"read_file", "read_tool_output", "search", "webfetch", "websearch", "write_file", "shell", "start_background", "stop_background", "list_skills", "read_skill", "project_instructions", "read_project_instruction", "history_index", "read_history", "list_resources", "read_resource", "read_model_output"}
+	always := []string{"read_file", "read_tool_output", "search", "find_files", "webfetch", "websearch", "write_file", "apply_patch", "shell", "start_background", "stop_background", "list_skills", "read_skill", "project_instructions", "read_project_instruction", "history_index", "read_history", "list_resources", "read_resource", "read_model_output"}
 	for _, tc := range []struct {
 		name  string
 		depth int
@@ -109,7 +109,7 @@ func TestPreparedContextRetainsTaskInstructionsHistoryAndToolOrder(t *testing.T)
 				wantTools = append(wantTools, "mcp_list_tools", "mcp_call_tool")
 			}
 			if tc.depth < 2 {
-				wantTools = append(wantTools, "delegate", "await_agent", "cancel_agent")
+				wantTools = append(wantTools, "delegate", "cancel_agent")
 			}
 			wantMessages := []provider.ChatMessage{
 				{Role: "system", Content: wantSystem},

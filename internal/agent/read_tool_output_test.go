@@ -98,3 +98,80 @@ func TestLargePartialToolOutputKeepsFailureMetadata(t *testing.T) {
 		t.Fatalf("model preview lost partial failure metadata: %s", preview)
 	}
 }
+
+func TestRuntimeToolPreviewPreservesStructuredStatusAndContinuation(t *testing.T) {
+	output, _ := json.Marshal(map[string]any{
+		"preview": strings.Repeat("shell evidence\n", 600), "complete": false, "exitCode": 7,
+		"error": "command exited with status 7", "nextOffset": 8192, "availableBytes": 65536,
+	})
+	ref := &workerproto.OutputRef{ArtifactID: "saved", OutputPath: "/private/output", Bytes: 65536}
+	preview := modelToolPreviewLimit(string(output), ref, 8<<10)
+	var result struct {
+		Complete                             bool
+		ExitCode, NextOffset, AvailableBytes int
+		ArtifactID, Error, Preview           string
+	}
+	if len(preview) > 8<<10 || json.Unmarshal([]byte(preview), &result) != nil || result.ExitCode != 7 || result.Complete || result.NextOffset != 8192 || result.AvailableBytes != 65536 || result.ArtifactID != "saved" || result.Error != "command exited with status 7" || result.Preview == "" || strings.Contains(preview, "/private/output") {
+		t.Fatalf("runtime preview lost structured status: %s", preview)
+	}
+}
+
+func TestReadToolOutputJobContinuationPreservesIdentityAndSessionOwnership(t *testing.T) {
+	db, _ := outputToolStore(t)
+	ctx := context.Background()
+	state, err := instance.Dir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(state, "outputs", "background.log")
+	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+		t.Fatal(err)
+	}
+	full := strings.Repeat("background evidence\n", 300)
+	if err := os.WriteFile(path, []byte(full), 0600); err != nil {
+		t.Fatal(err)
+	}
+	job := store.Job{ID: "background", SessionID: "session", RunID: "run", OutputPath: path, Status: "starting"}
+	if _, err := db.RecordJob(ctx, job); err != nil {
+		t.Fatal(err)
+	}
+	job.Status, job.Complete, job.Bytes = "succeeded", true, int64(len(full))
+	if _, err := db.RecordJob(ctx, job); err != nil {
+		t.Fatal(err)
+	}
+	parent := workerproto.Command{SessionID: "session", RunID: "later-run"}
+	for _, search := range []bool{false, true} {
+		var recovered strings.Builder
+		var matches int
+		for offset := int64(0); offset < int64(len(full)); {
+			input := map[string]any{"jobId": job.ID, "offset": offset, "limit": 128}
+			if search {
+				input["pattern"], input["literal"] = "evidence", true
+			}
+			args, _ := json.Marshal(input)
+			output, err := readToolOutput(ctx, string(args), parent)
+			var page struct {
+				tools.OutputPage
+				JobID, ArtifactID string
+				Complete          bool
+				Count             int
+			}
+			if err != nil || json.Unmarshal([]byte(output), &page) != nil || page.JobID != job.ID || page.ArtifactID != "" || !page.Complete || page.NextOffset <= offset {
+				t.Fatalf("job continuation (search=%v): %s %v", search, output, err)
+			}
+			recovered.WriteString(page.Content)
+			matches += page.Count
+			offset = page.NextOffset
+		}
+		if !search && recovered.String() != full {
+			t.Fatal("background output did not round-trip")
+		}
+		if search && matches != 300 {
+			t.Fatalf("search lost matches: %d", matches)
+		}
+	}
+	parent.SessionID = "another-session"
+	if _, err := readToolOutput(ctx, `{"jobId":"background"}`, parent); err == nil {
+		t.Fatal("background output crossed Session boundary")
+	}
+}

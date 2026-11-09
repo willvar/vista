@@ -15,7 +15,7 @@ const state = mkdtempSync(join(stateParent, 'vista-background-'))
 const readRules = projectRulesFixture(state)
 const childPidFile = join(state, 'job-child.pid')
 const doubleCrash = process.env.VISTA_DOUBLE_CRASH === '1'
-let calls = 0
+let calls = 0, completionCalls = 0
 const provider = createServer(async (request, response) => {
   if (request.url === '/v1/models') {
     response.writeHead(200, { 'Content-Type': 'application/json' })
@@ -25,7 +25,8 @@ const provider = createServer(async (request, response) => {
   if (request.url !== '/v1/chat/completions') throw new Error(request.url)
   let raw = ''
   for await (const chunk of request) raw += chunk
-  if (readRules(JSON.parse(raw), response)) return
+  const body = JSON.parse(raw)
+  if (readRules(body, response)) return
   calls++
   response.writeHead(200, { 'Content-Type': 'text/event-stream' })
   if (calls === 1) {
@@ -35,7 +36,12 @@ const provider = createServer(async (request, response) => {
   } else if (calls === 2) {
     response.end('data: {"choices":[{"delta":{"content":"Job started; I will leave it running."},"finish_reason":"stop"}]}\n\ndata: [DONE]\n\n')
   } else {
-    throw new Error('background command was replayed')
+    const notices = body.messages.filter(message => message.role === 'system' && message.content.startsWith('Runtime completion event.'))
+      .map(message => JSON.parse(message.content.slice(message.content.indexOf('\n') + 1)))
+    if (doubleCrash || ++completionCalls !== 1 || notices.length !== 1 || notices[0].kind !== 'job' || notices[0].status !== 'interrupted') throw new Error('unexpected background continuation')
+    const starts = body.messages.flatMap(message => message.tool_calls || []).filter(call => call.function?.name === 'start_background')
+    if (starts.length !== 1) throw new Error('background command was replayed')
+    response.end('data: {"choices":[{"delta":{"content":"Background job stopped."},"finish_reason":"stop"}]}\n\ndata: [DONE]\n\n')
   }
 })
 await new Promise(resolve => provider.listen(0, '127.0.0.1', resolve))
@@ -92,7 +98,7 @@ try {
   if (!finalStatus) throw new Error('job was not marked interrupted')
   let alive = true
   try { alive = !readFileSync(`/proc/${childPid}/status`, 'utf8').includes('State:\tZ') } catch { alive = false }
-  if (alive || calls !== 2) throw new Error(`orphan child=${alive}, model calls=${calls}`)
+  if (alive || calls !== (doubleCrash ? 2 : 3)) throw new Error(`orphan child=${alive}, model calls=${calls}`)
   console.log(doubleCrash ? 'Double-crash startup cleanup passed' : 'Background job lifecycle passed')
 } catch (error) {
   try { console.error(readFileSync(join(state, 'vista', 'state', 'server.log'), 'utf8')) } catch {}

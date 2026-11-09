@@ -228,6 +228,7 @@ func (a *App) submitMessage(w http.ResponseWriter, r *http.Request, sessionID st
 		queued, event, queueErr := a.store.QueueInputWithDiagnostics(r.Context(), sessionID, messageID, input.Content, images, debug, key, effort, mode, tier)
 		if queueErr == nil {
 			a.notifySession(sessionID, "sessions")
+			_ = a.sendWorker(sessionID, workerproto.Command{Action: "wake", RunID: queued.RunID})
 			w.WriteHeader(202)
 			jsonOut(w, map[string]any{"input": queued, "event": event})
 			return
@@ -354,6 +355,9 @@ func (a *App) dispatchRun(ctx context.Context, sessionID, runID string, message 
 		return errors.New("could not load image input")
 	}
 	command := workerproto.Command{SessionID: sessionID, MessageSequence: message.Sequence, RunID: runID, Prompt: message.Content, ReplyLanguage: language, QuestionCallID: message.QuestionCallID, Images: currentImages, Model: model, MCPServers: a.currentMCPServers(), SearchProviders: a.currentSearchProviders(), SearchPreviewBytes: a.currentSearchPreviewBytes(), Webfetch: a.currentWebfetchSettings()}
+	if message.Role == "runtime" {
+		command.Action = "resume"
+	}
 	command.Debug = len(debug) > 0 && debug[0]
 	if err := a.dispatchWorker(ctx, sessionID, command); err != nil {
 		completed, _ := a.store.FinishRun(context.Background(), sessionID, runID, "", "interrupted", "")

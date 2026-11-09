@@ -23,6 +23,11 @@ func TestDisplayMessagesProjectCompactionWithoutChangingCanonicalHistory(t *test
 	if err != nil {
 		t.Fatal(err)
 	}
+	if _, err := s.AppendRunEvent(ctx, "s", "r", "model_request", map[string]any{
+		"runId": "r", "purpose": "summary", "key": "exact-summary-connection", "provider": "custom", "id": "model",
+	}); err != nil {
+		t.Fatal(err)
+	}
 	notice, err := s.AppendRunEvent(ctx, "s", "r", "context_notice", map[string]any{
 		"runId": "r", "depth": 0, "summary": "## Findings\n\nThe original evidence is retained.",
 	})
@@ -55,6 +60,9 @@ func TestDisplayMessagesProjectCompactionWithoutChangingCanonicalHistory(t *test
 		t.Fatalf("summary was not restored independently of recent events: %+v", view)
 	}
 	summary := view.Messages[1]
+	if summary.ModelKey != "exact-summary-connection" {
+		t.Fatalf("summary lost its connection after its request left the event page: %+v", summary)
+	}
 	if !summary.ContextSummary || summary.ID != fmt.Sprintf("context-summary/%d", notice.Sequence) || summary.Role != "assistant" || summary.Sequence != notice.Sequence || summary.RunID != "r" || summary.CreatedAt != notice.CreatedAt || summary.Content != "## Findings\n\nThe original evidence is retained." {
 		t.Fatalf("incorrect summary projection: %+v", summary)
 	}
@@ -139,7 +147,14 @@ func TestDisplayMessagesRetainFinalChecklistWithItsReplyAndPageCursor(t *testing
 					t.Fatal(err)
 				}
 				items := []ChecklistItem{{Text: "Done", Status: "done"}, {Text: "Still working", Status: "in_progress"}, {Text: "Blocked", Status: "blocked"}}
-				if _, err := s.ReplaceChecklist(ctx, "s", "r", items); err != nil {
+				updated, err := s.ReplaceChecklist(ctx, "s", "r", items)
+				if err != nil {
+					t.Fatal(err)
+				}
+				// Preserve the checklist time rather than the later reply time or
+				// a child checklist's time, including for pre-existing histories.
+				const checklistTime = "2026-11-06T04:51:38Z"
+				if _, err := s.db.ExecContext(ctx, "UPDATE events SET created_at=? WHERE session_id=? AND sequence=?", checklistTime, "s", updated.Sequence); err != nil {
 					t.Fatal(err)
 				}
 				if _, err := s.AppendRunEvent(ctx, "s", "r", "checklist", map[string]any{"runId": "r", "depth": 1, "taskId": "child", "items": []ChecklistItem{{Text: "Child", Status: "done"}}}); err != nil {
@@ -173,6 +188,12 @@ func TestDisplayMessagesRetainFinalChecklistWithItsReplyAndPageCursor(t *testing
 				final := view.Messages[1]
 				if final.Sequence != finished.Sequence || final.RunID != "r" || final.Checklist == nil || final.Checklist.Status != status || !reflect.DeepEqual(final.Checklist.Items, items) {
 					t.Fatalf("final checklist was lost or changed: %+v", final)
+				}
+				if final.Checklist.UpdatedAt != checklistTime {
+					t.Fatalf("checklist timestamp = %q, want %q", final.Checklist.UpdatedAt, checklistTime)
+				}
+				if final.Checklist.UpdatedSequence != updated.Sequence {
+					t.Fatalf("checklist display sequence = %d, want %d", final.Checklist.UpdatedSequence, updated.Sequence)
 				}
 				canonical, err := s.MessagesBefore(ctx, "s", 0, 100)
 				if err != nil {

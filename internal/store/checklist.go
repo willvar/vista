@@ -15,8 +15,10 @@ type ChecklistItem struct {
 }
 
 type ChecklistSummary struct {
-	Items  []ChecklistItem `json:"items"`
-	Status string          `json:"status"`
+	Items           []ChecklistItem `json:"items"`
+	Status          string          `json:"status"`
+	UpdatedAt       string          `json:"updatedAt,omitempty"`
+	UpdatedSequence int64           `json:"updatedSequence,omitempty"`
 }
 
 func ValidateChecklist(items []ChecklistItem) error {

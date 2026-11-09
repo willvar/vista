@@ -29,9 +29,13 @@ func TestDelegationRunBoundariesAndSessionTaskIdentity(t *testing.T) {
 	if err != nil || nextRequired.TaskID == oldRequired.TaskID {
 		t.Fatalf("reused provider call ID overwrote a session task: %+v %v", nextRequired, err)
 	}
-	results, err := next.joinRequired(ctx, "main")
-	if err != nil || len(results) != 1 || results[0].TaskID != nextRequired.TaskID || next.hasUncollectedRequired("main") {
-		t.Fatalf("join included another run: %+v %v", results, err)
+	next.wg.Wait()
+	if !next.hasUncollectedRequired("main") {
+		t.Fatal("required report was collected before its completion event")
+	}
+	next.collectedEvent(workerproto.RuntimeEvent{Kind: "agent", SourceID: nextRequired.TaskID})
+	if next.hasUncollectedRequired("main") || !first.hasUncollectedRequired("main") {
+		t.Fatal("completion event crossed its task/run boundary")
 	}
 	next.closeChildren("main")
 	if err := registry.tasks[oldRequired.TaskID].ctx.Err(); err != nil {

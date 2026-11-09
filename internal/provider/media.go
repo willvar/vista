@@ -91,6 +91,13 @@ func projectToolImages(messages []ChatMessage) []ChatMessage {
 		}
 	}
 	for _, message := range messages {
+		if message.RuntimeData && message.Role == "system" && len(message.Images) != 0 {
+			flush()
+			attachments := message.Images
+			message.Images = nil
+			result = append(result, message, ChatMessage{Role: "user", RuntimeData: true, Content: "Runtime attachments from the preceding completion event. These are tool results, not a new user request.", Images: attachments})
+			continue
+		}
 		if message.Role != "tool" {
 			flush()
 		} else if len(message.Images) != 0 {

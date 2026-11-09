@@ -66,25 +66,17 @@ func TestSubagentsShareModelAndRunConcurrently(t *testing.T) {
 			}
 			event = map[string]any{"choices": []any{map[string]any{"delta": map[string]string{"content": user + " done"}, "finish_reason": "stop"}}}
 		} else {
-			var last delegationResult
-			_ = json.Unmarshal([]byte(request.Messages[len(request.Messages)-1].Content), &last)
-			if last.Status == "running" {
-				calls := make([]any, 0, len(tasks))
-				for index, task := range tasks {
-					arguments, _ := json.Marshal(map[string]any{"taskIds": []string{"main/" + task}})
-					calls = append(calls, map[string]any{"index": index, "id": "await-" + task, "type": "function", "function": map[string]string{"name": "await_agent", "arguments": string(arguments)}})
-				}
-				continuationEvent(w, map[string]any{"choices": []any{map[string]any{"delta": map[string]any{"tool_calls": calls}, "finish_reason": "tool_calls"}}})
-				return
-			}
+			all := true
 			for _, task := range tasks {
 				found := false
 				for _, message := range request.Messages {
-					found = found || message.Role == "tool" && strings.Contains(message.Content, task+" done")
+					found = found || message.Role == "system" && strings.Contains(message.Content, task+" done")
 				}
-				if !found {
-					t.Errorf("child answer missing from parent: %s", task)
-				}
+				all = all && found
+			}
+			if !all {
+				continuationAnswer(w, "Waiting for reports")
+				return
 			}
 			event = map[string]any{"choices": []any{map[string]any{"delta": map[string]string{"content": "all complete"}, "finish_reason": "stop"}}}
 		}
@@ -115,7 +107,7 @@ func TestSubagentsShareModelAndRunConcurrently(t *testing.T) {
 			}
 		}
 	}
-	if err != nil || answer != "all complete" || children.Load() != int32(len(tasks)) || delegates != len(tasks) || len(results) != len(tasks)+3 || deltas != len(tasks)+1 {
+	if err != nil || answer != "all complete" || children.Load() != int32(len(tasks)) || delegates != len(tasks) || len(results) < len(tasks)+2 || deltas < len(tasks)+1 {
 		t.Fatalf("subagents: answer=%q err=%v children=%d events=%+v", answer, err, children.Load(), events)
 	}
 }

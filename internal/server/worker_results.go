@@ -40,7 +40,9 @@ type workerResultConsumer struct {
 	notify             func()
 	pollInput          func(string, *workerproto.CompletedReply) (*workerproto.Command, error)
 	metrics            func(workerproto.Metrics)
+	released           func()
 	finished           func()
+	runtimeReady       func()
 }
 
 func (a *App) workerResultConsumer(id string, w *worker) *workerResultConsumer {
@@ -60,8 +62,10 @@ func (a *App) workerResultConsumer(id string, w *worker) *workerResultConsumer {
 		pollInput: func(runID string, reply *workerproto.CompletedReply) (*workerproto.Command, error) {
 			return a.pullInterjection(a.ctx, id, runID, reply)
 		},
-		metrics:  func(metrics workerproto.Metrics) { a.recordWorkerMetrics(id, w, metrics) },
-		finished: func() { a.background.Go(func() { a.launchQueuedInput(id) }) },
+		metrics:      func(metrics workerproto.Metrics) { a.recordWorkerMetrics(id, w, metrics) },
+		finished:     func() { a.background.Go(func() { a.launchQueuedInput(id) }) },
+		released:     func() { a.background.Go(a.launchReadyRuntimeContinuations) },
+		runtimeReady: func() { a.background.Go(func() { a.launchRuntimeContinuation(id) }) },
 	}
 }
 
@@ -104,6 +108,46 @@ func (c *workerResultConsumer) consumeFrame(frame []byte) error {
 
 func (c *workerResultConsumer) consume(result workerproto.Result) error {
 	switch result.Kind {
+	case "runtime_event":
+		notice := result.RuntimeEvent
+		if notice == nil || notice.RunID != result.RunID || len(notice.ID) > 2300 || len(notice.SourceID) > 2048 || len(notice.Recipient) > 1024 || len(notice.Content) > 16<<10 || (notice.Kind != "agent" && notice.Kind != "tool" && notice.Kind != "job") || (notice.Status != "succeeded" && notice.Status != "failed" && notice.Status != "canceled" && notice.Status != "interrupted") || !validOutputReference(c.stateDir, result.RunID, notice.Output) || notice.ContentOutput != nil && (notice.Kind != "tool" || notice.ContentOutput.ArtifactID == "" || notice.ContentOutput.OutputPath == "" || !validOutputReference(c.stateDir, result.RunID, notice.ContentOutput)) || result.AckID == "" {
+			return errors.New("invalid runtime event")
+		}
+		event, ready, err := c.store.RecordRuntimeEvent(c.ctx, c.sessionID, *notice)
+		if err := c.persisted(result, event, err, result.AckID); err != nil {
+			return err
+		}
+		if ready {
+			if err := c.send(workerproto.Command{Action: "wake", RunID: result.RunID}); err != nil {
+				return err
+			}
+			if c.runtimeReady != nil {
+				c.runtimeReady()
+			}
+		}
+		return nil
+	case "runtime_poll":
+		if result.RunID == "" || result.TaskID == "" || len(result.TaskID) > 1024 || result.AckID == "" {
+			return errors.New("invalid runtime inbox poll")
+		}
+		events, err := c.store.PendingRuntimeEvents(c.ctx, c.sessionID, result.RunID, result.TaskID)
+		ack := workerproto.Command{Action: "ack", RunID: result.RunID, AckID: result.AckID, RuntimeEvents: events}
+		if err != nil {
+			ack.Error = err.Error()
+		}
+		return c.send(ack)
+	case "runtime_delivered":
+		if result.RuntimeEvent == nil || result.RuntimeEvent.ID == "" || result.TaskID == "" || result.TaskID == "main" || result.AckID == "" {
+			return errors.New("invalid child runtime delivery")
+		}
+		event, err := c.store.DeliverChildRuntimeEvent(c.ctx, c.sessionID, result.RunID, result.TaskID, result.RuntimeEvent.ID)
+		return c.persisted(result, event, err, result.AckID)
+	case "reply_checkpoint":
+		if result.Reply == nil || !validCompletedReply(result) || result.AckID == "" {
+			return errors.New("invalid reply checkpoint")
+		}
+		event, err := c.store.SaveCompletedReply(c.ctx, c.sessionID, result.RunID, storeCompletedReply(result.Reply)[0])
+		return c.persisted(result, event, err, result.AckID)
 	case "token_usage":
 		return c.tokenUsage(result)
 	case "rpc":
@@ -164,7 +208,13 @@ func (c *workerResultConsumer) consume(result workerproto.Result) error {
 			return errors.New("invalid compaction result")
 		}
 		event, err := c.store.FinishCompaction(c.ctx, c.sessionID, result.RunID, result.Status, result.Content)
-		return c.persisted(result, event, err, "")
+		if err := c.persisted(result, event, err, ""); err != nil {
+			return err
+		}
+		if event != nil && c.released != nil {
+			c.released()
+		}
+		return nil
 	case "model_observation":
 		return c.modelObservation(result)
 	case "model_history":
@@ -420,6 +470,9 @@ func (c *workerResultConsumer) finish(result workerproto.Result) error {
 		return err
 	}
 	if event != nil {
+		if c.released != nil {
+			c.released()
+		}
 		var finished struct {
 			UnknownTools int `json:"unknownTools"`
 		}

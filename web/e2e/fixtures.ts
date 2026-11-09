@@ -203,6 +203,15 @@ export const test = base.extend<{ vista: VistaFixture; configuredProvider: boole
       if (detachedTask && !titleRequest) {
         const currentPrompt = input.messages?.[lastUser]?.content
         const hasTools = input.messages?.slice(lastUser + 1).some(message => message.role === 'tool')
+        const completion = input.messages?.slice(lastUser + 1)
+          .filter(message => message.role === 'system' && String(message.content).startsWith('Runtime completion event.'))
+          .map(message => JSON.parse(String(message.content).slice(String(message.content).indexOf('\n') + 1)))
+          .find(event => event.kind === 'agent' && event.sourceId === 'main/background')
+        if (completion) {
+          const content = `Background completion received: ${completion.status}.`
+          response.end(`data: ${JSON.stringify({ choices: [{ delta: { content }, finish_reason: 'stop' }] })}\n\ndata: [DONE]\n\n`)
+          return
+        }
         if (currentPrompt === 'Start background' && !hasTools) {
           const tool_calls = [{ index: 0, id: 'background', type: 'function', function: { name: 'delegate', arguments: JSON.stringify({ task: 'Background check', join: 'detached' }) } }]
           response.end(`data: ${JSON.stringify({ choices: [{ delta: { tool_calls }, finish_reason: 'tool_calls' }] })}\n\ndata: [DONE]\n\n`)

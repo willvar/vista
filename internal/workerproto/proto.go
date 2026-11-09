@@ -11,6 +11,8 @@ const DefaultNetworkPreviewBytes = 50 << 10
 // Frames are newline-delimited JSON on a dedicated Worker stdin/stdout pipe.
 // Result frames have a byte limit; command fields are validated after decoding.
 type Command struct {
+	RuntimeEvents      []RuntimeEvent   `json:"runtimeEvents,omitempty"`
+	ProjectRules       []ProjectRule    `json:"projectRules,omitempty"`
 	MCPHost            MCPHost          `json:"mcpHost,omitzero"`
 	RPCID              string           `json:"rpcId,omitempty"`
 	ResourcePath       string           `json:"resourcePath,omitempty"`
@@ -90,6 +92,7 @@ type CredentialRequest struct {
 }
 
 type Result struct {
+	RuntimeEvent *RuntimeEvent      `json:"runtimeEvent,omitempty"`
 	RPCID        string             `json:"rpcId,omitempty"`
 	Resource     *resources.Ref     `json:"resource,omitempty"`
 	DiagnosticID string             `json:"diagnosticId,omitempty"`
@@ -123,6 +126,27 @@ type Result struct {
 	Observation  *ModelObservation  `json:"observation,omitempty"`
 	TokenUsage   *TokenUsage        `json:"tokenUsage,omitempty"`
 	Reply        *CompletedReply    `json:"reply,omitempty"`
+}
+
+// RuntimeEvent is a bounded notice. Complete reports/output remain at their
+// durable references; event identity is stable across IPC retries.
+type RuntimeEvent struct {
+	ContentOutput *OutputRef `json:"contentOutput,omitempty"`
+	Resources     []Image    `json:"resources,omitempty"`
+	ID            string     `json:"id"`
+	RunID         string     `json:"runId"`
+	Recipient     string     `json:"recipient"`
+	Kind          string     `json:"kind"`
+	SourceID      string     `json:"sourceId"`
+	Status        string     `json:"status"`
+	Content       string     `json:"content,omitempty"`
+	Output        *OutputRef `json:"output,omitempty"`
+}
+
+type ProjectRule struct {
+	Path    string `json:"path"`
+	SHA256  string `json:"sha256"`
+	Content string `json:"content"`
 }
 
 // CompletedReply is retained when a user input continues the same execution.

@@ -54,9 +54,11 @@ func builtinTools() toolSet {
 		{readFileSchema, (*toolRuntime).readFile, toolAlways},
 		{readToolOutputSchema, (*toolRuntime).readToolOutput, toolAlways},
 		{searchSchema, (*toolRuntime).search, toolAlways},
+		{findFilesSchema, (*toolRuntime).findFiles, toolAlways},
 		{webfetchSchema, (*toolRuntime).webfetch, toolAlways},
 		{websearchSchema, (*toolRuntime).websearch, toolAlways},
 		{writeFileSchema, (*toolRuntime).writeFile, toolAlways},
+		{applyPatchSchema, (*toolRuntime).applyPatch, toolAlways},
 		{shellSchema, (*toolRuntime).shell, toolAlways},
 		{startBackgroundSchema, (*toolRuntime).startBackground, toolAlways},
 		{stopBackgroundSchema, (*toolRuntime).stopBackground, toolAlways},
@@ -75,7 +77,6 @@ func builtinTools() toolSet {
 		{mcpListToolsSchema, (*toolRuntime).mcpListTools, toolMCP},
 		{mcpCallToolSchema, (*toolRuntime).mcpCallTool, toolMCP},
 		{delegateSchema, (*toolRuntime).delegate, toolDelegation},
-		{awaitAgentSchema, (*toolRuntime).awaitAgent, toolDelegation},
 		{cancelAgentSchema, (*toolRuntime).cancelAgent, toolDelegation},
 	}
 }

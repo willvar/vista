@@ -65,11 +65,6 @@ func TestNestedAgentProgressPassesWorkerBoundary(t *testing.T) {
 			} else {
 				name, input = "read_file", map[string]any{"path": path}
 			}
-		} else if last.Role == "tool" {
-			var child struct{ TaskID, Status string }
-			if json.Unmarshal([]byte(last.Content), &child) == nil && child.Status == "running" && child.TaskID != "" {
-				name, id, input = "await_agent", "collect", map[string]any{"taskIds": []string{child.TaskID}}
-			}
 		}
 		if name != "" {
 			args, _ := json.Marshal(input)
@@ -87,7 +82,7 @@ func TestNestedAgentProgressPassesWorkerBoundary(t *testing.T) {
 		if result.Kind == "model_complete" {
 			return nil // The Worker retains this locally until finalization.
 		}
-		if result.Kind == "tool" && result.Status == "started" || result.Kind == "artifact" && result.Status == "started" {
+		if result.Kind == "tool" && result.Status == "started" || result.Kind == "artifact" && result.Status == "started" || result.Kind == "runtime_event" || result.Kind == "reply_checkpoint" {
 			result.AckID = "committed"
 		}
 		if result.Tool != nil && result.Depth == 3 && result.Status == "succeeded" && len(result.Tool.CallID) > 1024 && strings.Contains(result.Content, "nested evidence") {

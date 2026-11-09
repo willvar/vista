@@ -16,12 +16,15 @@ func (s *Store) RecordModelHistory(ctx context.Context, sessionID string, result
 		return nil, errors.New("invalid model history")
 	}
 	switch result.Status {
-	case "assistant", "tool", "join", "question":
+	case "assistant", "tool", "join", "question", "runtime":
 	default:
 		return nil, errors.New("invalid model history part")
 	}
-	if result.Status != "tool" && result.History.Index != 0 {
+	if result.Status != "tool" && result.Status != "runtime" && result.History.Index != 0 {
 		return nil, errors.New("invalid model history index")
+	}
+	if (result.Status == "runtime") != (result.History.EventID != "") {
+		return nil, errors.New("invalid runtime history identity")
 	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -32,12 +35,19 @@ func (s *Store) RecordModelHistory(ctx context.Context, sessionID string, result
 	if err != nil || !active {
 		return nil, err
 	}
+	if result.Status == "runtime" {
+		copy := *result.History
+		if err := tx.QueryRowContext(ctx, `SELECT sequence FROM runtime_events WHERE session_id=? AND event_id=? AND recipient='main'`, sessionID, copy.EventID).Scan(&copy.Index); err != nil {
+			return nil, err
+		}
+		result.History = &copy
+	}
 	var existing Event
 	existing.SessionID = sessionID
 	err = tx.QueryRowContext(ctx, `SELECT sequence,kind,CAST(data AS BLOB),created_at FROM events
- WHERE session_id=? AND kind='model_history' AND json_extract(data,'$.runId')=? AND json_extract(data,'$.turn')=?
- AND json_extract(data,'$.status')=? AND COALESCE(json_extract(data,'$.history.index'),0)=?`,
-		sessionID, result.RunID, result.Turn, result.Status, result.History.Index).Scan(&existing.Sequence, &existing.Kind, &existing.Data, &existing.CreatedAt)
+ WHERE session_id=? AND kind='model_history' AND json_extract(data,'$.runId')=? AND (?<>'' OR json_extract(data,'$.turn')=?)
+ AND json_extract(data,'$.status')=? AND COALESCE(json_extract(data,'$.history.index'),0)=? AND COALESCE(json_extract(data,'$.history.eventId'),'')=?`,
+		sessionID, result.RunID, result.History.EventID, result.Turn, result.Status, result.History.Index, result.History.EventID).Scan(&existing.Sequence, &existing.Kind, &existing.Data, &existing.CreatedAt)
 	if err == nil {
 		var saved workerproto.Result
 		if err := json.Unmarshal(existing.Data, &saved); err != nil {
@@ -50,6 +60,11 @@ func (s *Store) RecordModelHistory(ctx context.Context, sessionID string, result
 	}
 	if !errors.Is(err, sql.ErrNoRows) {
 		return nil, err
+	}
+	if result.History.EventID != "" {
+		if err := deliverRuntimeEvent(ctx, tx, sessionID, result.RunID, "main", result.History.EventID); err != nil {
+			return nil, err
+		}
 	}
 	result.Kind, result.AckID = "model_history", ""
 	event, err := appendEvent(ctx, tx, sessionID, "model_history", result)

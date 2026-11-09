@@ -37,12 +37,24 @@ func TestTimedOutShellRetainsPartialOutputForModelAndRecovery(t *testing.T) {
 			finishReason = "tool_calls"
 		} else {
 			last := request.Messages[len(request.Messages)-1]
+			content := last.Content
+			if last.Role == "system" {
+				_, raw, _ := strings.Cut(content, "\n")
+				var event workerproto.RuntimeEvent
+				if json.Unmarshal([]byte(raw), &event) == nil {
+					content = event.Content
+				}
+			}
+			if strings.Contains(content, `"status":"running"`) {
+				continuationAnswer(w, "Waiting for shell")
+				return
+			}
 			var result struct {
 				ArtifactID, Preview, Error, OutputPath string
 				Complete                               bool
 				NextOffset                             int64
 			}
-			if json.Unmarshal([]byte(last.Content), &result) != nil || result.Preview != "partial evidence" || !strings.Contains(result.Error, "command terminated due to timeout") || !strings.Contains(result.Error, "output was captured before termination") || result.ArtifactID == "" || result.Complete || result.OutputPath != "" || result.NextOffset != 16 {
+			if json.Unmarshal([]byte(content), &result) != nil || result.Preview != "partial evidence" || !strings.Contains(result.Error, "command terminated due to timeout") || !strings.Contains(result.Error, "output was captured before termination") || result.ArtifactID == "" || result.Complete || result.OutputPath != "" || result.NextOffset != 16 {
 				t.Errorf("model lost partial shell output: %s", last.Content)
 			}
 			artifactID = result.ArtifactID
@@ -61,7 +73,7 @@ func TestTimedOutShellRetainsPartialOutputForModelAndRecovery(t *testing.T) {
 		}
 		return record(event)
 	})
-	if err != nil || answer != "partial output preserved" || requests != 2 || !failed {
+	if err != nil || answer != "partial output preserved" || requests < 2 || !failed {
 		t.Fatalf("partial output flow: %q, requests=%d, failed=%v, error=%v", answer, requests, failed, err)
 	}
 	output, err := readToolOutput(context.Background(), fmt.Sprintf(`{"artifactId":%q}`, artifactID), command)

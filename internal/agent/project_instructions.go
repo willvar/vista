@@ -2,12 +2,16 @@ package agent
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
+	"fmt"
 	"path/filepath"
 	"sort"
+	"strings"
 
 	"vista/internal/provider"
 	"vista/internal/tools"
+	"vista/internal/workerproto"
 )
 
 type instructionRange struct{ start, end int }
@@ -31,7 +35,10 @@ func (read instructionRead) complete() bool {
 type projectInstructionState struct {
 	global tools.InstructionFile // The exact version loaded into the system prompt.
 	read   map[string]instructionRead
+	pages  []instructionPage
 }
+
+const inheritedRulesPrefix = "Inherited directory rules already read by the parent. Each rule applies only in the directory containing its file and descendants (copilot-instructions.md uses the parent of .github). Nearer rules override outer rules; current user requests take precedence. Full text and content hashes follow:\n"
 
 type instructionNotice struct {
 	Status       string                  `json:"status"`
@@ -43,8 +50,19 @@ type instructionNotice struct {
 
 func (s *projectInstructionState) prepare(ctx context.Context, call provider.ToolCall) (string, error) {
 	var input struct{ Path, Root, Directory string }
+	var targets []string
 	switch call.Function.Name {
-	case "read_file", "write_file", "search", "shell", "start_background", "read_resource", "read_skill":
+	case "apply_patch":
+		var patch tools.PatchInput
+		if err := decodeArguments(call.Function.Arguments, &patch); err != nil {
+			return "", err
+		}
+		var err error
+		targets, err = tools.PatchPaths(patch)
+		if err != nil {
+			return "", err
+		}
+	case "read_file", "write_file", "search", "find_files", "shell", "start_background", "read_resource", "read_skill":
 		if err := json.Unmarshal([]byte(call.Function.Arguments), &input); err != nil {
 			return "", err
 		}
@@ -53,18 +71,22 @@ func (s *projectInstructionState) prepare(ctx context.Context, call provider.Too
 	}
 	target := input.Path
 	switch call.Function.Name {
-	case "search":
+	case "search", "find_files":
 		target = input.Root
 	case "shell", "start_background":
 		target = input.Directory
 	}
-	// Hash-based resources and embedded skill:// documents have no filesystem
-	// target. Invalid/missing paths remain the individual handler's concern.
-	if !filepath.IsAbs(target) {
-		return "", nil
+	if len(targets) == 0 {
+		targets = []string{target}
 	}
-	target = filepath.Clean(target)
-	files, err := tools.DiscoverProjectInstructions(ctx, target)
+	var absoluteTargets []string
+	for _, target := range targets {
+		// Hash resources and embedded skills have no filesystem target.
+		if filepath.IsAbs(target) {
+			absoluteTargets = append(absoluteTargets, filepath.Clean(target))
+		}
+	}
+	files, err := tools.DiscoverProjectInstructions(ctx, absoluteTargets...)
 	if err != nil {
 		return "", err
 	}
@@ -77,6 +99,9 @@ func (s *projectInstructionState) prepare(ctx context.Context, call provider.Too
 		if read.hash != file.SHA256 || !read.complete() {
 			unread = append(unread, file)
 		}
+	}
+	if target == "" && len(targets) > 0 {
+		target = targets[0]
 	}
 	if len(unread) == 0 {
 		return "", nil
@@ -98,6 +123,16 @@ func projectInstructionPages(messages []provider.ChatMessage) []instructionPage 
 	var pages []instructionPage
 	calls := make(map[string]provider.ToolCall)
 	for index, message := range messages {
+		if message.Role == "system" && strings.HasPrefix(message.Content, inheritedRulesPrefix) {
+			var rules []workerproto.ProjectRule
+			if json.Unmarshal([]byte(strings.TrimPrefix(message.Content, inheritedRulesPrefix)), &rules) == nil {
+				for _, rule := range rules {
+					if filepath.IsAbs(rule.Path) && fmtHash(rule.Content) == rule.SHA256 {
+						pages = append(pages, instructionPage{index: index, page: tools.SkillPage{Path: rule.Path, SHA256: rule.SHA256, Content: rule.Content, NextOffset: len(rule.Content)}})
+					}
+				}
+			}
+		}
 		if message.Role == "assistant" {
 			for _, call := range message.ToolCalls {
 				if call.Function.Name == "read_project_instruction" {
@@ -129,7 +164,8 @@ func projectInstructionPages(messages []provider.ChatMessage) []instructionPage 
 
 func (s *projectInstructionState) acknowledge(messages []provider.ChatMessage) {
 	s.read = nil
-	for _, item := range projectInstructionPages(messages) {
+	s.pages = projectInstructionPages(messages)
+	for _, item := range s.pages {
 		page := item.page
 		if s.read == nil {
 			s.read = make(map[string]instructionRead)
@@ -156,6 +192,31 @@ func (s *projectInstructionState) acknowledge(messages []provider.ChatMessage) {
 	}
 }
 
+func fmtHash(content string) string {
+	sum := sha256.Sum256([]byte(content))
+	return fmt.Sprintf("%x", sum)
+}
+
+func (s *projectInstructionState) inherited() []workerproto.ProjectRule {
+	var rules []workerproto.ProjectRule
+	for path, read := range s.read {
+		if !read.complete() {
+			continue
+		}
+		text := make([]byte, read.total)
+		for _, item := range s.pages {
+			if item.page.Path == path && item.page.SHA256 == read.hash {
+				copy(text[item.offset:], item.page.Content)
+			}
+		}
+		if fmtHash(string(text)) == read.hash {
+			rules = append(rules, workerproto.ProjectRule{Path: path, SHA256: read.hash, Content: string(text)})
+		}
+	}
+	sort.Slice(rules, func(i, j int) bool { return rules[i].Path < rules[j].Path })
+	return rules
+}
+
 // Preserve actual, fully read, still-current rule pages through compaction.
 // Keeping their complete assistant/tool groups also preserves native replay
 // state and scope; no synthetic "already read" authorization is introduced.
@@ -176,7 +237,7 @@ func retainedProjectInstructionResults(ctx context.Context, messages []provider.
 		}
 	}
 	keep := make(map[int]bool)
-	for _, item := range projectInstructionPages(messages) {
+	for _, item := range state.pages {
 		if hash, ok := current[item.page.Path]; ok && hash == item.page.SHA256 {
 			keep[item.index] = true
 		}

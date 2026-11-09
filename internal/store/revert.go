@@ -92,6 +92,9 @@ func (s *Store) Revert(ctx context.Context, sessionID, messageID string, sequenc
 	if _, err := tx.ExecContext(ctx, `DELETE FROM queued_inputs WHERE session_id=?`, sessionID); err != nil {
 		return Event{}, err
 	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM runtime_events WHERE session_id=?`, sessionID); err != nil {
+		return Event{}, err
+	}
 	if _, err := tx.ExecContext(ctx, `DELETE FROM events WHERE session_id=? AND sequence>=? AND sequence<? AND kind NOT IN ('session_renamed','session_title','session_selection','reply_language')`, sessionID, sequence, event.Sequence); err != nil {
 		return Event{}, err
 	}

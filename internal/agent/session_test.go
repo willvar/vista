@@ -24,7 +24,7 @@ func TestDetachedTaskSurvivesParentAndNextRun(t *testing.T) {
 			parentCtx, cancelParent := context.WithCancel(ctx)
 			defer cancelParent()
 			childStarted, release := make(chan struct{}), make(chan struct{})
-			var turns, nextTurns, collectTurns atomic.Int32
+			var turns atomic.Int32
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				var request struct{ Messages []workerproto.Message }
 				if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
@@ -46,33 +46,24 @@ func TestDetachedTaskSurvivesParentAndNextRun(t *testing.T) {
 					case <-r.Context().Done():
 					}
 				case "next":
-					if nextTurns.Add(1) == 1 {
-						var restored bool
-						for _, message := range request.Messages {
-							restored = restored || message.Role == "tool" && strings.Contains(message.Content, `"taskId":"main/child"`)
-						}
-						if !restored {
-							t.Error("detached task ID was absent from the restored model history")
-						}
-						continuationEvent(w, mcpToolEvent("inspect-old", "await_agent", `{"taskIds":["main/child"],"timeoutSeconds":0}`))
-						return
+					var restored bool
+					for _, message := range request.Messages {
+						restored = restored || message.Role == "tool" && strings.Contains(message.Content, `"taskId":"main/child"`)
 					}
-					last := request.Messages[len(request.Messages)-1]
-					if last.Role != "tool" || !strings.Contains(last.Content, `"pendingTaskIds":["main/child"]`) || strings.Contains(last.Content, `"error"`) {
-						t.Errorf("next run cannot inspect live detached task: %+v", last)
+					if !restored {
+						t.Error("detached task ID absent from restored history")
 					}
 					continuationAnswer(w, "next reply")
 				case "collect", "replay":
-					if collectTurns.Add(1)%2 == 1 {
-						continuationEvent(w, mcpToolEvent("collect-old", "await_agent", `{"taskIds":["main/child"]}`))
-						return
+					var found bool
+					for _, message := range request.Messages {
+						found = found || message.Role == "system" && strings.Contains(message.Content, "background report")
 					}
-					last := request.Messages[len(request.Messages)-1]
-					var result delegationResult
-					if err := json.Unmarshal([]byte(last.Content), &result); err != nil || result.Status != "succeeded" || result.Answer != "background report" || result.Report == nil || result.Report.RunID != "continuation-run" || result.AlreadyCollected != (latestUser == "replay") {
-						t.Errorf("next run lost saved detached report: %+v %v", result, err)
+					if found != (ending == "success") {
+						t.Errorf("report delivery after %s: found=%v", ending, found)
 					}
 					continuationAnswer(w, "report read")
+
 				default:
 					if turns.Add(1) == 1 {
 						continuationEvent(w, mcpToolEvent("child", "delegate", `{"task":"child","join":"detached"}`))
@@ -97,7 +88,11 @@ func TestDetachedTaskSurvivesParentAndNextRun(t *testing.T) {
 			defer server.Close()
 			session := NewSession(ctx)
 			defer session.Close()
+			ctx = WithRuntimeSource(ctx, RuntimeSource{Changed: session.Changed, Poll: func(ctx context.Context, runID, taskID string) ([]workerproto.RuntimeEvent, error) {
+				return db.PendingRuntimeEvents(ctx, "session", runID, taskID)
+			}})
 			completed := make(chan workerproto.AgentTask, 1)
+			notified := make(chan struct{})
 			var finalMessages atomic.Int32
 			var final store.ModelOutputRef
 			sink := historyTestSink(db, workerproto.Command{SessionID: "session"}, &final)
@@ -112,7 +107,11 @@ func TestDetachedTaskSurvivesParentAndNextRun(t *testing.T) {
 					_, err := db.RecordAgentTask(ctx, "session", result)
 					return err
 				}
-				return sink(result)
+				err := sink(result)
+				if result.Kind == "runtime_event" {
+					close(notified)
+				}
+				return err
 			}
 			begin := func(runID, prompt string) workerproto.Command {
 				user, _, err := db.BeginRun(ctx, "session", runID, runID+"-user", prompt)
@@ -160,6 +159,11 @@ func TestDetachedTaskSurvivesParentAndNextRun(t *testing.T) {
 				}
 			case <-ctx.Done():
 				t.Fatal("background did not finish")
+			}
+			select {
+			case <-notified:
+			case <-ctx.Done():
+				t.Fatal("completion notification was not persisted")
 			}
 			if finalMessages.Load() != before {
 				t.Fatal("detached completion emitted another formal reply")

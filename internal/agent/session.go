@@ -20,14 +20,24 @@ type Session struct {
 	runs   map[string]*runScope
 	wg     sync.WaitGroup
 	tasks  *delegationRegistry
+	wake   chan struct{}
+	events *runtimeMailbox
 }
 
 func NewSession(ctx context.Context) *Session {
 	ctx, cancel := context.WithCancel(ctx)
 	tasks := newDelegationRegistry()
 	tasks.sessionCtx = ctx
-	return &Session{ctx: ctx, cancel: cancel, runs: make(map[string]*runScope), tasks: tasks}
+	return &Session{ctx: ctx, cancel: cancel, runs: make(map[string]*runScope), tasks: tasks, wake: make(chan struct{}), events: newRuntimeMailbox()}
 }
+
+func (s *Session) Wake() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	close(s.wake)
+	s.wake = make(chan struct{})
+}
+func (s *Session) Changed() <-chan struct{} { s.mu.Lock(); defer s.mu.Unlock(); return s.wake }
 
 func (s *Session) Run(ctx context.Context, command workerproto.Command, emit func(workerproto.Result) error, nextInput func(*workerproto.CompletedReply) (*workerproto.Command, error), jobs *tools.BackgroundManager) (string, error) {
 	ctx, cancel := context.WithCancel(ctx)
@@ -38,6 +48,7 @@ func (s *Session) Run(ctx context.Context, command workerproto.Command, emit fun
 	if err != nil {
 		return "", err
 	}
+	scope.events = s.events
 	s.mu.Lock()
 	if err := s.ctx.Err(); err != nil {
 		s.mu.Unlock()
@@ -50,9 +61,11 @@ func (s *Session) Run(ctx context.Context, command workerproto.Command, emit fun
 	s.runs[command.RunID] = scope
 	s.wg.Add(1)
 	s.mu.Unlock()
+	failed := true
 	defer func() {
 		go func() {
 			scope.delegations.wg.Wait()
+			s.events.finishRun(command.RunID, failed)
 			if scope.mcp != nil {
 				_ = scope.mcp.Close()
 			}
@@ -69,7 +82,10 @@ func (s *Session) Run(ctx context.Context, command workerproto.Command, emit fun
 		}
 		scope.mcp = mcphost.NewExecution(s.ctx, command.MCPHost, stateDir, mcphost.Definitions(command.MCPServers, command.SearchProviders))
 	}
-	return runWithScope(ctx, command, emit, nil, nextInput, jobs, scope)
+	answer, runErr := runWithScope(ctx, command, emit, nil, nextInput, jobs, scope)
+	failed = runErr != nil
+	s.events.finishRun(command.RunID, failed)
+	return answer, runErr
 }
 
 // TaskContext keeps persistence ACKs tied to the task rather than its former
