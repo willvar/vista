@@ -17,6 +17,7 @@ type FileWrite struct {
 type FileDiff struct {
 	Path    string `json:"path"`
 	Created bool   `json:"created"`
+	Deleted bool   `json:"deleted,omitempty"`
 	Unified string `json:"unified"`
 	Omitted string `json:"omitted,omitempty"`
 }
@@ -41,17 +42,27 @@ func (c *diffCapture) Write(p []byte) (int, error) {
 }
 
 func makeFileDiff(path string, created bool, before *diffCapture, content string) FileDiff {
-	diff := FileDiff{Path: path, Created: created}
+	return makeFileChangeDiff(path, created, false, before, content)
+}
+
+func makeFileChangeDiff(path string, created, deleted bool, before *diffCapture, content string) FileDiff {
+	diff := FileDiff{Path: path, Created: created, Deleted: deleted}
+	if created {
+		before = &diffCapture{}
+	}
 	if before.tooLarge {
 		diff.Omitted = "too_large"
 		return diff
 	}
-	oldLabel := strconv.Quote(path)
+	oldLabel, newLabel := strconv.Quote(path), strconv.Quote(path)
 	if created {
 		oldLabel = "/dev/null"
 	}
+	if deleted {
+		newLabel = "/dev/null"
+	}
 	var err error
-	diff.Unified, err = udiff.ToUnified(oldLabel, strconv.Quote(path), before.text.String(), udiff.Lines(before.text.String(), content), udiff.DefaultContextLines)
+	diff.Unified, err = udiff.ToUnified(oldLabel, newLabel, before.text.String(), udiff.Lines(before.text.String(), content), udiff.DefaultContextLines)
 	if err != nil {
 		diff.Omitted = "unavailable"
 	}

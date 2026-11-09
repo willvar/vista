@@ -4,9 +4,12 @@ import (
 	"bufio"
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"unicode/utf8"
 )
+
+var errNotUTF8Text = errors.New("file is not UTF-8 text")
 
 // scanText supplies bounded fragments, with end=true exactly once per source
 // line. A trailing newline introduces a final blank line, like strings.Split.
@@ -25,18 +28,19 @@ func scanText(ctx context.Context, input io.Reader, visit func([]byte, bool) err
 			joined = append(tail, fragment...)
 		}
 		cut := len(joined)
-		if !final {
-			for cut > 0 && cut > len(joined)-utf8.UTFMax && !utf8.RuneStart(joined[cut-1]) {
-				cut--
-			}
-			if cut > 0 && !utf8.FullRune(joined[cut-1:]) {
-				cut--
-			} else {
-				cut = len(joined)
-			}
+		for cut > 0 && cut > len(joined)-utf8.UTFMax && !utf8.RuneStart(joined[cut-1]) {
+			cut--
+		}
+		if cut > 0 && !utf8.FullRune(joined[cut-1:]) {
+			cut--
+		} else {
+			cut = len(joined)
 		}
 		if !utf8.Valid(joined[:cut]) {
-			return errors.New("file is not UTF-8 text")
+			return errNotUTF8Text
+		}
+		if final && cut < len(joined) {
+			return fmt.Errorf("%w: %w", errNotUTF8Text, io.ErrUnexpectedEOF)
 		}
 		tail = append(tail[:0], joined[cut:]...)
 		end := final || err == nil

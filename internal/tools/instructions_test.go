@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -81,5 +82,36 @@ func TestLongProjectInstructionsAreDiscoveredAndReadable(t *testing.T) {
 	}
 	if got.String() != content {
 		t.Fatal("paged instructions were not preserved")
+	}
+}
+
+func TestInstructionDiscoverySharesAncestorsOnlyWithinOneOperation(t *testing.T) {
+	root := t.TempDir()
+	outer := filepath.Join(root, "AGENTS.md")
+	if err := os.WriteFile(outer, []byte("outer rules"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	var targets []string
+	for i := range 48 {
+		dir := filepath.Join(root, fmt.Sprint(i))
+		if err := os.Mkdir(dir, 0700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, "AGENTS.md"), []byte("scoped rules"), 0600); err != nil {
+			t.Fatal(err)
+		}
+		targets = append(targets, filepath.Join(dir, "new.txt"))
+	}
+	targets = append(targets, targets[0])
+	files, err := DiscoverProjectInstructions(context.Background(), targets...)
+	if err != nil || len(files) != 49 || files[0].Path != outer {
+		t.Fatalf("shared rule scopes or per-target limit changed: %+v %v", files, err)
+	}
+	if err := os.WriteFile(outer, []byte("changed rules"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	next, err := DiscoverProjectInstructions(context.Background(), targets...)
+	if err != nil || len(next) != len(files) || next[0].SHA256 == files[0].SHA256 {
+		t.Fatalf("cached rules survived their operation: %+v %v", next, err)
 	}
 }

@@ -9,6 +9,8 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/bedrockruntime v1.63.1
 	github.com/aws/smithy-go v1.28.1
 	github.com/aymanbagabas/go-udiff v0.4.0
+	github.com/bluekeyes/go-gitdiff v0.9.0
+	github.com/bmatcuk/doublestar/v4 v4.10.4
 	github.com/denormal/go-gitignore v0.0.0-20180930084346-ae8ad1d07817
 	github.com/fsnotify/fsnotify v1.10.1
 	github.com/glebarez/go-sqlite v1.21.2

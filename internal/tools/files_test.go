@@ -198,3 +198,28 @@ func TestSearchBudgetKeepsCompleteMatchesWithoutInventingLineEndings(t *testing.
 		})
 	}
 }
+
+func TestSearchBudgetRejectsInvalidTextBeforeBoundary(t *testing.T) {
+	root := t.TempDir()
+	file, err := os.Create(filepath.Join(root, "invalid.txt"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer file.Close()
+	chunk := strings.Repeat("x", 32<<10)
+	for i := 0; i <= maxSearchBytes/len(chunk); i++ {
+		if _, err := io.WriteString(file, chunk); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := file.WriteAt([]byte("needle\n"), 0); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := file.WriteAt([]byte{0xff}, maxSearchBytes-16); err != nil {
+		t.Fatal(err)
+	}
+	result, err := Search(context.Background(), root, "needle")
+	if err != nil || result.Count != 0 || len(result.Matches) != 0 || result.FilesScanned != 1 {
+		t.Fatalf("invalid text was treated as a split rune: %+v %v", result, err)
+	}
+}
