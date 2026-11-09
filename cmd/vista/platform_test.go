@@ -53,7 +53,7 @@ func TestNativeApplication(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(config, "model-catalog-status.json"), []byte(status), 0600); err != nil {
 		t.Fatal(err)
 	}
-	var shellEvidence, runtimeEvidence, delegationEvidence, childToolEvidence atomic.Bool
+	var shellEvidence, runtimeEvidence, delegationEvidence, childToolEvidence, reportEvidence atomic.Bool
 	longTask := strings.Repeat("界", workerproto.MaxPromptBytes/3)
 	longTask += strings.Repeat("x", workerproto.MaxPromptBytes-len(longTask))
 	model := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -69,7 +69,16 @@ func TestNativeApplication(t *testing.T) {
 			http.Error(w, "unexpected model request", 400)
 			return
 		}
+		// Completion notices may follow a user input at the same decision
+		// boundary. The fixture must handle that input rather than treating
+		// the trailing runtime evidence as the entire request.
 		last := request.Messages[len(request.Messages)-1]
+		for i := len(request.Messages) - 1; i >= 0; i-- {
+			if request.Messages[i].Role != "system" {
+				last = request.Messages[i]
+				break
+			}
+		}
 		if last.Role == "user" && strings.HasPrefix(last.Content, "provider-error-") {
 			message := strings.Repeat("upstream failure ", 1000)
 			if last.Content == "provider-error-unicode" {
@@ -94,6 +103,9 @@ func TestNativeApplication(t *testing.T) {
 			finish = strings.Repeat("upstream-reason-", 100)
 		} else if len(request.Tools) > 0 {
 			for _, message := range request.Messages {
+				if message.Role == "system" && strings.HasPrefix(message.Content, "Runtime completion event.") && strings.Contains(message.Content, `"kind":"agent"`) {
+					reportEvidence.Store(true)
+				}
 				if message.Role == "system" && strings.Contains(message.Content, "Runtime OS: "+runtime.GOOS+"; shell: "+platform.ShellName()) {
 					runtimeEvidence.Store(true)
 				}
@@ -129,11 +141,6 @@ func TestNativeApplication(t *testing.T) {
 					name, input = "delegate", map[string]any{"task": longTask}
 				}
 				toolCall(name, input)
-			} else if last.Role == "tool" {
-				var child struct{ TaskID, Status string }
-				if json.Unmarshal([]byte(last.Content), &child) == nil && child.TaskID != "" && child.Status == "running" {
-					toolCall("await_agent", map[string]any{"taskIds": []string{child.TaskID}})
-				}
 			}
 		}
 		w.Header().Set("Content-Type", "text/event-stream")
@@ -245,7 +252,7 @@ func TestNativeApplication(t *testing.T) {
 			}
 			time.Sleep(25 * time.Millisecond)
 		}
-		t.Fatal("run did not finish")
+		t.Fatalf("run %s did not finish after event %d", runID, after)
 	}
 	submit := func(prompt string) string {
 		var run struct{ RunID string }
@@ -278,8 +285,8 @@ func TestNativeApplication(t *testing.T) {
 	beforeDelegation := workerPID()
 	delegatedRun := submit("delegation-check")
 	waitRun(delegatedRun, "succeeded")
-	if !delegationEvidence.Load() || !childToolEvidence.Load() || workerPID() != beforeDelegation {
-		t.Fatal("long delegation lost prompt bytes or replaced its Worker")
+	if !delegationEvidence.Load() || !childToolEvidence.Load() || !reportEvidence.Load() || workerPID() != beforeDelegation {
+		t.Fatal("long delegation lost prompt bytes, missed its report or replaced its Worker")
 	}
 	var after int64
 	childStates := map[string]int{}
@@ -327,7 +334,7 @@ func TestNativeApplication(t *testing.T) {
 			}
 			time.Sleep(25 * time.Millisecond)
 		}
-		t.Fatal("shell child did not start")
+		t.Fatalf("shell child for %q did not start", prompt)
 		return 0
 	}
 	waitGone := func(pid int) {
