@@ -15,6 +15,7 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -54,6 +55,9 @@ func TestNativeApplication(t *testing.T) {
 		t.Fatal(err)
 	}
 	var shellEvidence, runtimeEvidence, delegationEvidence, childToolEvidence, reportEvidence atomic.Bool
+	completionStarted, resumeCompletion := make(chan struct{}), make(chan struct{})
+	resume := sync.OnceFunc(func() { close(resumeCompletion) })
+	var holdCompletion sync.Once
 	longTask := strings.Repeat("界", workerproto.MaxPromptBytes/3)
 	longTask += strings.Repeat("x", workerproto.MaxPromptBytes-len(longTask))
 	model := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -73,6 +77,17 @@ func TestNativeApplication(t *testing.T) {
 		// boundary. The fixture must handle that input rather than treating
 		// the trailing runtime evidence as the entire request.
 		last := request.Messages[len(request.Messages)-1]
+		if last.Role == "system" && strings.HasPrefix(last.Content, "Runtime completion event.") && strings.Contains(last.Content, `"kind":"job"`) {
+			// Hold the automatic continuation so the next lifecycle prompt
+			// deterministically exercises input delivery during an active run.
+			holdCompletion.Do(func() {
+				close(completionStarted)
+				select {
+				case <-resumeCompletion:
+				case <-r.Context().Done():
+				}
+			})
+		}
 		for i := len(request.Messages) - 1; i >= 0; i-- {
 			if request.Messages[i].Role != "system" {
 				last = request.Messages[i]
@@ -147,7 +162,7 @@ func TestNativeApplication(t *testing.T) {
 		chunk, _ := json.Marshal(map[string]any{"choices": []any{map[string]any{"delta": delta, "finish_reason": finish}}, "usage": map[string]int{"prompt_tokens": 100, "completion_tokens": 10, "total_tokens": 110}})
 		fmt.Fprintf(w, "data: %s\n\ndata: [DONE]\n\n", chunk)
 	}))
-	defer model.Close()
+	defer func() { resume(); model.Close() }()
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
@@ -255,9 +270,41 @@ func TestNativeApplication(t *testing.T) {
 		t.Fatalf("run %s did not finish after event %d", runID, after)
 	}
 	submit := func(prompt string) string {
-		var run struct{ RunID string }
+		t.Helper()
+		var run struct {
+			RunID string
+			Input *store.QueuedInput
+			Event store.Event
+		}
 		api("POST", sessionPath+"/messages", map[string]string{"content": prompt}, &run)
-		return run.RunID
+		if prompt == "background-close" {
+			resume()
+			if run.Input == nil {
+				t.Fatal("background continuation did not keep the session available for input")
+			}
+		}
+		if run.RunID != "" {
+			return run.RunID
+		}
+		if run.Input == nil {
+			t.Fatalf("submission %q returned neither a run nor an input", prompt)
+		}
+		after := run.Event.Sequence
+		deadline := time.Now().Add(15 * time.Second)
+		for time.Now().Before(deadline) {
+			var events []store.Event
+			api("GET", sessionPath+"/event-page?after="+strconv.FormatInt(after, 10), nil, &events)
+			for _, event := range events {
+				after = event.Sequence
+				var delivered struct{ ID, RunID string }
+				if event.Kind == "input_delivered" && json.Unmarshal(event.Data, &delivered) == nil && delivered.ID == run.Input.ID && delivered.RunID != "" {
+					return delivered.RunID
+				}
+			}
+			time.Sleep(25 * time.Millisecond)
+		}
+		t.Fatalf("input %s for %q was not delivered", run.Input.ID, prompt)
+		return ""
 	}
 	waitRun(submit("shell-check"), "succeeded")
 	if !shellEvidence.Load() || !runtimeEvidence.Load() {
@@ -385,6 +432,11 @@ func TestNativeApplication(t *testing.T) {
 		switch action {
 		case "stop":
 			api("POST", sessionPath+"/jobs/"+active.ID+"/stop", nil, nil)
+			select {
+			case <-completionStarted:
+			case <-time.After(10 * time.Second):
+				t.Fatal("background exit did not trigger an automatic continuation")
+			}
 		case "close":
 			api("POST", sessionPath+"/close", nil, nil)
 			api("POST", sessionPath+"/open", nil, nil)
