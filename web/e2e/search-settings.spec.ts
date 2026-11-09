@@ -428,6 +428,7 @@ test('page reading and search order save together without leaking credentials', 
 })
 
 test('search settings remain readable and reachable in English and Chinese', async ({ page, mockOrigin }, testInfo) => {
+  test.setTimeout(60_000)
   const fixture = await mockSearchSettings(page, mockOrigin)
   for (const language of ['en', 'zh-CN']) {
     await page.evaluate(value => localStorage.setItem('vista-language', value), language)

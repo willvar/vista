@@ -9,7 +9,7 @@ const event = (sequence: number, kind = 'model_request', data: any = {}): Stream
 const settle = async () => { await nextTick(); await new Promise(resolve => setImmediate(resolve)) }
 function client(request: VistaClient['request']): VistaClient { return { request, image: async () => new Blob(), streamEvents: async () => {} } }
 
-test('collapsed runs fetch only an overview, count requests after its watermark once, and exclude summary calls', async () => {
+test('collapsed runs fetch only an overview and merge unique live events without extra reads', async () => {
   const paths: string[] = []
   const overview: RunOverview = { modelCalls: 257, throughSequence: 400, startedAt: '', events: [event(350), event(380)] }
   const options = reactive({ sessionId: 'session', runId: 'run', before: 502, first: 1, events: [event(380), event(401), event(401), event(402, 'model_request', { purpose: 'summary' })] })
@@ -18,10 +18,10 @@ test('collapsed runs fetch only an overview, count requests after its watermark 
   await settle()
   assert.equal(paths.length, 1)
   assert.ok(paths[0]!.endsWith('/runs/run/overview'))
-  assert.equal(history.modelCalls.value, 258)
   assert.deepEqual(history.events.value.map(value => value.sequence), [350, 380, 401, 402])
   options.events.push(event(403, 'model_request', { taskId: 'child' }))
-  assert.equal(history.modelCalls.value, 259)
+  assert.deepEqual(history.events.value.map(value => value.sequence), [350, 380, 401, 402, 403])
+  assert.equal(paths.length, 1)
   scope.stop()
 })
 
@@ -38,11 +38,10 @@ test('reply sections request scoped overviews and reject live or snapshot events
   await settle()
   assert.deepEqual(paths, ['/sessions/session/runs/run/overview?after=5&through=10'])
   assert.deepEqual(history.events.value.map(value => value.sequence), [6, 7, 9])
-  assert.equal(history.modelCalls.value, 2)
   assert.equal(history.overview.value?.startedAt, '2026-10-07T10:00:00Z')
   assert.equal(history.overview.value?.finishedAt, '2026-10-07T10:00:04Z')
   options.events.push(event(15), event(20, 'run_finished', { status: 'failed' }))
-  assert.equal(history.modelCalls.value, 2)
+  assert.deepEqual(history.events.value.map(value => value.sequence), [6, 7, 9])
   assert.equal(history.events.value.some(value => value.kind === 'run_finished'), false)
   scope.stop()
 })
@@ -105,7 +104,7 @@ test('closing a live section boundary aborts its old snapshot and preserves only
   finishOld({ modelCalls: 90, throughSequence: 99, startedAt: '', events: [event(99, 'run_finished', { status: 'failed' })] })
   await settle()
   assert.deepEqual(history.events.value.map(value => value.sequence), [2, 8])
-  assert.equal(history.modelCalls.value, 2)
+  assert.equal(history.overview.value?.throughSequence, 10)
   assert.equal(cache.rangeThrough, 10)
   scope.stop()
 })
@@ -123,7 +122,7 @@ test('an adjacent tail section cannot reuse the previous reply snapshot or hydra
   await settle()
   assert.deepEqual(paths, ['/sessions/session/runs/run/overview?after=10'])
   assert.deepEqual(history.events.value.map(value => value.sequence), [12, 14])
-  assert.equal(history.modelCalls.value, 1)
+  assert.equal(history.overview.value?.throughSequence, 14)
   assert.equal(history.loadedSequences.value.has(5), false)
   scope.stop()
 })

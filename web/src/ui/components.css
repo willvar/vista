@@ -2,6 +2,7 @@
 /* Scripted focus restoration may retain :focus-visible after a pointer action. */
 :root[data-interaction-modality=pointer] { --focus-outline: none; }
 [hidden] { display: none !important; }
+.tabler-icon { display: inline-block; flex: none; width: 1em; height: 1em; vertical-align: -.125em; }
 .ui-btn { display: inline-flex; align-items: center; justify-content: center; flex: none; gap: 8px; height: var(--control-height); padding: 4px 15px; border: 1px solid var(--border); border-radius: var(--control-radius); background: var(--surface); color: var(--text); font: inherit; font-size: var(--font-size-body); line-height: 1.5; white-space: nowrap; cursor: pointer; touch-action: manipulation; transition: background-color .16s, border-color .16s, color .16s; }
 .ui-btn:not(:disabled):not([aria-disabled=true]):hover { color: var(--accent); border-color: var(--accent); }
 .ui-btn-text, .ui-btn-link { border-color: transparent; background: transparent; }
@@ -179,9 +180,9 @@ a.ui-btn { text-decoration: none; }
 .ui-think-content { margin-top: 12px; padding-inline-start: 12px; border-inline-start: 2px solid var(--border); }
 .ui-thought-chain-node { display: flex; align-items: flex-start; gap: 8px; }
 .ui-thought-chain-node-icon { display: inline-flex; width: 16px; margin-top: 3px; color: var(--muted); }
-.ui-thought-chain-node-error > .ui-thought-chain-node-icon { color: var(--danger); }
-.ui-thought-chain-node-success > .ui-thought-chain-node-icon { color: var(--success); }
-.ui-thought-chain-node-loading > .ui-thought-chain-node-icon { color: var(--accent); }
+.ui-thought-chain-node-error .ui-thought-chain-node-icon { color: var(--danger); }
+.ui-thought-chain-node-success .ui-thought-chain-node-icon { color: var(--success); }
+.ui-thought-chain-node-loading .ui-thought-chain-node-icon { color: var(--accent); }
 .ui-thought-chain-node-header { display: flex; align-items: flex-start; gap: 8px; width: 100%; padding: 0; border: 0; background: transparent; color: inherit; font: inherit; text-align: start; cursor: pointer; }
 .ui-thought-chain-node-header:focus-visible { outline: var(--focus-outline, 2px solid var(--accent)); outline-offset: 3px; border-radius: 4px; }
 .ui-thought-chain-node-title { font-weight: 500; }

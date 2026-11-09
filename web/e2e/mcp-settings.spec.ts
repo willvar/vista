@@ -248,6 +248,12 @@ test('connection checks show tools, schemas, errors and retries, and canceled re
   await expect(dialog.locator('.mcp-tool')).toHaveCount(2)
   await dialog.getByLabel('Search tools', { exact: true }).fill('read')
   await expect(dialog.locator('.mcp-tool')).toHaveCount(1)
+  const tool = dialog.locator('.mcp-tool')
+  await expect(tool).not.toHaveAttribute('open')
+  await expect(tool.locator('p')).toBeHidden()
+  await tool.locator(':scope > summary').click()
+  await expect(tool.locator('p')).toHaveText('Read a local file.')
+  expect(await dialog.locator('.mcp-actions').evaluate(element => parseFloat(getComputedStyle(element).marginBottom))).toBeGreaterThan(0)
   await dialog.getByText('Input parameters', { exact: true }).click()
   await expect(dialog.locator('pre')).toContainText('path')
   fixture.checkError = 'HTTP 403: service denied access'
@@ -360,6 +366,7 @@ test('MCP dialogs and long tools stay readable in both languages and themes', as
   const fixture = await mockMCP(page, mockOrigin)
   await addRemote(page, 'oauth')
   fixture.servers[0]!.endpoint = 'https://mcp.example/' + 'long-endpoint/'.repeat(15)
+  fixture.tools = Array.from({ length: 30 }, (_, index) => ({ ...fixture.tools[0]!, name: `tool_${index}`, description: 'Detailed tool instructions. '.repeat(100) }))
   for (const language of ['en', 'zh-CN']) {
     await page.evaluate(value => localStorage.setItem('vista-language', value), language)
     // The initial-language script only seeds new documents; use a cookie to
@@ -384,6 +391,16 @@ test('MCP dialogs and long tools stay readable in both languages and themes', as
     await row.scrollIntoViewIfNeeded()
     expect(await settings.evaluate(element => element.scrollWidth - element.clientWidth)).toBeLessThanOrEqual(2)
     await page.screenshot({ path: testInfo.outputPath(`mcp-settings-dark-${language}.png`), animations: 'disabled' })
+    await row.getByRole('button', { name: language === 'en' ? 'Check connection & tools' : '检查连接与工具', exact: true }).click()
+    const toolsDialog = page.getByRole('dialog', { name: language === 'en' ? 'remote · Tools' : 'remote · 工具', exact: true })
+    await expect(toolsDialog.locator('.mcp-tool')).toHaveCount(30)
+    await expect(toolsDialog.locator('.mcp-tool[open]')).toHaveCount(0)
+    await expect(toolsDialog.locator('.mcp-tool p:visible')).toHaveCount(0)
+    await toolsDialog.locator('.mcp-tool > summary').first().click()
+    await expect(toolsDialog.locator('.mcp-tool p').first()).toBeVisible()
+    expect(await toolsDialog.evaluate(element => element.scrollWidth - element.clientWidth)).toBeLessThanOrEqual(2)
+    await page.screenshot({ path: testInfo.outputPath(`mcp-tools-${language}.png`), animations: 'disabled' })
+    await page.keyboard.press('Escape')
   }
   expect(fixture.unexpected).toEqual([])
 })

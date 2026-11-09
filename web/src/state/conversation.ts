@@ -2,8 +2,6 @@ import type { Artifact, ChecklistItem, Job, Message, ModelDraft, ModelInfo, Mode
 import { jobActive } from './jobs.ts'
 import { reduceMainOutputEvent, type MainOutputRecord } from './mainOutputs.ts'
 
-export const messageWindowLimit = 300
-
 export type ReplyTraceSegment = {
   key: string
   runId: string
@@ -69,8 +67,8 @@ export type ConversationState = {
   activeRunSequence: number
   runProgress: RunProgress | null
   runClock: import('../client/types').RunClock | null
-  checklist: { runId: string; items: ChecklistItem[] } | null
-  summaryStart: { runId: string; sequence: number } | null
+  checklist: { runId: string; items: ChecklistItem[]; updatedAt?: string; updatedSequence?: number } | null
+  summaryStart: { runId: string; sequence: number; model?: ModelInfo } | null
   jobs: Job[]
   artifacts: Artifact[]
   modelByRun: Record<string, ModelInfo>
@@ -90,8 +88,8 @@ export function createConversationState(selected: Session | null = null): Conver
   }
 }
 
-// The database owns history. Keep full bodies only for the current message
-// window; unloaded indexes can fetch their complete text again on visibility.
+// The database owns history. Keep loaded message indexes at both ends;
+// virtual DOM lifetime and output-body cache retention are independent.
 export function pruneConversationWindow(state: ConversationState): ConversationState {
   const runs = new Set(state.messages.map(message => message.runId))
   const messages = new Set(state.messages.map(message => message.id))
@@ -100,12 +98,12 @@ export function pruneConversationWindow(state: ConversationState): ConversationS
   const last = state.hasNewer ? state.messages.at(-1)?.sequence || 0 : Infinity
   const metadataRuns = new Set([...runs, state.activeRunID])
   return { ...state,
-    mainOutputs: state.mainOutputs.filter(output => runs.has(output.runId)).map(output =>
+    mainOutputs: state.mainOutputs.filter(output => metadataRuns.has(output.runId)).map(output =>
       output.sequence >= first && output.sequence <= last || replies.has(`${output.runId}/${output.turn}`)
         ? output : { ...output, content: '', contentSequence: 0, loaded: false, deltas: [] }),
     modelOutput: Object.fromEntries(Object.entries(state.modelOutput).filter(([id]) => messages.has(id))),
-    modelResults: state.modelResults.filter(result => runs.has(result.runId)),
-    modelDrafts: state.modelDrafts.filter(draft => runs.has(draft.runId)),
+    modelResults: state.modelResults.filter(result => metadataRuns.has(result.runId)),
+    modelDrafts: state.modelDrafts.filter(draft => metadataRuns.has(draft.runId)),
     modelByRun: Object.fromEntries(Object.entries(state.modelByRun).filter(([id]) => metadataRuns.has(id))),
     finishedRuns: Object.fromEntries(Object.entries(state.finishedRuns).filter(([id]) => metadataRuns.has(id))),
   }
@@ -123,7 +121,7 @@ export function appendMessage(state: ConversationState, message: Message | null 
   if (next.hasNewer || next.messages.some(item => item.id === message.id)) return next
   const results = messageResults(message, next.modelResults)
   const messages = [...next.messages, message.role === 'assistant' ? { ...message, modelResults: results } : message].sort((a, b) => a.sequence - b.sequence)
-  return pruneConversationWindow({ ...next, messages: messages.slice(-messageWindowLimit), hasOlder: next.hasOlder || messages.length > messageWindowLimit })
+  return pruneConversationWindow({ ...next, messages })
 }
 
 export function messageResults(message: Message, modelResults: readonly ModelResultView[]): ModelResultView[] {
@@ -153,7 +151,7 @@ export function reduceConversationEvent(state: ConversationState, event: StreamE
   const depth = data?.depth || 0
   next.mainOutputs = reduceMainOutputEvent(state.mainOutputs, event, runId ? state.modelByRun[runId] : undefined)
   if (['model_request', 'model_retry', 'model_delta', 'model_reasoning_delta', 'model_result', 'tool', 'source', 'agent_task', 'checklist', 'artifact', 'job', 'run_finished'].includes(event.kind)) next.processEvents = [...state.processEvents, event].slice(-1500)
-  if (event.kind === 'message' && data?.role === 'user' && runId && event.sequence >= state.activeRunSequence) {
+  if ((event.kind === 'message' && data?.role === 'user' || event.kind === 'run_started') && runId && event.sequence >= state.activeRunSequence) {
     next.activeRunID = runId
     next.activeRunSequence = event.sequence
     if (next.runClock?.id !== runId) next.runClock = { id: runId, startedAt: data.createdAt || event.createdAt || '' }
@@ -175,7 +173,7 @@ export function reduceConversationEvent(state: ConversationState, event: StreamE
   if (event.kind === 'message') next = appendMessage(next, data as Message)
   if (event.kind === 'checklist' && runId === next.activeRunID && !depth && (!data.taskId || data.taskId === 'main') && Array.isArray(data.items || data.checklist?.items)) {
     // Keep the current plan independently of the bounded trace/event window.
-    next.checklist = { runId, items: data.items || data.checklist.items }
+    next.checklist = { runId, items: data.items || data.checklist.items, updatedSequence: event.sequence, ...(event.createdAt ? { updatedAt: event.createdAt } : {}) }
   }
   if (event.kind === 'run_finished' && runId) {
     next.finishedRuns = { ...next.finishedRuns, [runId]: true }
@@ -184,7 +182,7 @@ export function reduceConversationEvent(state: ConversationState, event: StreamE
       if (next.selected) next.selected = { ...next.selected, pendingReply: data?.pendingReply || undefined, executing: false, latestRunStatus: data?.status }
     }
     const checklist = next.checklist?.runId === runId && next.checklist.items.length
-      ? { items: next.checklist.items, status: data?.status || '' } : undefined
+      ? { items: next.checklist.items, status: data?.status || '', updatedSequence: next.checklist.updatedSequence, ...(next.checklist.updatedAt ? { updatedAt: next.checklist.updatedAt } : {}) } : undefined
     const reply = data?.message as Message | null
     next = appendMessage(next, reply ? { ...reply, ...(checklist ? { checklist } : {}) }
       : checklist ? { id: `checklist-summary/${event.sequence}`, runId, role: 'assistant', content: '',
@@ -215,10 +213,16 @@ export function reduceConversationEvent(state: ConversationState, event: StreamE
   if (event.kind.startsWith('input_') && next.selected) next.selected = { ...next.selected,
     pendingInputCount: next.queuedInputs.filter(input => ['queued', 'paused'].includes(input.status)).length }
   if (event.kind === 'context_status' && runId && !depth && data.phase === 'compacting') next.summaryStart = { runId, sequence: event.sequence }
+  if (event.kind === 'model_request' && runId && !depth && (!data.taskId || data.taskId === 'main') && data.purpose === 'summary') {
+    next.summaryStart = { runId, sequence: next.summaryStart?.runId === runId ? next.summaryStart.sequence : 0,
+      model: { key: data.key || '', provider: data.provider, id: data.id } }
+  }
   if (event.kind === 'context_notice' && !depth && typeof data.summary === 'string' && data.summary.trim()) {
+    const model = next.summaryStart?.runId === runId ? next.summaryStart?.model : undefined
     next = appendMessage(next, {
       id: `context-summary/${event.sequence}`, runId: runId || '', sequence: event.sequence, createdAt: event.createdAt || '',
       role: 'assistant', content: data.summary, contextSummary: true, resultsAfter: next.summaryStart && next.summaryStart.runId === runId ? next.summaryStart.sequence : 0,
+      ...(model ? { modelKey: model.key, provider: model.provider, modelId: model.id } : {}),
     })
     if (runId) next.summaryStart = { runId, sequence: event.sequence }
   }

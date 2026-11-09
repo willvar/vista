@@ -174,6 +174,7 @@ test.describe('model-managed preferences', () => {
     const trace = page.locator('.run-trace')
     await expect(trace.getByRole('button', { name: 'Execution process', exact: true })).toHaveCount(0)
     await expect(trace.locator('.ui-thought-chain-node-title')).toContainText('Memory')
+    await trace.locator('button.ui-thought-chain-node-header').click()
     await expect(trace.locator('.trace-result-summary')).toHaveText('Memory added')
     await expect(trace.locator('.trace-step-content')).toContainText('Keep answers concise.')
 

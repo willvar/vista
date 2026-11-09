@@ -2,7 +2,7 @@
 import { computed, onUnmounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { Empty as VEmpty, Alert as VAlert, Button as VButton, Modal as VModal } from './ui'
-import { HistoryOutlined } from '@antdv-next/icons'
+import { IconHistory } from '@tabler/icons-vue'
 import { useWorkspace } from './composables/useWorkspace'
 import type { VistaClient } from './client/vista'
 import type { OMPCatalogInfo } from './client/types'
@@ -75,7 +75,7 @@ defineExpose({ headerAction: computed(() => ({ label: checking.value ? 'modelCat
         <small v-if="catalog">{{ t('modelCatalogCount', { count: catalog.modelCount.toLocaleString(locale) }) }} · OMP <span :title="catalog.revision">{{ catalog.revision.slice(0, 7) }}</span><template v-if="catalog.modelsDevRevision"> · models.dev <span :title="catalog.modelsDevRevision">{{ catalog.modelsDevRevision.slice(0, 7) }}</span></template></small>
       </div>
       <div class="omp-catalog-actions">
-        <v-button variant="text" :disabled="loading" @click="openHistory"><HistoryOutlined aria-hidden="true" />{{ t('modelCatalogHistory') }}</v-button>
+        <v-button variant="text" :disabled="loading" @click="openHistory"><IconHistory aria-hidden="true" />{{ t('modelCatalogHistory') }}</v-button>
       </div>
     </div>
     <small v-if="catalog" class="omp-catalog-updated">{{ catalog.updatedAt ? t('modelCatalogUpdatedAt', { time: updatedAt(catalog.updatedAt) }) : t('modelCatalogBundled') }}</small>

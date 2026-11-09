@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { onBeforeUnmount, ref } from 'vue'
-import { CheckOutlined, CopyOutlined } from '@antdv-next/icons'
+import { IconCheck, IconCopy } from '@tabler/icons-vue'
 import { useI18n } from 'vue-i18n'
 import Tooltip from './Tooltip.vue'
 const props = defineProps<{ text: string; label?: string; fullText?: () => Promise<string> }>()
@@ -36,5 +36,5 @@ onBeforeUnmount(() => clearTimeout(timer))
 </script>
 
 <template>
-  <Tooltip :title="failure || (copied ? t('copiedReply') : label || t('copyReply'))"><button type="button" class="reply-action reply-copy" :aria-label="label || t('copyReply')" :disabled="busy" :aria-busy="busy || undefined" @click="copy"><CheckOutlined v-if="copied" /><CopyOutlined v-else /><span class="visually-hidden" aria-live="polite">{{ failure || (copied ? t('copiedReply') : '') }}</span></button></Tooltip>
+  <Tooltip :title="failure || (copied ? t('copiedReply') : label || t('copyReply'))"><button type="button" class="reply-action reply-copy" :aria-label="label || t('copyReply')" :disabled="busy" :aria-busy="busy || undefined" @click="copy"><IconCheck v-if="copied" /><IconCopy v-else /><span class="visually-hidden" aria-live="polite">{{ failure || (copied ? t('copiedReply') : '') }}</span></button></Tooltip>
 </template>

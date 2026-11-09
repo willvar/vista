@@ -2,7 +2,7 @@
 import { computed, nextTick, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { Popover, Tooltip } from './ui'
-import { CommentOutlined, LikeOutlined, LikeFilled, DislikeOutlined, DislikeFilled, EditOutlined, UndoOutlined } from '@antdv-next/icons'
+import { IconMessage, IconThumbUp, IconThumbUpFilled, IconThumbDown, IconThumbDownFilled, IconPencil, IconArrowBackUp } from '@tabler/icons-vue'
 import CopyAction from './ui/CopyAction.vue'
 import { useEscapeDismiss } from './composables/useEscape'
 const props = defineProps<{ text: string; fullText?: () => Promise<string>; allowFeedback?: boolean; compactFeedback?: boolean; feedback?: 'up' | 'down'; busy?: boolean; allowMutation?: boolean; mutationDisabled?: boolean }>()
@@ -34,16 +34,16 @@ function rate(value: 'up' | 'down') {
     <template v-for="item in items" :key="item.key">
       <CopyAction v-if="item.key === 'copy'" :text="props.text" :full-text="fullText" />
       <Tooltip v-else-if="item.key === 'edit' || item.key === 'withdraw'" :title="item.label">
-        <button type="button" class="reply-action" :aria-label="item.label" :disabled="busy || mutationDisabled" @click="item.key === 'edit' ? emit('edit') : emit('withdraw')"><EditOutlined v-if="item.key === 'edit'" /><UndoOutlined v-else /></button>
+        <button type="button" class="reply-action" :aria-label="item.label" :disabled="busy || mutationDisabled" @click="item.key === 'edit' ? emit('edit') : emit('withdraw')"><IconPencil v-if="item.key === 'edit'" /><IconArrowBackUp v-else /></button>
       </Tooltip>
-      <button v-else-if="item.key === 'up' || item.key === 'down'" type="button" class="reply-action reply-feedback" :class="{ selected: feedback === item.key }" :aria-label="item.label" :title="item.label" :aria-pressed="feedback === item.key" :disabled="busy" @click="rate(item.key)"><component :is="item.key === 'up' ? feedback === 'up' ? LikeFilled : LikeOutlined : feedback === 'down' ? DislikeFilled : DislikeOutlined" /></button>
+      <button v-else-if="item.key === 'up' || item.key === 'down'" type="button" class="reply-action reply-feedback" :class="{ selected: feedback === item.key }" :aria-label="item.label" :title="item.label" :aria-pressed="feedback === item.key" :disabled="busy" @click="rate(item.key)"><component :is="item.key === 'up' ? feedback === 'up' ? IconThumbUpFilled : IconThumbUp : feedback === 'down' ? IconThumbDownFilled : IconThumbDown" /></button>
       <Popover v-else v-model:open="feedbackOpen" placement="top" trigger="click">
         <template #content>
           <div :ref="setFeedbackChoices" class="message-feedback-choices" role="group" :aria-label="t('rateReply')">
-            <button v-for="value in (['up', 'down'] as const)" :key="value" type="button" class="reply-action reply-feedback" :class="{ selected: feedback === value }" :aria-label="t(value === 'up' ? 'helpfulReply' : 'unhelpfulReply')" :title="t(value === 'up' ? 'helpfulReply' : 'unhelpfulReply')" :aria-pressed="feedback === value" :disabled="busy" @click="rate(value)"><component :is="value === 'up' ? feedback === 'up' ? LikeFilled : LikeOutlined : feedback === 'down' ? DislikeFilled : DislikeOutlined" /></button>
+            <button v-for="value in (['up', 'down'] as const)" :key="value" type="button" class="reply-action reply-feedback" :class="{ selected: feedback === value }" :aria-label="t(value === 'up' ? 'helpfulReply' : 'unhelpfulReply')" :title="t(value === 'up' ? 'helpfulReply' : 'unhelpfulReply')" :aria-pressed="feedback === value" :disabled="busy" @click="rate(value)"><component :is="value === 'up' ? feedback === 'up' ? IconThumbUpFilled : IconThumbUp : feedback === 'down' ? IconThumbDownFilled : IconThumbDown" /></button>
           </div>
         </template>
-        <button type="button" class="reply-action reply-feedback-trigger" :class="{ selected: !!feedback }" :aria-label="item.label" :title="feedback ? t(feedback === 'up' ? 'helpfulReply' : 'unhelpfulReply') : item.label" :aria-expanded="feedbackOpen" :disabled="busy"><component :is="feedback === 'up' ? LikeFilled : feedback === 'down' ? DislikeFilled : CommentOutlined" /></button>
+        <button type="button" class="reply-action reply-feedback-trigger" :class="{ selected: !!feedback }" :aria-label="item.label" :title="feedback ? t(feedback === 'up' ? 'helpfulReply' : 'unhelpfulReply') : item.label" :aria-expanded="feedbackOpen" :disabled="busy"><component :is="feedback === 'up' ? IconThumbUpFilled : feedback === 'down' ? IconThumbDownFilled : IconMessage" /></button>
       </Popover>
     </template>
   </div>

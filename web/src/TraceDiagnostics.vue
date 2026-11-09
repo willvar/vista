@@ -2,7 +2,7 @@
 import { computed, onScopeDispose, ref, useId, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { Empty as VEmpty, Alert, Button, Modal, Select, Tabs } from './ui'
-import { CopyOutlined } from '@antdv-next/icons'
+import { IconCopy } from '@tabler/icons-vue'
 import type { StreamEvent } from './client/types'
 import type { TraceAgentHierarchyEntry } from './state/runTrace'
 import type { ModelDiagnosticRecord, ModelDiagnosticSummary } from './client/modelDiagnostics'
@@ -127,7 +127,7 @@ const details = computed(() => open.value ? JSON.stringify({ runId: props.runId,
       <div class="trace-diagnostic-controls">
         <label :for="selectId" class="visually-hidden">{{ t('traceSelectRequest') }}</label>
         <Select :id="selectId" :value="selectedId || undefined" :options="options" :aria-label="t('traceSelectRequest')" :placeholder="t('traceSelectRequest')" show-search option-filter-prop="label" @change="select" />
-        <Button class="icon-button" :disabled="!record || loading" :title="t('traceCopyRecord')" :aria-label="t('traceCopyRecord')" @click="copy"><CopyOutlined /></Button>
+        <Button class="icon-button" :disabled="!record || loading" :title="t('traceCopyRecord')" :aria-label="t('traceCopyRecord')" @click="copy"><IconCopy /></Button>
       </div>
       <Alert v-if="error" type="error" :message="error" role="alert" />
       <Button v-if="error" :disabled="loading" @click="selectedId && !record ? readRecord() : load()">{{ t('retry') }}</Button>

@@ -2,9 +2,9 @@ import type { AgentTaskView, ChecklistItem, ModelResultView, StreamEvent, ToolOu
 import { inRunTraceRange, type RunTraceRange } from './runTraceRange.ts'
 
 export type TraceStatus = 'loading' | 'success' | 'error' | 'abort'
-export type TraceSearchOutput = { matches: { path: string; line?: number; text: string }[]; filesScanned?: number; truncated: boolean }
+export type TraceSearchOutput = { matches: { path: string; line?: number; text: string; context?: boolean }[]; paths?: string[]; count?: number; filesScanned?: number; truncated: boolean }
 export type TraceInstructionOutput = { path: string; bytes?: number }[]
-export type TraceFileDiff = { path: string; created: boolean; unified: string; omitted?: 'too_large' | 'unavailable' }
+export type TraceFileDiff = { path: string; created: boolean; deleted?: boolean; unified: string; omitted?: 'too_large' | 'unavailable' }
 export type RunTraceNode = {
   key: string; sequence: number; lastSequence: number; kind: 'tool' | 'reasoning' | 'text' | 'source' | 'retry'
   taskId: string; parentTaskId?: string; title: string; summary?: string; body: string; status?: TraceStatus
@@ -13,7 +13,7 @@ export type RunTraceNode = {
   rawBody?: string; markdown?: boolean
   input?: { command: string; directory: string; timeoutSeconds: number }
   error?: string; resultSummaryKey?: string; resultSummaryParams?: Record<string, string | number>
-  search?: TraceSearchOutput; instructions?: TraceInstructionOutput; diff?: TraceFileDiff
+  search?: TraceSearchOutput; instructions?: TraceInstructionOutput; diff?: TraceFileDiff; diffs?: TraceFileDiff[]
 }
 export type RunTraceTask = AgentTaskView & { sequence: number; lastSequence: number; background?: boolean; modelId?: string; modelKey?: string; modelProvider?: string; reasoningEffort?: string; nodes: RunTraceNode[] }
 export type TraceAgentHierarchyEntry = { task: RunTraceTask; number: number; depth: number; parentId?: string }
@@ -68,6 +68,7 @@ export function buildTraceAgentHierarchy(tasks: readonly RunTraceTask[]): TraceA
 const toolOperationLabels: Record<string, string> = {
   shell: 'traceOpShell', bash: 'traceOpShell', shell_background: 'traceOpBackground', background: 'traceOpBackground',
   read_file: 'traceOpRead', read: 'traceOpRead', write_file: 'traceOpWrite', write: 'traceOpWrite',
+  apply_patch: 'traceOpPatch', find_files: 'traceOpFindFiles',
   list_files: 'traceOpList', search_files: 'traceOpSearch', search: 'traceOpSearch', grep: 'traceOpSearch',
   delegate: 'traceOpDelegate', await_agent: 'traceOpAwaitAgent', cancel_agent: 'traceOpCancelAgent',
   update_checklist: 'traceOpChecklist', fetch_url: 'traceOpFetch',
@@ -95,7 +96,14 @@ export function compactTraceText(text = '', limit = 110): string {
   const line = text.replace(/\s+/g, ' ').trim()
   return line.length > limit ? line.slice(0, limit - 1) + '…' : line
 }
-export function projectToolOutput(raw: string, toolName?: string): Pick<RunTraceNode, 'body' | 'rawBody' | 'markdown' | 'search' | 'instructions' | 'diff' | 'error' | 'resultSummaryKey' | 'resultSummaryParams'> {
+export function reasoningDisplayText(content: string): string {
+  // Older traces joined complete summary headings without their paragraph
+  // boundaries. Repair only unambiguous heading-only text for display;
+  // streamed deltas, canonical history and ordinary Markdown stay untouched.
+  return /^\*\*[^*\n`\\]+(?:\*\*\*\*[^*\n`\\]+)+\*\*$/.test(content)
+    ? content.replaceAll('****', '**\n**') : content
+}
+export function projectToolOutput(raw: string, toolName?: string): Pick<RunTraceNode, 'body' | 'rawBody' | 'markdown' | 'search' | 'instructions' | 'diff' | 'diffs' | 'error' | 'resultSummaryKey' | 'resultSummaryParams'> {
   try {
     const value: unknown = JSON.parse(raw)
     if (Array.isArray(value) && toolOperationLabelKey(toolName) === 'traceOpFindInstructions') {
@@ -115,11 +123,15 @@ export function projectToolOutput(raw: string, toolName?: string): Pick<RunTrace
     const tail = fields.tail as { content?: unknown } | undefined
     const preview = operation === 'traceOpShell' && typeof tail?.content === 'string' ? `${head}\n…\n${tail.content}` : head
     if (['traceOpAwaitAgent', 'traceOpCancelAgent'].includes(operation) && fields.status === 'canceled' && typeof fields.taskId === 'string') return { body: '', rawBody: raw, resultSummaryKey: 'traceAgentCanceled' }
+    if (operation === 'traceOpPatch' && Array.isArray(fields.files)) {
+      const diffs = fields.files.map(file => file?.diff).filter(diff => diff && typeof diff.path === 'string' && typeof diff.created === 'boolean' && typeof diff.unified === 'string') as TraceFileDiff[]
+      if (diffs.length) return { body: '', rawBody: raw, diffs, error: error || undefined }
+    }
     if (error) return { body: preview, error, rawBody: raw }
     if (operation === 'traceOpWrite' && fields.diff && typeof fields.diff === 'object') {
       const diff = fields.diff as Record<string, unknown>
       if (typeof diff.path === 'string' && typeof diff.created === 'boolean' && typeof diff.unified === 'string') {
-        return { body: '', rawBody: raw, diff: { path: diff.path, created: diff.created, unified: diff.unified, omitted: diff.omitted === 'too_large' || diff.omitted === 'unavailable' ? diff.omitted : undefined } }
+        return { body: '', rawBody: raw, diff: { path: diff.path, created: diff.created, ...(diff.deleted === true ? { deleted: true } : {}), unified: diff.unified, omitted: diff.omitted === 'too_large' || diff.omitted === 'unavailable' ? diff.omitted : undefined } }
       }
     }
     if (fields.status === 'instructions_required' && fields.executed === false && Array.isArray(fields.instructions)) {
@@ -141,9 +153,10 @@ export function projectToolOutput(raw: string, toolName?: string): Pick<RunTrace
     if (operation === 'traceOpAwaitAgent' && fields.status === 'running' && Array.isArray(fields.pendingTaskIds)) return { body: '', rawBody: raw, resultSummaryKey: 'traceAgentsRunning', resultSummaryParams: { count: fields.pendingTaskIds.length } }
     if (Array.isArray(fields.items) && toolOperationLabelKey(toolName) === 'traceOpChecklist') return { body: '', rawBody: raw, resultSummaryKey: 'traceChecklistUpdated', resultSummaryParams: { count: fields.items.length } }
     if (Array.isArray(fields.matches)) {
-      const matches = fields.matches.filter(item => item && typeof item.path === 'string' && typeof item.text === 'string').map(item => ({ path: item.path, line: typeof item.line === 'number' ? item.line : undefined, text: item.text }))
-      return { body: '', rawBody: raw, search: { matches, filesScanned: typeof fields.filesScanned === 'number' ? fields.filesScanned : undefined, truncated: fields.truncated === true } }
+      const matches = fields.matches.filter(item => item && (typeof item.path === 'string' || typeof item.offset === 'number') && typeof item.text === 'string').map(item => ({ path: typeof item.path === 'string' ? item.path : `@${item.offset} B`, line: typeof item.line === 'number' ? item.line : undefined, text: item.text, ...(item.context === true ? { context: true } : {}) }))
+      return { body: '', rawBody: raw, search: { matches, ...(Array.isArray(fields.paths) ? { paths: fields.paths.filter(path => typeof path === 'string') } : {}), ...(typeof fields.count === 'number' ? { count: fields.count } : {}), filesScanned: typeof fields.filesScanned === 'number' ? fields.filesScanned : undefined, truncated: fields.truncated === true } }
     }
+    if (operation === 'traceOpFindFiles' && Array.isArray(fields.paths)) return { body: '', rawBody: raw, search: { matches: [], paths: fields.paths.filter(path => typeof path === 'string'), truncated: fields.truncated === true } }
     if (typeof fields.answer === 'string') return { body: fields.answer, rawBody: raw, markdown: true }
     if (operation === 'traceOpShell' && typeof fields.preview === 'string') return { body: preview, rawBody: raw }
     for (const name of ['preview', 'content', 'text', 'output']) if (typeof fields[name] === 'string') return { body: fields[name], rawBody: raw }

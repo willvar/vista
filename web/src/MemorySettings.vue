@@ -2,7 +2,7 @@
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { Empty as VEmpty, Alert as VAlert, Button as VButton, Modal as VModal, TextArea as VTextarea, type TextAreaRef } from './ui'
-import { DeleteOutlined, EditOutlined, PlusOutlined, CommentOutlined, BookOutlined, RobotOutlined } from '@antdv-next/icons'
+import { IconTrash, IconPencil, IconPlus, IconMessage, IconBook2, IconRobot } from '@tabler/icons-vue'
 import ConfirmPopover from './ConfirmPopover.vue'
 import ListPagination from './ListPagination.vue'
 import { useWorkspace } from './composables/useWorkspace'
@@ -117,18 +117,18 @@ onBeforeUnmount(() => { disposed = true; emit('modal-open', false) })
   <section class="memory-settings general-setting" aria-labelledby="memory-heading">
     <div class="memory-heading">
       <h3 id="memory-heading">{{ t('memories') }}</h3>
-      <v-button @click="managerOpen = true"><template #icon><BookOutlined aria-hidden="true" /></template>{{ t('manageMemories') }}</v-button>
+      <v-button @click="managerOpen = true"><template #icon><IconBook2 aria-hidden="true" /></template>{{ t('manageMemories') }}</v-button>
     </div>
     <figure class="personalization-figure memory-figure" :aria-label="t('memoryFigureLabel')">
       <div class="memory-flow">
-        <div class="personalization-figure-node memory-flow-past"><CommentOutlined aria-hidden="true" /><span>{{ t('memoryPastConversations') }}</span></div>
+        <div class="personalization-figure-node memory-flow-past"><IconMessage aria-hidden="true" /><span>{{ t('memoryPastConversations') }}</span></div>
         <span class="personalization-figure-link memory-flow-retain" aria-hidden="true"></span>
-        <div class="personalization-figure-node memory-flow-stored"><BookOutlined aria-hidden="true" /><span>{{ t('memories') }}</span><small>{{ t('memoryDetails') }}</small></div>
-        <div class="personalization-figure-node memory-flow-current"><EditOutlined aria-hidden="true" /><span>{{ t('memoryCurrentRequest') }}</span></div>
+        <div class="personalization-figure-node memory-flow-stored"><IconBook2 aria-hidden="true" /><span>{{ t('memories') }}</span><small>{{ t('memoryDetails') }}</small></div>
+        <div class="personalization-figure-node memory-flow-current"><IconPencil aria-hidden="true" /><span>{{ t('memoryCurrentRequest') }}</span></div>
         <svg class="memory-flow-join" viewBox="0 0 24 100" preserveAspectRatio="none" aria-hidden="true"><path d="M0 25H10V75H0 M10 50H24" /></svg>
         <span class="personalization-figure-link memory-flow-reuse" aria-hidden="true"></span>
         <span class="personalization-figure-link memory-flow-context" aria-hidden="true"></span>
-        <div class="personalization-figure-node memory-flow-task"><RobotOutlined aria-hidden="true" /><span>{{ t('memoryCurrentTask') }}</span></div>
+        <div class="personalization-figure-node memory-flow-task"><IconRobot aria-hidden="true" /><span>{{ t('memoryCurrentTask') }}</span></div>
       </div>
     </figure>
   </section>
@@ -140,7 +140,7 @@ onBeforeUnmount(() => { disposed = true; emit('modal-open', false) })
       <span class="memory-modal-heading">{{ t('manageMemories') }}<small v-if="ready" class="memory-count">{{ snapshot.total }}</small></span>
     </template>
     <template #header-actions>
-      <v-button v-if="!editing" variant="text" class="icon-button" :aria-label="t('addMemory')" :title="t('addMemory')" :disabled="!ready || busy || snapshot.total >= snapshot.maxCount" @click="startEdit('new')"><template #icon><PlusOutlined aria-hidden="true" /></template></v-button>
+      <v-button v-if="!editing" variant="text" class="icon-button" :aria-label="t('addMemory')" :title="t('addMemory')" :disabled="!ready || busy || snapshot.total >= snapshot.maxCount" @click="startEdit('new')"><template #icon><IconPlus aria-hidden="true" /></template></v-button>
     </template>
     <template #footer><ListPagination v-if="!editing" :page="page" :page-size="pageSize" :total="snapshot.total" :disabled="busy" @change="changePage" /></template>
     <div class="memory-manager" :aria-busy="loading || busy">
@@ -153,9 +153,9 @@ onBeforeUnmount(() => { disposed = true; emit('modal-open', false) })
         <li v-for="memory in snapshot.memories" :key="memory.id">
             <button type="button" class="memory-preview" :disabled="busy || !!editing" @click="startEdit(memory)"><span class="memory-text">{{ preview(memory.text) }}</span></button>
             <div class="memory-row-actions">
-              <v-button class="icon-button" variant="text" :aria-label="t('editMemory', { text: preview(memory.text) })" :title="t('edit')" :disabled="busy || !!editing" @click="startEdit(memory)"><template #icon><EditOutlined /></template></v-button>
+              <v-button class="icon-button" variant="text" :aria-label="t('editMemory', { text: preview(memory.text) })" :title="t('edit')" :disabled="busy || !!editing" @click="startEdit(memory)"><template #icon><IconPencil /></template></v-button>
               <ConfirmPopover :show="deleting === memory.id" :message="t('removeMemory', { text: deleteTarget?.id === memory.id ? deleteTarget.text : memory.text })" :cancel-text="t('cancel')" :confirm-text="t('delete')" :busy="busy" :error="deleteError" :z-index="1300" popover-class="memory-delete-popover" @update:show="updateDelete(memory, $event)" @confirm="change('remove', deleteTarget || memory)">
-                <template #trigger><v-button class="icon-button" variant="text" danger :aria-label="t('removeMemory', { text: preview(memory.text) })" :title="t('delete')" :disabled="busy || !!editing"><template #icon><DeleteOutlined /></template></v-button></template>
+                <template #trigger><v-button class="icon-button" variant="text" danger :aria-label="t('removeMemory', { text: preview(memory.text) })" :title="t('delete')" :disabled="busy || !!editing"><template #icon><IconTrash /></template></v-button></template>
               </ConfirmPopover>
             </div>
         </li>

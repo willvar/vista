@@ -1,10 +1,52 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import type { StreamEvent } from '../client/types.ts'
-import { buildRunTrace, buildTraceAgentHierarchy, projectToolOutput, toolOperationLabelKey, type RunTraceTask } from './runTrace.ts'
+import { buildRunTrace, buildTraceAgentHierarchy, projectToolOutput, reasoningDisplayText, toolOperationLabelKey, type RunTraceTask } from './runTrace.ts'
+
+test('patch results retain committed file diffs even when later writes failed', () => {
+  const files = [
+    { diff: { path: '/project/created.txt', created: true, unified: '--- /dev/null\n+++ created.txt\n@@ -0,0 +1 @@\n+created\n' } },
+    { diff: { path: '/project/deleted.txt', created: false, deleted: true, unified: '--- deleted.txt\n+++ /dev/null\n@@ -1 +0,0 @@\n-deleted\n' } },
+  ]
+  const result = projectToolOutput(JSON.stringify({ files, applied: files.map(file => file.diff.path), unapplied: ['/project/other'], error: 'permission denied' }), 'apply_patch')
+  assert.equal(result.error, 'permission denied')
+  assert.deepEqual(result.diffs, files.map(file => file.diff))
+  assert.equal(toolOperationLabelKey('subagent/apply_patch'), 'traceOpPatch')
+})
+
+test('path discovery, count-only searches and saved-output matches have distinct views', () => {
+  const found=projectToolOutput(JSON.stringify({ paths:['/project/app.ts'],truncated:false }),'find_files')
+  assert.deepEqual(found.search?.paths,['/project/app.ts'])
+  const counted=projectToolOutput(JSON.stringify({ matches:[],count:12,filesScanned:4,truncated:false }),'search')
+  assert.equal(counted.search?.count,12)
+  const saved=projectToolOutput(JSON.stringify({ matches:[{offset:18,nextOffset:40,text:'context',context:true},{offset:40,nextOffset:60,text:'hit'}],count:1,truncated:true }),'read_tool_output')
+  assert.equal(saved.search?.matches[0]?.context,true)
+  assert.equal(saved.search?.matches[1]?.path,'@40 B')
+  assert.equal(saved.search?.truncated,true)
+})
 
 const event = (sequence: number, kind: string, data: any = {}): StreamEvent => ({ sequence, kind, createdAt: '2026-10-03T00:00:00Z', data: { runId: 'run', taskId: 'main', ...data } })
 const options = { runId: 'run', active: true }
+
+test('old adjacent reasoning headings get display boundaries without rewriting streamed history', () => {
+  const fragments = ['**Checking ', 'source**', '**核对', '测试**', '**Finishing**']
+  const events = fragments.map((content, index) => event(index + 1, 'model_reasoning_delta', { turn: 1, content }))
+  const original = structuredClone(events)
+  const node = buildRunTrace(events, options).nodes[0]!
+  assert.equal(node.body, fragments.join(''))
+  assert.equal(reasoningDisplayText(node.body), '**Checking source**\n**核对测试**\n**Finishing**')
+  assert.deepEqual(events, original)
+  assert.equal(buildRunTrace(events, options).nodes[0]!.body, fragments.join(''))
+})
+
+test('reasoning display leaves prose, normal emphasis, code and incomplete chunks untouched', () => {
+  for (const content of [
+    'Read **source** and **tests**.', '**Read source**\n\n**Read tests**',
+    '**Heading**\nRegular reasoning text.', '**Still stream',
+    '`**A****B**`', '```markdown\n**A****B**\n```', '**Check `a****b`**',
+    String.raw`\*\*A****B**`, '**A****B** trailing text',
+  ]) assert.equal(reasoningDisplayText(content), content)
+})
 
 test('retry history shows recovery without duplicating reasoning or tools', () => {
   const retry = { attempt: 1, maxRetries: 3, retryAt: '2026-11-07T01:00:00Z', error: 'HTTP 502' }

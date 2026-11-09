@@ -207,7 +207,7 @@ test('real server keeps manual choice separate from automatic selection and lear
   await page.getByRole('button', { name: 'Unhelpful answer', exact: true }).click()
   await expect.poll(async () => (await vista.api(`/sessions/${session.id}/feedback`)).feedback[reply.id]).toBeUndefined()
   await expect(page.locator('.composer-model')).toContainText(model.modelName || model.id)
-  await expect(page.locator('.context-usage')).toBeVisible()
+  await expect(page.locator('.context-compaction')).toBeVisible()
   const send = await page.getByRole('button', { name: 'Send', exact: true }).boundingBox()
   expect(send!.x + send!.width).toBeLessThanOrEqual(page.viewportSize()!.width + 1)
   expect(send!.y + send!.height).toBeLessThanOrEqual(page.viewportSize()!.height + 1)

@@ -3,7 +3,7 @@ import { computed, onBeforeUnmount, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { Empty as VEmpty, Alert as VAlert, Button as VButton, Checkbox as VCheckbox, Input as VInput, Select as VSelect, Spin as VSpin } from './ui'
 import BatchOperationModal from './BatchOperationModal.vue'
-import { ReloadOutlined } from '@antdv-next/icons'
+import { IconRefresh } from '@tabler/icons-vue'
 import { useWorkspace } from './composables/useWorkspace'
 
 type ImportConnection = { id: string; name: string; providerId?: string; baseUrl?: string; reason?: string; description?: string; location?: string; warning?: string; disabled?: boolean; fileCount?: number; credentialSource?: string; credentialGroup?: string }
@@ -121,7 +121,7 @@ defineExpose({ show })
         <label v-if="props.kind === 'providers'"><span>{{ t('providerImportAuthPath') }}</span><v-input v-model:value="credentialPath" :disabled="busy" :placeholder="preview?.credentialPaths?.join(', ') || t('providerImportAutomatic')" :aria-label="t('providerImportAuthPath')" @update:value="invalidate" /></label>
         <template v-if="props.kind !== 'providers'"><label><span>{{ t('extensionImportDirectory') }}</span><v-input v-model:value="directory" :disabled="busy" :placeholder="preview?.directory || t('providerImportAutomatic')" :aria-label="t('extensionImportDirectory')" @update:value="invalidate" /></label><p class="provider-import-hint">{{ t(props.kind === 'mcp' ? 'mcpImportDirectoryHint' : 'skillsImportDirectoryHint') }}</p></template>
       </details>
-      <div class="provider-import-read"><v-button :disabled="busy" :loading="reading" @click="read"><template #icon><ReloadOutlined aria-hidden="true" /></template>{{ t('providerImportRead') }}</v-button></div>
+      <div class="provider-import-read"><v-button :disabled="busy" :loading="reading" @click="read"><template #icon><IconRefresh aria-hidden="true" /></template>{{ t('providerImportRead') }}</v-button></div>
       <div v-if="reading" class="provider-import-loading" role="status"><v-spin />{{ t('providerImportReading') }}</div>
       <template v-else-if="preview">
         <p v-if="preview.connections.some(entry => entry.credentialGroup && !entry.reason)" class="provider-import-hint">{{ t('providerImportCredentialConflict') }}</p>

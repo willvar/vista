@@ -71,6 +71,9 @@ test('catalog names appear in both selectors while raw model IDs remain searchab
         optionsBottom: options.bottom, actionsTop: actions.top }
     })
   }
+  // The labeled Send action needs more space than its former icon-only form.
+  // Verify the fitting row separately from the narrow-screen wrapping case.
+  if (viewport.width <= 830) await page.setViewportSize({ ...viewport, width: Math.max(480, viewport.width) })
   let rows = await footerRows()
   expect(Math.abs(rows.optionsCenter - rows.actionsCenter), 'Options and actions share a row when they fit').toBeLessThanOrEqual(1)
   if (viewport.width <= 830) {

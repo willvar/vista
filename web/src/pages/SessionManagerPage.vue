@@ -4,7 +4,7 @@ import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { RadioGroup } from '@ark-ui/vue/radio-group'
 import { Menu } from '@ark-ui/vue/menu'
-import { CheckOutlined, CheckSquareOutlined, EllipsisOutlined, PushpinFilled, SearchOutlined, SortAscendingOutlined, SortDescendingOutlined } from '@antdv-next/icons'
+import { IconCheck, IconCheckbox, IconDots, IconPinFilled, IconSearch, IconSortAscending, IconSortDescending } from '@tabler/icons-vue'
 import { Empty as VEmpty, Alert as VAlert, Button as VButton, Checkbox as VCheckbox, Dropdown as VDropdown, Input as VInput, Modal as VModal, Tooltip as VTooltip } from '../ui'
 import WorkspaceModal from '../WorkspaceModal.vue'
 import BatchOperationModal from '../BatchOperationModal.vue'
@@ -265,7 +265,7 @@ function localTime(utc: string) {
     <div class="session-manager-toolbar">
       <div class="session-manager-search">
         <v-input v-model:value="sessionSearch" :placeholder="t('searchSessions')" :aria-label="t('searchSessions')"
-          :disabled="busy || !!renamingSessionID" allow-clear><template #prefix><SearchOutlined aria-hidden="true" /></template></v-input>
+          :disabled="busy || !!renamingSessionID" allow-clear><template #prefix><IconSearch aria-hidden="true" /></template></v-input>
       </div>
       <div class="session-manager-controls">
         <RadioGroup.Root class="session-manager-filters" :model-value="sessionFilter" :aria-label="t('sessionFilter')"
@@ -282,7 +282,7 @@ function localTime(utc: string) {
           <Menu.Trigger as-child>
             <v-button variant="text" class="icon-button session-sort-trigger" :aria-label="t('sortSessions')" :title="sortTitle"
               :disabled="busy || !!renamingSessionID || !totalSessions">
-              <SortAscendingOutlined v-if="sessionSort.endsWith('-asc')" aria-hidden="true" /><SortDescendingOutlined v-else aria-hidden="true" />
+              <IconSortAscending v-if="sessionSort.endsWith('-asc')" aria-hidden="true" /><IconSortDescending v-else aria-hidden="true" />
             </v-button>
           </Menu.Trigger>
           <Teleport to="body"><Menu.Positioner style="z-index: 1500">
@@ -290,7 +290,7 @@ function localTime(utc: string) {
               <Menu.RadioItemGroup v-model="sessionSort">
                 <Menu.RadioItem v-for="option in sortOptions" :key="option.value" :value="option.value" class="ui-menu-item">
                   <Menu.ItemText>{{ option.label }}</Menu.ItemText>
-                  <Menu.ItemIndicator><CheckOutlined aria-hidden="true" /></Menu.ItemIndicator>
+                  <Menu.ItemIndicator><IconCheck aria-hidden="true" /></Menu.ItemIndicator>
                 </Menu.RadioItem>
               </Menu.RadioItemGroup>
             </Menu.Content>
@@ -299,7 +299,7 @@ function localTime(utc: string) {
         <v-tooltip :title="t(selecting ? 'finishSessionSelection' : 'selectSessions')">
           <v-button variant="text" class="icon-button session-selection-toggle" :aria-label="t(selecting ? 'finishSessionSelection' : 'selectSessions')" :aria-pressed="selecting"
             :disabled="busy || !!renamingSessionID || !totalSessions" @click="toggleSelection">
-            <CheckOutlined v-if="selecting" aria-hidden="true" /><CheckSquareOutlined v-else aria-hidden="true" />
+            <IconCheck v-if="selecting" aria-hidden="true" /><IconCheckbox v-else aria-hidden="true" />
           </v-button>
         </v-tooltip>
       </div>
@@ -334,10 +334,10 @@ function localTime(utc: string) {
         <div v-if="!selecting" class="managed-session-actions">
           <SessionPin :session="item" />
           <v-dropdown :menu="sessionMenu(item)">
-            <v-button variant="text" class="icon-button session-menu" :aria-label="t('sessionMenu')" :title="t('sessionMenu')" :disabled="busy || !!renamingSessionID"><EllipsisOutlined /></v-button>
+            <v-button variant="text" class="icon-button session-menu" :aria-label="t('sessionMenu')" :title="t('sessionMenu')" :disabled="busy || !!renamingSessionID"><IconDots /></v-button>
           </v-dropdown>
         </div>
-        <PushpinFilled v-else-if="item.pinned" class="managed-session-pin" aria-hidden="true" />
+        <IconPinFilled v-else-if="item.pinned" class="managed-session-pin" aria-hidden="true" />
       </div>
     </div>
     <Transition name="session-batch-toolbar">

@@ -1,6 +1,7 @@
-import { coreSnapshot } from './conversation-fixture'
+import { coreSnapshot, installConversationStream } from './conversation-fixture'
 import { closeSettings } from './settings-navigation'
 import type { Page } from '@playwright/test'
+import type { StreamEvent } from '../src/client/types'
 import { test, expect } from './fixtures'
 
 function gate() {
@@ -19,10 +20,6 @@ function message(id: string, runId: string, sequence: number, role: string, cont
   return { id, runId, sequence, role, content, createdAt: new Date().toISOString() }
 }
 
-function frames(events: { sequence: number; kind: string; data: unknown }[]) {
-  return events.map(event => `data: ${JSON.stringify(event)}\n\n`).join('')
-}
-
 test('switching sessions ignores a delayed history response and keeps the new draft', { tag: '@smoke' }, async ({ page, vista }) => {
   await vista.api('/preferences', { method: 'PATCH', body: JSON.stringify({ feedbackInvitationSeen: true }) })
   const first = await vista.api('/sessions', { method: 'POST', body: '{}' })
@@ -32,6 +29,7 @@ test('switching sessions ignores a delayed history response and keeps the new dr
   const requested = gate()
   const releaseHistory = gate()
   const handled = gate()
+  await installConversationStream(page, coreSnapshot({ ...second, title: 'Current session B' }, [message('current-b', 'run-b', 1, 'assistant', 'Current session B reply')]))
   await page.route('**/api/sessions/**', async route => {
     const request = route.request()
     const path = new URL(request.url()).pathname
@@ -48,9 +46,7 @@ test('switching sessions ignores a delayed history response and keeps the new dr
     if (path === `/api/sessions/${second.id}/snapshot`) {
       return route.fulfill({ json: coreSnapshot({ ...second, title: 'Current session B' }, [message('current-b', 'run-b', 1, 'assistant', 'Current session B reply')]) })
     }
-    if (/\/(event-page|events)$/.test(path)) return route.fulfill({
-      ...(path.endsWith('/events') ? { contentType: 'text/event-stream', body: '' } : { json: [] }),
-    })
+    if (path.endsWith('/event-page')) return route.fulfill({ json: [] })
     return route.continue()
   })
   try {
@@ -77,10 +73,16 @@ test('settings overlay keeps the current session stream alive and closes back to
   const runId = 'overlay-stream-run'
   const user = message('overlay-user', runId, 1, 'user', 'Controlled stream fixture')
   const reply = { ...message('overlay-reply', runId, 6, 'assistant', 'First fragment. Second fragment.'), outputTurn: 1 }
-  const secondChunk = gate()
-  const finish = gate()
   let streamRequests = 0
   let executing = true
+  const events: StreamEvent[] = []
+  const snapshot = () => coreSnapshot({ ...session, executing }, executing ? [user] : [user, reply], events)
+  const publish = await installConversationStream(page, () => { streamRequests++; return snapshot() })
+  streamRequests = 0
+  async function publishEvents(additions: StreamEvent[]) {
+    events.push(...additions)
+    for (const event of additions) await publish(event)
+  }
   await page.route('**/api/sessions**', async route => {
     const request = route.request()
     const path = new URL(request.url()).pathname
@@ -91,55 +93,44 @@ test('settings overlay keeps the current session stream alive and closes back to
       return route.fulfill({ response: original, json: (await original.json()).map((row: { id: string }) =>
         row.id === session.id ? { ...row, executing } : row) })
     }
-    if (path === `/api/sessions/${session.id}/snapshot`) return route.fulfill({ json: coreSnapshot({ ...session, executing }, executing ? [user] : [user, reply]) })
+    if (path === `/api/sessions/${session.id}/snapshot`) return route.fulfill({ json: snapshot() })
     if (path === `/api/sessions/${session.id}/messages`) return route.fulfill({ json: executing ? [user] : [user, reply] })
-    if (path === `/api/sessions/${session.id}/event-page`) return route.fulfill({ json: [] })
+    if (path === `/api/sessions/${session.id}/event-page`) return route.fulfill({ json: events })
     if (path === `/api/sessions/${session.id}/runs/${runId}/model-output`) {
       const content = 'First fragment. '
       return route.fulfill({ json: { content, offset: 0, nextOffset: content.length, availableBytes: content.length, lastSequence: 3 } })
     }
-    if (path !== `/api/sessions/${session.id}/events`) return route.continue()
-    streamRequests++
-    if (streamRequests === 1) return route.fulfill({ contentType: 'text/event-stream', body: frames([
+    return route.continue()
+  })
+  await page.goto(`${vista.origin}/sessions/${session.id}`)
+  await expect(page.getByRole('button', { name: 'Stop current execution', exact: true })).toBeEnabled()
+  await expect.poll(() => streamRequests).toBe(1)
+  await publishEvents([
       { sequence: 2, kind: 'model_request', data: { runId, provider: 'openai-chat', id: vista.modelId, key: 'test', turn: 1 } },
       { sequence: 3, kind: 'model_delta', data: { runId, turn: 1, content: 'First fragment. ' } },
-    ]) })
-    if (streamRequests === 2) {
-      await secondChunk.wait
-      return route.fulfill({ contentType: 'text/event-stream', body: frames([
-        { sequence: 4, kind: 'model_delta', data: { runId, turn: 1, content: 'Second fragment.' } },
-      ]) })
-    }
-    if (streamRequests === 3) {
-      await finish.wait
-      executing = false
-      return route.fulfill({ contentType: 'text/event-stream', body: frames([
+  ])
+  await expect(page.locator('.live-response .markdown')).toHaveText('First fragment.')
+  const drawer = page.locator('.mobile-sessions-trigger')
+  if (await drawer.isVisible()) await drawer.click()
+  await page.getByRole('button', { name: 'Settings', exact: true }).click()
+  await expect(page.locator('.settings-page')).toBeVisible()
+  await expect(page).toHaveURL(url => url.pathname === (page.viewportSize()!.width <= 830 ? '/settings' : '/settings/general') && url.searchParams.get('session') === session.id)
+  await publishEvents([{ sequence: 4, kind: 'model_delta', data: { runId, turn: 1, content: 'Second fragment.' } }])
+  await expect(page.locator('.live-response .markdown')).toHaveText('First fragment. Second fragment.')
+  await expect(page.locator('.settings-page')).toBeVisible()
+  await closeSettings(page)
+  await expect(page).toHaveURL(url => url.pathname === `/sessions/${session.id}`)
+  await expect(page.locator('.live-response .markdown')).toHaveText('First fragment. Second fragment.')
+  executing = false
+  await publishEvents([
         { sequence: 5, kind: 'model_result', data: { runId, turn: 1, modelResult: { provider: 'openai-chat', id: vista.modelId, finishReason: 'completed', durationMs: 200, usage: { inputTokens: 20, outputTokens: 5, cacheReadTokens: 0, reasoningTokens: 0 } } } },
         { sequence: 6, kind: 'run_finished', data: { runId, status: 'succeeded', message: reply } },
-      ]) })
-    }
-    return route.fulfill({ contentType: 'text/event-stream', body: ': end of fixture\n\n' })
-  })
-  try {
-    await page.goto(`${vista.origin}/sessions/${session.id}`)
-    await expect(page.locator('.live-response .markdown')).toHaveText('First fragment.')
-    const drawer = page.locator('.mobile-sessions-trigger')
-    if (await drawer.isVisible()) await drawer.click()
-    await page.getByRole('button', { name: 'Settings', exact: true }).click()
-    await expect(page.locator('.settings-page')).toBeVisible()
-    await expect(page).toHaveURL(url => url.pathname === (page.viewportSize()!.width <= 830 ? '/settings' : '/settings/general') && url.searchParams.get('session') === session.id)
-    secondChunk.release()
-    await expect(page.locator('.live-response .markdown')).toHaveText('First fragment. Second fragment.')
-    await expect(page.locator('.settings-page')).toBeVisible()
-    await closeSettings(page)
-    await expect(page).toHaveURL(url => url.pathname === `/sessions/${session.id}`)
-    await expect(page.locator('.live-response .markdown')).toHaveText('First fragment. Second fragment.')
-    finish.release()
-    await expect(page.locator('.messages article.assistant .markdown')).toHaveText(reply.content)
-    await expect(page.locator('.live-response')).toHaveCount(0)
-    await expect(page.getByRole('button', { name: 'Send', exact: true })).toBeDisabled()
-    await expect(page.locator('.error')).toHaveCount(0)
-  } finally { secondChunk.release(); finish.release() }
+  ])
+  await expect(page.locator('.messages article.assistant .markdown')).toHaveText(reply.content)
+  await expect(page.locator('.live-response')).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Send', exact: true })).toBeDisabled()
+  await expect(page.locator('.error')).toHaveCount(0)
+  expect(streamRequests, 'Settings must retain the same conversation stream').toBe(1)
 })
 
 test('cancelling execution restores Send and allows the next message', async ({ page, vista }) => {
@@ -151,6 +142,7 @@ test('cancelling execution restores Send and allows the next message', async ({ 
   let executing = true
   let cancelRequests = 0
   const sent: { content: string }[] = []
+  const publish = await installConversationStream(page, () => coreSnapshot({ ...session, executing }, [user], initialEvents))
   await page.route('**/api/sessions**', async route => {
     const request = route.request()
     const path = new URL(request.url()).pathname
@@ -158,6 +150,7 @@ test('cancelling execution restores Send and allows the next message', async ({ 
     if (path === `/api/sessions/${session.id}/cancel` && request.method() === 'POST') {
       cancelRequests++
       executing = false
+      await publish({ sequence: 3, kind: 'run_finished', data: { runId, status: 'canceled', reason: 'Cancellation fixture' } })
       return route.fulfill({ status: 204, body: '' })
     }
     if (path === `/api/sessions/${session.id}/messages` && request.method() === 'POST') {
@@ -173,9 +166,6 @@ test('cancelling execution restores Send and allows the next message', async ({ 
     if (path === `/api/sessions/${session.id}/snapshot`) return route.fulfill({ json: coreSnapshot({ ...session, executing }, [user], initialEvents) })
     if (path === `/api/sessions/${session.id}/messages`) return route.fulfill({ json: [user] })
     if (path === `/api/sessions/${session.id}/event-page`) return route.fulfill({ json: initialEvents })
-    if (path === `/api/sessions/${session.id}/events`) return route.fulfill({ contentType: 'text/event-stream', body: executing ? '' : frames([
-      { sequence: 3, kind: 'run_finished', data: { runId, status: 'canceled', reason: 'Cancellation fixture' } },
-    ]) })
     return route.continue()
   })
   await page.goto(`${vista.origin}/sessions/${session.id}`)

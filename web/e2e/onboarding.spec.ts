@@ -327,7 +327,7 @@ test.describe('first launch without a provider', () => {
     expect(headerGeometry.right).toBeLessThanOrEqual(headerGeometry.width + 1)
     expect(headerGeometry.bottom).toBeLessThanOrEqual(headerGeometry.height + 1)
     await expect(page.locator('.conversation-header .context-status')).toHaveCount(0)
-    await expect(sender.locator('.context-usage')).toBeVisible()
+    await expect(page.locator('.conversation-header .context-compaction')).toBeVisible()
     expect(headerGeometry.overflow).toBeLessThanOrEqual(2)
     await expectNoPageOverflow()
     await page.screenshot({ path: testInfo.outputPath('conversation-after-first-send.png'), animations: 'disabled' })

@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import { appendMessage, createConversationState, messageResults, runResults, reduceConversationEvent, replyTraceSegments } from './conversation.ts'
 import type { Message, Session, StreamEvent } from '../client/types'
+import { checklistSummaryPosition } from './checklist.ts'
 
 const session: Session = { id: 'session-a', title: 'Example', modelKey: '', open: true, running: true, executing: true, createdAt: '' }
 const message = (id: string, sequence: number, runId: string, role = 'user'): Message => ({ id, sequence, runId, role, content: id, createdAt: '' })
@@ -28,11 +29,11 @@ test('the current checklist survives trace eviction and stays isolated from chil
   state = reduceConversationEvent(state, event(2, 'checklist', { runId: 'run', items }))
   for (let sequence = 3; sequence <= 1510; sequence++) state = reduceConversationEvent(state, event(sequence, 'model_reasoning_delta', { runId: 'run', depth: 1, turn: 1, content: '.' }))
   assert.equal(state.processEvents.some(event => event.kind === 'checklist'), false)
-  assert.deepEqual(state.checklist, { runId: 'run', items })
+  assert.deepEqual(state.checklist, { runId: 'run', items, updatedSequence: 2 })
   state = reduceConversationEvent(state, event(1511, 'checklist', { runId: 'run', depth: 1, taskId: 'child', items: [] }))
   assert.deepEqual(state.checklist?.items, items)
   state = reduceConversationEvent(state, event(1512, 'message', message('followup', 1512, 'run')))
-  assert.deepEqual(state.checklist, { runId: 'run', items })
+  assert.deepEqual(state.checklist, { runId: 'run', items, updatedSequence: 2 })
   state = reduceConversationEvent(state, event(1513, 'run_finished', { runId: 'run', status: 'canceled' }))
   assert.deepEqual(state.checklist?.items, items, 'Display status never rewrites the saved checklist')
   state = reduceConversationEvent(state, event(1514, 'message', message('next', 1514, 'next-run')))
@@ -42,7 +43,7 @@ test('the current checklist survives trace eviction and stays isolated from chil
   assert.equal(state.checklist?.runId, 'next-run')
   assert.equal(state.checklist?.items.length, 1)
   state = reduceConversationEvent(state, event(1517, 'checklist', { runId: 'next-run', items: [] }))
-  assert.deepEqual(state.checklist, { runId: 'next-run', items: [] })
+  assert.deepEqual(state.checklist, { runId: 'next-run', items: [], updatedSequence: 1517 })
 })
 
 test('model retry progress survives event replay and remains cancellable execution', () => {
@@ -63,7 +64,7 @@ test('model retry progress survives event replay and remains cancellable executi
   assert.equal(state.selected?.executing, false)
 })
 
-test('hundreds of completed runs release bodies and usage outside the message window', () => {
+test('hundreds of completed runs retain loaded indexes and both conversation ends', () => {
   let state = createConversationState(session)
   for (let index = 0; index < 320; index++) {
     const runId = `run-${index}`, seq = index * 10
@@ -73,10 +74,12 @@ test('hundreds of completed runs release bodies and usage outside the message wi
     state = reduceConversationEvent(state, event(seq + 4, 'run_finished', { runId, status: 'succeeded', message: { ...message(`reply-${index}`, seq + 4, runId, 'assistant'), outputTurn: 1 } }))
     state.modelOutput[`reply-${index}`] = { content: 'x'.repeat(16 * 1024), offset: 0, nextOffset: 16 * 1024, availableBytes: 16 * 1024 }
   }
-  assert.equal(state.messages.length, 300)
-  assert.equal(state.mainOutputs.length, 150)
-  assert.equal(Object.keys(state.modelOutput).length, 150)
-  assert.equal(state.modelResults.length, 150)
+  assert.equal(state.messages.length, 640)
+  assert.equal(state.messages[0]!.id, 'user-0')
+  assert.equal(state.messages.at(-1)!.id, 'reply-319')
+  assert.equal(state.mainOutputs.length, 320)
+  assert.equal(Object.keys(state.modelOutput).length, 320)
+  assert.equal(state.modelResults.length, 320)
   const retained = new Set(state.messages.map(message => message.runId))
   assert.ok(state.mainOutputs.every(output => retained.has(output.runId)))
   assert.ok(Object.keys(state.finishedRuns).every(id => retained.has(id)))
@@ -285,6 +288,24 @@ test('each summary owns only its root compaction calls, independently of ordinar
   assert.deepEqual(messageResults(first, []).map(result => result.sequence), [4, 7], 'Persisted metadata survives event-window eviction')
 })
 
+test('summary connection identity follows its own request without replacing the main model or leaking across compactions', () => {
+  let state = reduceConversationEvent(createConversationState(session), event(1, 'message', message('input', 1, 'run')))
+  state = reduceConversationEvent(state, event(2, 'model_request', { runId: 'run', key: 'main', provider: 'custom', id: 'same-model' }))
+  for (const [start, key] of [[3, 'first-connection'], [8, 'second-connection']] as const) {
+    state = reduceConversationEvent(state, event(start, 'context_status', { runId: 'run', phase: 'compacting' }))
+    state = reduceConversationEvent(state, event(start + 1, 'model_request', { runId: 'run', purpose: 'summary', key, provider: 'custom', id: 'same-model' }))
+    state = reduceConversationEvent(state, event(start + 2, 'model_request', { runId: 'run', purpose: 'summary', depth: 1, key: 'child', provider: 'custom', id: 'same-model' }))
+    state = reduceConversationEvent(state, event(start + 3, 'context_notice', { runId: 'run', summary: 'Verified summary' }))
+    assert.equal(state.messages.at(-1)?.modelKey, key)
+    assert.equal(state.messages.at(-1)?.provider, 'custom')
+    assert.equal(state.messages.at(-1)?.modelId, 'same-model')
+    assert.equal(state.modelByRun.run?.key, 'main')
+  }
+  state = reduceConversationEvent(state, event(13, 'context_status', { runId: 'run', phase: 'compacting' }))
+  state = reduceConversationEvent(state, event(14, 'context_notice', { runId: 'run', summary: 'Legacy summary without a request' }))
+  assert.equal(state.messages.at(-1)?.modelKey, undefined)
+})
+
 test('final checklists share the reply cursor, survive empty replies and do not change unread or saved statuses', () => {
   for (const status of ['succeeded', 'failed', 'interrupted']) for (const hasReply of [true, false]) {
     let state = reduceConversationEvent(createConversationState(session), event(1, 'message', message('input', 1, 'run')))
@@ -293,12 +314,27 @@ test('final checklists share the reply cursor, survive empty replies and do not 
     const finish = event(3, 'run_finished', { runId: 'run', status, message: hasReply ? message('answer', 3, 'run', 'assistant') : null })
     state = reduceConversationEvent(state, finish)
     assert.equal(state.messages.length, 2)
-    assert.deepEqual(state.messages.at(-1)!.checklist, { items, status })
+    assert.deepEqual(state.messages.at(-1)!.checklist, { items, status, updatedSequence: 2 })
     assert.equal(state.messages.at(-1)!.sequence, 3)
     assert.equal(state.selected?.latestReplySequence || 0, hasReply ? 3 : 0)
     assert.equal(reduceConversationEvent(state, finish), state)
     state = reduceConversationEvent(state, event(4, 'message', message('next', 4, 'next-run')))
     assert.deepEqual(state.messages[1]!.checklist?.items, items, 'A new run preserves the archived checklist')
+  }
+})
+
+test('final checklist timestamps retain their update across live completion and distinguish unfinished work', () => {
+  const updatedAt = '2026-11-06T04:51:38Z', finishedAt = '2026-11-06T04:55:00Z'
+  for (const status of ['done', 'blocked', 'pending', 'in_progress'] as const) {
+    let state = reduceConversationEvent(createConversationState(session), event(1, 'message', message('input', 1, 'run')))
+    const items = [{ text: 'Task', status }]
+    state = reduceConversationEvent(state, { ...event(2, 'checklist', { runId: 'run', items }), createdAt: updatedAt })
+    state = reduceConversationEvent(state, { ...event(3, 'run_finished', { runId: 'run', status: 'interrupted' }), createdAt: finishedAt })
+    const final = state.messages.at(-1)!
+    assert.equal(final.checklist?.updatedAt, updatedAt)
+    assert.deepEqual(checklistSummaryPosition(final), ['pending', 'in_progress'].includes(status)
+      ? { createdAt: finishedAt, sequence: 3 } : { createdAt: updatedAt, sequence: 2 })
+    assert.deepEqual(checklistSummaryPosition({ ...final, checklist: { items, status: 'interrupted' } }), { createdAt: finishedAt, sequence: 3 }, 'Missing legacy positions fall back to the finish event')
   }
 })
 

@@ -2,7 +2,7 @@
 import { onBeforeUnmount, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { Alert as VAlert, Button as VButton, Spin as VSpin } from './ui'
-import { CopyOutlined } from '@antdv-next/icons'
+import { IconCopy } from '@tabler/icons-vue'
 import { VistaAPIError, type VistaClient } from './client/vista'
 import { useWorkspace } from './composables/useWorkspace'
 import type { CopilotAuthOptions, LoginUpdate } from './client/types'
@@ -123,7 +123,7 @@ onBeforeUnmount(() => {
     <p class="provider-help">{{ t(`${kind}LoginHint`) }}</p>
     <v-alert v-if="error" type="error" role="alert" :message="error" />
     <template v-if="login?.status === 'pending'">
-      <div class="provider-device-code"><code>{{ login.userCode }}</code><v-button class="icon-button" variant="text" :aria-label="t(copied ? 'providerCodeCopied' : 'providerCopyCode')" @click="copyCode"><CopyOutlined /></v-button></div>
+      <div class="provider-device-code"><code>{{ login.userCode }}</code><v-button class="icon-button" variant="text" :aria-label="t(copied ? 'providerCodeCopied' : 'providerCopyCode')" @click="copyCode"><IconCopy /></v-button></div>
       <p class="provider-help">{{ t(`${kind}DeviceHint`) }}</p>
       <div class="actions"><v-button variant="primary" :href="login.verificationUrl" target="_blank" rel="noopener noreferrer">{{ t(`${kind}OpenLogin`) }}</v-button><v-button @click="cancel">{{ t('providerCancelLogin') }}</v-button></div>
       <div class="provider-login-wait" role="status"><v-spin /><span>{{ t('providerWaiting') }}</span></div>

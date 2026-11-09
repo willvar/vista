@@ -1,4 +1,4 @@
-import { coreSnapshot } from './conversation-fixture'
+import { coreSnapshot, installConversationStream } from './conversation-fixture'
 import type { Locator, Page } from '@playwright/test'
 import { test, expect } from './fixtures'
 import { closeSettings } from './settings-navigation'
@@ -298,6 +298,8 @@ test('long running tool and completed process keep Stop and Send reachable', asy
     { sequence: 10, kind: 'tool', createdAt, data: { runId: activeRun, status: 'started', tool: { callId: 'active-call', name: longTool, summary: 'UI geometry only' } } },
   ]
   const forbidden: string[] = []
+  const snapshot = coreSnapshot({ ...session, executing: true }, [user, assistant, currentUser], events)
+  await installConversationStream(page, snapshot)
   await page.route('**/api/sessions**', async route => {
     const request = route.request()
     const path = new URL(request.url()).pathname
@@ -311,15 +313,16 @@ test('long running tool and completed process keep Stop and Send reachable', asy
       const rows = await original.json()
       return route.fulfill({ response: original, json: rows.map((row: { id: string }) => row.id === session.id ? { ...row, executing: true } : row) })
     }
-    if (path === `/api/sessions/${session.id}/snapshot`) return route.fulfill({ json: coreSnapshot({ ...session, executing: true }, [user, assistant, currentUser], events) })
+    if (path === `/api/sessions/${session.id}/snapshot`) return route.fulfill({ json: snapshot })
     if (path === `/api/sessions/${session.id}/messages`) return route.fulfill({ json: [user, assistant, currentUser] })
-    if (path === `/api/sessions/${session.id}/event-page`) return route.fulfill({ json: events })
-    if (path === `/api/sessions/${session.id}/events`) return route.fulfill({ status: 200, contentType: 'text/event-stream', body: '' })
+    if (path === `/api/sessions/${session.id}/event-page`) {
+      const query = new URL(request.url()).searchParams
+      const before = Number(query.get('before')) || Infinity, after = Number(query.get('after')) || 0
+      return route.fulfill({ json: events.filter(event => event.sequence > after && event.sequence < before) })
+    }
     if (path.includes('/runs/') && path.endsWith('/main-outputs')) return route.fulfill({ json: [] })
     if (path === `/api/sessions/${session.id}/runs/${completedRun}/overview`) return route.fulfill({ json: { modelCalls: 2, throughSequence: 7, startedAt: createdAt, finishedAt: createdAt, events: events.filter(event => event.data.runId === completedRun) } })
-    // An active overview has no through watermark; supplying one would make
-    // the client treat the live segment as completed and hide its activity.
-    if (path === `/api/sessions/${session.id}/runs/${activeRun}/overview`) return route.fulfill({ json: { modelCalls: 1, startedAt: createdAt, events: events.filter(event => event.data.runId === activeRun) } })
+    if (path === `/api/sessions/${session.id}/runs/${activeRun}/overview`) return route.fulfill({ json: { modelCalls: 1, throughSequence: 10, startedAt: createdAt, events: events.filter(event => event.data.runId === activeRun) } })
     return route.continue()
   })
   await page.goto(`${vista.origin}/sessions/${session.id}`)
@@ -328,8 +331,10 @@ test('long running tool and completed process keep Stop and Send reachable', asy
   await expect(page.locator('.conversation-execution .trace-last-activity')).toContainText('Last activity:')
   await expect(page.locator('.conversation-execution .trace-last-activity')).not.toContainText('UI geometry only')
   await expect(page.locator('.conversation-execution .trace-last-activity time')).toHaveAttribute('datetime', createdAt)
-  await expect(completedTrace.locator('.ui-thought-chain-node-title')).toHaveText('Use tool · UI geometry only')
-  await expect(activeTrace.locator('.ui-thought-chain-node-title')).toHaveText('Use tool · UI geometry only')
+  await expect(completedTrace.locator('.ui-thought-chain-node-title')).toHaveText('Use tool: UI geometry only')
+  await expect(activeTrace.locator('.ui-thought-chain-node-title')).toHaveText('Use tool: UI geometry only')
+  await expect(completedTrace.locator('.trace-input-preview')).toHaveText('UI geometry only')
+  await expect(activeTrace.locator('.trace-input-preview')).toHaveText('UI geometry only')
 
   const textarea = page.locator('.sender-card textarea')
   for (const draft of ['', eightLines]) {

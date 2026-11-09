@@ -1,4 +1,4 @@
-import { coreSnapshot } from './conversation-fixture'
+import { coreSnapshot, installConversationStream } from './conversation-fixture'
 import { test, expect } from './fixtures'
 
 test.beforeEach(async ({ vista }) => {
@@ -85,6 +85,7 @@ test('missing or partial timing remains visible without invented TPS', async ({ 
     provider: 'openai-chat', modelId: vista.modelId, modelKey: 'test',
     modelResults: scenario.results.map(result => ({ ...result, runId: scenario.id })),
   }))
+  await installConversationStream(page, coreSnapshot(session, messages))
   await page.route('**/api/sessions/**', route => {
     const request = route.request()
     const path = new URL(request.url()).pathname
@@ -92,7 +93,6 @@ test('missing or partial timing remains visible without invented TPS', async ({ 
     if (path === `/api/sessions/${session.id}/snapshot`) return route.fulfill({ json: coreSnapshot(session, messages) })
     if (path === `/api/sessions/${session.id}/messages`) return route.fulfill({ json: messages })
     if (path === `/api/sessions/${session.id}/event-page`) return route.fulfill({ json: [] })
-    if (path === `/api/sessions/${session.id}/events`) return route.fulfill({ status: 200, contentType: 'text/event-stream', body: '' })
     if (path.includes('/runs/') && path.endsWith('/main-outputs')) return route.fulfill({ json: [] })
     return route.continue()
   })

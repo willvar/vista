@@ -54,6 +54,7 @@ test.describe('reply reminders', () => {
     const card = page.locator(`.sessions-panel .session-card[data-session-id="${session.id}"]`)
     await expect.poll(async () => (await vista.api('/sessions') as Session[]).find(item => item.id === session.id)?.readSequence || 0).toBeGreaterThan(0)
     const firstRead = (await vista.api('/sessions') as Session[]).find(item => item.id === session.id)!.readSequence
+    await page.locator('.messages').dispatchEvent('wheel', { deltaY: -100 })
     await page.locator('.messages').evaluate(element => { element.scrollTop = 0; element.dispatchEvent(new Event('scroll')) })
     await vista.api(`/sessions/${session.id}/messages`, { method: 'POST', body: JSON.stringify({ content: 'A newer reply', modelKey: 'test' }) })
     await expect(card.locator('.session-indicator.unread')).toHaveCount(1)

@@ -4,8 +4,9 @@ import { useI18n } from 'vue-i18n'
 import { Alert as VAlert, Button as VButton, Empty as VEmpty, Modal as VModal, Popover, Select as VSelect } from './ui'
 import { useWorkspace } from './composables/useWorkspace'
 import { useStatistics } from './composables/useStatistics'
+import StatisticsTrend from './StatisticsTrend.vue'
 import { useEscapeDismiss } from './composables/useEscape'
-import { calendarDate, type StatisticsDay } from './client/statistics'
+import { calendarDate } from './client/statistics'
 import { formatDateTime } from './ui/datetime'
 import { tokenScale } from './state/tokenScale'
 
@@ -39,7 +40,6 @@ async function reset() {
 defineExpose({ headerAction: computed(() => ({ label: 'statisticsReset', run: confirmReset, disabled: resetBusy.value, loading: resetBusy.value })) })
 const periodOptions = computed(() => [7,30,90].map(value => ({ value, label: t('statisticsPeriodDays',{count:value}) })))
 const number = (value: number) => new Intl.NumberFormat(locale.value).format(value)
-const compact = (value: number) => new Intl.NumberFormat(locale.value,{notation:'compact',maximumFractionDigits:1}).format(value)
 const unknownTokens = computed(() => !!data.value?.requests && data.value.requests === data.value.unreported)
 const tokenEquivalent = computed(() => tokenScale(data.value?.tokens ?? 0, locale.value))
 const tokenDetailsOpen = ref(false)
@@ -49,41 +49,10 @@ function focusTokenDetails(event: FocusEvent) {
   if ((event.target as HTMLElement).matches(':focus-visible')) tokenDetailsOpen.value = true
 }
 const dateLabel = (key: string) => new Intl.DateTimeFormat(locale.value,{month:'short',day:'numeric'}).format(calendarDate(key))
-const dayTokens = (day: StatisticsDay) => day.requests && day.requests===day.unreported ? '—' : number(day.tokens)
 const selectedDate = ref('')
 const selectedDay = computed(() => data.value?.days.find(day => day.date === selectedDate.value) ?? data.value?.days.at(-1))
 watch(period, () => { selectedDate.value = '' })
 const hasData = computed(() => !!data.value && (data.value.activeMinutes > 0 || data.value.requests > 0))
-const maxTokens = computed(() => Math.max(1,...(data.value?.days.map(day => day.tokens) ?? [])))
-const maxMinutes = computed(() => Math.max(1,...(data.value?.days.map(day => day.activeMinutes) ?? [])))
-const chart = ref<SVGSVGElement>()
-const chartWidth = ref(600)
-watch(chart, (element, _, cleanup) => {
-  if (!element) return
-  const observer = new ResizeObserver(() => { chartWidth.value = Math.max(260,element.clientWidth) })
-  observer.observe(element)
-  cleanup(() => observer.disconnect())
-})
-const plotEnd = computed(() => chartWidth.value-40)
-const step = computed(() => (chartWidth.value-80) / (data.value?.days.length || 1))
-const barX = (index: number) => 40 + index * step.value
-const barY = (tokens: number) => 170 - tokens / maxTokens.value * 140
-const activityLine = computed(() => data.value?.days.map((day,index) => `${index?'L':'M'}${barX(index)+step.value/2},${170-day.activeMinutes/maxMinutes.value*140}`).join(' ') ?? '')
-const tickIndexes = computed(() => {
-  const last = (data.value?.days.length ?? 1)-1
-  return [...new Set([0,Math.round(last/3),Math.round(last*2/3),last])]
-})
-const barLabel = (index: number) => {
-  const day = data.value!.days[index]!
-  return `${dateLabel(day.date)} · ${t('statisticsTokensValue',{count:dayTokens(day)})} · ${t('statisticsMinutesValue',{count:number(day.activeMinutes)})}${day.unreported ? ` · ${t('statisticsUnreported',{count:number(day.unreported)})}` : ''}`
-}
-function moveDay(event: KeyboardEvent,index: number) {
-  const delta = event.key === 'ArrowRight' ? 1 : event.key === 'ArrowLeft' ? -1 : 0
-  if (!delta) return
-  event.preventDefault()
-  const next = Math.max(0,Math.min((data.value?.days.length ?? 1)-1,index+delta))
-  document.querySelector<SVGElement>(`[data-statistics-day="${next}"]`)?.focus()
-}
 const heatSelection = ref(0)
 const maxHeat = computed(() => Math.max(0,...(data.value?.hours.flat() ?? [])))
 const weekdays = computed(() => Array.from({length:7},(_,i) => new Intl.DateTimeFormat(locale.value,{weekday:'short'}).format(new Date(2026,0,5+i))))
@@ -140,17 +109,7 @@ const legacyPeriod = computed(() => data.value && calendarDate(data.value.days[0
       <template v-else>
         <figure class="statistics-figure statistics-trend" :aria-label="t('statisticsTrend')">
           <div class="statistics-chart-heading"><h3>{{ t('statisticsTrend') }}</h3><div class="statistics-legend"><span><i class="token-key"></i>{{ t('statisticsTokenTotal') }}</span><span><i class="activity-key"></i>{{ t('statisticsActiveMinutes') }}</span></div></div>
-          <svg ref="chart" :viewBox="`0 0 ${chartWidth} 202`" class="statistics-trend-svg" role="group" :aria-label="t('statisticsChartHint')">
-            <g class="statistics-guides" aria-hidden="true"><path :d="`M40 30H${plotEnd} M40 100H${plotEnd} M40 170H${plotEnd}`" /></g>
-            <g class="statistics-axis" aria-hidden="true"><text x="35" y="34" text-anchor="end">{{ compact(maxTokens) }}</text><text x="35" y="174" text-anchor="end">0</text><text :x="plotEnd+5" y="34">{{ compact(maxMinutes) }}</text><text :x="plotEnd+5" y="174">0</text>
-              <text v-for="index in tickIndexes" :key="index" :x="barX(index)+step/2" y="194" :text-anchor="index===0?'start':index===data.days.length-1?'end':'middle'">{{ dateLabel(data.days[index]!.date) }}</text>
-            </g>
-            <g v-for="(day,index) in data.days" :key="day.date" class="statistics-day" :class="{'statistics-day-selected':selectedDay?.date===day.date}">
-              <rect class="statistics-token-bar" :x="barX(index)+step*.18" :y="day.tokens ? barY(day.tokens) : 169" :width="step*.64" :height="day.tokens ? Math.max(1,170-barY(day.tokens)) : 1" rx="2" aria-hidden="true" />
-              <rect class="statistics-day-hit" :data-statistics-day="index" :x="barX(index)" y="20" :width="step" height="150" :tabindex="selectedDay?.date===day.date?0:-1" role="button" :aria-label="barLabel(index)" @pointerenter="selectedDate=day.date" @click="selectedDate=day.date" @focus="selectedDate=day.date" @keydown="moveDay($event,index)"><title>{{ barLabel(index) }}</title></rect>
-            </g>
-            <path class="statistics-activity-line" :d="activityLine" aria-hidden="true" />
-          </svg>
+          <StatisticsTrend :days="data.days" @select="selectedDate = $event" />
           <figcaption class="statistics-readout" aria-live="polite"><strong>{{ selectedDay ? dateLabel(selectedDay.date) : '' }}</strong><span>{{ t('statisticsTokensValue',{count:selectedDay?.requests && selectedDay.requests===selectedDay.unreported ? '—' : number(selectedDay?.tokens ?? 0)}) }}</span><span>{{ t('statisticsMinutesValue',{count:number(selectedDay?.activeMinutes ?? 0)}) }}</span><small v-if="selectedDay?.unreported">{{ t('statisticsUnreported',{count:number(selectedDay.unreported)}) }}</small></figcaption>
         </figure>
         <figure class="statistics-figure statistics-heatmap" :aria-label="t('statisticsHeatmap')">
@@ -201,20 +160,13 @@ const legacyPeriod = computed(() => data.value && calendarDate(data.value.days[0
 .statistics-token-details p { margin:0; }
 .statistics-exact-tokens { color:var(--text); font-size:1rem; font-weight:600; font-variant-numeric:tabular-nums; }
 .statistics-figure { margin:0; min-width:0; }
+.statistics-trend { --statistics-activity:#a879de; }
 .statistics-chart-heading { display:flex; align-items:center; justify-content:space-between; gap:1rem; margin-bottom:1rem; }
 .statistics-chart-heading h3 { font-size:1rem; margin:0; font-weight:550; }
 .statistics-legend,.statistics-heat-legend { display:flex; align-items:center; gap:.65rem; font-size:.75rem; color:var(--text-secondary); }
 .statistics-legend span { display:inline-flex; align-items:center; gap:.35rem; }
 .statistics-legend i { width:.7rem; height:.5rem; border-radius:2px; background:var(--accent); }
-.statistics-legend .activity-key { height:2px; background:#a879de; }
-.statistics-trend-svg { display:block; width:100%; overflow:visible; font-variant-numeric:tabular-nums; }
-.statistics-guides { stroke:var(--border-subtle); stroke-dasharray:3 4; }
-.statistics-axis { font-size:11px; fill:var(--muted); }
-.statistics-token-bar { fill:var(--accent); opacity:.7; transition:opacity .15s ease; }
-.statistics-day-selected .statistics-token-bar { opacity:1; }
-.statistics-day-hit { fill:transparent; cursor:crosshair; outline:none; }
-.statistics-day-hit:focus-visible { fill:color-mix(in srgb,var(--accent) 8%,transparent); stroke:var(--accent); stroke-width:1; }
-.statistics-activity-line { fill:none; stroke:#a879de; stroke-width:2; stroke-linejoin:round; stroke-linecap:round; pointer-events:none; }
+.statistics-legend .activity-key { height:2px; background:var(--statistics-activity); }
 .statistics-readout { display:flex; align-items:center; flex-wrap:wrap; gap:.35rem 1rem; min-height:2.5rem; margin-top:.6rem; padding:.5rem .75rem; background:var(--surface-subtle); border-radius:8px; color:var(--text-secondary); font-size:.8rem; font-variant-numeric:tabular-nums; }
 .statistics-readout strong { color:var(--text); font-weight:500; }
 .statistics-readout small { flex-basis:100%; color:var(--muted); }
@@ -248,7 +200,6 @@ const legacyPeriod = computed(() => data.value && calendarDate(data.value.days[0
   .statistics-totals dt { font-size:.75rem; }
   .statistics-totals small { display:block; margin:.25rem 0 0; }
   .statistics-chart-heading { flex-wrap:wrap; gap:.5rem; }
-  .statistics-trend-svg { min-width:0; }
 }
-@media (prefers-reduced-motion:reduce) { .statistics-token-bar,.statistics-heat-cell { transition:none; } }
+@media (prefers-reduced-motion:reduce) { .statistics-heat-cell { transition:none; } }
 </style>

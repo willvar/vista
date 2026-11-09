@@ -34,6 +34,15 @@ test('historical identity accepts provider IDs while preserving connection bound
   assert.equal(historicalModelInfo({ provider: 'opencode-go', id: 'provider-model' }, [catalog[0], { ...catalog[0], key: 'other' }])?.name, undefined)
 })
 
+test('a summary request key disambiguates custom connections serving the same model', () => {
+  const catalog: ModelInfo[] = [
+    { key: 'pool', name: 'Pool', provider: 'openai-responses', providerId: 'custom', id: 'model' },
+    { key: 'fast', name: 'Pool (Fast)', provider: 'openai-responses', providerId: 'custom', id: 'model' },
+  ]
+  assert.equal(historicalModelInfo({ key: 'fast', provider: 'custom', id: 'model' }, catalog)?.name, 'Pool (Fast)')
+  assert.equal(historicalModelInfo({ provider: 'custom', id: 'model' }, catalog)?.name, undefined)
+})
+
 test('usage model names accept provider IDs without using another provider name', () => {
   const catalog = [{ key: 'remote', provider: 'openai-chat', providerId: 'opencode-go', id: 'provider-model', modelName: 'Provider Model' }]
   assert.equal(catalogModelName('provider-model', catalog, 'opencode-go'), 'Provider Model')

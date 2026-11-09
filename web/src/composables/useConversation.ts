@@ -3,7 +3,7 @@ import type { VistaClient } from '../client/vista'
 import { VistaAPIError } from '../client/vista.ts'
 import { createConversationSync, type ConversationSyncStatus, type ConversationSyncDiagnostics } from '../client/conversationSync.ts'
 import type { Artifact, ConversationSnapshot, CompactionStatus, ContextUsage, Job, MainOutput, Message, ModelCatalog, OutputView, QuestionAnswer, QueuedInput, SendMessageResult, Session, StreamEvent } from '../client/types'
-import { appendMessage, createConversationState, messageResults, runResults, messageWindowLimit, pruneConversationWindow, reduceConversationEvent, replyTraceSegments } from '../state/conversation.ts'
+import { appendMessage, createConversationState, messageResults, runResults, pruneConversationWindow, reduceConversationEvent, replyTraceSegments } from '../state/conversation.ts'
 import { toolOperationLabelKey, compactTraceText } from '../state/runTrace.ts'
 import { conversationItems, hydrateMainOutput, mainOutputKey, mergeMainOutputs, type ConversationItem, type MainOutputRecord } from '../state/mainOutputs.ts'
 import { useInteractionPreferences, type InteractionPreferences, type SelectionMode, type SelectionTier } from './useInteractionPreferences.ts'
@@ -43,6 +43,7 @@ export function useConversation({ client, sessions, modelCatalog, error, busy, r
   const state = reactive(createConversationState())
   const synchronization = ref<ConversationSyncStatus>({ phase: 'ready' })
   const syncDiagnostics = ref<ConversationSyncDiagnostics | null>(null)
+  const snapshotReady = ref(false)
   const viewRevision = ref(0)
   let acknowledgedReplySequence = 0
   let auxiliaryRevision = 0
@@ -77,7 +78,7 @@ export function useConversation({ client, sessions, modelCatalog, error, busy, r
   const modelOutputFailure = ref<Record<string, string>>({})
   const modelOutputRequests = new Map<string, Promise<OutputView>>()
   const mainOutputRequests = new Map<string, Promise<void>>()
-  const indexedRuns = new Map<string, object>()
+  const indexedRuns = new Map<string, { request: Promise<void> }>()
   const displayMessages = computed(() => conversationItems(messages.value, state.mainOutputs, state.hasOlder, state.hasNewer))
   const pendingInputs = computed(() => state.queuedInputs.filter(item => ['queued', 'paused', 'delivering'].includes(item.status)))
   const inputQueuePaused = computed(() => !!selected.value?.inputQueuePaused || pendingInputs.value.some(item => item.status === 'paused'))
@@ -333,7 +334,7 @@ export function useConversation({ client, sessions, modelCatalog, error, busy, r
     let next = createConversationState(updated)
     next.messages = snapshot.messages
     const latestUser = snapshot.messages.filter(message => message.role === 'user').at(-1)
-    next.activeRunID = latestUser?.runId || snapshot.messages.at(-1)?.runId || ''
+    next.activeRunID = snapshot.currentRun?.id || latestUser?.runId || snapshot.messages.at(-1)?.runId || ''
     next.activeRunSequence = latestUser?.sequence || 0
     next.runClock = snapshot.currentRun || (next.activeRunID ? { id: next.activeRunID, startedAt: snapshot.messages.find(message => message.role === 'user' && message.runId === next.activeRunID)?.createdAt || '' } : null)
     next.latestMessageSequence = snapshot.messages.at(-1)?.sequence || 0
@@ -355,8 +356,8 @@ export function useConversation({ client, sessions, modelCatalog, error, busy, r
     } else if (!rollback) {
       const window = new Map(old.messages.filter(message => message.sequence < (snapshot.messages[0]?.sequence || 0)).map(message => [message.id, message]))
       for (const message of next.messages) window.set(message.id, message)
-      next.messages = [...window.values()].sort((a, b) => a.sequence - b.sequence).slice(-messageWindowLimit)
-      next.hasOlder ||= old.hasOlder || window.size > messageWindowLimit
+      next.messages = [...window.values()].sort((a, b) => a.sequence - b.sequence)
+      next.hasOlder = old.hasOlder
     }
     // A POST acknowledgement can finish after the snapshot's read boundary.
     for (const message of old.messages.filter(message => message.sequence > snapshot.throughSequence)) next = appendMessage(next, message)
@@ -381,6 +382,7 @@ export function useConversation({ client, sessions, modelCatalog, error, busy, r
     }
     viewRevision.value++
     Object.assign(state, pruneConversationWindow(next))
+    snapshotReady.value = true
     acknowledgedReplySequence = snapshot.session.latestReplySequence || 0
     latestUserSequence.value = next.activeRunSequence
     recentOldestEvent = snapshot.eventsBefore || snapshot.events[0]?.sequence || 0
@@ -459,7 +461,7 @@ export function useConversation({ client, sessions, modelCatalog, error, busy, r
   watch([interactionPreferences.ready, rememberedModel, lastMode, lastTier, modelCatalog], initializeWelcomeSelection, { flush: 'sync', immediate: true })
 
   // Index loading is independent of the trace and of virtual row mounting.
-  watch(() => [...new Set(messages.value.filter(message => !message.contextSummary).map(message => message.runId))], runs => {
+  watch(() => [...new Set([...messages.value.filter(message => !message.contextSummary).map(message => message.runId), ...(state.hasNewer ? [] : [activeRunID.value])])].filter(Boolean), runs => {
     const scope = currentScope
     if (!scope || !current(scope)) return
     const retained = new Set(runs)
@@ -470,26 +472,41 @@ export function useConversation({ client, sessions, modelCatalog, error, busy, r
     for (const key of mainOutputRequests.keys()) if (!keys.has(key)) mainOutputRequests.delete(key)
     modelOutputLoading.value = Object.fromEntries(Object.entries(modelOutputLoading.value).filter(([key]) => keys.has(key)))
     modelOutputFailure.value = Object.fromEntries(Object.entries(modelOutputFailure.value).filter(([key]) => keys.has(key)))
-    for (const runId of runs) if (runId && !indexedRuns.has(runId)) void loadMainOutputIndex(scope, runId)
+    // Index the initial preparation batch only. Earlier batches request their
+    // indexes before joining the continuous timeline.
+    void readOutputIndexes(messages.value.slice(-20).map(message => message.runId))
   })
-  async function loadMainOutputIndex(scope: Scope, runId: string) {
-    const token = {}
+  function loadMainOutputIndex(scope: Scope, runId: string): Promise<void> {
+    const pending = indexedRuns.get(runId)
+    if (pending) return pending.request
+    const token = { request: Promise.resolve() }
     indexedRuns.set(runId, token)
     const retained = () => current(scope) && indexedRuns.get(runId) === token && hasVisibleRun(runId)
-    let before = 0
-    try {
-      do {
-        const page = await request<MainOutput[]>(scope, `/sessions/${encodeURIComponent(scope.id)}/runs/${encodeURIComponent(runId)}/main-outputs${before ? `?before=${before}` : ''}`)
-        if (!retained()) return
-        state.mainOutputs = pruneConversationWindow({ ...state, mainOutputs: mergeMainOutputs(state.mainOutputs, page) }).mainOutputs
-        if (page.length < 100) break
-        const next = page[0]?.sequence
-        if (!next || before && next >= before) throw new Error('Main output index did not advance')
-        before = next
-      } while (retained())
-    } catch (failure) {
-      if (retained()) { indexedRuns.delete(runId); report(scope, failure) }
-    }
+    token.request = Promise.resolve().then(async () => {
+      let before = 0
+      const outputs: MainOutput[] = []
+      try {
+        do {
+          const page = await request<MainOutput[]>(scope, `/sessions/${encodeURIComponent(scope.id)}/runs/${encodeURIComponent(runId)}/main-outputs${before ? `?before=${before}` : ''}`)
+          if (!retained()) return
+          outputs.push(...page)
+          if (page.length < 100) break
+          const next = page[0]?.sequence
+          if (!next || before && next >= before) throw new Error('Main output index did not advance')
+          before = next
+        } while (retained())
+        if (retained()) state.mainOutputs = pruneConversationWindow({ ...state, mainOutputs: mergeMainOutputs(state.mainOutputs, outputs) }).mainOutputs
+      } catch (failure) {
+        if (retained()) { indexedRuns.delete(runId); report(scope, failure) }
+      }
+    })
+    return token.request
+  }
+  async function readOutputIndexes(runs: string[]) {
+    const scope = currentScope
+    if (!scope || !current(scope)) return
+    await Promise.all([...new Set(runs)].filter(Boolean).map(runId => loadMainOutputIndex(scope, runId)))
+    await Promise.all([...indexedRuns.values()].map(entry => entry.request))
   }
 
   function clearSession() {
@@ -502,6 +519,7 @@ export function useConversation({ client, sessions, modelCatalog, error, busy, r
     currentScope = null
     synchronization.value = { phase: 'ready' }
     syncDiagnostics.value = null
+    snapshotReady.value = false
     acknowledgedReplySequence = 0
     auxiliaryRevision++
     readingSequence = 0
@@ -616,8 +634,7 @@ export function useConversation({ client, sessions, modelCatalog, error, busy, r
       const page = await request<Message[]>(scope, `/sessions/${scope.id}/messages?before=${first.sequence}`)
       if (!current(scope)) return
       const next = [...page, ...state.messages]
-      state.hasNewer ||= next.length > messageWindowLimit
-      state.messages = next.slice(0, messageWindowLimit)
+      state.messages = [...new Map(next.map(message => [message.id, message])).values()].sort((a, b) => a.sequence - b.sequence)
       state.hasOlder = page.length === 100
     } catch (failure) { report(scope, failure) }
     finally { if (current(scope)) paging.value = false }
@@ -631,14 +648,44 @@ export function useConversation({ client, sessions, modelCatalog, error, busy, r
       const page = await request<Message[]>(scope, `/sessions/${scope.id}/messages?after=${last.sequence}`)
       if (!current(scope)) return
       const next = [...state.messages, ...page]
-      state.hasOlder ||= next.length > messageWindowLimit
-      state.messages = next.slice(-messageWindowLimit)
+      state.messages = [...new Map(next.map(message => [message.id, message])).values()].sort((a, b) => a.sequence - b.sequence)
       state.hasNewer = page.length === 100 || (state.messages.at(-1)?.sequence || 0) < state.latestMessageSequence
     } catch (failure) { report(scope, failure) }
     finally { if (current(scope)) paging.value = false }
   }
+  async function loadLatest() {
+    const scope = currentScope
+    if (!scope || !current(scope) || paging.value) return false
+    const view = viewRevision.value
+    paging.value = true
+    try {
+      const page = await request<Message[]>(scope, `/sessions/${scope.id}/messages`)
+      if (!current(scope) || view !== viewRevision.value) return false
+      let window = page
+      let last = window.at(-1)?.sequence || 0
+      // Reading an older retained window stops appending new SSE messages.
+      // Catch up to its observed watermark before declaring this the tail.
+      while (last < state.latestMessageSequence) {
+        const received = state.messages.filter(message => message.sequence > last)
+        const newer = received.length && received.at(-1)!.sequence >= state.latestMessageSequence ? received
+          : await request<Message[]>(scope, `/sessions/${scope.id}/messages?after=${last}`)
+        if (!current(scope) || view !== viewRevision.value) return false
+        const next = newer.at(-1)?.sequence || 0
+        if (next <= last) throw new Error('Latest message page did not advance')
+        window = [...window, ...newer]
+        last = next
+      }
+      const retained = new Map(state.messages.map(message => [message.id, message]))
+      for (const message of window) retained.set(message.id, message)
+      state.messages = [...retained.values()].sort((a, b) => a.sequence - b.sequence)
+      state.hasOlder &&= page.length === 100
+      state.hasNewer = false
+      return true
+    } catch (failure) { report(scope, failure); return false }
+    finally { if (current(scope)) paging.value = false }
+  }
 
-  function hasVisibleRun(runId: string) { return !!runId && messages.value.some(message => message.runId === runId) }
+  function hasVisibleRun(runId: string) { return !!runId && (messages.value.some(message => message.runId === runId) || !state.hasNewer && activeRunID.value === runId) }
   const currentChecklist = computed(() => agentWorking.value && state.checklist?.runId === activeRunID.value ? state.checklist.items : [])
   const traceSegments = computed(() => replyTraceSegments(messages.value, agentWorking.value ? activeRunID.value : '', state.hasNewer))
   function traceSegment(message: Message) { return traceSegments.value.get(message.id)! }
@@ -672,7 +719,10 @@ export function useConversation({ client, sessions, modelCatalog, error, busy, r
   }
   async function fullMessageText(message: Message) {
     if (!message.outputTurn || !message.outputBytes || message.outputBytes <= 8192) return message.content
-    return (await loadFullModelOutput(message)).content
+    if (new TextEncoder().encode(message.content).length === message.outputBytes) return message.content
+    const output = await loadFullModelOutput(message)
+    releaseDisplayOutput({ ...message, displayKey: message.id, displaySequence: message.sequence })
+    return output.content
   }
 
   async function draftFiles(scope: Scope, result: MessageDraft) {
@@ -1097,16 +1147,28 @@ export function useConversation({ client, sessions, modelCatalog, error, busy, r
     if (modelOutputFailure.value[message.id] && !retry) return Promise.resolve()
     return loadMainOutput(message.mainOutput).catch(() => {})
   }
+  function releaseDisplayOutput(message: ConversationItem) {
+    if (refs.modelOutput.value[message.id]) {
+      const retained = { ...refs.modelOutput.value }
+      delete retained[message.id]
+      refs.modelOutput.value = retained
+    }
+    const key = message.mainOutput ? mainOutputKey(message.mainOutput) : ''
+    state.mainOutputs = state.mainOutputs.map(output =>
+      (key ? mainOutputKey(output) === key : output.runId === message.runId && output.turn === message.outputTurn)
+        && output.complete && (output.content || output.deltas.length)
+        ? { ...output, content: '', contentSequence: 0, deltas: [], loaded: false } : output)
+  }
 
   return {
     editingMessage, beginEditMessage, cancelEditMessage, withdrawMessage, rollbackFailure,
-    ...refs, displayMessages, readDisplayOutput, olderActivity, hasOlderActivity, activityPaging, paging, selectedModel, selectedModelInfo,
+    ...refs, displayMessages, readOutputIndexes, readDisplayOutput, releaseDisplayOutput, olderActivity, hasOlderActivity, activityPaging, paging, selectedModel, selectedModelInfo,
     selectedReasoning, reasoningChoices, canAttachImage, attachedImages, attachedPreviewURLs,
     selectionMode, selectionTier, chooseSelectionMode, chooseSelectionTier, feedbackInvitationOpen,
     feedback, feedbackBusy, rateMessage, pendingInputs, inputQueuePaused, pendingBusy, mutateInput, resumeInputs, compaction, contextUsage, canCompact, compactSession, manualCompacting, compactionRequestPending, continueAfterCompaction, fillContinueDraft,
     draft, quotedText, quoteSelection, removeQuote, agentWorking, agentStatus, hasTaskDetails, chooseModel, recallLastUserMessage,
-    synchronization, syncDiagnostics, viewRevision, resynchronize, renderFailure,
-    selectSession, clearSession, refreshConversation, loadOlderActivity, showRecentActivity, loadOlder, loadNewer, markRead,
+    synchronization, syncDiagnostics, snapshotReady, viewRevision, resynchronize, renderFailure,
+    selectSession, clearSession, refreshConversation, loadOlderActivity, showRecentActivity, loadOlder, loadNewer, loadLatest, markRead,
     send, submitMessage, analyzingFailure, canAnalyzeFailure, analyzeFailure, canRetryFailure, retryFailure, submitQuestion, cancelExecution, readModelOutput, modelOutputLoading, modelOutputFailure,
     fullMessageText, resultsForMessage, resultsForRun, resultsForTrace, traceSegment, runStartedAt, runReplyTurns, runActivityAnchor, firstRunSequence, liveDrafts, currentChecklist,
     hasVisibleRun, chooseImages, addImages, pasteImages, dropImages, removeImage,

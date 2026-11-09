@@ -2,7 +2,7 @@
 import { computed, nextTick, reactive, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
-import { RightOutlined, SkinOutlined, UserOutlined, ApiOutlined, InfoCircleOutlined, SearchOutlined, LinkOutlined, BookOutlined, SunOutlined, MoonOutlined, DesktopOutlined, HddOutlined, ExclamationCircleOutlined, FullscreenOutlined, FullscreenExitOutlined, PlusOutlined, ImportOutlined, ReloadOutlined, RobotOutlined, TeamOutlined, CompassOutlined, ToolOutlined, CommentOutlined, FolderOpenOutlined, FolderOutlined, FileTextOutlined } from '@antdv-next/icons'
+import { IconChevronRight, IconPalette, IconUser, IconPlugConnected, IconInfoCircle, IconSearch, IconLink, IconBook2, IconSun, IconMoon, IconDeviceDesktop, IconDatabase, IconAlertCircle, IconMaximize, IconMinimize, IconPlus, IconFileImport, IconRefresh, IconRobot, IconRobotFace, IconUsers, IconCompass, IconTool, IconMessage, IconFolderOpen, IconFolder, IconFileText } from '@tabler/icons-vue'
 import { Empty as VEmpty, Alert as VAlert, Button as VButton, Input as VInput, Modal as VModal, Select as VSelect, Switch as VSwitch, Tooltip as VTooltip } from '../ui'
 import WorkspaceModal from '../WorkspaceModal.vue'
 import ConfirmPopover from '../ConfirmPopover.vue'
@@ -23,7 +23,7 @@ import ServerConfigSettings from '../ServerConfigSettings.vue'
 import SchemaForm from '../SchemaForm.vue'
 import VistaMark from '../VistaMark.vue'
 import StatisticsSettings from '../StatisticsSettings.vue'
-import { BarChartOutlined, ClearOutlined } from '@antdv-next/icons'
+import { IconChartBar, IconClearAll } from '@tabler/icons-vue'
 import { useWorkspace } from '../composables/useWorkspace'
 import { useProviderSettings } from '../composables/useProviderSettings'
 import { useAppearance } from '../ui/appearance'
@@ -31,7 +31,7 @@ import { useAppearance } from '../ui/appearance'
 const route = useRoute()
 const { t } = useI18n({ useScope: 'global' })
 const { appearance, setAppearance } = useAppearance()
-const appearances = [{ value: 'light', icon: SunOutlined }, { value: 'dark', icon: MoonOutlined }, { value: 'system', icon: DesktopOutlined }] as const
+const appearances = [{ value: 'light', icon: IconSun }, { value: 'dark', icon: IconMoon }, { value: 'system', icon: IconDeviceDesktop }] as const
 const delegationExamples = ['delegationDepthSolo', 'delegationDepthMain', 'delegationDepthNested'] as const
 const delegationNodes = [
   { x: 50, y: 14, level: 0 },
@@ -52,15 +52,15 @@ const modelSelectionMode = computed({
 })
 const selectionModeOptions = computed(() => [{ label: t('manualMode'), value: 'manual' }, { label: t('autoMode'), value: 'auto' }])
 const sections = [
-  { name: 'settings-general', label: 'appearance', icon: SkinOutlined },
-  { name: 'settings-personalization', label: 'personalizationSettings', icon: UserOutlined },
-  { name: 'settings', label: 'modelConnections', icon: ApiOutlined },
-  { name: 'settings-search', label: 'searchSettings', icon: SearchOutlined },
-  { name: 'settings-mcp', label: 'mcpSettings', icon: LinkOutlined },
-  { name: 'settings-skills', label: 'skillsSettings', icon: BookOutlined },
-  { name: 'settings-statistics', label: 'statisticsSettings', icon: BarChartOutlined },
-  { name: 'settings-storage', label: 'storageSettings', icon: HddOutlined },
-  { name: 'settings-about', label: 'aboutSettings', icon: InfoCircleOutlined },
+  { name: 'settings-general', label: 'appearance', icon: IconPalette },
+  { name: 'settings-personalization', label: 'personalizationSettings', icon: IconUser },
+  { name: 'settings', label: 'modelConnections', icon: IconPlugConnected },
+  { name: 'settings-search', label: 'searchSettings', icon: IconSearch },
+  { name: 'settings-mcp', label: 'mcpSettings', icon: IconLink },
+  { name: 'settings-skills', label: 'skillsSettings', icon: IconBook2 },
+  { name: 'settings-statistics', label: 'statisticsSettings', icon: IconChartBar },
+  { name: 'settings-storage', label: 'storageSettings', icon: IconDatabase },
+  { name: 'settings-about', label: 'aboutSettings', icon: IconInfoCircle },
 ]
 const settingsIndex = computed(() => route.name === 'settings-index')
 const settingsTitle = computed(() => t(sections.find(section => section.name === route.name)?.label || 'settings'))
@@ -168,14 +168,14 @@ watch(() => route.fullPath, () => {
   :close-label="t('closeSettings')" :back-label="t(settingsIndex ? 'backToConversation' : 'backToSettings')"
   :keyboard="!providerDisconnectTarget && !modelFormOpen && !providerImportOpen && !mcpModalOpen && !skillModalOpen && !memoryModalOpen && !searchModalOpen && !storageModalOpen && !resetModalOpen && !restartModalOpen && !portChangeModalOpen && !statisticsModalOpen && !instructionsEditorOpen" @cancel="backToWorkspace" @back="back">
         <template #header-actions>
-            <v-button v-if="canImport" variant="text" class="icon-button" :aria-label="t(importTitleKey)" :title="t(importTitleKey)" :disabled="importKind === 'providers' ? settingsBusy : headerAction?.disabled" @click="importedCount = 0; providerImport?.show()"><template #icon><ImportOutlined aria-hidden="true" /></template></v-button>
+            <v-button v-if="canImport" variant="text" class="icon-button" :aria-label="t(importTitleKey)" :title="t(importTitleKey)" :disabled="importKind === 'providers' ? settingsBusy : headerAction?.disabled" @click="importedCount = 0; providerImport?.show()"><template #icon><IconFileImport aria-hidden="true" /></template></v-button>
             <v-button v-if="headerAction" variant="text" class="icon-button" :aria-label="t(headerAction.label)" :title="t(headerAction.label)" :disabled="headerAction.disabled" :loading="headerAction.loading" @click="headerAction.run()">
-              <template #icon><PlusOutlined v-if="route.name === 'settings' || route.name === 'settings-mcp'" aria-hidden="true" /><ClearOutlined v-else-if="route.name === 'settings-statistics'" aria-hidden="true" /><ReloadOutlined v-else aria-hidden="true" /></template>
+              <template #icon><IconPlus v-if="route.name === 'settings' || route.name === 'settings-mcp'" aria-hidden="true" /><IconClearAll v-else-if="route.name === 'settings-statistics'" aria-hidden="true" /><IconRefresh v-else aria-hidden="true" /></template>
             </v-button>
         </template>
         <div class="settings-body">
         <nav class="settings-nav" :aria-label="t('settings')">
-          <router-link v-for="section in sections" :key="section.name" :to="{ name: section.name, query: route.query }" :class="{ active: route.name === section.name }" :aria-current="route.name === section.name ? 'page' : undefined"><component :is="section.icon" aria-hidden="true" /><span>{{ t(section.label) }}</span><RightOutlined class="settings-nav-chevron" aria-hidden="true" /></router-link>
+          <router-link v-for="section in sections" :key="section.name" :to="{ name: section.name, query: route.query }" :class="{ active: route.name === section.name }" :aria-current="route.name === section.name ? 'page' : undefined"><component :is="section.icon" aria-hidden="true" /><span>{{ t(section.label) }}</span><IconChevronRight class="settings-nav-chevron" aria-hidden="true" /></router-link>
         </nav>
         <SearchSettings v-if="route.name === 'settings-search'" @modal-open="searchModalOpen = $event" />
         <StatisticsSettings ref="sectionActions" v-if="route.name === 'settings-statistics'" @modal-open="statisticsModalOpen = $event" />
@@ -197,15 +197,15 @@ watch(() => route.fullPath, () => {
           <v-alert v-if="agentSettingsSaved" type="success" role="status" :message="t('agentSettingsSaved')" />
           <form class="agent-instructions-form" :aria-label="t('personalizationSettings')" @submit.prevent="agentFieldValidity.instructions && saveAgentSettings('instructions')">
             <div class="general-setting">
-              <div class="agent-instructions-heading"><strong>{{ t('globalInstructions') }}</strong><v-button :disabled="agentSettingsLoading || agentSettingsBusy || !agentFieldValidity.instructions" @click="instructionsEditorOpen = true"><FullscreenOutlined aria-hidden="true" />{{ t('fullscreenEdit') }}</v-button></div>
+              <div class="agent-instructions-heading"><strong>{{ t('globalInstructions') }}</strong><v-button :disabled="agentSettingsLoading || agentSettingsBusy || !agentFieldValidity.instructions" @click="instructionsEditorOpen = true"><IconMaximize aria-hidden="true" />{{ t('fullscreenEdit') }}</v-button></div>
               <figure id="global-instructions-hint" class="personalization-figure instructions-figure" :aria-label="t('instructionsFigureLabel')">
                 <div class="instructions-figure-heading"><span>{{ t('instructionsFramework') }}</span><small>{{ t('instructionsGlobalScope') }}</small></div>
                 <div class="instructions-workflow">
-                  <div class="personalization-figure-node"><CompassOutlined aria-hidden="true" /><span>{{ t('instructionsUnderstand') }}</span></div>
+                  <div class="personalization-figure-node"><IconCompass aria-hidden="true" /><span>{{ t('instructionsUnderstand') }}</span></div>
                   <span class="personalization-figure-link" aria-hidden="true"></span>
-                  <div class="personalization-figure-node"><ToolOutlined aria-hidden="true" /><span>{{ t('instructionsAct') }}</span></div>
+                  <div class="personalization-figure-node"><IconTool aria-hidden="true" /><span>{{ t('instructionsAct') }}</span></div>
                   <span class="personalization-figure-link" aria-hidden="true"></span>
-                  <div class="personalization-figure-node"><CommentOutlined aria-hidden="true" /><span>{{ t('instructionsRespond') }}</span></div>
+                  <div class="personalization-figure-node"><IconMessage aria-hidden="true" /><span>{{ t('instructionsRespond') }}</span></div>
                 </div>
               </figure>
               <SchemaForm id="agent-settings" v-model="instructionsDocument" :schema="agentFieldSchemas.instructions" :uischema="instructionsInlineUI"
@@ -217,14 +217,14 @@ watch(() => route.fullPath, () => {
               <div id="instructions-local-heading" class="instructions-local-heading">{{ t('instructionsDirectoryTitle') }}</div>
               <div class="instructions-local-flow">
                 <div class="instructions-directory">
-                  <div class="instructions-directory-name"><FolderOpenOutlined aria-hidden="true" /><span>{{ t('instructionsExampleDirectory') }}</span></div>
+                  <div class="instructions-directory-name"><IconFolderOpen aria-hidden="true" /><span>{{ t('instructionsExampleDirectory') }}</span></div>
                   <div class="instructions-directory-entries">
-                    <div class="instructions-directory-entry instructions-directory-file"><FileTextOutlined aria-hidden="true" /><div><code>AGENTS.md</code><small>{{ t('instructionsCreateFile') }}</small></div></div>
-                    <div class="instructions-directory-entry"><FolderOutlined aria-hidden="true" /><span>{{ t('instructionsSubdirectory') }}</span></div>
+                    <div class="instructions-directory-entry instructions-directory-file"><IconFileText aria-hidden="true" /><div><code>AGENTS.md</code><small>{{ t('instructionsCreateFile') }}</small></div></div>
+                    <div class="instructions-directory-entry"><IconFolder aria-hidden="true" /><span>{{ t('instructionsSubdirectory') }}</span></div>
                   </div>
                 </div>
                 <span class="personalization-figure-link" aria-hidden="true"></span>
-                <div class="personalization-figure-node"><RobotOutlined aria-hidden="true" /><span>{{ t('instructionsReadLocalRules') }}</span></div>
+                <div class="personalization-figure-node"><IconRobot aria-hidden="true" /><span>{{ t('instructionsReadLocalRules') }}</span></div>
               </div>
               <p class="instructions-local-scope">{{ t('instructionsLocalScope') }}</p>
             </aside>
@@ -242,14 +242,14 @@ watch(() => route.fullPath, () => {
                         <path v-if="depth >= 1" d="M50 24V32 M25 40V32H75V40" />
                         <path v-if="depth >= 2" d="M25 60V68 M12.5 76V68H37.5V76 M75 60V68 M62.5 76V68H87.5V76" />
                       </svg>
-                      <span v-for="node in delegationNodes.filter(node => node.level <= depth)" :key="`${node.level}-${node.x}`" class="delegation-tree-agent" :class="{ 'delegation-tree-main': node.level === 0 }" :style="{ left: `${node.x}%`, top: `${node.y}%` }"><UserOutlined /></span>
+                      <span v-for="node in delegationNodes.filter(node => node.level <= depth)" :key="`${node.level}-${node.x}`" class="delegation-tree-agent" :class="{ 'delegation-tree-main': node.level === 0 }" :style="{ left: `${node.x}%`, top: `${node.y}%` }"><IconRobotFace /></span>
                     </div>
                     <span>{{ t(label) }}</span>
                   </div>
                 </div>
                 <div class="delegation-depth-tradeoffs">
-                  <div><TeamOutlined aria-hidden="true" /><p>{{ t('delegationDepthBenefit') }}</p></div>
-                  <div class="delegation-depth-cost"><ExclamationCircleOutlined aria-hidden="true" /><p>{{ t('delegationDepthCost') }}</p></div>
+                  <div><IconUsers aria-hidden="true" /><p>{{ t('delegationDepthBenefit') }}</p></div>
+                  <div class="delegation-depth-cost"><IconAlertCircle aria-hidden="true" /><p>{{ t('delegationDepthCost') }}</p></div>
                 </div>
                 <figcaption>{{ t('delegationDepthImpact') }}</figcaption>
               </figure>
@@ -311,7 +311,7 @@ watch(() => route.fullPath, () => {
   <v-modal :open="instructionsEditorOpen" :title="t('globalInstructions')" :footer="null" :closable="false" :z-index="1200" width="100%"
     class="instructions-editor-modal" wrap-class-name="instructions-editor-wrap" destroy-on-hidden :initial-focus-el="instructionsFocus"
     @cancel="instructionsEditorOpen = false">
-    <template #header-actions><v-button @click="instructionsEditorOpen = false"><FullscreenExitOutlined aria-hidden="true" />{{ t('exitFullscreenEdit') }}</v-button></template>
+    <template #header-actions><v-button @click="instructionsEditorOpen = false"><IconMinimize aria-hidden="true" />{{ t('exitFullscreenEdit') }}</v-button></template>
     <SchemaForm id="fullscreen-agent-instructions" v-model="instructionsDocument" :schema="instructionsSchema" :uischema="instructionsUISchema" class="instructions-editor-input"
       :disabled="agentSettingsLoading || agentSettingsBusy" :reset-key="agentSettingsResetKey" />
   </v-modal>
@@ -341,7 +341,7 @@ watch(() => route.fullPath, () => {
             <p v-else>{{ t('customAuthNone') }}</p>
             <p>{{ t('customAuthOverrideHint') }}</p>
           </div></template>
-          <v-button class="icon-button provider-auth-help" type="button" variant="text" :aria-label="t('apiKeyHelp')"><ExclamationCircleOutlined /></v-button>
+          <v-button class="icon-button provider-auth-help" type="button" variant="text" :aria-label="t('apiKeyHelp')"><IconAlertCircle /></v-button>
         </v-tooltip>
       </div>
       <p v-if="modelDraft.credentialMode === 'default' && (modelDraft.kind === 'amazon-bedrock' || modelDraft.kind === 'google-vertex')" class="provider-help">{{ t(modelDraft.kind === 'amazon-bedrock' ? 'awsCredentialsHint' : 'googleCredentialsHint') }}</p>

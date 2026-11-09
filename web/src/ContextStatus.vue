@@ -2,7 +2,7 @@
 import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { Button, Popover } from './ui'
-import { LoadingOutlined, ExclamationCircleOutlined, UpOutlined, CodeOutlined } from '@antdv-next/icons'
+import { IconLoader2, IconAlertCircle, IconChevronUp, IconTerminal2 } from '@tabler/icons-vue'
 import { useEscapeDismiss } from './composables/useEscape'
 import MessageActions from './MessageActions.vue'
 import FailureHelp from './FailureHelp.vue'
@@ -35,17 +35,17 @@ watch(phase, value => { if (!value) open.value = false })
         </div>
       </template>
       <button type="button" class="context-status" :aria-label="statusLabel" :aria-expanded="open" :title="t('contextDetails')">
-        <span class="context-icon" aria-hidden="true"><LoadingOutlined v-if="compacting" /><ExclamationCircleOutlined v-else-if="phase === 'failed'" /></span>
+        <span class="context-icon" aria-hidden="true"><IconLoader2 v-if="compacting" class="ui-icon-spin" /><IconAlertCircle v-else-if="phase === 'failed'" /></span>
         <span class="context-copy" role="status" aria-live="polite" aria-atomic="true">
           <span class="context-summary">
             <span v-if="phase" class="context-title">{{ statusLabel }}</span>
           </span>
           <span v-if="compacting" class="context-description">{{ t(manual ? 'manualCompactionProgress' : 'autoCompactionProgress') }}</span>
         </span>
-        <UpOutlined class="context-disclosure" aria-hidden="true" />
+        <IconChevronUp class="context-disclosure" aria-hidden="true" />
       </button>
     </Popover>
-    <button v-if="hasJobs" type="button" class="background-processes-trigger" :aria-label="t('backgroundProcessCount', { count: jobCount })" @click="emit('openProcesses')"><CodeOutlined aria-hidden="true" />{{ t('backgroundProcessCount', { count: jobCount }) }}</button>
+    <button v-if="hasJobs" type="button" class="background-processes-trigger" :aria-label="t('backgroundProcessCount', { count: jobCount })" @click="emit('openProcesses')"><IconTerminal2 aria-hidden="true" />{{ t('backgroundProcessCount', { count: jobCount }) }}</button>
     <Button v-if="compacting && manual" class="compaction-cancel" :aria-label="t('cancel')" :disabled="cancelDisabled" @click="emit('cancel')">{{ t('cancel') }}</Button>
   </div>
 </template>

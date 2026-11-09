@@ -2,7 +2,7 @@
 import { computed, nextTick, onMounted, onUnmounted, ref, shallowRef, watch, type ComponentPublicInstance } from 'vue'
 import { useVirtualizer } from '@tanstack/vue-virtual'
 import { Empty as VEmpty, Button } from './ui'
-import { VerticalAlignBottomOutlined } from '@antdv-next/icons'
+import { IconArrowBarDown } from '@tabler/icons-vue'
 import { useI18n } from 'vue-i18n'
 import { useWorkspace } from './composables/useWorkspace'
 import type { Job, OutputView } from './client/types'
@@ -145,7 +145,7 @@ onUnmounted(() => {
     <div class="process-output-toolbar">
       <strong>{{ t('processOutput') }}</strong><span>{{ t('bytesCount', { count: size.toLocaleString() }) }}</span>
       <span v-if="following" class="process-following">{{ t('processFollowing') }}</span>
-      <Button v-else variant="text" :aria-label="t('processFollow')" @click="resume"><VerticalAlignBottomOutlined aria-hidden="true" />{{ t('processFollow') }}</Button>
+      <Button v-else variant="text" :aria-label="t('processFollow')" @click="resume"><IconArrowBarDown aria-hidden="true" />{{ t('processFollow') }}</Button>
     </div>
     <div v-if="error" class="process-output-error" role="alert"><span>{{ t('outputLoadFailed') }}: {{ error }}</span><Button @click="retry">{{ t('retry') }}</Button></div>
     <div ref="viewport" class="process-output-viewport" tabindex="0" :aria-label="t('processOutput')" @scroll="scroll" @wheel.passive="manualScroll" @pointerdown="manualScroll" @keydown="manualScroll">

@@ -1,4 +1,5 @@
 import type { MainOutput, Message, ModelInfo, OutputView, StreamEvent } from '../client/types.ts'
+import { checklistSummaryPosition } from './checklist.ts'
 
 export type MainOutputRecord = MainOutput & {
   content: string
@@ -25,7 +26,7 @@ export function mergeMainOutputs(records: readonly MainOutputRecord[], page: rea
       lastSequence: Math.max(previous.lastSequence, output.lastSequence),
       bytes: Math.max(previous.bytes, output.bytes),
       complete: previous.complete || output.complete,
-      loaded: previous.loaded && output.lastSequence <= Math.max(previous.contentSequence, previous.deltas.at(-1)?.sequence || 0),
+      loaded: previous.loaded && previous.sequence <= output.sequence && output.lastSequence <= Math.max(previous.contentSequence, previous.deltas.at(-1)?.sequence || 0),
     } : { ...output, content: '', contentSequence: 0, loaded: false, deltas: [] })
   }
   return [...merged.values()].sort((a, b) => a.sequence - b.sequence)
@@ -38,6 +39,9 @@ export function reduceMainOutputEvent(records: readonly MainOutputRecord[], even
   if (data.depth || data.taskId && data.taskId !== 'main') return records as MainOutputRecord[]
   if (event.kind === 'model_result') return records.map(output => output.runId === data.runId && output.taskId === (data.taskId || 'main') && output.turn === data.turn ? {
     ...output, complete: true, provider: data.modelResult?.provider || output.provider, modelId: data.modelResult?.id || output.modelId,
+    // A fully received live turn is already its full text. Keep it when the
+    // durable final-message preview replaces the streaming row.
+    loaded: output.loaded || output.contentSequence === 0 && output.deltas[0]?.sequence === output.sequence && event.sequence >= output.lastSequence,
   } : output)
   if (event.kind !== 'model_delta' || data.purpose || !(data.turn > 0) || typeof data.content !== 'string' || !data.content) return records as MainOutputRecord[]
   const key = mainOutputKey({ runId: data.runId, taskId: data.taskId || 'main', turn: data.turn })
@@ -70,14 +74,25 @@ export function hydrateMainOutput(record: MainOutputRecord, output: OutputView):
 export function conversationItems(messages: readonly Message[], outputs: readonly MainOutputRecord[], hasOlder = false, hasNewer = false): ConversationItem[] {
   const replies = new Set(messages.filter(message => message.role === 'assistant' && message.outputTurn).map(message => `${message.runId}/${message.outputTurn}`))
   const byTurn = new Map(outputs.map(output => [`${output.runId}/${output.turn}`, output]))
-  const runs = new Set(messages.map(message => message.runId))
-  const items: ConversationItem[] = messages.map(message => {
+  const items: ConversationItem[] = messages.flatMap(message => {
     const output = message.role === 'assistant' && message.outputTurn ? byTurn.get(`${message.runId}/${message.outputTurn}`) : undefined
-    return { ...message, content: output?.loaded && message.outputBytes && output.bytes === message.outputBytes ? mainOutputText(output) : message.content,
-      displayKey: output ? mainOutputKey(output) : message.id, displaySequence: output?.sequence ?? message.sequence }
+    const { checklist, ...reply } = message
+    const rows: ConversationItem[] = checklist && !message.content ? [] : [{
+      ...reply, content: output?.loaded && message.outputBytes && output.bytes === message.outputBytes ? mainOutputText(output) : message.content,
+      displayKey: output ? mainOutputKey(output) : message.id, displaySequence: output?.sequence ?? message.sequence,
+    }]
+    if (checklist) {
+      // The page cursor stays with the terminal reply. Only the presentation
+      // row moves to the last checklist update, without changing model history.
+      const position = checklistSummaryPosition(message)
+      const id = `checklist-summary/${message.sequence}`
+      rows.push({ id, displayKey: id, displaySequence: position.sequence, runId: message.runId,
+        sequence: message.sequence, role: 'assistant', content: '', createdAt: position.createdAt, checklist })
+    }
+    return rows
   })
   for (const output of outputs) {
-    if (!runs.has(output.runId) || replies.has(`${output.runId}/${output.turn}`)
+    if (replies.has(`${output.runId}/${output.turn}`)
       || hasOlder && output.sequence < (messages[0]?.sequence || 0)
       || hasNewer && output.sequence > (messages.at(-1)?.sequence || 0)) continue
     const key = mainOutputKey(output)

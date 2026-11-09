@@ -1,12 +1,11 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { PictureOutlined, MoreOutlined, ArrowRightOutlined, ArrowUpOutlined } from '@antdv-next/icons'
-import { Button as VButton, Select as VSelect, Tooltip as VTooltip, Dropdown as VDropdown } from './ui'
+import { IconPhoto, IconArrowRight, IconArrowUp } from '@tabler/icons-vue'
+import { Button as VButton, Select as VSelect, Tooltip as VTooltip } from './ui'
 import Sender from './ui/Sender.vue'
 import type { TextAreaRef as SenderRef } from './ui/types'
 import ContextStatus from './ContextStatus.vue'
-import ContextUsage from './ContextUsage.vue'
 import ReasoningEffortPicker from './ReasoningEffortPicker.vue'
 import { jobActive } from './state/jobs'
 import { useWorkspace } from './composables/useWorkspace'
@@ -19,7 +18,7 @@ const { draft, quotedText, removeQuote, agentWorking, selectionMode, selectionTi
   selectedModel, selectedReasoning, reasoningChoices, chooseModel,
   canAttachImage, attachedImages, attachedPreviewURLs, chooseImages, pasteImages, dropImages, removeImage,
   submitMessage, cancelExecution, recallLastUserMessage,
-  jobs, compaction, contextUsage, canCompact, compactSession, manualCompacting, compactionRequestPending, continueAfterCompaction, fillContinueDraft, feedbackInvitationOpen } = conversation
+  jobs, compaction, manualCompacting, compactionRequestPending, continueAfterCompaction, fillContinueDraft, feedbackInvitationOpen } = conversation
 const runningJobs = computed(() => jobs.value.filter(jobActive).length)
 const compacting = computed(() => manualCompacting.value || compactionRequestPending.value
   || agentWorking.value && compaction.value?.phase === 'compacting')
@@ -92,6 +91,7 @@ function updateSenderSize() {
 const selectionTierOptions = computed(() => [{ label: t('speedTier'), value: 'speed' }, { label: t('qualityTier'), value: 'quality' }])
 const defaultSendHint = computed(() => editingMessage.value ? t('resendEditedMessage') : agentWorking.value ? t('sendAsSteer') : t('send'))
 const sendButtonLabel = computed(() => agentWorking.value && !draft.value.trim() && !attachedImages.value.length ? t('cancelExecution') : t('send'))
+const sendButtonText = computed(() => t(agentWorking.value && !draft.value.trim() && !attachedImages.value.length ? 'stopResponse' : busy.value ? 'sendingMessage' : 'send'))
 let composing = false
 let compositionEndedAt = -Infinity
 function compositionStart() { composing = true }
@@ -150,7 +150,7 @@ onUnmounted(() => {
 
 <template>
         <router-link v-if="needsProvider" class="composer sender-card sender-setup" :to="{ path: '/settings/models', query: modalQuery() }">
-          <span>{{ t('configureModelToStart') }}</span><ArrowRightOutlined aria-hidden="true" />
+          <span>{{ t('configureModelToStart') }}</span><IconArrowRight aria-hidden="true" />
         </router-link>
         <Sender v-else ref="sender" v-model:value="draft" :class="senderClass" :auto-size="senderAutoSize" :disabled="senderDisabled" :loading="busy || agentWorking && !draft.trim() && !attachedImages.length" :placeholder="senderPlaceholder" :aria-label="t('sendMessage')" :on-key-down="senderKeyDown" @compositionstart.capture="compositionStart" @compositionend.capture="compositionEnd" @paste="pasteImages" @dragenter="enterImageDrag" @dragover="overImageDrag" @dragleave="leaveImageDrag" @drop="receiveImageDrop">
           <template #header>
@@ -161,7 +161,7 @@ onUnmounted(() => {
             <div class="sender-quote-body"><span class="sender-quote-label">{{ t(quotedText.role === 'assistant' ? 'quotedReply' : 'quotedMessage') }}</span><p>{{ quotedText.text }}</p></div>
             <v-button variant="text" class="icon-button sender-quote-remove icon-close" :aria-label="t('removeQuote')" :disabled="busy" @click="removeQuote">×</v-button>
           </div>
-          <div v-if="imageDragDepth" class="sender-drop-hint" :class="{ unsupported: !canAttachImage }" role="status"><PictureOutlined /><strong>{{ imageDropHint }}</strong><small v-if="canAttachImage">{{ t('imageLimit') }}</small></div>
+          <div v-if="imageDragDepth" class="sender-drop-hint" :class="{ unsupported: !canAttachImage }" role="status"><IconPhoto /><strong>{{ imageDropHint }}</strong><small v-if="canAttachImage">{{ t('imageLimit') }}</small></div>
           <div v-if="attachedImages.length" class="sender-attachments" aria-live="polite">
             <div v-for="(file, index) in attachedImages" :key="index" class="sender-attachment">
               <img :src="attachedPreviewURLs[index]" :alt="file.name">
@@ -179,16 +179,12 @@ onUnmounted(() => {
             </div>
 
             <div class="sender-actions">
-            <ContextUsage v-if="selected && contextUsage" :key="selected.id" :usage="contextUsage" />
             <div class="composer-submit">
-              <v-dropdown v-if="selected" :trigger="['click']" :menu="{ items: [{ key: 'compact', label: t('compactContext'), disabled: !canCompact || senderDisabled }], onClick: compactSession }">
-                <v-button class="icon-button" variant="text" :aria-label="t('conversationOptions')" :title="t('conversationOptions')"><MoreOutlined /></v-button>
-              </v-dropdown>
               <v-tooltip v-if="canAttachImage" :title="t('addImagesHint')"><span class="sender-attach">
-                <v-button class="icon-button" variant="text" :aria-label="t('addImage')" :disabled="imageInputDisabled" @click="imageInput?.click()"><PictureOutlined /><span class="sender-attach-label">{{ t('addImage') }}</span></v-button>
+                <v-button class="icon-button" variant="text" :aria-label="t('addImage')" :disabled="imageInputDisabled" @click="imageInput?.click()"><IconPhoto /><span class="sender-attach-label">{{ t('addImage') }}</span></v-button>
                 <input ref="imageInput" type="file" accept="image/png,image/jpeg,image/webp,image/gif" multiple tabindex="-1" aria-hidden="true" :aria-label="t('addImage')" :disabled="imageInputDisabled" @change="chooseImages">
               </span></v-tooltip>
-              <v-button variant="primary" :loading="busy" class="composer-send" :class="{ 'execution-stop-button': agentWorking && !draft.trim() && !attachedImages.length }" shape="circle" :disabled="busy || senderDisabled || (!!attachedImages.length && !canAttachImage) || (!agentWorking && !draft.trim() && !attachedImages.length)" :aria-label="sendButtonLabel" :title="agentWorking && !draft.trim() && !attachedImages.length ? `${t('cancelExecution')} · Esc` : defaultSendHint" :aria-keyshortcuts="agentWorking && !draft.trim() && !attachedImages.length ? 'Escape' : undefined" @click="agentWorking && !draft.trim() && !attachedImages.length ? cancelExecution() : sendMessage()"><span v-if="agentWorking && !draft.trim() && !attachedImages.length" class="composer-stop-mark" aria-hidden="true" /><ArrowUpOutlined v-else aria-hidden="true" /><span class="visually-hidden">{{ sendButtonLabel }}</span></v-button>
+              <v-button variant="primary" :loading="busy" class="composer-send" :class="{ 'execution-stop-button': agentWorking && !draft.trim() && !attachedImages.length }" :disabled="busy || senderDisabled || (!!attachedImages.length && !canAttachImage) || (!agentWorking && !draft.trim() && !attachedImages.length)" :aria-label="busy ? sendButtonText : sendButtonLabel" :title="agentWorking && !draft.trim() && !attachedImages.length ? `${t('cancelExecution')} · Esc` : defaultSendHint" :aria-keyshortcuts="agentWorking && !draft.trim() && !attachedImages.length ? 'Escape' : undefined" @click="agentWorking && !draft.trim() && !attachedImages.length ? cancelExecution() : sendMessage()"><template v-if="!busy"><span v-if="agentWorking && !draft.trim() && !attachedImages.length" class="composer-stop-mark" aria-hidden="true" /><IconArrowUp v-else aria-hidden="true" /></template><span class="composer-send-label">{{ sendButtonText }}</span></v-button>
             </div></div></div></template>
         </Sender>
 </template>
@@ -196,7 +192,7 @@ onUnmounted(() => {
 <style scoped>
 .sender-setup{display:flex;align-items:flex-start;gap:20px;min-height:136px;padding:22px 24px;color:var(--muted);font-size:16px;line-height:1.7;text-decoration:none;cursor:pointer;transition:border-color .2s,box-shadow .2s,color .2s}
 .sender-setup>span:first-child{flex:1;min-width:0}
-.sender-setup>.anticon{flex:none;margin-top:6px;color:var(--accent)}
+.sender-setup>.tabler-icon{flex:none;margin-top:6px;color:var(--accent)}
 .sender-setup:hover{border-color:var(--accent)!important;color:var(--text)}
 .sender-setup:focus-visible{outline:var(--focus-outline, 2px solid var(--accent));outline-offset:3px}
 @media(max-width:830px){.sender-setup{min-height:120px;padding:18px 20px}}
@@ -209,7 +205,7 @@ onUnmounted(() => {
 .sender-quote-body p{max-height:5.4em;margin:0;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere;font-size:14px;line-height:1.6}
 .sender-card-compacting{border-color:var(--border-strong)!important}
 .sender-drop-hint{position:absolute;inset:0;z-index:5;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:.3rem;padding:.6rem;pointer-events:none;border:2px dashed var(--accent);border-radius:inherit;background:var(--surface);text-align:center}
-.sender-drop-hint>.anticon{font-size:24px}
+.sender-drop-hint>.tabler-icon{font-size:24px}
 .sender-drop-hint strong{font-size:16px;font-weight:500}
 .sender-drop-hint small{font-size:13px;overflow-wrap:anywhere}
 .sender-drop-hint.unsupported{border-color:var(--faint);color:var(--muted)}

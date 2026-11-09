@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { PushpinFilled, PushpinOutlined } from '@antdv-next/icons'
+import { IconPinFilled, IconPin } from '@tabler/icons-vue'
 import { Button as VButton, Tooltip as VTooltip } from './ui'
 import type { Session } from './client/types'
 import { useWorkspace } from './composables/useWorkspace'
@@ -25,7 +25,7 @@ async function toggle() {
     <v-button variant="text" class="icon-button session-pin" :class="{ 'session-pinned': session.pinned }"
       :aria-label="t(session.pinned ? 'unpinSession' : 'pinSession')" :aria-pressed="!!session.pinned"
       :disabled="busy || saving" @click.stop="toggle" @keydown.enter.stop @keydown.space.stop>
-      <PushpinFilled v-if="session.pinned" /><PushpinOutlined v-else />
+      <IconPinFilled v-if="session.pinned" /><IconPin v-else />
     </v-button>
   </v-tooltip>
 </template>

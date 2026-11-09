@@ -2,7 +2,7 @@
 import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { Alert as VAlert, Button as VButton, Modal as VModal } from './ui'
-import { EditOutlined, SearchOutlined, FileTextOutlined, RobotOutlined, GlobalOutlined } from '@antdv-next/icons'
+import { IconPencil, IconSearch, IconFileText, IconRobot, IconWorld } from '@tabler/icons-vue'
 import { useWorkspace } from './composables/useWorkspace'
 import ConfirmPopover from './ConfirmPopover.vue'
 import SchemaForm from './SchemaForm.vue'
@@ -206,7 +206,7 @@ async function updateKey(remove = false) {
     <figure class="web-capabilities" :aria-label="t('webCapabilitiesLabel')">
       <div class="web-capability-flow">
         <div class="web-flow-actor">
-          <RobotOutlined aria-hidden="true" />
+          <IconRobot aria-hidden="true" />
           <h3>{{ t('model') }}</h3>
         </div>
         <svg class="web-flow-link" viewBox="0 0 40 32" preserveAspectRatio="none" aria-hidden="true">
@@ -216,9 +216,9 @@ async function updateKey(remove = false) {
         </svg>
         <div class="web-flow-actor web-tools-actor">
           <h3>{{ t('webQueryTools') }}</h3>
-          <div class="web-query-tool"><SearchOutlined aria-hidden="true" /><span>{{ t('webSearchLabel') }}</span></div>
+          <div class="web-query-tool"><IconSearch aria-hidden="true" /><span>{{ t('webSearchLabel') }}</span></div>
           <div class="web-capability-bridge"><span>{{ t('webReadAsNeeded') }}</span></div>
-          <div class="web-query-tool"><FileTextOutlined aria-hidden="true" /><span>{{ t('webFetchLabel') }}</span></div>
+          <div class="web-query-tool"><IconFileText aria-hidden="true" /><span>{{ t('webFetchLabel') }}</span></div>
         </div>
         <svg class="web-flow-link web-flow-content-link" viewBox="0 0 40 32" preserveAspectRatio="none" aria-hidden="true">
           <path class="web-flow-track" d="M0 7H39L35 3 M39 7L35 11 M40 25H1L5 21 M1 25L5 29" />
@@ -226,7 +226,7 @@ async function updateKey(remove = false) {
           <path class="web-flow-packet web-flow-return" pathLength="100" d="M40 25H0" />
         </svg>
         <div class="web-flow-actor">
-          <GlobalOutlined aria-hidden="true" />
+          <IconWorld aria-hidden="true" />
           <h3>{{ t('webOutsideContent') }}</h3>
         </div>
       </div>
@@ -270,7 +270,7 @@ async function updateKey(remove = false) {
       <h2>{{ t('apiKey') }}</h2>
       <SchemaForm id="search-credential-choice" v-model="choiceDocument" :schema="choiceSchema" :uischema="choiceUISchema" :disabled="!!busy" />
       <p class="search-settings-hint">{{ keyStatus(keySource(credentialChoice), credentialChoice) }}</p>
-      <v-button :disabled="!!busy" @click="editKey(credentialChoice)"><EditOutlined aria-hidden="true" />{{ t('editSearchKey', { name: providerName(credentialChoice) }) }}</v-button>
+      <v-button :disabled="!!busy" @click="editKey(credentialChoice)"><IconPencil aria-hidden="true" />{{ t('editSearchKey', { name: providerName(credentialChoice) }) }}</v-button>
       <p v-if="updated && updated !== 'preferences'" class="search-settings-updated" role="status">{{ t('searchSettingsUpdated') }}</p>
     </section>
 
@@ -302,12 +302,12 @@ async function updateKey(remove = false) {
 .web-capabilities { margin: 0; padding: 1rem; border: 1px solid var(--border-subtle); border-radius: 12px; background: var(--surface-subtle); }
 .web-capability-flow { display: grid; grid-template-columns: minmax(0, 1fr) minmax(14px, .35fr) minmax(0, 1.4fr) minmax(14px, .35fr) minmax(0, 1fr); align-items: center; }
 .web-flow-actor { display: flex; min-width: 0; flex-direction: column; align-items: center; gap: .65rem; padding: 1rem .35rem; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); text-align: center; }
-.web-flow-actor>.anticon { color: var(--accent); font-size: 28px; }
+.web-flow-actor>.tabler-icon { color: var(--accent); font-size: 28px; }
 .web-flow-actor h3 { margin: 0; font-size: 1rem; line-height: 1.5; overflow-wrap: anywhere; }
 .web-tools-actor { gap: .5rem; padding: .75rem .4rem; }
 .web-tools-actor h3 { color: var(--muted); font-size: var(--font-size-small); font-weight: 400; }
 .web-query-tool { display: flex; align-items: center; justify-content: center; gap: .4rem; color: var(--accent); font-size: var(--font-size-small); font-weight: 600; }
-.web-query-tool>.anticon { flex: none; }
+.web-query-tool>.tabler-icon { flex: none; }
 .web-query-tool>span { min-width: 0; overflow-wrap: anywhere; }
 .web-capability-bridge { position: relative; align-self: stretch; padding: .4rem 0; color: var(--muted); font-size: var(--font-size-small); line-height: 1.5; text-wrap: balance; }
 .web-capability-bridge::before { content: ''; position: absolute; top: 0; bottom: 0; left: 50%; border-left: 1px dashed var(--border-strong); }

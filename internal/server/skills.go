@@ -125,7 +125,7 @@ func (a *App) skillSetting(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// Serialize mutations and directory snapshots. A selected file is read
-	// through its open handle; streaming a download must not block other edits.
+	// through its open handle; streaming an image must not block other edits.
 	if r.Method != http.MethodGet || !r.URL.Query().Has("file") {
 		a.skillsMu.Lock()
 		defer a.skillsMu.Unlock()

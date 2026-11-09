@@ -48,7 +48,7 @@ func TestSkillSupportingFilesReadEditAndPreservePermissions(t *testing.T) {
 	}
 }
 
-func TestSkillBinaryReadsAreMetadataOnlyAndDownloadsSupportRanges(t *testing.T) {
+func TestSkillBinaryReadsAreMetadataOnlyAndImagePreviewsSupportRanges(t *testing.T) {
 	a := &App{configDir: t.TempDir()}
 	image := "\x89PNG\r\n\x1a\n" + strings.Repeat("binary payload", 1024)
 	seedSkillFiles(t, a, "example", [][2]string{{"SKILL.md", "---\nname: Example\ndescription: Example\n---\n"}, {"assets/image.png", image}, {"assets/raw.bin", "\x00\xff\x80"}})
@@ -59,16 +59,15 @@ func TestSkillBinaryReadsAreMetadataOnlyAndDownloadsSupportRanges(t *testing.T) 
 		}
 		mcpAPI(t, a, "PUT", "/skills/example?file="+url.QueryEscape(file), map[string]string{"content": "overwrite", "sha256": "invalid"}, 400)
 	}
-	r := httptest.NewRequest("GET", "/api/skills/example?file=assets%2Fimage.png&raw=1&preview=1", nil)
+	r := httptest.NewRequest("GET", "/api/skills/example?file=assets%2Fimage.png&preview=1", nil)
 	r.Header.Set("Range", "bytes=0-7")
 	w := httptest.NewRecorder()
 	a.skillSetting(w, r)
 	if w.Code != http.StatusPartialContent || w.Body.String() != image[:8] || w.Header().Get("Content-Type") != "image/png" || !strings.HasPrefix(w.Header().Get("Content-Disposition"), "inline") || w.Header().Get("X-Content-Type-Options") != "nosniff" {
 		t.Fatalf("image range: %d %v %q", w.Code, w.Header(), w.Body.String())
 	}
-	main := mcpAPI(t, a, "GET", "/skills/example?file=SKILL.md&raw=1", nil, 200)
-	if !strings.HasPrefix(main.Header().Get("Content-Disposition"), "attachment") {
-		t.Fatal("text download was served as active content")
+	for _, file := range []string{"SKILL.md", "assets/raw.bin"} {
+		mcpAPI(t, a, "GET", "/skills/example?file="+url.QueryEscape(file)+"&preview=1", nil, 400)
 	}
 }
 

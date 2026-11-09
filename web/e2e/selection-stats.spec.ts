@@ -1,6 +1,6 @@
 import { rmSync } from 'node:fs'
 import { installMockStateStream, notifyState } from './state-stream-fixture'
-import { coreSnapshot } from './conversation-fixture'
+import { coreSnapshot, installConversationStream } from './conversation-fixture'
 import { test as base, expect, type Page } from '@playwright/test'
 import { createServer } from 'vite'
 import { resolve } from 'node:path'
@@ -57,6 +57,7 @@ async function mockSettings(page: Page, origin: string) {
   const resetScopes: string[] = []
   let statsReads = 0
   await installMockStateStream(page)
+  await installConversationStream(page, () => coreSnapshot(session))
   await page.route('**/api/**', async route => {
     const request = route.request()
     const path = new URL(request.url()).pathname.slice(4)
@@ -89,7 +90,6 @@ async function mockSettings(page: Page, origin: string) {
     if (path.endsWith('/feedback')) return reply({ feedback: {} })
     if (path.endsWith('/context')) return reply(null)
     if (path.endsWith('/inputs') || path.endsWith('/messages') || path.endsWith('/event-page')) return reply([])
-    if (path.endsWith('/events')) return route.fulfill({ contentType: 'text/event-stream', body: '' })
     if (path.endsWith('/summary')) return reply(null)
     return reply([])
   })

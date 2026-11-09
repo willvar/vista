@@ -16,6 +16,39 @@ async function menu(page: Page, row: Locator, name: string) {
 }
 async function rowIDs(rows: Locator) { return rows.evaluateAll(elements => elements.map(element => element.getAttribute('data-session-id'))) }
 
+test('sidebar titles reclaim hidden action space while pinned and touch controls keep their room', { tag: '@responsive' }, async ({ page, vista, isMobile }) => {
+  const session = await vista.api('/sessions', { method: 'POST', body: JSON.stringify({ title: 'A long conversation title that can use all available sidebar space' }) })
+  await page.goto(`${vista.origin}/sessions/${session.id}`)
+  await showSidebar(page)
+  const row = sidebarRow(page, session.id)
+  const title = row.locator('.inline-session-title')
+  const textWidth = () => title.evaluate(element => element.clientWidth - parseFloat(getComputedStyle(element).paddingInlineEnd))
+  await page.locator('.sidebar-section-label').hover()
+  const idleWidth = await textWidth()
+  await row.hover()
+  const hoveredWidth = await textWidth()
+  if (isMobile) expect(idleWidth).toBe(hoveredWidth)
+  else expect(idleWidth - hoveredWidth).toBeGreaterThanOrEqual(64)
+  const pin = row.locator('.session-pin')
+  await pin.click()
+  await expect(pin).toHaveAttribute('aria-pressed', 'true')
+  await page.locator('.sidebar-section-label').hover()
+  const pinnedWidth = await textWidth()
+  if (isMobile) expect(pinnedWidth).toBe(idleWidth)
+  else {
+    expect(idleWidth - pinnedWidth).toBeGreaterThanOrEqual(32)
+    expect(pinnedWidth - hoveredWidth).toBeGreaterThanOrEqual(32)
+  }
+  const textBox = await title.locator('.session-name').boundingBox()
+  const pinBox = await pin.boundingBox()
+  expect(textBox!.x + textBox!.width).toBeLessThanOrEqual(pinBox!.x)
+  await row.locator('.session-menu').focus()
+  await page.keyboard.press('Tab')
+  await expect(pin).toBeFocused()
+  expect(await textWidth()).toBe(hoveredWidth)
+  await expect(row.locator('.session-menu')).toHaveCSS('opacity', '1')
+})
+
 test('executing sessions show progress in the pin slot or before touch actions and preserve controls', async ({ page, vista, isMobile }, info) => {
   const task = await vista.api('/sessions', { method: 'POST', body: JSON.stringify({ title: 'Running task' }) })
   const active = await vista.api('/sessions', { method: 'POST', body: JSON.stringify({ title: 'Current conversation' }) })

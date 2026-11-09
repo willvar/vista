@@ -236,7 +236,7 @@ test('failed requests and late document responses keep the current editor and sa
   await expect(page).toHaveURL(/\/settings\/skills$/)
 })
 
-test('file tree preserves separate drafts, edits references and scripts, and previews or downloads assets', { tag: '@smoke' }, async ({ page, vista }, testInfo) => {
+test('file tree preserves separate drafts, edits text and previews images without downloads', { tag: '@smoke' }, async ({ page, vista }, testInfo) => {
   const { directory } = await vista.api('/skills')
   const folder = join(directory, 'complete-pack')
   for (const name of ['scripts', 'references', 'assets']) mkdirSync(join(folder, name), { recursive: true })
@@ -250,6 +250,7 @@ test('file tree preserves separate drafts, edits references and scripts, and pre
   await page.goto(`${vista.origin}/settings/skills`)
   await page.locator('[data-skill="complete-pack"]').getByRole('button', { name: 'Edit Code review', exact: true }).click()
   const editor = page.getByRole('dialog', { name: 'Edit skill', exact: true })
+  await expect(editor.locator('a[download]')).toHaveCount(0)
   await selectFile(editor, 'SKILL.md')
   const mainDraft = review + 'An unsaved main instruction.\n'
   await editor.getByLabel('SKILL.md', { exact: true }).fill(mainDraft)
@@ -278,11 +279,10 @@ test('file tree preserves separate drafts, edits references and scripts, and pre
   await expect(editor.getByRole('button', { name: 'Save changes', exact: true })).toBeDisabled()
   await selectFile(editor, 'assets/raw.bin')
   await expect(editor.locator('textarea')).toHaveCount(0)
-  const download = page.waitForEvent('download')
-  await editor.getByRole('link', { name: 'Download', exact: true }).click()
-  expect((await download).suggestedFilename()).toBe('raw.bin')
+  await expect(editor.getByText('This file cannot be previewed or edited here.', { exact: true })).toBeVisible()
+  await expect(editor.getByRole('link', { name: 'Download', exact: true })).toHaveCount(0)
   const connectionError = await page.evaluate(() => document.querySelector('.state-sync-error')?.getAttribute('title'))
-  expect(connectionError, 'Downloading a skill asset must preserve the shared state stream').toBeUndefined()
+  expect(connectionError, 'Browsing skill files must preserve the shared state stream').toBeUndefined()
   writeFileSync(join(folder, 'references/new.txt'), 'New external file')
   await selectFile(editor, 'SKILL.md')
   await expect(editor.getByLabel('SKILL.md', { exact: true })).toHaveValue(mainDraft)

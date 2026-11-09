@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onScopeDispose, ref } from 'vue'
 import { Translation as I18nT, useI18n } from 'vue-i18n'
-import { LoadingOutlined } from '@antdv-next/icons'
+import { IconLoader2 } from '@tabler/icons-vue'
 import { useWorkspace } from './composables/useWorkspace'
 import type { RunClock } from './client/types'
 
@@ -24,7 +24,7 @@ const activityAge = computed(() => duration(props.clock?.lastActivityAt))
 
 <template>
   <section class="conversation-execution" :aria-label="t('executionProcess')">
-    <div class="conversation-execution-current"><LoadingOutlined class="ui-icon-spin" aria-hidden="true" /><strong role="status" :title="status">{{ status }}</strong><small v-if="elapsed" class="conversation-execution-elapsed">{{ t('traceElapsed', { elapsed }) }}</small></div>
+    <div class="conversation-execution-current"><IconLoader2 class="ui-icon-spin" aria-hidden="true" /><strong role="status" :title="status">{{ status }}</strong><small v-if="elapsed" class="conversation-execution-elapsed">{{ t('traceElapsed', { elapsed }) }}</small></div>
     <p v-if="clock?.lastActivityAt" class="trace-last-activity"><I18nT keypath="traceLastActivity" tag="span" scope="global"><template #activity><time :datetime="clock.lastActivityAt" :title="localTime(clock.lastActivityAt)">{{ localTime(clock.lastActivityAt) }}</time></template></I18nT><small v-if="activityAge">{{ t('traceActivityAge', { elapsed: activityAge }) }}</small></p>
   </section>
 </template>

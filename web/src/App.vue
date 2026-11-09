@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from 'vue'
 import { Empty as VEmpty, Button as VButton, Modal as VModal, Dropdown as VDropdown } from './ui'
-import { AppstoreOutlined, SettingOutlined, CloseOutlined, PlusOutlined, EllipsisOutlined, LoadingOutlined } from '@antdv-next/icons'
+import { IconLayoutGrid, IconSettings, IconX, IconPlus, IconDots, IconLoader2 } from '@tabler/icons-vue'
 import { useI18n } from 'vue-i18n'
 import AppProvider from './AppProvider.vue'
 import WorkspaceSplit from './ui/WorkspaceSplit.vue'
@@ -90,8 +90,8 @@ function activateSession(id: string) {
       <aside id="sessions-panel" ref="sessionsPanel" class="sessions-panel" :class="{ 'mobile-open': mobileSessionsOpen }"
         @pointerdown.capture="drawerSwipe.start" @pointermove="drawerSwipe.move" @pointerup="drawerSwipe.end"
         @pointercancel="drawerSwipe.cancel" @lostpointercapture="drawerSwipe.lostCapture" @click.capture="drawerSwipe.click">
-        <div class="sidebar-brand"><button class="brand-home" aria-label="Vista" :disabled="busy" @click="create"><VistaMark /><span>Vista</span></button><v-button variant="text" class="icon-button mobile-sessions-close icon-close" :aria-label="t('closeSessionDrawer')" @click="mobileSessionsOpen = false"><CloseOutlined /></v-button></div>
-        <v-button variant="text" class="sidebar-new-conversation" :disabled="busy" @click="create"><PlusOutlined aria-hidden="true" /><span>{{ t('newConversation') }}</span></v-button>
+        <div class="sidebar-brand"><button class="brand-home" aria-label="Vista" :disabled="busy" @click="create"><VistaMark /><span>Vista</span></button><v-button variant="text" class="icon-button mobile-sessions-close icon-close" :aria-label="t('closeSessionDrawer')" @click="mobileSessionsOpen = false"><IconX /></v-button></div>
+        <v-button variant="text" class="sidebar-new-conversation" :disabled="busy" @click="create"><IconPlus aria-hidden="true" /><span>{{ t('newConversation') }}</span></v-button>
         <div class="sidebar-section-label"><span>{{ t('recentConversations') }}</span><small>{{ openSessions.length || '' }}</small></div>
         <v-empty v-if="!openSessions.length" class="vista-empty-state vista-empty-state-compact sidebar-empty" :description="t(totalSessions ? 'noOpenSessions' : 'createSessionHint')" />
         <ul><li v-for="item in sidebarSessions" :key="item.id" :data-session-id="item.id" class="session-card" :class="{ selected: selected?.id === item.id }" role="button" tabindex="0" :aria-label="t('activateSession', { title: displaySessionTitle(item) })" :aria-current="selected?.id === item.id ? 'page' : undefined" @click="activateSession(item.id)" @keydown.enter.prevent="activateSession(item.id)" @keydown.space.prevent="activateSession(item.id)">
@@ -99,8 +99,8 @@ function activateSession(id: string) {
             <strong class="session-name" :class="{ unread: sessionHasUnread(item) }">{{ displaySessionTitle(item) }}</strong>
           </InlineSessionTitle>
           <div class="session-card-actions" @click.stop @keydown.enter.stop @keydown.space.stop>
-            <span v-if="item.running && item.executing && (!serverStatus || workerAvailable(item.id))" class="session-execution-loading" aria-hidden="true"><LoadingOutlined class="ui-icon-spin" /></span>
-            <v-dropdown :menu="sessionMenu(item)"><v-button variant="text" class="icon-button session-menu" :aria-label="t('sessionMenu')" :disabled="busy"><EllipsisOutlined /></v-button></v-dropdown>
+            <span v-if="item.running && item.executing && (!serverStatus || workerAvailable(item.id))" class="session-execution-loading" aria-hidden="true"><IconLoader2 class="ui-icon-spin" /></span>
+            <v-dropdown :menu="sessionMenu(item)"><v-button variant="text" class="icon-button session-menu" :aria-label="t('sessionMenu')" :disabled="busy"><IconDots /></v-button></v-dropdown>
             <SessionPin :session="item" />
           </div>
           <SessionIndicators :session="item" :worker-available="serverStatus ? workerAvailable(item.id) : undefined" />
@@ -108,8 +108,8 @@ function activateSession(id: string) {
         </li></ul>
         <footer class="sessions-panel-footer">
           <nav class="sidebar-navigation" :aria-label="t('workspaceHeading')">
-            <v-button variant="text" class="manage-sessions-link" @click="openSessionManager"><AppstoreOutlined aria-hidden="true" />{{ t('manageSessions') }}</v-button>
-            <v-button variant="text" class="settings-trigger" :aria-label="t('settings')" @click="settingsOpen ? backToWorkspace() : openSettings()"><SettingOutlined aria-hidden="true" />{{ t('settings') }}</v-button>
+            <v-button variant="text" class="manage-sessions-link" @click="openSessionManager"><IconLayoutGrid aria-hidden="true" />{{ t('manageSessions') }}</v-button>
+            <v-button variant="text" class="settings-trigger" :aria-label="t('settings')" @click="settingsOpen ? backToWorkspace() : openSettings()"><IconSettings aria-hidden="true" />{{ t('settings') }}</v-button>
           </nav>
         </footer>
       </aside>

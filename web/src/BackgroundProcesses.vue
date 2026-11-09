@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onUnmounted, ref, watch } from 'vue'
 import { Empty as VEmpty, Button, Modal, Select } from './ui'
-import { CodeOutlined, StopOutlined } from '@antdv-next/icons'
+import { IconTerminal2, IconPlayerStop } from '@tabler/icons-vue'
 import { useI18n } from 'vue-i18n'
 import { useWorkspace } from './composables/useWorkspace'
 import { useEscapeDismiss } from './composables/useEscape'
@@ -122,7 +122,7 @@ onUnmounted(() => { cancelRequests(); clearInterval(clock); for (const action of
       <Select v-if="ordered.length > 1" v-model:value="selectedId" class="process-select" :options="options" :aria-label="t('selectProcess')" :show-search="true" option-filter-prop="label" />
       <p v-if="error" class="process-error" role="alert">{{ error }} <Button variant="link" @click="refresh">{{ t('retry') }}</Button></p>
       <template v-if="job">
-        <div class="process-heading"><span class="process-state" :class="{ active: jobActive(job), failed: job.status === 'failed' }"><CodeOutlined aria-hidden="true" />{{ t(jobStatusKey(job)) }}</span><Button v-if="jobActive(job)" danger :aria-label="t(stopping.has(job.id) ? 'processStopping' : 'stopProcess')" :loading="stopping.has(job.id)" :disabled="stopping.has(job.id)" @click="stop"><StopOutlined v-if="!stopping.has(job.id)" aria-hidden="true" />{{ t(stopping.has(job.id) ? 'processStopping' : 'stopProcess') }}</Button></div>
+        <div class="process-heading"><span class="process-state" :class="{ active: jobActive(job), failed: job.status === 'failed' }"><IconTerminal2 aria-hidden="true" />{{ t(jobStatusKey(job)) }}</span><Button v-if="jobActive(job)" danger :aria-label="t(stopping.has(job.id) ? 'processStopping' : 'stopProcess')" :loading="stopping.has(job.id)" :disabled="stopping.has(job.id)" @click="stop"><IconPlayerStop v-if="!stopping.has(job.id)" aria-hidden="true" />{{ t(stopping.has(job.id) ? 'processStopping' : 'stopProcess') }}</Button></div>
         <div class="process-info">
         <pre class="process-command">{{ job.command }}</pre>
         <dl class="process-details">

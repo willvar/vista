@@ -269,10 +269,7 @@ export function useRunHistory(client: VistaClient, options: RunHistoryOptions, e
     }
     return [...unique.values()].sort((a, b) => a.sequence - b.sequence)
   })
-  const modelCalls = computed(() => {
-    if (!overview.value) return null
-    const after = overview.value.throughSequence
-    return overview.value.modelCalls + events.value.filter(event => event.sequence > after && event.kind === 'model_request' && event.data?.purpose !== 'summary').length
-  })
-  return { events, loading, failure, load, hasMore, overview, overviewLoading, overviewFailure, loadOverview, modelCalls, loadNode, nodeLoading, nodeFailure, loadedSequences }
+  const ready = computed(() => !loading.value && !overviewLoading.value && !Object.values(nodeLoading.value).some(Boolean)
+    && (!!failure.value || !!overviewFailure.value || !expanded.value && !!overview.value || !hasMore.value))
+  return { events, ready, loading, failure, load, hasMore, overview, overviewLoading, overviewFailure, loadOverview, loadNode, nodeLoading, nodeFailure, loadedSequences }
 }

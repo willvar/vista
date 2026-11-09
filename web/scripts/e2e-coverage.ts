@@ -13,7 +13,7 @@ const responsiveFiles = [
 const responsiveTitles: Record<string, string> = {
   'agent-settings': 'full-screen instructions|Appearance and Personalization remain usable',
   'compaction': 'an automatic summary appears|manual compaction preserves chat and draft',
-  'execution-flow': 'execution messages appear|interleaved main and child|long chronological execution|crossing the step virtualization|expanded execution history|current action, timing|stopping a run|new runs clear|write_file diffs|truncated file and search|usage totals|multi-megabyte process logs|switching monitored processes|token usage uses',
+  'execution-flow': 'execution messages appear|interleaved main and child|long chronological execution|new execution steps|expanded execution history|continuous history prepares|historical full text|current action, timing|stopping a run|new runs clear|write_file diffs|truncated file and search|usage totals|multi-megabyte process logs|switching monitored processes|token usage uses',
   'iteration': 'independent selection, voluntary feedback',
   'mcp-settings': 'MCP dialogs and long tools stay readable',
   'memory-settings': 'memory manager keeps long text|memories in Personalization support editing',
@@ -49,7 +49,7 @@ const groups: Record<string, string[]> = {
   statistics: ['statistics'],
 }
 const consumers: [RegExp, string[]][] = [
-  [/^web\/src\/(?:pages\/ConversationPage|Conversation|Message|Run|Context|PendingInputs|QuestionForm|BackgroundProcesses|WorkerStatus)|^web\/src\/(?:state\/(?:conversation|checklist|mainOutputs|runTrace|quotedReply|jobs|failureAnalysis)|composables\/use(?:Conversation|Presentation|RunHistory))|^internal\/(?:agent|worker|workerproto|provider|modeltrace|tool)\//, ['conversation']],
+  [/^web\/src\/(?:pages\/ConversationPage|Conversation|Message|Run|Trace|TimelineItem|Context|PendingInputs|QuestionForm|BackgroundProcesses|WorkerStatus)|^web\/src\/(?:client\/queries|state\/(?:conversation|checklist|mainOutputs|runTrace|quotedReply|jobs|failureAnalysis)|composables\/use(?:Conversation|Presentation|FullOutput|RunHistory|ScrollbarDrag))|^internal\/(?:agent|worker|workerproto|provider|modeltrace|tool)\//, ['conversation']],
   [/^web\/src\/(?:pages\/SessionManager|Session|InlineSessionTitle)|^web\/src\/composables\/useSessions/, ['sessions']],
   [/^internal\/store\/(?:display_messages|message_results|conversation_snapshot|records)|^internal\/server\/(?:events|compaction_messages|message_results)/, ['conversation', 'sessions', 'statistics']],
   [/^web\/src\/(?:Provider|Model|DefaultModel|Reasoning)|^web\/src\/(?:state\/model|composables\/useProvider)|^internal\/(?:model|models|selection)\//, ['models', 'conversation']],
@@ -57,7 +57,7 @@ const consumers: [RegExp, string[]][] = [
   [/^web\/src\/(?:Skill)|^internal\/skill/, ['skills', 'conversation']],
   [/^web\/src\/MCP|^internal\/mcp/, ['mcp', 'conversation']],
   [/^web\/src\/(?:Search|WebPreview)|^internal\/web(?:search|fetch)/, ['search', 'conversation']],
-  [/^web\/src\/(?:About|Capacity|ResourceStorage|UserAgent|Reset)|^internal\/(?:capacity|useragent|buildinfo)/, ['about']],
+  [/^web\/src\/(?:About|Capacity|ResourceStorage|UserAgent|Reset|Restart)|^internal\/(?:capacity|useragent|buildinfo)/, ['about']],
   [/^web\/src\/(?:Statistics|Usage)|^internal\/(?:activity|usage)/, ['statistics']],
 ]
 

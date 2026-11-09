@@ -2,7 +2,7 @@
 import { computed, onUnmounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { Empty as VEmpty, Alert as VAlert, Button as VButton, Input as VInput, Switch as VSwitch } from './ui'
-import { DeleteOutlined, EditOutlined, EyeOutlined, FileMarkdownOutlined, SearchOutlined } from '@antdv-next/icons'
+import { IconTrash, IconPencil, IconEye, IconMarkdown, IconSearch } from '@tabler/icons-vue'
 import ConfirmPopover from './ConfirmPopover.vue'
 import SkillEditor from './SkillEditor.vue'
 import { useWorkspace } from './composables/useWorkspace'
@@ -70,17 +70,17 @@ defineExpose({ imported: () => { saved.value = true } })
     <div v-if="directory" class="skills-directory"><p class="skills-hint">{{ t('skillsDirectory') }}</p><code>{{ directory }}</code><p class="skills-hint">{{ t('skillsDirectoryHint') }}</p></div>
     <v-alert v-if="error" type="error" role="alert" :message="error" />
     <v-button v-if="error" :disabled="busy || loading" @click="resource.refresh">{{ t('retry') }}</v-button>
-    <v-input v-if="skills.length" v-model:value="query" allow-clear :placeholder="t('skillsSearch')" :aria-label="t('skillsSearch')"><template #prefix><SearchOutlined aria-hidden="true" /></template></v-input>
+    <v-input v-if="skills.length" v-model:value="query" allow-clear :placeholder="t('skillsSearch')" :aria-label="t('skillsSearch')"><template #prefix><IconSearch aria-hidden="true" /></template></v-input>
     <p v-if="loading" class="skills-hint" role="status">{{ t('skillsLoading') }}</p>
     <v-empty v-else-if="!hasUserSkills && !query && !error" class="vista-empty-state skills-empty" :description="t('skillsEmpty')" role="status" />
     <v-empty v-else-if="!visibleSkills.length && !error" class="vista-empty-state skills-empty" :description="t('skillsNoMatch')" role="status" />
     <p v-if="saved" class="skills-saved" role="status">{{ t('skillsSaved') }}</p>
     <article v-for="skill in visibleSkills" :key="skill.id" class="skill-card" :data-skill="skill.id">
-      <div class="skill-heading"><div class="skill-name"><FileMarkdownOutlined aria-hidden="true" /><strong>{{ skill.name }}</strong><span class="skill-badge">{{ t(skill.source === 'system' ? 'skillSystem' : 'skillUser') }}</span><span v-if="skill.disabled" class="skill-badge">{{ t('skillDisabled') }}</span></div><v-switch v-if="skill.source !== 'system'" :checked="!skill.disabled" :disabled="busy || !!skill.error" :aria-label="t('skillEnable', { name: skill.name })" @update:checked="toggle(skill, !!$event)" /></div>
+      <div class="skill-heading"><div class="skill-name"><IconMarkdown aria-hidden="true" /><strong>{{ skill.name }}</strong><span class="skill-badge">{{ t(skill.source === 'system' ? 'skillSystem' : 'skillUser') }}</span><span v-if="skill.disabled" class="skill-badge">{{ t('skillDisabled') }}</span></div><v-switch v-if="skill.source !== 'system'" :checked="!skill.disabled" :disabled="busy || !!skill.error" :aria-label="t('skillEnable', { name: skill.name })" @update:checked="toggle(skill, !!$event)" /></div>
       <p v-if="skill.description" class="skill-description">{{ skill.description }}</p>
       <small class="skill-path">{{ skill.source === 'system' ? t('skillSystemHint') : `${skill.id}/SKILL.md` }}</small>
       <p v-if="skill.error" class="skill-error" role="alert">{{ skill.error }}</p>
-      <div class="skill-actions"><v-button :disabled="busy" :aria-label="t(skill.source === 'system' ? 'skillViewName' : 'skillEditName', { name: skill.name })" @click="edit(skill)"><component :is="skill.source === 'system' ? EyeOutlined : EditOutlined" aria-hidden="true" />{{ t(skill.source === 'system' ? 'skillView' : 'edit') }}</v-button><ConfirmPopover v-if="skill.source !== 'system'" :show="deleting === skill.id" :message="t('skillDeleteConfirm', { name: skill.name })" :cancel-text="t('cancel')" :confirm-text="t('delete')" :busy="busy" :error="deleteError" popover-class="skill-delete-popover" @update:show="deleting = $event ? skill.id : ''; deleteError = ''" @confirm="remove(skill)"><template #trigger><v-button class="icon-button" variant="text" danger :disabled="busy" :aria-label="t('skillDeleteName', { name: skill.name })"><DeleteOutlined /></v-button></template></ConfirmPopover></div>
+      <div class="skill-actions"><v-button :disabled="busy" :aria-label="t(skill.source === 'system' ? 'skillViewName' : 'skillEditName', { name: skill.name })" @click="edit(skill)"><component :is="skill.source === 'system' ? IconEye : IconPencil" aria-hidden="true" />{{ t(skill.source === 'system' ? 'skillView' : 'edit') }}</v-button><ConfirmPopover v-if="skill.source !== 'system'" :show="deleting === skill.id" :message="t('skillDeleteConfirm', { name: skill.name })" :cancel-text="t('cancel')" :confirm-text="t('delete')" :busy="busy" :error="deleteError" popover-class="skill-delete-popover" @update:show="deleting = $event ? skill.id : ''; deleteError = ''" @confirm="remove(skill)"><template #trigger><v-button class="icon-button" variant="text" danger :disabled="busy" :aria-label="t('skillDeleteName', { name: skill.name })"><IconTrash /></v-button></template></ConfirmPopover></div>
     </article>
   </div>
 

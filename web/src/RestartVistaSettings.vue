@@ -92,7 +92,7 @@ async function restart() {
 <template>
   <div class="restart-vista-setting general-setting">
     <div><h4>{{ t('restartVista') }}</h4><p>{{ t('restartVistaHint') }}</p></div>
-    <v-button @click="confirm">{{ t('restartVista') }}</v-button>
+    <v-button danger @click="confirm">{{ t('restartVista') }}</v-button>
   </div>
   <v-modal :open="open" centered :z-index="1200" width="min(520px, calc(100vw - 2rem))"
     class="restart-vista-modal" :title="t('restartVistaTitle')" :footer="null"
@@ -109,7 +109,7 @@ async function restart() {
       <p v-if="error" class="restart-vista-error">{{ error }}</p>
       <div class="actions">
         <v-button :disabled="busy" @click="cancel">{{ t(phase === 'success' ? 'close' : 'cancel') }}</v-button>
-        <v-button v-if="phase === 'confirm'" :disabled="!connected" @click="restart">{{ t('restartVista') }}</v-button>
+        <v-button v-if="phase === 'confirm'" danger variant="primary" :disabled="!connected" @click="restart">{{ t('restartVista') }}</v-button>
         <v-button v-else-if="phase === 'unconfirmed'" @click="retryConnection">{{ t('restartVistaReconnect') }}</v-button>
       </div>
     </div>

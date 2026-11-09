@@ -102,6 +102,7 @@ test.describe('conversation motion', () => {
       await expect(page.locator('.trace-reasoning')).toHaveCount(2)
 
       const source = page.locator('article.user [data-quote-role] p').first()
+      await page.locator('.messages').dispatchEvent('wheel', { deltaY: -100 })
       await source.scrollIntoViewIfNeeded()
       await source.evaluate(element => {
         const range = document.createRange()

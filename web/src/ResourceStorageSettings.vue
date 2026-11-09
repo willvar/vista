@@ -2,7 +2,7 @@
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { Alert as VAlert, Button as VButton, Spin as VSpin } from './ui'
-import { DeleteOutlined } from '@antdv-next/icons'
+import { IconTrash } from '@tabler/icons-vue'
 import { useWorkspace } from './composables/useWorkspace'
 import { formatDateTime } from './ui/datetime.ts'
 import BatchOperationModal from './BatchOperationModal.vue'
@@ -119,7 +119,7 @@ const cards = computed(() => [
     </div>
     <p class="storage-description">{{ t('resourceStorageRetention') }}</p>
     <div class="storage-actions">
-      <v-button :disabled="busy || !status.stats?.cleanableCount" @click="showClean"><template #icon><DeleteOutlined aria-hidden="true" /></template>{{ t('resourceStorageClean') }}</v-button>
+      <v-button :disabled="busy || !status.stats?.cleanableCount" @click="showClean"><template #icon><IconTrash aria-hidden="true" /></template>{{ t('resourceStorageClean') }}</v-button>
     </div>
     <div v-if="!cleanOpen" class="storage-progress" role="status" aria-live="polite">
       <template v-if="busy"><v-spin /><span>{{ t(status.action === 'clean' ? 'resourceStorageCleaning' : 'resourceStorageScanning') }}<template v-if="status.action === 'clean' && status.deletedCount"> {{ t('resourceStorageFreed', { count: status.deletedCount, size: size(status.deletedBytes) }) }}</template></span></template>

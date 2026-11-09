@@ -31,9 +31,8 @@ test('a follow-up preserves the preceding streamed answer in conversation order'
     expect(vista.modelRequests[1]!.messages!.filter(message => message.role === 'assistant').map(message => message.content)).toEqual(['Mock reply: First question'])
 
     const assertReplyTraces = async () => {
-      const rows = page.locator('.message-row.user')
-      const firstTrace = rows.nth(0).locator('.run-trace')
-      const followUpTrace = rows.nth(1).locator('.run-trace')
+      const firstTrace = page.locator(`.run-trace[data-run-id="${messages[0].runId}"][data-after-sequence="0"]`)
+      const followUpTrace = page.locator(`.run-trace[data-run-id="${messages[0].runId}"][data-after-sequence="${messages[1].sequence}"]`)
       await expect(firstTrace).toHaveCount(1)
       await expect(firstTrace.locator('.trace-reasoning')).toHaveText('Checking the first question')
       await expect(firstTrace.locator('[data-step-key^="tool/"]')).toHaveCount(0)

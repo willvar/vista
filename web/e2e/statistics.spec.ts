@@ -1,5 +1,6 @@
 import { test, expect } from './fixtures'
 import { openSettingsSection } from './settings-navigation'
+import { calendarDate, type UsageStatistics } from '../src/client/statistics'
 
 test('statistics are scoped, cached by revision, update from other clients and release reads on leaving',async({page,vista},info)=>{
   const reads:string[]=[]
@@ -27,7 +28,8 @@ test('statistics are scoped, cached by revision, update from other clients and r
   await stats.getByRole('combobox',{name:'Period',exact:true}).click()
   await page.locator('.ui-select-dropdown:visible .ui-select-item-option-content').filter({hasText:/^Last 7 days$/}).click()
   await expect(stats).toHaveAttribute('aria-busy','false')
-  await expect(stats.locator('[data-statistics-day]')).toHaveCount(7)
+  await expect(stats.getByRole('img',{name:'Daily activity and usage',exact:true})).toBeVisible()
+  expect(new URL(reads.at(-1)!).searchParams.get('days')).toBe('7')
   await expect(stats.locator('.statistics-notes')).toContainText('Statistics are kept for 90 days.')
   expect(reads).toHaveLength(3)
   await stats.locator('[data-statistics-hour="0"]').focus()
@@ -47,6 +49,68 @@ test('statistics are scoped, cached by revision, update from other clients and r
   await page.waitForTimeout(250)
   expect(reads).toHaveLength(settled)
   await expect(page.locator('.state-sync-error')).toHaveCount(0)
+})
+
+test('trend charts preserve date selection with pointer, touch and keyboard across periods and themes @responsive',async({page,vista},info)=>{
+  const errors:string[]=[]
+  let reads=0
+  let days:UsageStatistics['days']=[]
+  page.on('pageerror',error=>errors.push(error.message))
+  // Activity collection has its own coverage; keep this interaction fixture stable.
+  await page.route('**/api/activity',route=>route.fulfill({status:204}))
+  await page.route('**/api/statistics?*',async route=>{
+    reads++
+    const response=await route.fetch()
+    const data:UsageStatistics=await response.json()
+    days=data.days.map((day,index)=>({...day,tokens:(index+1)*10_000,requests:1,unreported:0,activeMinutes:index+1}))
+    await route.fulfill({response,json:{...data,days,activeDays:days.length,activeMinutes:days.length,tokens:days.length*10_000,requests:days.length,unreported:0}})
+  })
+  await page.goto(vista.origin+'/settings/statistics')
+  const stats=page.locator('.statistics-settings')
+  const chart=stats.getByRole('img',{name:'Daily activity and usage',exact:true})
+  const readout=stats.locator('.statistics-trend figcaption')
+  const dateLabel=(date:string)=>new Intl.DateTimeFormat('en-US',{month:'short',day:'numeric'}).format(calendarDate(date))
+  const checkDay=async(index:number)=>{
+    await expect(readout.locator('strong')).toHaveText(dateLabel(days[index]!.date))
+    await expect(readout).toContainText(`${days[index]!.tokens.toLocaleString('en-US')} tokens`)
+    await expect(readout).toContainText(`${days[index]!.activeMinutes} active min`)
+  }
+  for(const period of [30,7,90]){
+    if(period!==30){
+      await stats.getByRole('combobox',{name:'Period',exact:true}).click()
+      await page.locator('.ui-select-dropdown:visible .ui-select-item-option-content').filter({hasText:new RegExp(`^Last ${period} days$`)}).click()
+    }
+    await expect(stats).toHaveAttribute('aria-busy','false')
+    const bars=chart.locator('rect[data-ts-key^="tokens:"]')
+    await expect(bars).toHaveCount(period)
+    const settled=reads
+    await chart.focus()
+    await page.keyboard.press('Home')
+    await checkDay(0)
+    await page.keyboard.press('ArrowRight')
+    await checkDay(1)
+    await page.keyboard.press('End')
+    await checkDay(period-1)
+    await page.keyboard.press('ArrowLeft')
+    await checkDay(period-2)
+    const selected=Math.floor(period/2)
+    const bar=bars.nth(selected)
+    await bar.scrollIntoViewIfNeeded()
+    if(info.project.name==='desktop')await bar.hover()
+    else await bar.tap()
+    await checkDay(selected)
+    expect(reads).toBe(settled)
+    expect(await stats.evaluate(element=>element.scrollWidth-element.clientWidth)).toBeLessThanOrEqual(2)
+    const box=await chart.boundingBox()
+    expect(box!.x).toBeGreaterThanOrEqual(0)
+    expect(box!.x+box!.width).toBeLessThanOrEqual(page.viewportSize()!.width+1)
+    await page.screenshot({path:info.outputPath(`trend-${period}-light.png`),animations:'disabled'})
+    await page.evaluate(()=>{localStorage.setItem('vista-appearance','dark');window.dispatchEvent(new StorageEvent('storage',{key:'vista-appearance',newValue:'dark'}))})
+    await checkDay(selected)
+    await page.screenshot({path:info.outputPath(`trend-${period}-dark.png`),animations:'disabled'})
+    await page.evaluate(()=>{localStorage.setItem('vista-appearance','light');window.dispatchEvent(new StorageEvent('storage',{key:'vista-appearance',newValue:'light'}))})
+  }
+  expect(errors).toEqual([])
 })
 
 test('reported tokens include normal replies and titles once and remain after conversation deletion',async({page,vista})=>{
@@ -258,7 +322,11 @@ test.describe('missing usage',()=>{
     const stats=page.locator('.statistics-settings')
     await expect(stats.locator('.statistics-totals dd').nth(2)).toHaveText('—')
     await expect(stats.locator('.statistics-notes')).toContainText('2 calls did not report usage')
-    await expect(stats.locator('.statistics-day-hit').last()).toHaveAttribute('aria-label',/— tokens/)
+    const chart=stats.getByRole('img',{name:'Daily activity and usage',exact:true})
+    await chart.focus()
+    await page.keyboard.press('End')
+    await expect(stats.locator('.statistics-trend figcaption')).toContainText('— tokens')
+    await expect(stats.locator('.statistics-trend figcaption')).toContainText('2 calls did not report usage')
   })
 })
 

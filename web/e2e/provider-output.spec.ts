@@ -27,14 +27,17 @@ for (const format of ['perplexity', 'openrouter', 'responses'] as const) {
         if (reload) await page.reload()
         await expect(page.locator('article.assistant .markdown')).toHaveText('Cited answer.')
         const trace = page.locator('.run-trace')
-        await trace.locator('.ui-thought-chain-node-title').filter({ hasText: /^Sources$/ }).click()
+        const sourceHeader = trace.locator('button.ui-thought-chain-node-header').filter({ hasText: /^Sources:/ })
+        await expect(sourceHeader).toBeVisible()
+        await sourceHeader.click()
         await expect(trace.getByRole('link', { name: source, exact: true })).toHaveAttribute('href', source)
         if (format === 'responses') {
           const reasoning = trace.locator('.trace-reasoning')
           await expect(reasoning).toHaveText('Checked the available source before answering.')
           await expect(reasoning.locator('.reply-footer')).toHaveCount(0)
           await expect(reasoning.locator('button, .ui-thought-chain')).toHaveCount(0)
-          await trace.locator('.ui-thought-chain-node-title').filter({ hasText: 'Executed by Provider' }).click()
+          await expect(trace.locator('.trace-input-preview').filter({ hasText: 'Executed by Provider' })).toBeVisible()
+          await trace.locator('button.ui-thought-chain-node-header').filter({ hasText: 'Executed by Provider' }).click()
           await expect(trace.locator('pre.trace-output')).toContainText('Provider executed this tool.')
         }
       }
@@ -46,7 +49,7 @@ for (const format of ['perplexity', 'openrouter', 'responses'] as const) {
 test.describe('Responses terminal reasoning', () => {
   test.use({ providerOutput: 'responses', terminalReasoning: true })
 
-  test('terminal summary stays in execution and reads directly after one expansion', async ({ page, vista }, testInfo) => {
+  test('terminal summary stays visible in execution after refresh', async ({ page, vista }, testInfo) => {
     await vista.api('/preferences', { method: 'PATCH', body: JSON.stringify({ feedbackInvitationSeen: true }) })
     await page.reload()
     await page.locator('.sender-card textarea').fill('Find the source')

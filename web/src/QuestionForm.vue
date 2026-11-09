@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from 'vue'
 import { Button, Checkbox, Radio, TextArea } from './ui'
-import { CheckOutlined, LeftOutlined, RightOutlined } from '@antdv-next/icons'
+import { IconCheck, IconChevronLeft, IconChevronRight } from '@tabler/icons-vue'
 import type { QuestionAnswer, QuestionPrompt } from './client/types'
 import { useI18n } from 'vue-i18n'
 
@@ -152,7 +152,7 @@ async function submitAnswers() {
     <div v-if="questions.length > 1" class="question-navigation">
       <div ref="tabs" class="question-tabs" role="tablist" :aria-label="t('questionNavigation')">
         <button v-for="(item, index) in questions" :id="`question-tab-${runId}-${index}`" :key="index" type="button" role="tab" class="question-tab" :data-question-tab="index" :data-answered="valid(index) || undefined" :aria-selected="activeIndex === index" :aria-controls="`question-panel-${runId}-${index}`" :aria-label="item.header || t('questionNumber', { index: index + 1 })" :tabindex="activeIndex === index ? 0 : -1" :disabled="submitting || busy" @click="goTo(index)" @keydown="navigateTabs($event, index)">
-          <span class="question-tab-number" aria-hidden="true"><CheckOutlined v-if="valid(index)" /><template v-else>{{ index + 1 }}</template></span>
+          <span class="question-tab-number" aria-hidden="true"><IconCheck v-if="valid(index)" /><template v-else>{{ index + 1 }}</template></span>
           <span class="question-tab-label">{{ item.header || t('questionNumber', { index: index + 1 }) }}</span>
         </button>
       </div>
@@ -180,8 +180,8 @@ async function submitAnswers() {
     <div class="question-form-footer">
       <small>{{ t('questionComposerHint') }}</small>
       <div class="question-form-actions">
-        <Button v-if="questions.length > 1" type="button" variant="text" :disabled="activeIndex === 0 || submitting || busy" @click="goTo(activeIndex - 1, true)"><LeftOutlined aria-hidden="true" />{{ t('questionPrevious') }}</Button>
-        <Button v-if="activeIndex < questions.length - 1" type="button" variant="primary" :disabled="submitting || busy" @click="goTo(activeIndex + 1, true)">{{ t('questionNext') }}<RightOutlined aria-hidden="true" /></Button>
+        <Button v-if="questions.length > 1" type="button" variant="text" :disabled="activeIndex === 0 || submitting || busy" @click="goTo(activeIndex - 1, true)"><IconChevronLeft aria-hidden="true" />{{ t('questionPrevious') }}</Button>
+        <Button v-if="activeIndex < questions.length - 1" type="button" variant="primary" :disabled="submitting || busy" @click="goTo(activeIndex + 1, true)">{{ t('questionNext') }}<IconChevronRight aria-hidden="true" /></Button>
         <Button v-else type="submit" variant="primary" :disabled="!canSubmit || submitting || busy" :loading="submitting">{{ t('questionSubmit') }}</Button>
       </div>
     </div>

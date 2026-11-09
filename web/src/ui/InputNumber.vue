@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { NumberInput } from '@ark-ui/vue/number-input'
-import { UpOutlined, DownOutlined } from '@antdv-next/icons'
+import { IconChevronUp, IconChevronDown } from '@tabler/icons-vue'
 import { useI18n } from 'vue-i18n'
 defineOptions({ inheritAttrs: false })
 withDefaults(defineProps<{ value?: number | null; min?: number; max?: number; step?: number; precision?: number; clampValueOnBlur?: boolean; disabled?: boolean; id?: string }>(), { clampValueOnBlur: true })
@@ -18,6 +18,6 @@ function change(details: { value: string; valueAsNumber: number }) {
     :translations="{ incrementLabel: t('uiIncrease'), decrementLabel: t('uiDecrease') }"
     @value-change="change">
     <NumberInput.Input v-bind="{ ...$attrs, class: undefined, style: undefined }" class="ui-input-number-input" />
-    <NumberInput.Control class="ui-number-controls"><NumberInput.IncrementTrigger tabindex="-1"><UpOutlined /></NumberInput.IncrementTrigger><NumberInput.DecrementTrigger tabindex="-1"><DownOutlined /></NumberInput.DecrementTrigger></NumberInput.Control>
+    <NumberInput.Control class="ui-number-controls"><NumberInput.IncrementTrigger tabindex="-1"><IconChevronUp /></NumberInput.IncrementTrigger><NumberInput.DecrementTrigger tabindex="-1"><IconChevronDown /></NumberInput.DecrementTrigger></NumberInput.Control>
   </NumberInput.Root>
 </template>

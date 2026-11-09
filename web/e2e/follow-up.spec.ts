@@ -1,4 +1,4 @@
-import { coreSnapshot } from './conversation-fixture'
+import { coreSnapshot, installConversationStream } from './conversation-fixture'
 import { closeSettings } from './settings-navigation'
 import type { Page } from '@playwright/test'
 import type { Message } from '../src/client/types'
@@ -29,6 +29,8 @@ async function mockConversation(page: Page, vista: FixtureAPI, options: { cancel
   let cancelRequests = 0
   let cancelFailures = options.cancelFailures || 0
   const cancelPaths: string[] = []
+  const snapshot = () => coreSnapshot({ ...session, executing }, messages, [modelRequest])
+  const publish = await installConversationStream(page, snapshot)
 
   await page.route('**/api/sessions**', async route => {
     const request = route.request()
@@ -48,6 +50,7 @@ async function mockConversation(page: Page, vista: FixtureAPI, options: { cancel
       cancelPaths.push(path)
       if (cancelFailures > 0) { cancelFailures--; return route.fulfill({ status: 503, body: 'Synthetic cancel failure' }) }
       executing = false
+      await publish({ sequence: snapshot().throughSequence + 1, kind: 'run_finished', data: { runId, status: 'canceled' } })
       return route.fulfill({ status: 204, body: '' })
     }
     // Keep every model submission local to this mock, including unexpected ones.
@@ -61,13 +64,11 @@ async function mockConversation(page: Page, vista: FixtureAPI, options: { cancel
       return route.fulfill({ response: original, json: (await original.json()).map((row: { id: string }) =>
         row.id === session.id ? { ...row, executing } : row) })
     }
-    if (path === `/api/sessions/${session.id}/snapshot`) return route.fulfill({ json: coreSnapshot({ ...session, executing }, messages, [modelRequest]) })
+    if (path === `/api/sessions/${session.id}/snapshot`) return route.fulfill({ json: snapshot() })
     if (path === `/api/sessions/${session.id}/messages`) return route.fulfill({ json: messages })
     if (path.includes('/runs/') && path.endsWith('/main-outputs')) return route.fulfill({ json: [] })
     if (options.compactionStatus && path === `/api/sessions/${session.id}/context`) return route.fulfill({ json: { runId, manual: false, phase: 'compacted', sequence: 2 } })
     if (path === `/api/sessions/${session.id}/event-page`) return route.fulfill({ json: [modelRequest] })
-    if (path === `/api/sessions/${session.id}/events`) return route.fulfill({ contentType: 'text/event-stream', body: executing ? '' :
-      `data: ${JSON.stringify({ sequence: 3, kind: 'run_finished', data: { runId, status: 'canceled' } })}\n\n` })
     return route.continue()
   })
   await page.goto(`${vista.origin}/sessions/${session.id}`)
@@ -124,6 +125,7 @@ test('sending from older history returns the conversation to the latest position
   const distance = () => scroller.evaluate(element => element.scrollHeight - element.scrollTop - element.clientHeight)
   const scrollable = () => scroller.evaluate(element => element.scrollHeight - element.clientHeight)
   await expect.poll(() => scrollable()).toBeGreaterThan(0)
+  await scroller.dispatchEvent('wheel', { deltaY: -100 })
   await scroller.evaluate(element => { element.scrollTop = 0; element.dispatchEvent(new Event('scroll')) })
   await expect.poll(() => scroller.evaluate(element => element.scrollTop)).toBe(0)
 
@@ -168,6 +170,7 @@ test('empty running composer only stops, and idle shortcuts start immediately', 
   await expect(page.getByRole('button', { name: 'Send', exact: true })).toHaveCount(0)
   const stop = page.getByRole('button', { name: 'Stop current execution', exact: true })
   await expect(stop).toBeEnabled()
+  await expect(stop.locator('.composer-send-label')).toHaveText('Stop')
   await stop.click()
   await expect.poll(fixture.cancellations).toBe(1)
   await expect(stop).toHaveCount(0)
@@ -252,7 +255,7 @@ test('Escape dismisses a dropdown, settings, context popup, or title editor befo
       await page.getByRole('button', { name: 'Settings', exact: true }).click()
       await expect(page.locator('.settings-page')).toBeVisible()
     } else if (overlay === 'context') {
-      await page.locator('.sender-card .context-usage').click()
+      await page.locator('.context-compaction-trigger').focus()
       await expect(page.locator('.context-usage-hint:visible')).toHaveCount(1)
     } else {
       await header.getByRole('button', { name: 'Rename', exact: true }).click()
@@ -322,6 +325,7 @@ test('ArrowUp recalls only the latest user message into the current empty draft 
   await textarea.fill('')
   const second = await vista.api('/sessions', { method: 'POST', body: '{}' })
   const secondText = 'Only the second session request'
+  await installConversationStream(page, coreSnapshot(second, [{ id: 'second-user', runId: 'second-run', sequence: 1, role: 'user', content: secondText, createdAt: new Date().toISOString() }]))
   await page.route(`**/api/sessions/${second.id}/messages`, route => route.fulfill({ json: [{ id: 'second-user', runId: 'second-run', sequence: 1, role: 'user', content: secondText, createdAt: new Date().toISOString() }] }))
   await page.route(`**/api/sessions/${second.id}/snapshot`, route => route.fulfill({ json: coreSnapshot(second, [{ id: 'second-user', runId: 'second-run', sequence: 1, role: 'user', content: secondText, createdAt: new Date().toISOString() }]) }))
   await page.goto(`${vista.origin}/sessions/${second.id}`)

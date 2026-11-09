@@ -3,7 +3,7 @@ import { computed, onUnmounted, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { RuleEffect, type ControlElement, type JsonSchema7, type VerticalLayout } from '@jsonforms/core'
 import { Empty as VEmpty, Alert as VAlert, Button as VButton, Input as VInput, Modal as VModal, Switch as VSwitch } from './ui'
-import { EditOutlined, LinkOutlined, ReloadOutlined, DeleteOutlined } from '@antdv-next/icons'
+import { IconPencil, IconLink, IconRefresh, IconTrash } from '@tabler/icons-vue'
 import ConfirmPopover from './ConfirmPopover.vue'
 import CopyAction from './ui/CopyAction.vue'
 import SchemaForm from './SchemaForm.vue'
@@ -459,10 +459,10 @@ defineExpose({ imported: () => { saved.value = true }, headerAction: computed(()
       <p v-if="server.check.error && !server.disabled" class="mcp-error">{{ server.check.error }}</p>
       <small v-if="checkedAt(server.check.checkedAt)" class="mcp-hint">{{ t('mcpCheckedAt', { time: checkedAt(server.check.checkedAt) }) }}</small>
       <div class="mcp-actions">
-        <v-button :disabled="busy" @click="inspect(server)"><ReloadOutlined aria-hidden="true" />{{ t('mcpCheckTools') }}</v-button>
-        <v-button v-if="server.oauth" :disabled="busy" @click="authorize(server)"><LinkOutlined aria-hidden="true" />{{ t(server.authorized ? 'mcpReauthorize' : 'mcpAuthorize') }}</v-button>
-        <v-button class="icon-button" variant="text" :disabled="busy" :aria-label="t('mcpEditName', { name: server.name })" @click="edit(server)"><EditOutlined /></v-button>
-        <ConfirmPopover :show="deleting === server.id" :message="t('mcpDeleteConfirm', { name: server.name })" :cancel-text="t('cancel')" :confirm-text="t('mcpDelete')" :busy="busy" :error="deleteError" popover-class="mcp-delete-popover" @update:show="deleting = $event ? server.id : ''; deleteError = ''" @confirm="remove(server)"><template #trigger><v-button class="icon-button" variant="text" danger :disabled="busy" :aria-label="t('mcpDeleteName', { name: server.name })"><DeleteOutlined /></v-button></template></ConfirmPopover>
+        <v-button :disabled="busy" @click="inspect(server)"><IconRefresh aria-hidden="true" />{{ t('mcpCheckTools') }}</v-button>
+        <v-button v-if="server.oauth" :disabled="busy" @click="authorize(server)"><IconLink aria-hidden="true" />{{ t(server.authorized ? 'mcpReauthorize' : 'mcpAuthorize') }}</v-button>
+        <v-button class="icon-button" variant="text" :disabled="busy" :aria-label="t('mcpEditName', { name: server.name })" @click="edit(server)"><IconPencil /></v-button>
+        <ConfirmPopover :show="deleting === server.id" :message="t('mcpDeleteConfirm', { name: server.name })" :cancel-text="t('cancel')" :confirm-text="t('mcpDelete')" :busy="busy" :error="deleteError" popover-class="mcp-delete-popover" @update:show="deleting = $event ? server.id : ''; deleteError = ''" @confirm="remove(server)"><template #trigger><v-button class="icon-button" variant="text" danger :disabled="busy" :aria-label="t('mcpDeleteName', { name: server.name })"><IconTrash /></v-button></template></ConfirmPopover>
       </div>
     </article>
     <p v-if="servers.length >= maxServers" class="mcp-hint">{{ t('mcpServerLimit', { count: maxServers }) }}</p>
@@ -488,12 +488,12 @@ defineExpose({ imported: () => { saved.value = true }, headerAction: computed(()
       <p class="mcp-hint">{{ t('mcpCheckHint') }}</p>
       <p v-if="toolsLoading" role="status">{{ t('mcpChecking') }}</p>
       <v-alert v-if="toolsError" type="error" role="alert" :message="toolsError" />
-      <div class="mcp-actions"><v-button :loading="toolsLoading" @click="inspect(toolsServer)"><ReloadOutlined aria-hidden="true" />{{ t('mcpCheckAgain') }}</v-button><v-button v-if="toolsServer.oauth" @click="authorize(toolsServer)">{{ t('mcpAuthorize') }}</v-button></div>
+      <div class="mcp-actions"><v-button :loading="toolsLoading" @click="inspect(toolsServer)"><IconRefresh aria-hidden="true" />{{ t('mcpCheckAgain') }}</v-button><v-button v-if="toolsServer.oauth" @click="authorize(toolsServer)">{{ t('mcpAuthorize') }}</v-button></div>
       <template v-if="!toolsLoading && !toolsError">
         <p v-if="tools.length" role="status">{{ t('mcpToolCount', { count: tools.length }) }}</p>
         <v-input v-if="tools.length" v-model:value="toolQuery" :placeholder="t('mcpSearchTools')" :aria-label="t('mcpSearchTools')" allow-clear />
         <v-empty v-if="!visibleTools.length" class="vista-empty-state" :description="t(tools.length ? 'mcpNoMatchingTools' : 'mcpToolCount', { count: 0 })" role="status" />
-        <article v-for="tool in visibleTools" :key="tool.name" class="mcp-tool"><h3>{{ tool.name }}</h3><p>{{ tool.description }}</p><details><summary>{{ t('mcpInputSchema') }}</summary><pre>{{ JSON.stringify(tool.inputSchema, null, 2) }}</pre></details></article>
+        <details v-for="tool in visibleTools" :key="tool.name" class="mcp-tool"><summary>{{ tool.name }}</summary><p>{{ tool.description }}</p><details><summary>{{ t('mcpInputSchema') }}</summary><pre>{{ JSON.stringify(tool.inputSchema, null, 2) }}</pre></details></details>
       </template>
     </section>
   </v-modal>
@@ -535,6 +535,7 @@ defineExpose({ imported: () => { saved.value = true }, headerAction: computed(()
 .mcp-status-dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
 .mcp-error { font-size: var(--font-size-body); white-space: pre-wrap; overflow-wrap: anywhere; margin: .5rem 0; }
 .mcp-actions { display: flex; flex-wrap: wrap; gap: .4rem; margin-top: .8rem; }
+.mcp-tools > .mcp-actions { margin-bottom: .8rem; }
 .mcp-form { display: flex; flex-direction: column; gap: 1rem; }
 .mcp-form label { display: flex; flex-direction: column; gap: .4rem; min-width: 0; }
 .mcp-oauth-advanced { display: flex; flex-direction: column; gap: .8rem; }
@@ -544,9 +545,10 @@ defineExpose({ imported: () => { saved.value = true }, headerAction: computed(()
 .mcp-form-actions { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: .5rem; margin-top: .5rem; }
 .mcp-tool { padding: 1rem 0; border-bottom: 1px solid var(--border); }
 .mcp-tool:last-child { border: none; }
-.mcp-tool h3 { margin: 0; font-size: var(--font-size-body); overflow-wrap: anywhere; }
+.mcp-tool > summary { color: var(--text); font-size: var(--font-size-body); font-weight: 550; overflow-wrap: anywhere; }
 .mcp-tool p { white-space: pre-wrap; overflow-wrap: anywhere; color: var(--muted); font-size: var(--font-size-body); }
-.mcp-tool summary { cursor: pointer; color: var(--muted); font-size: var(--font-size-small); }
+.mcp-tool summary { cursor: pointer; }
+.mcp-tool details > summary { color: var(--muted); font-size: var(--font-size-small); }
 .mcp-tool pre { white-space: pre-wrap; overflow-wrap: anywhere; font-size: var(--font-size-small); margin-bottom: 0; }
 .mcp-login { display: flex; flex-direction: column; align-items: stretch; gap: 1rem; }
 .mcp-login p { margin: 0; }

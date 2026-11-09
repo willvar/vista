@@ -76,6 +76,29 @@ test('running snapshot updates silently replace output once and completed state 
   scope.stop()
 })
 
+test('closing the last viewer cancels its read and reopening never reuses the cancelled response', async () => {
+  let finish!: (value: OutputView) => void
+  const pending = new Promise<OutputView>(resolve => { finish = resolve })
+  const signals: AbortSignal[] = []
+  const api = client(async <T>(_path: string, request?: RequestInit) => {
+    signals.push(request?.signal as AbortSignal)
+    return (signals.length === 1 ? await pending : view('Reopened output')) as T
+  })
+  const options = { path: '/output?full=1', snapshot: 'done', enabled: true }
+  const first = effectScope()
+  first.run(() => useFullOutput(api, options))
+  first.stop()
+  assert.equal(signals[0]!.aborted, true)
+  const second = effectScope()
+  const reopened = second.run(() => useFullOutput(api, options))!
+  await settle()
+  finish(view('Cancelled response'))
+  await settle()
+  assert.equal(signals.length, 2)
+  assert.equal(reopened.output.value?.content, 'Reopened output')
+  second.stop()
+})
+
 test('failed output exposes retry and late output cannot cross an identity change', async () => {
   let requests = 0
   let signal: AbortSignal | undefined

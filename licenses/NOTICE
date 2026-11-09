@@ -42,35 +42,10 @@ Oh My Pi@overflow rules f1ac114d8d3438bee43010aee559bfe720ba3224; catalog blob 6
   Source: https://github.com/can1357/oh-my-pi
   LICENSE: 16c45f9d667442781f03fa198914cc39abcaa48ec5ed8f644643e554ca2fbf63
 
-@ant-design/colors@7.2.1
-  Use: Frontend dependency
-  Declared license: MIT
-  LICENSE: 5d367fb0a07340571542eb4ee8eb1add62d37b71bad6786a57c2e9a86bf76c70
-
-@ant-design/fast-color@2.0.6
-  Use: Frontend dependency
-  Declared license: MIT
-  LICENSE: 148d833d671f44cf8e25c8d76bbaa77c0e0411e8e3be24dd103c72a3f0444f25
-
-@ant-design/icons-svg@4.6.0
-  Use: Frontend dependency
-  Source: https://github.com/ant-design/ant-design-icons/blob/7f2516ac91226d2b41f93b35cb5197c8d94f7189/LICENSE
-  Declared license: MIT
-  LICENSE: b0bdbd678d40c373821a2878dcf9b515fbdc1359aa845670ed9d2e815f21d223
-
-@antdv-next/icons@1.0.6
-  Use: Frontend dependency
-  LICENSE: 14ac73d5ae8f2111163e0fae9cb0e94acf1bda66666959aaa1bff4201b8742de
-
 @ark-ui/vue@5.40.0
   Use: Frontend dependency
   Declared license: MIT
   LICENSE: 7df81e062165ecf31b80d0115d46ecd46da7426b2a3622caaac3b91339d48e99
-
-@babel/runtime@7.29.7
-  Use: Frontend dependency
-  Declared license: MIT
-  LICENSE: 117da2af0d4ce0fe1c8e19b5cff9dcd806adf973d328d27b11d4448c4ff24f76
 
 @floating-ui/core@1.8.0
   Use: Frontend dependency
@@ -117,20 +92,35 @@ Oh My Pi@overflow rules f1ac114d8d3438bee43010aee559bfe720ba3224; catalog blob 6
   Declared license: MIT
   LICENSE: 79eeb1ad8fdd20ace6ed8f203dd7f7bddb7a776996ba55a8b43791e73e0989d2
 
-@tanstack/virtual-core@3.17.11
+@tabler/icons-vue@3.51.0
+  Use: Frontend dependency
+  Declared license: MIT
+  LICENSE: b740a1d46122672da62833e97f7e7c8a13fa85cbc7445b584b297cc00dde93db
+
+@tanstack/charts@1.5.0
+  Use: Frontend dependency
+  Declared license: MIT
+  LICENSE: a09cf172b475f76e0cb456e3cd346b1aa3fe5169ae5454f9f7fbe98b3e93c85f
+
+@tanstack/query-core@5.107.1
   Use: Frontend dependency
   Declared license: MIT
   LICENSE: a405ee70c632bb938acb7ac5f210e814409b3760ea9d2329d8ed8ffcfd11a0e7
 
-@tanstack/vue-virtual@3.13.39
+@tanstack/virtual-core@3.19.11
   Use: Frontend dependency
   Declared license: MIT
   LICENSE: a405ee70c632bb938acb7ac5f210e814409b3760ea9d2329d8ed8ffcfd11a0e7
 
-@v-c/util@1.3.1
+@tanstack/vue-query@5.107.1
   Use: Frontend dependency
   Declared license: MIT
-  LICENSE: 0fa33e4a4e3c1e29103185e79b5eb6a648a441105b1b6b9e718bff1e21c3bf59
+  LICENSE: a405ee70c632bb938acb7ac5f210e814409b3760ea9d2329d8ed8ffcfd11a0e7
+
+@tanstack/vue-virtual@3.13.52
+  Use: Frontend dependency
+  Declared license: MIT
+  LICENSE: a405ee70c632bb938acb7ac5f210e814409b3760ea9d2329d8ed8ffcfd11a0e7
 
 @vue/reactivity@3.5.43
   Use: Frontend dependency
@@ -332,6 +322,21 @@ ajv-formats@2.1.1
   Declared license: MIT
   LICENSE: 9df3bb69929a3b650ed73b3bfa1756725aaff0ac296461605753547004eafeaf
 
+d3-array@3.2.4
+  Use: Frontend dependency
+  Declared license: ISC
+  LICENSE: 3e6849627f74ff73c257a3ae1efb574015d94fc1035c05ec3c15805165efcbc4
+
+d3-scale@4.0.2
+  Use: Frontend dependency
+  Declared license: ISC
+  LICENSE: e008c5e25a6be382593089c29bfabbc553c6378eee02895aec46ce396cc404ee
+
+d3-shape@3.2.0
+  Use: Frontend dependency
+  Declared license: ISC
+  LICENSE: faa682e3e430941f958d26180458f5934a62f58dac4d70ccdd15608c15d0f884
+
 dompurify@3.4.16
   Use: Frontend dependency
   Declared license: (MPL-2.0 OR Apache-2.0)
@@ -352,6 +357,11 @@ fast-uri@3.1.9
   Use: Frontend dependency
   Declared license: BSD-3-Clause
   LICENSE: df7464922225c9b286167fa692d305e5ba98bf71613525d4d031649a344a3f3f
+
+internmap@2.0.3
+  Use: Frontend dependency
+  Declared license: ISC
+  LICENSE: 9ea8903938dab5f12c4572d60725069bec2d1b0dc3bcc210b09bae946a5ebb1f
 
 json-schema-traverse@1.0.0
   Use: Frontend dependency
@@ -486,6 +496,14 @@ github.com/aymanbagabas/go-udiff@v0.4.0
   Use: Go dependency
   LICENSE-BSD: 2d36597f7117c38b006835ae7f537487207d8ec407aa9d9980794b2030cbc067
   LICENSE-MIT: aa3df2110cf0f39305936b72071c4e894ffb6849970b8e6e2c9c583bd9be9adb
+
+github.com/bluekeyes/go-gitdiff@v0.9.0
+  Use: Go dependency
+  LICENSE: 53440b9ca1709146d7882637c79ebd4f0765fac03c6162dbbbc12d8f515dd683
+
+github.com/bmatcuk/doublestar/v4@v4.10.4
+  Use: Go dependency
+  LICENSE: ab96c2158cd217f2152e9ebc03400993c5605044774254b48dd6be2e903963c0
 
 github.com/danwakefield/fnmatch@v0.0.0-20160403171240-cbb64ac3d964
   Use: Go dependency
@@ -1278,59 +1296,6 @@ IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
 CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 ========================================================================
-SHA-256: 0fa33e4a4e3c1e29103185e79b5eb6a648a441105b1b6b9e718bff1e21c3bf59
-========================================================================
-
-MIT License
-
-Copyright (c) 2023 antdv-community
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
-
-========================================================================
-SHA-256: 117da2af0d4ce0fe1c8e19b5cff9dcd806adf973d328d27b11d4448c4ff24f76
-========================================================================
-
-MIT License
-
-Copyright (c) 2014-present Sebastian McKenzie and other contributors
-
-Permission is hereby granted, free of charge, to any person obtaining
-a copy of this software and associated documentation files (the
-"Software"), to deal in the Software without restriction, including
-without limitation the rights to use, copy, modify, merge, publish,
-distribute, sublicense, and/or sell copies of the Software, and to
-permit persons to whom the Software is furnished to do so, subject to
-the following conditions:
-
-The above copyright notice and this permission notice shall be
-included in all copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
-EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
-MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
-NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE
-LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
-OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
-WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
-
-========================================================================
 SHA-256: 121d4529907b7d822d7665bde14ae142dc8a119356991fbc759ed562444dc02f
 ========================================================================
 
@@ -1358,57 +1323,6 @@ LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND
 ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
 SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-
-========================================================================
-SHA-256: 148d833d671f44cf8e25c8d76bbaa77c0e0411e8e3be24dd103c72a3f0444f25
-========================================================================
-
-The MIT License (MIT)
-Copyright (c) 2015-present Alipay.com, https://www.alipay.com/
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in
-all copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
-OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
-MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
-IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
-CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,
-TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
-SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
-
-========================================================================
-SHA-256: 14ac73d5ae8f2111163e0fae9cb0e94acf1bda66666959aaa1bff4201b8742de
-========================================================================
-
-MIT License
-
-Copyright (c) 2025 Antdv Next
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
 
 ========================================================================
 SHA-256: 166ba718b70c6278cce9c9758396e25e35c7f1a940d39b2c8eeaceed18cc03fb
@@ -2247,6 +2161,24 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 ========================================================================
+SHA-256: 3e6849627f74ff73c257a3ae1efb574015d94fc1035c05ec3c15805165efcbc4
+========================================================================
+
+Copyright 2010-2023 Mike Bostock
+
+Permission to use, copy, modify, and/or distribute this software for any purpose
+with or without fee is hereby granted, provided that the above copyright notice
+and this permission notice appear in all copies.
+
+THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES WITH
+REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF MERCHANTABILITY AND
+FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY SPECIAL, DIRECT,
+INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES WHATSOEVER RESULTING FROM LOSS
+OF USE, DATA OR PROFITS, WHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER
+TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF
+THIS SOFTWARE.
+
+========================================================================
 SHA-256: 3edd142d1087e367f47d27d4201dd99e5c4b606b164c1237041068461480a001
 ========================================================================
 
@@ -2780,6 +2712,32 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 ========================================================================
+SHA-256: 53440b9ca1709146d7882637c79ebd4f0765fac03c6162dbbbc12d8f515dd683
+========================================================================
+
+MIT License
+
+Copyright (c) 2019 Billy Keyes
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+========================================================================
 SHA-256: 56210f826b8f0fbac3160dfe55c97f4019eb6cdda3963b5a0eab8a8bdb62360e
 ========================================================================
 
@@ -3049,33 +3007,6 @@ SHA-256: 5ae5bee3072a841376451b48d8cfcec7188e10543926d5870828d36c8a750dc5
 ========================================================================
 
 https://commons.wikimedia.org/wiki/File:Memory_infra_logo.png
-
-========================================================================
-SHA-256: 5d367fb0a07340571542eb4ee8eb1add62d37b71bad6786a57c2e9a86bf76c70
-========================================================================
-
-MIT LICENSE
-
-Copyright (c) 2018-present Ant UED, https://xtech.antfin.com/
-
-Permission is hereby granted, free of charge, to any person obtaining
-a copy of this software and associated documentation files (the
-"Software"), to deal in the Software without restriction, including
-without limitation the rights to use, copy, modify, merge, publish,
-distribute, sublicense, and/or sell copies of the Software, and to
-permit persons to whom the Software is furnished to do so, subject to
-the following conditions:
-
-The above copyright notice and this permission notice shall be
-included in all copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
-EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
-MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
-NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE
-LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
-OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
-WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 ========================================================================
 SHA-256: 5e3400b93bbb099e83e52bab885e7441750673c21f97988ca3f1240639b63283
@@ -3882,6 +3813,50 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 ========================================================================
+SHA-256: 9ea8903938dab5f12c4572d60725069bec2d1b0dc3bcc210b09bae946a5ebb1f
+========================================================================
+
+Copyright 2021 Mike Bostock
+
+Permission to use, copy, modify, and/or distribute this software for any purpose
+with or without fee is hereby granted, provided that the above copyright notice
+and this permission notice appear in all copies.
+
+THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES WITH
+REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF MERCHANTABILITY AND
+FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY SPECIAL, DIRECT,
+INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES WHATSOEVER RESULTING FROM LOSS
+OF USE, DATA OR PROFITS, WHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER
+TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF
+THIS SOFTWARE.
+
+========================================================================
+SHA-256: a09cf172b475f76e0cb456e3cd346b1aa3fe5169ae5454f9f7fbe98b3e93c85f
+========================================================================
+
+MIT License
+
+Copyright (c) 2026-present Tanner Linsley
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+========================================================================
 SHA-256: a2e27d9b06edb292d37f31504b59a9f56f5211db26e21873fa060b1184801129
 ========================================================================
 
@@ -4026,6 +4001,32 @@ SHA-256: aa3df2110cf0f39305936b72071c4e894ffb6849970b8e6e2c9c583bd9be9adb
 MIT License
 
 Copyright (c) 2023 Ayman Bagabas
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+========================================================================
+SHA-256: ab96c2158cd217f2152e9ebc03400993c5605044774254b48dd6be2e903963c0
+========================================================================
+
+The MIT License (MIT)
+
+Copyright (c) 2014 Bob Matcuk
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -4267,31 +4268,6 @@ CC-BY-4.0. See https://creativecommons.org/licenses/by/4.0/legalcode for
 the full license text.
 
 ========================================================================
-SHA-256: b0bdbd678d40c373821a2878dcf9b515fbdc1359aa845670ed9d2e815f21d223
-========================================================================
-
-MIT LICENSE
-
-Copyright (c) 2018-present Ant UED, https://xtech.antfin.com/
-
-Permission is hereby granted, free of charge, to any person obtaining
-a copy of this software and associated documentation files (the
-"Software"), to deal in the Software without restriction, including
-without limitation the rights to use, copy, modify, merge, publish,
-distribute, sublicense, and/or sell copies of the Software, and to
-permit persons to whom the Software is furnished to do so, subject to
-the following conditions:
-The above copyright notice and this permission notice shall be
-included in all copies or substantial portions of the Software.
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
-EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
-MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
-NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE
-LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
-OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
-WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
-
-========================================================================
 SHA-256: b40930bbcf80744c86c46a12bc9da056641d722716c378f5659b9e555ef833e1
 ========================================================================
 
@@ -4496,6 +4472,32 @@ SHA-256: b40930bbcf80744c86c46a12bc9da056641d722716c378f5659b9e555ef833e1
    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
    See the License for the specific language governing permissions and
    limitations under the License.
+
+========================================================================
+SHA-256: b740a1d46122672da62833e97f7e7c8a13fa85cbc7445b584b297cc00dde93db
+========================================================================
+
+MIT License
+
+Copyright (c) 2020-2026 Paweł Kuna
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
 
 ========================================================================
 SHA-256: b8514c577c1c4b46cee454d5a882b15fa411e72c5bd7f801f241591789fce61a
@@ -5056,6 +5058,24 @@ The complete list of contributors can be found at:
 - https://github.com/garycourt/uri-js/graphs/contributors
 
 ========================================================================
+SHA-256: e008c5e25a6be382593089c29bfabbc553c6378eee02895aec46ce396cc404ee
+========================================================================
+
+Copyright 2010-2021 Mike Bostock
+
+Permission to use, copy, modify, and/or distribute this software for any purpose
+with or without fee is hereby granted, provided that the above copyright notice
+and this permission notice appear in all copies.
+
+THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES WITH
+REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF MERCHANTABILITY AND
+FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY SPECIAL, DIRECT,
+INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES WHATSOEVER RESULTING FROM LOSS
+OF USE, DATA OR PROFITS, WHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER
+TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF
+THIS SOFTWARE.
+
+========================================================================
 SHA-256: e2a78de21d6d8ded2dff0f3189cd32e011630d785da127ebfbc8949012c0947b
 ========================================================================
 
@@ -5519,6 +5539,24 @@ Files located in the node_modules and vendor directories are externally
 maintained libraries used by this software which have their own
 licenses; we recommend you read them, as their terms may differ from the
 terms above.
+
+========================================================================
+SHA-256: faa682e3e430941f958d26180458f5934a62f58dac4d70ccdd15608c15d0f884
+========================================================================
+
+Copyright 2010-2022 Mike Bostock
+
+Permission to use, copy, modify, and/or distribute this software for any purpose
+with or without fee is hereby granted, provided that the above copyright notice
+and this permission notice appear in all copies.
+
+THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES WITH
+REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF MERCHANTABILITY AND
+FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY SPECIAL, DIRECT,
+INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES WHATSOEVER RESULTING FROM LOSS
+OF USE, DATA OR PROFITS, WHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER
+TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF
+THIS SOFTWARE.
 
 ========================================================================
 SHA-256: fdb37e402bf5ba42e38d2e85f85517645f569962b8ae393eeb8649c73d46a780

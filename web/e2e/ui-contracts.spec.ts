@@ -148,10 +148,10 @@ test('password visibility has matching text, icon and input state', async ({ pag
   const password = form.locator('.ui-password input')
   await password.fill('test-secret')
   await expect(password).toHaveAttribute('type', 'password')
-  await expect(form.locator('.ui-password .anticon-eye-invisible')).toBeVisible()
+  await expect(form.locator('.ui-password .tabler-icon-eye-off')).toBeVisible()
   await form.getByRole('button', { name: 'Show value', exact: true }).click()
   await expect(password).toHaveAttribute('type', 'text')
-  await expect(form.locator('.ui-password .anticon-eye')).toBeVisible()
+  await expect(form.locator('.ui-password .tabler-icon-eye')).toBeVisible()
   await form.getByRole('button', { name: 'Hide value', exact: true }).press('Enter')
   await expect(password).toHaveAttribute('type', 'password')
   await expect(password).toHaveValue('test-secret')
@@ -214,7 +214,7 @@ test('switches distinguish off and on in both themes and keep the native state s
 test.describe('inline execution messages', () => {
   test.use({ progressCalls: 1 })
   for (const reducedMotion of ['no-preference', 'reduce'] as const) {
-    test(`execution previews stay visible while full tool output is optional with ${reducedMotion} motion`, async ({ page, vista }) => {
+    test(`tool headers toggle their result in place with ${reducedMotion} motion`, async ({ page, vista }) => {
       await page.emulateMedia({ reducedMotion })
       await page.goto(vista.origin)
       const input = page.locator('.sender-card textarea')
@@ -223,17 +223,17 @@ test.describe('inline execution messages', () => {
       await expect(page.locator('article.assistant').last()).toContainText('Final progress answer.')
       await expect(page.getByRole('button', { name: 'Execution process', exact: true })).toHaveCount(0)
       const tool = page.locator('.ui-thought-chain-node').filter({ hasText: 'Run command' })
-      await expect(tool.locator('.trace-step-content')).toContainText('Tool result')
-      const readFull = tool.getByRole('button', { name: 'Read full result', exact: true })
+      await expect(tool.locator('.trace-step-content')).toHaveCount(0)
+      const readFull = tool.locator('button.ui-thought-chain-node-header')
       await expect(readFull).toHaveAttribute('aria-expanded', 'false')
       await expect(tool.locator('.tool-output-entry')).toHaveCount(0)
       await readFull.click()
       await expect(tool.locator('.tool-output-entry')).toContainText('Tool result')
-      const hideFull = tool.getByRole('button', { name: 'Hide full result', exact: true })
+      const hideFull = readFull
       await expect(hideFull).toHaveAttribute('aria-expanded', 'true')
       await hideFull.click()
       await expect(tool.locator('.tool-output-entry')).toHaveCount(0)
-      await expect(tool.locator('.trace-step-content')).toContainText('Tool result')
+      await expect(tool.locator('.trace-step-content')).toHaveCount(0)
     })
   }
 })

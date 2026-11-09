@@ -22,7 +22,7 @@ function fragments(text: string) { return text.match(/[\s\S]{1,4096}/gu) || ['']
 
 <template>
   <div class="file-diff">
-    <div class="file-diff-heading"><code>{{ diff.path }}</code><span>{{ t(diff.created ? 'traceFileCreated' : 'traceFileUpdated') }}</span><span v-if="lines.length" class="file-diff-counts"><span class="file-diff-added">+{{ counts.added }}</span> <span class="file-diff-removed">−{{ counts.removed }}</span></span></div>
+    <div class="file-diff-heading"><code>{{ diff.path }}</code><span>{{ t(diff.deleted ? 'traceFileDeleted' : diff.created ? 'traceFileCreated' : 'traceFileUpdated') }}</span><span v-if="lines.length" class="file-diff-counts"><span class="file-diff-added">+{{ counts.added }}</span> <span class="file-diff-removed">−{{ counts.removed }}</span></span></div>
     <p v-if="diff.omitted" class="file-diff-message">{{ t(diff.omitted === 'too_large' ? 'traceDiffTooLarge' : 'traceDiffUnavailable') }}</p>
     <p v-else-if="!lines.length && !diff.created" class="file-diff-message">{{ t('traceFileUnchanged') }}</p>
     <div v-if="lines.length" ref="viewport" class="file-diff-viewport" :style="{ height: `${Math.min(lines.length * 24, 384)}px` }" tabindex="0">

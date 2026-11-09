@@ -147,6 +147,26 @@ test('omission from the open-only workspace list preserves the selected conversa
   assert.equal(f.conversation.draft.value, 'Keep this draft while another client closes the conversation')
 })
 
+test('a verified snapshot stays available through stream failure and resets before loading another session', async t => {
+  const pending = deferred<unknown>()
+  const f = fixture(t, path => path === '/sessions/b/snapshot' ? pending.promise : undefined)
+  assert.equal(f.conversation.snapshotReady.value, false)
+  await f.conversation.selectSession(session('a'))
+  assert.equal(f.conversation.snapshotReady.value, true)
+  f.streams.get('a')!.onError!(new Error('Stream unavailable'))
+  assert.equal(f.conversation.synchronization.value.phase, 'error')
+  assert.equal(f.conversation.snapshotReady.value, true)
+  assert.equal(f.conversation.messages.value[0]?.content, 'a-history')
+  const next = f.conversation.selectSession(session('b'))
+  assert.equal(f.conversation.snapshotReady.value, false)
+  assert.deepEqual(f.conversation.messages.value, [])
+  pending.resolve({ session: session('b'), throughSequence: 0, messages: [], events: [], hasOlder: false, hasOlderEvents: false })
+  await next
+  assert.equal(f.conversation.snapshotReady.value, true)
+  f.conversation.clearSession()
+  assert.equal(f.conversation.snapshotReady.value, false)
+})
+
 test('successful sends apply acknowledgements without workspace reloads or skipping stream records', async t => {
   const sent = message('new-user', 2, 'new-run')
   const f = fixture(t, (path, options) => path.endsWith('/messages') && options?.method === 'POST'
@@ -1164,7 +1184,7 @@ test('leaving home during first creation rejects its late result and preserves t
   assert.equal(sent, false)
 })
 
-test('full reply loads once and copying reuses the complete content', async t => {
+test('full reply reads deduplicate and copying prepared text needs no second body cache', async t => {
   const loading = deferred<OutputView>()
   const paths: string[] = []
   const full = '# Report\n\n' + '完整正文🙂\n'.repeat(1200) + '\nEnd of report'
@@ -1181,10 +1201,9 @@ test('full reply loads once and copying reuses the complete content', async t =>
   loading.resolve({ content: full, offset: 0, nextOffset: reply.outputBytes!, availableBytes: reply.outputBytes! })
   await read
   assert.equal(await copy, full)
-  assert.equal(conversation.modelOutput.value[reply.id].content, full)
+  assert.equal(conversation.modelOutput.value[reply.id], undefined)
   assert.equal(conversation.modelOutputLoading.value[reply.id], false)
-  await conversation.readModelOutput(reply)
-  assert.equal(await conversation.fullMessageText(reply), full)
+  assert.equal(await conversation.fullMessageText({ ...reply, content: full }), full)
   assert.equal(paths.length, 1)
 })
 
@@ -1407,7 +1426,7 @@ for (const fail of [false, true]) {
     await conversation.selectSession(session('a'))
     await new Promise(resolve => setImmediate(resolve))
     assert.equal(paths.length, 2)
-    assert.equal(conversation.mainOutputs.value.length, 100)
+    assert.equal(conversation.mainOutputs.value.length, 0, 'A partial index must not insert history rows before all index pages arrive')
     await conversation.selectSession(session('b'))
     error.value = 'B error'
     assert.equal(signal?.aborted, true)
@@ -1418,6 +1437,41 @@ for (const fail of [false, true]) {
     assert.equal(error.value, 'B error')
   })
 }
+
+test('loading the latest evicted window catches up messages received during its read', async t => {
+  const latest = deferred<Message[]>()
+  let loading = false
+  const reads: string[] = []
+  const { conversation, streams } = fixture(t, path => {
+    if (!loading) return
+    if (path === '/sessions/a/messages') { reads.push(path); return latest.promise }
+    if (path === '/sessions/a/messages?after=10') { reads.push(path); return Promise.resolve([message('newest', 12, 'new-run', 'assistant')]) }
+  })
+  await conversation.selectSession(session('a'))
+  conversation.hasNewer.value = true
+  loading = true
+  const request = conversation.loadLatest()
+  streams.get('a')!.onEvent({ sequence: 12, kind: 'message', data: message('newest', 12, 'new-run', 'assistant') })
+  latest.resolve([message('latest-page', 10, 'new-run', 'assistant')])
+  assert.equal(await request, true)
+  assert.deepEqual(reads, ['/sessions/a/messages', '/sessions/a/messages?after=10'])
+  assert.equal(conversation.messages.value.at(-1)?.id, 'newest')
+  assert.equal(conversation.hasNewer.value, false)
+})
+
+test('a late latest-window read cannot replace another selected conversation', async t => {
+  const latest = deferred<Message[]>()
+  let loading = false
+  const { conversation } = fixture(t, path => loading && path === '/sessions/a/messages' ? latest.promise : undefined)
+  await conversation.selectSession(session('a'))
+  loading = true
+  const request = conversation.loadLatest()
+  await conversation.selectSession(session('b'))
+  latest.resolve([message('obsolete', 10, 'old-run', 'assistant')])
+  assert.equal(await request, false)
+  assert.equal(conversation.selected.value?.id, 'b')
+  assert.deepEqual(conversation.messages.value.map(message => message.id), ['b-history'])
+})
 
 test('visible main output hydration keeps SSE received during a read and cancels on session switch', async t => {
   const loading = deferred<OutputView>()
@@ -1683,7 +1737,7 @@ test('a late recovery snapshot cannot modify another conversation or the same co
   }
 })
 
-test('recovery keeps an intentional older message window and does not acknowledge unseen replies', async t => {
+test('recovery retains browsed history and the latest tail without acknowledging unseen replies', async t => {
   let reads = 0, receipts = 0
   const { conversation, streams } = fixture(t, (path, options) => {
     if (path.endsWith('/snapshot')) return Promise.resolve({ session: { ...session('a'), latestReplySequence: reads++ ? 500 : 400 }, throughSequence: reads > 1 ? 500 : 400,
@@ -1696,12 +1750,13 @@ test('recovery keeps an intentional older message window and does not acknowledg
   })
   await conversation.selectSession(session('a'))
   await conversation.loadOlder(); await conversation.loadOlder(); await conversation.loadOlder()
-  assert.equal(conversation.hasNewer.value, true)
+  assert.equal(conversation.hasNewer.value, false)
   const window = conversation.messages.value.map(item => item.id)
   conversation.resynchronize()
   await streams.get('a')!.beforeConnect!()
-  assert.deepEqual(conversation.messages.value.map(item => item.id), window)
-  assert.equal(conversation.hasNewer.value, true)
+  assert.deepEqual(conversation.messages.value.slice(0, window.length).map(item => item.id), window)
+  assert.equal(conversation.messages.value.at(-1)!.sequence, 500)
+  assert.equal(conversation.hasNewer.value, false)
   assert.equal(conversation.latestMessageSequence.value, 500)
   assert.equal(receipts, 0)
 })

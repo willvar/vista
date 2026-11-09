@@ -2,7 +2,7 @@
 import { computed, onUnmounted, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { Alert, Button, Modal, TextArea, Tree } from './ui'
-import { ArrowLeftOutlined, DownloadOutlined } from '@antdv-next/icons'
+import { IconArrowLeft } from '@tabler/icons-vue'
 import type { TreeNode } from './ui/types'
 import { useWorkspace } from './composables/useWorkspace'
 import { VistaAPIError } from './client/vista'
@@ -22,7 +22,7 @@ const loading = ref(false), initialized = ref(false), saving = ref(false), error
 const canSave = computed(() => props.skill.source === 'user' && !loading.value && !saving.value && !!document.value?.sha256 && dirtyPaths.value.includes(activePath.value))
 const basePath = computed(() => `/skills/${encodeURIComponent(props.skill.id)}`)
 const filePath = (name: string) => `${basePath.value}?file=${encodeURIComponent(name)}`
-const rawPath = computed(() => '/api' + filePath(activePath.value) + '&raw=1')
+const previewPath = computed(() => '/api' + filePath(activePath.value) + '&preview=1')
 let controller = new AbortController(), fileController = new AbortController(), fileGeneration = 0, treeGeneration = 0
 let discardAction: (() => void) | undefined
 
@@ -116,16 +116,16 @@ onUnmounted(() => controller.abort())
     <div class="skill-browser" :class="{ 'skill-file-open': mobileFileOpen }">
       <nav class="skill-file-tree" :aria-label="t('skillFiles')"><Tree :nodes="nodes" :value="activePath" :label="t('skillFiles')" @update:value="selectFile" /></nav>
       <section class="skill-file-content">
-        <div class="skill-file-heading"><Button class="skill-files-back" variant="text" @click="mobileFileOpen = false"><ArrowLeftOutlined aria-hidden="true" />{{ t('skillFiles') }}</Button><strong>{{ activePath }}<span v-if="dirtyPaths.includes(activePath)" class="skill-dirty-mark"> ●</span></strong></div>
+        <div class="skill-file-heading"><Button class="skill-files-back" variant="text" @click="mobileFileOpen = false"><IconArrowLeft aria-hidden="true" />{{ t('skillFiles') }}</Button><strong>{{ activePath }}<span v-if="dirtyPaths.includes(activePath)" class="skill-dirty-mark"> ●</span></strong></div>
         <Alert v-if="error && initialized" type="error" role="alert" :message="error" />
         <Button v-if="error && initialized && !document" @click="selectFile(activePath)">{{ t('retry') }}</Button>
         <Button v-if="conflict" @click="guardDiscard(() => selectFile(activePath, true), dirtyPaths.includes(activePath) ? 1 : 0)">{{ t('skillReloadFile') }}</Button>
         <p v-if="loading && initialized" role="status">{{ t('skillsLoading') }}</p>
         <template v-else-if="document">
           <TextArea v-if="document.kind === 'text'" v-model:value="document.content" class="skill-content-input" :auto-size="false" :aria-label="activePath" :readonly="skill.source === 'system'" :disabled="saving" />
-          <img v-else-if="document.kind === 'image'" class="skill-image-preview" :src="rawPath + '&preview=1'" :alt="activePath" />
+          <img v-else-if="document.kind === 'image'" class="skill-image-preview" :src="previewPath" :alt="activePath" />
           <p v-else class="skills-hint">{{ t('skillBinaryFile') }}</p>
-          <div class="skill-file-info"><small>{{ document.bytes.toLocaleString() }} {{ t('skillBytes') }}</small><Button variant="link" :href="rawPath" :download="activePath.split('/').at(-1)"><DownloadOutlined aria-hidden="true" />{{ t('download') }}</Button></div>
+          <small class="skill-file-info">{{ document.bytes.toLocaleString() }} {{ t('skillBytes') }}</small>
           <p v-if="activePath === 'SKILL.md' && skill.source !== 'system'" class="skills-hint">{{ t('skillContentHint') }}</p>
         </template>
       </section>
@@ -141,7 +141,7 @@ onUnmounted(() => controller.abort())
 .skill-file-content{display:flex;flex-direction:column;gap:.65rem;min-width:0;min-height:0;overflow:auto}
 .skill-file-heading{display:flex;align-items:center;gap:.5rem;min-width:0;flex-wrap:wrap}.skill-file-heading strong{font-size:var(--font-size-body);font-weight:500;overflow-wrap:anywhere}
 .skill-content-input{flex:1;min-height:120px!important;height:100%;resize:none;font:var(--font-size-body)/1.65 var(--font-mono,monospace);tab-size:2}
-.skill-file-info{display:flex;align-items:center;justify-content:space-between;gap:.5rem;color:var(--muted)}
+.skill-file-info{color:var(--muted)}
 .skill-image-preview{min-height:0;max-width:100%;object-fit:contain;flex:1}
 .skill-files-back{display:none}.skill-dirty-mark{color:var(--accent)}
 .skills-hint{color:var(--muted);font-size:var(--font-size-body);line-height:1.6;margin:0}

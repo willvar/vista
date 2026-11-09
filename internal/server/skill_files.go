@@ -113,14 +113,14 @@ func serveSkillFile(w http.ResponseWriter, r *http.Request, filesystem fs.FS, ro
 	head = head[:n]
 	contentType := http.DetectContentType(head)
 	image := contentType == "image/png" || contentType == "image/jpeg" || contentType == "image/gif" || contentType == "image/webp" || contentType == "image/bmp"
-	if r.Method == http.MethodGet && r.URL.Query().Get("raw") == "1" {
+	if r.Method == http.MethodGet && r.URL.Query().Get("preview") == "1" {
+		if !image {
+			http.Error(w, "only raster images can be previewed", http.StatusBadRequest)
+			return
+		}
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		w.Header().Set("Content-Type", contentType)
-		disposition := "attachment"
-		if image && r.URL.Query().Get("preview") == "1" {
-			disposition = "inline"
-		}
-		w.Header().Set("Content-Disposition", mime.FormatMediaType(disposition, map[string]string{"filename": path.Base(name)}))
+		w.Header().Set("Content-Disposition", mime.FormatMediaType("inline", map[string]string{"filename": path.Base(name)}))
 		reader, ok := file.(io.ReadSeeker)
 		if !ok {
 			http.Error(w, "skill file cannot be read", http.StatusInternalServerError)
