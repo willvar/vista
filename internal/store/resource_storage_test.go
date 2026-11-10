@@ -3,6 +3,7 @@ package store
 import (
 	"bytes"
 	"context"
+	"database/sql/driver"
 	"errors"
 	"os"
 	"path/filepath"
@@ -66,6 +67,16 @@ func TestResourceOwnershipDeduplicatesAndSurvivesUntilLastSessionDeletion(t *tes
 	if count, _, err := s.CleanResources(ctx, nil); err != nil || count != 0 {
 		t.Fatalf("closed session's original was cleaned: %d %v", count, err)
 	}
+	// Cancellation can make database/sql replace its underlying connection.
+	// Deletion must still cascade on the replacement connection.
+	connection, err := s.db.Conn(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := connection.Raw(func(any) error { return driver.ErrBadConn }); !errors.Is(err, driver.ErrBadConn) {
+		t.Fatal(err)
+	}
+	connection.Close()
 	if err := s.Delete(ctx, "first"); err != nil {
 		t.Fatal(err)
 	}

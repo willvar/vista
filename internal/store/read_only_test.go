@@ -24,12 +24,19 @@ func TestWorkerStoreReadsWALWithoutCreatingOrWritingDatabase(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer worker.Close()
+	worker.db.SetMaxIdleConns(0)
 	item, err := worker.Get(ctx, id)
 	if err != nil || item.Title != "visible in WAL" {
 		t.Fatalf("read-only WAL read: %+v, %v", item, err)
 	}
 	if _, err := worker.Create(ctx, "other", "must fail"); err == nil {
 		t.Fatal("read-only Worker connection accepted a write")
+	}
+	for pragma, expected := range map[string]int{"busy_timeout": 5000, "cache_size": -512, "query_only": 1} {
+		var actual int
+		if err := worker.db.QueryRow("PRAGMA " + pragma).Scan(&actual); err != nil || actual != expected {
+			t.Fatalf("replacement connection lost %s: got %d, want %d (%v)", pragma, actual, expected, err)
+		}
 	}
 	missing := filepath.Join(t.TempDir(), "absent.db")
 	if _, err := OpenReadOnly(missing); err == nil {

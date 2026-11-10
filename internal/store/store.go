@@ -189,14 +189,16 @@ func (s *Store) SessionCounts(ctx context.Context) (Counts, error) {
 }
 
 func Open(path string) (*Store, error) {
-	db, err := sql.Open("sqlite", path)
+	dsn, err := sqliteDSN(path, url.Values{"_pragma": {"busy_timeout=5000", "foreign_keys=ON"}})
+	if err != nil {
+		return nil, err
+	}
+	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		return nil, err
 	}
 	db.SetMaxOpenConns(1)
 	for _, q := range []string{
-		"PRAGMA busy_timeout=5000",
-		"PRAGMA foreign_keys=ON",
 		"PRAGMA journal_mode=WAL",
 		`CREATE TABLE IF NOT EXISTS memories (
    id TEXT PRIMARY KEY, text TEXT NOT NULL UNIQUE,
@@ -324,28 +326,35 @@ func Open(path string) (*Store, error) {
 	return result, nil
 }
 
-// OpenReadOnly is for Worker history and output reads. Only the Server owns
-// schema initialization and writes; a missing database must not be created.
-func OpenReadOnly(path string) (*Store, error) {
+// Connection-local settings belong to the DSN so database/sql also applies
+// them when cancellation or an invalid connection causes a replacement.
+func sqliteDSN(path string, query url.Values) (string, error) {
 	absolute, err := filepath.Abs(path)
 	if err != nil {
-		return nil, err
+		return "", err
 	}
 	absolute = filepath.ToSlash(absolute)
 	if !strings.HasPrefix(absolute, "/") {
 		absolute = "/" + absolute
 	}
-	dsn := (&url.URL{Scheme: "file", Path: absolute, RawQuery: "mode=ro"}).String()
+	return (&url.URL{Scheme: "file", Path: absolute, RawQuery: query.Encode()}).String(), nil
+}
+
+// OpenReadOnly is for Worker history and output reads. Only the Server owns
+// schema initialization and writes; a missing database must not be created.
+func OpenReadOnly(path string) (*Store, error) {
+	dsn, err := sqliteDSN(path, url.Values{"mode": {"ro"}, "_pragma": {"busy_timeout=5000", "cache_size=-512", "query_only=ON"}})
+	if err != nil {
+		return nil, err
+	}
 	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		return nil, err
 	}
 	db.SetMaxOpenConns(1)
-	for _, q := range []string{"PRAGMA busy_timeout=5000", "PRAGMA cache_size=-512", "PRAGMA query_only=ON"} {
-		if _, err := db.Exec(q); err != nil {
-			db.Close()
-			return nil, fmt.Errorf("open read-only database: %w", err)
-		}
+	if err := db.Ping(); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("open read-only database: %w", err)
 	}
 	orm, err := openORM(db)
 	if err != nil {
