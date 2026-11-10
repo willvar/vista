@@ -59,6 +59,10 @@ export function frontendLicensesPlugin() {
   return {
     name: 'vista-frontend-licenses',
     apply: 'build',
+    config() {
+      // Keep the notice through minification and include it in chunk hashes.
+      return { build: { rolldownOptions: { output: { postBanner: '/*! Vista and third-party licenses: /licenses */' } } } }
+    },
     async generateBundle(_options, bundle) {
       const chunks = Object.values(bundle).filter(item => item.type === 'chunk')
       const ids = new Set(chunks.flatMap(chunk => Object.keys(chunk.modules)))
@@ -70,7 +74,6 @@ export function frontendLicensesPlugin() {
       if (!packages.size) throw new Error('Frontend build did not report any dependency packages')
       const entries = [...packages.values()].sort((a, b) => compare(a.location, b.location))
       await writeChanged(frontendManifest, JSON.stringify(entries, null, 2) + '\n')
-      for (const chunk of chunks) chunk.code = '/*! Vista and third-party licenses: /licenses */\n' + chunk.code
     },
   }
 }

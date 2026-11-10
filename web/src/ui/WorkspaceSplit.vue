@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, onBeforeUnmount, ref } from 'vue'
-import { Splitter } from '@ark-ui/vue/splitter'
+import { SplitterResizeTrigger, SplitterPanel, SplitterRoot } from '@ark-ui/vue/splitter'
 import { useI18n } from 'vue-i18n'
 const props = defineProps<{ sidebarWidth: number; minimum: number; maximum: number; desktop: boolean }>()
 const emit = defineEmits<{ resize: [sizes: number[]]; resizeEnd: [sizes: number[]]; reset: [] }>()
@@ -21,10 +21,10 @@ onBeforeUnmount(() => observer?.disconnect())
 
 <template>
   <div ref="container" class="workspace-split-container">
-    <Splitter.Root class="workspace-splitter ui-splitter" :panels="panels" :size="size" :keyboard-resize-by="width ? 1000 / width : 1" @resize="desktop && emit('resize', sizes($event.size))" @resize-end="desktop && emit('resizeEnd', sizes($event.size))">
-      <Splitter.Panel id="sidebar" class="ui-splitter-panel sidebar-split-panel" :style="{ flex: `0 0 ${sidebarWidth}px` }"><slot name="sidebar" /></Splitter.Panel>
-      <Splitter.ResizeTrigger v-if="desktop" id="sidebar:conversation" class="ui-splitter-bar ui-splitter-bar-dragger" :aria-label="t('resizeSessionList')" :title="t('resizeSessionListHint')" aria-controls="sessions-panel" @dblclick="emit('reset')" />
-      <Splitter.Panel id="conversation" class="ui-splitter-panel conversation-split-panel" style="flex: 1"><slot /></Splitter.Panel>
-    </Splitter.Root>
+    <SplitterRoot class="workspace-splitter ui-splitter" :panels="panels" :size="size" :keyboard-resize-by="width ? 1000 / width : 1" @resize="desktop && emit('resize', sizes($event.size))" @resize-end="desktop && emit('resizeEnd', sizes($event.size))">
+      <SplitterPanel id="sidebar" class="ui-splitter-panel sidebar-split-panel" :style="{ flex: `0 0 ${sidebarWidth}px` }"><slot name="sidebar" /></SplitterPanel>
+      <SplitterResizeTrigger v-if="desktop" id="sidebar:conversation" class="ui-splitter-bar ui-splitter-bar-dragger" :aria-label="t('resizeSessionList')" :title="t('resizeSessionListHint')" aria-controls="sessions-panel" @dblclick="emit('reset')" />
+      <SplitterPanel id="conversation" class="ui-splitter-panel conversation-split-panel" style="flex: 1"><slot /></SplitterPanel>
+    </SplitterRoot>
   </div>
 </template>

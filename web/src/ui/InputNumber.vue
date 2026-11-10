@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { NumberInput } from '@ark-ui/vue/number-input'
+import { NumberInputIncrementTrigger, NumberInputDecrementTrigger, NumberInputControl, NumberInputInput, NumberInputRoot } from '@ark-ui/vue/number-input'
 import { IconChevronUp, IconChevronDown } from '@tabler/icons-vue'
 import { useI18n } from 'vue-i18n'
 defineOptions({ inheritAttrs: false })
@@ -13,11 +13,11 @@ function change(details: { value: string; valueAsNumber: number }) {
 </script>
 
 <template>
-  <NumberInput.Root class="ui-input-number" :class="$attrs.class" :style="$attrs.style" :model-value="value == null ? '' : String(value)"
+  <NumberInputRoot class="ui-input-number" :class="$attrs.class" :style="$attrs.style" :model-value="value == null ? '' : String(value)"
     :min="min" :max="max" :step="step" :clamp-value-on-blur="clampValueOnBlur" :disabled="disabled" :ids="id ? { input: id } : undefined" :format-options="precision == null ? undefined : { useGrouping: false, maximumFractionDigits: precision }"
     :translations="{ incrementLabel: t('uiIncrease'), decrementLabel: t('uiDecrease') }"
     @value-change="change">
-    <NumberInput.Input v-bind="{ ...$attrs, class: undefined, style: undefined }" class="ui-input-number-input" />
-    <NumberInput.Control class="ui-number-controls"><NumberInput.IncrementTrigger tabindex="-1"><IconChevronUp /></NumberInput.IncrementTrigger><NumberInput.DecrementTrigger tabindex="-1"><IconChevronDown /></NumberInput.DecrementTrigger></NumberInput.Control>
-  </NumberInput.Root>
+    <NumberInputInput v-bind="{ ...$attrs, class: undefined, style: undefined }" class="ui-input-number-input" />
+    <NumberInputControl class="ui-number-controls"><NumberInputIncrementTrigger tabindex="-1"><IconChevronUp /></NumberInputIncrementTrigger><NumberInputDecrementTrigger tabindex="-1"><IconChevronDown /></NumberInputDecrementTrigger></NumberInputControl>
+  </NumberInputRoot>
 </template>

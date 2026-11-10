@@ -26,12 +26,4 @@ export const catalogs = {
 // Region aliases reference the same dictionaries, not copies of their strings.
 export const messages = Object.fromEntries(languages.map(language => [language.value, catalogs[language.catalog]])) as Record<Language, Record<keyof typeof en, string>>
 
-function russianPlural(choice: number) {
-  const n = Math.abs(choice)
-  if (n === 0) return 0
-  if (n % 10 === 1 && n % 100 !== 11) return 1
-  if (n % 10 >= 2 && n % 10 <= 4 && (n % 100 < 12 || n % 100 > 14)) return 2
-  return 3
-}
-
-export const pluralRules = Object.fromEntries(languages.filter(language => language.language === 'ru').map(language => [language.value, russianPlural]))
+export { pluralRules } from './plurals.ts'

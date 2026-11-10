@@ -2,6 +2,9 @@ import type en from './en.ts'
 
 
 export default {
+  "frontendLoadFailed": "일부 인터페이스 파일을 불러오지 못했습니다. 연결을 확인하거나 페이지를 새로고침해 현재 버전을 사용하세요.",
+  "frontendReload": "페이지 새로고침",
+  "frontendReloadConfirm": "새로고침하면 현재 버전을 불러옵니다. 이 브라우저에 저장된 메시지 텍스트 초안은 복원되지만, 저장하지 않은 설정과 첨부 이미지는 다시 입력하거나 선택해야 합니다.",
   "skillFiles": "스킬 파일",
   "skillReloadFile": "파일 다시 읽기",
   "skillBinaryFile": "이 파일은 미리 보거나 편집할 수 없습니다.",

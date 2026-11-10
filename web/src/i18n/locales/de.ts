@@ -2,6 +2,9 @@ import type en from './en.ts'
 
 
 export default {
+  "frontendLoadFailed": "Einige Oberflächendateien konnten nicht geladen werden. Prüfe die Verbindung oder lade die Seite neu, um die aktuelle Version zu verwenden.",
+  "frontendReload": "Seite neu laden",
+  "frontendReloadConfirm": "Beim Neuladen wird die aktuelle Version geladen. In diesem Browser gespeicherte Nachrichtentexte werden wiederhergestellt; ungespeicherte Einstellungen und angehängte Bilder müssen erneut eingegeben oder ausgewählt werden.",
   "skillFiles": "Skill-Dateien",
   "skillReloadFile": "Datei neu laden",
   "skillBinaryFile": "Diese Datei kann hier weder angezeigt noch bearbeitet werden.",

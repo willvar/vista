@@ -3,7 +3,6 @@ package server
 import (
 	"context"
 	"database/sql"
-	"embed"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -37,9 +36,6 @@ import (
 	"vista/internal/workerproto"
 	"vista/licenses"
 )
-
-//go:embed assets/app.js assets/vista-web.css
-var webAssets embed.FS
 
 type worker struct {
 	rpcMu           sync.Mutex
@@ -414,8 +410,7 @@ func (a *App) handler() http.Handler {
 	mux.HandleFunc("/api/stop", a.stop)
 	mux.HandleFunc("/api/sessions", a.sessions)
 	mux.HandleFunc("/api/sessions/", a.session)
-	mux.HandleFunc("/app.js", a.asset)
-	mux.HandleFunc("/vista-web.css", a.asset)
+	mux.HandleFunc("/assets/", a.asset)
 	mux.HandleFunc("/", a.root)
 	return a.host(a.stateMutations(mux))
 }
@@ -1119,7 +1114,7 @@ func (a *App) outputPage(w http.ResponseWriter, r *http.Request, id, outputPath 
 }
 func (a *App) root(w http.ResponseWriter, r *http.Request) {
 	path := r.URL.Path
-	if (path != "/" && path != "/settings" && path != "/settings/models" && path != "/settings/about" && path != "/settings/general" && path != "/settings/personalization" && path != "/settings/search" && path != "/settings/storage" && path != "/settings/mcp" && path != "/settings/skills" && path != "/settings/statistics" && path != "/sessions" && !strings.HasPrefix(path, "/sessions/")) || r.Method != "GET" {
+	if (path != "/" && path != "/index.html" && path != "/settings" && path != "/settings/models" && path != "/settings/about" && path != "/settings/general" && path != "/settings/personalization" && path != "/settings/search" && path != "/settings/storage" && path != "/settings/mcp" && path != "/settings/skills" && path != "/settings/statistics" && path != "/sessions" && !strings.HasPrefix(path, "/sessions/")) || (r.Method != "GET" && r.Method != "HEAD") {
 		http.NotFound(w, r)
 		return
 	}
@@ -1129,25 +1124,12 @@ func (a *App) root(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	io.WriteString(w, `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Vista</title><script>try{const p=localStorage.getItem('vista-appearance');document.documentElement.dataset.theme=p==='light'||p==='dark'?p:matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light'}catch{document.documentElement.dataset.theme=matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light'}</script><link rel="stylesheet" href="/vista-web.css"></head><body><div id="app">Loading Vista…</div><script src="/app.js"></script></body></html>`)
+	serveFrontendFile(w, r, "index.html", false)
 }
 func (a *App) asset(w http.ResponseWriter, r *http.Request) {
-	if r.Method != "GET" {
+	if r.Method != "GET" && r.Method != "HEAD" {
 		http.Error(w, "method", 405)
 		return
 	}
-	name := "assets" + r.URL.Path
-	b, err := webAssets.ReadFile(name)
-	if err != nil {
-		http.NotFound(w, r)
-		return
-	}
-	if strings.HasSuffix(name, ".js") {
-		w.Header().Set("Content-Type", "application/javascript")
-	} else {
-		w.Header().Set("Content-Type", "text/css")
-	}
-	w.Header().Set("Cache-Control", "no-store")
-	_, _ = w.Write(b)
+	serveFrontendFile(w, r, strings.TrimPrefix(r.URL.Path, "/"), true)
 }

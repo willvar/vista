@@ -2,6 +2,9 @@ import type en from './en.ts'
 
 
 export default {
+  "frontendLoadFailed": "Alguns arquivos da interface não puderam ser carregados. Verifique a conexão ou recarregue para usar a versão atual.",
+  "frontendReload": "Recarregar página",
+  "frontendReloadConfirm": "Ao recarregar, a versão atual será carregada. Os rascunhos de texto salvos neste navegador serão restaurados; configurações não salvas e imagens anexadas precisam ser inseridas ou selecionadas novamente.",
   "skillFiles": "Arquivos da habilidade",
   "skillReloadFile": "Reler arquivo",
   "skillBinaryFile": "Este arquivo não pode ser visualizado nem editado aqui.",

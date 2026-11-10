@@ -2,6 +2,9 @@ import type en from './en.ts'
 
 
 export default {
+  "frontendLoadFailed": "画面の一部のファイルを読み込めませんでした。接続を確認するか、ページを再読み込みして現在のバージョンを使用してください。",
+  "frontendReload": "ページを再読み込み",
+  "frontendReloadConfirm": "現在のバージョンを読み込みます。このブラウザーに保存されたメッセージ本文の下書きは復元されます。未保存の設定や添付画像は、再入力または再選択が必要です。",
   "skillFiles": "スキルのファイル",
   "skillReloadFile": "ファイルを再読み込み",
   "skillBinaryFile": "このファイルはプレビュー・編集できません。",

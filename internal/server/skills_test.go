@@ -31,7 +31,7 @@ func TestSkillsSettingsDiscoverEditToggleAndDelete(t *testing.T) {
 	for _, path := range []string{"/settings/skills", "/settings/mcp", "/settings/about"} {
 		w := httptest.NewRecorder()
 		a.handler().ServeHTTP(w, httptest.NewRequest("GET", "http://127.0.0.1:5186"+path, nil))
-		if w.Code != 200 || !strings.Contains(w.Body.String(), "/app.js") {
+		if w.Code != 200 || !strings.Contains(w.Body.String(), `src="/assets/`) {
 			t.Fatalf("settings direct URL did not load the application: %s", path)
 		}
 	}

@@ -1,6 +1,7 @@
 package server
 
 import (
+	"io/fs"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -11,10 +12,16 @@ import (
 
 func TestLicensesAccompanyBrowserAssets(t *testing.T) {
 	app := &App{}
-	asset := httptest.NewRecorder()
-	app.handler().ServeHTTP(asset, httptest.NewRequest(http.MethodGet, "http://127.0.0.1:5186/app.js", nil))
-	if asset.Code != http.StatusOK || !strings.HasPrefix(asset.Body.String(), "/*! Vista and third-party licenses: /licenses */") {
-		t.Fatal("browser JavaScript does not point to its license notices")
+	files, err := fs.Glob(webAssets, "assets/assets/*.js")
+	if err != nil || len(files) == 0 {
+		t.Fatal("browser JavaScript is missing", err)
+	}
+	for _, file := range files {
+		asset := httptest.NewRecorder()
+		app.handler().ServeHTTP(asset, httptest.NewRequest(http.MethodGet, "http://127.0.0.1:5186/"+strings.TrimPrefix(file, "assets/"), nil))
+		if asset.Code != http.StatusOK || !strings.Contains(asset.Body.String(), "/*! Vista and third-party licenses: /licenses */") {
+			t.Fatalf("browser JavaScript does not point to its license notices: %s", file)
+		}
 	}
 	for _, method := range []string{http.MethodGet, http.MethodHead} {
 		response := httptest.NewRecorder()

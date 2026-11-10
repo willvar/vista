@@ -2,6 +2,9 @@ import type en from './en.ts'
 
 
 export default {
+  "frontendLoadFailed": "Certains fichiers de l’interface n’ont pas pu être chargés. Vérifiez la connexion ou rechargez la page pour utiliser la version actuelle.",
+  "frontendReload": "Recharger la page",
+  "frontendReloadConfirm": "Le rechargement charge la version actuelle. Les brouillons de messages enregistrés dans ce navigateur sont restaurés ; les paramètres non enregistrés et les images jointes doivent être saisis ou sélectionnés à nouveau.",
   "skillFiles": "Fichiers de la compétence",
   "skillReloadFile": "Relire le fichier",
   "skillBinaryFile": "Ce fichier ne peut pas être prévisualisé ni modifié ici.",

@@ -1,6 +1,5 @@
 import { defineConfig, type Plugin } from 'vite'
 import vue from '@vitejs/plugin-vue'
-import { resolve } from 'node:path'
 import type { IncomingMessage } from 'node:http'
 import { frontendLicensesPlugin } from '../scripts/update_licenses.mjs'
 
@@ -46,14 +45,9 @@ export default defineConfig(({ command }) => {
     plugins: [vue(), frontendLicensesPlugin(), ...(command === 'serve' ? [devApiGuard(backend)] : [])],
     ...(command === 'build' ? { define: { 'process.env.NODE_ENV': JSON.stringify('production') } } : {}),
     build: {
-      emptyOutDir: false,
+      emptyOutDir: true,
       outDir: '../internal/server/assets',
-      lib: {
-        entry: resolve(import.meta.dirname, 'src/main.ts'),
-        formats: ['iife'],
-        name: 'Vista',
-        fileName: () => 'app.js',
-      },
+      reportCompressedSize: false,
     },
     server: {
       host: '127.0.0.1',

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Dialog } from '@ark-ui/vue/dialog'
+import { DialogCloseTrigger, DialogTitle } from '@ark-ui/vue/dialog'
 import { IconArrowLeft, IconX } from '@tabler/icons-vue'
 import { ref } from 'vue'
 import { useI18n } from 'vue-i18n'
@@ -21,12 +21,12 @@ defineExpose({ focusTitle: () => heading.value?.$el.focus({ preventScroll: true 
 <template>
   <header class="ui-modal-header">
     <Button v-if="backLabel" variant="text" class="icon-button ui-modal-back" :aria-label="backLabel" :title="backLabel" :disabled="closeDisabled" @click="emit('back')"><IconArrowLeft aria-hidden="true" /></Button>
-    <Dialog.Title ref="heading" class="ui-modal-title" :class="{ 'visually-hidden': !title && !$slots.title }" tabindex="-1"><slot name="title">{{ title || 'Vista' }}</slot></Dialog.Title>
+    <DialogTitle ref="heading" class="ui-modal-title" :class="{ 'visually-hidden': !title && !$slots.title }" tabindex="-1"><slot name="title">{{ title || 'Vista' }}</slot></DialogTitle>
     <div v-if="closable || $slots.actions" class="ui-modal-header-actions">
       <slot name="actions" />
-      <Dialog.CloseTrigger v-if="closable" as-child>
+      <DialogCloseTrigger v-if="closable" as-child>
         <Button variant="text" class="icon-button ui-modal-close" :aria-label="closeLabel || t('close')" :title="closeLabel || t('close')" :disabled="closeDisabled"><IconX aria-hidden="true" /></Button>
-      </Dialog.CloseTrigger>
+      </DialogCloseTrigger>
     </div>
   </header>
 </template>

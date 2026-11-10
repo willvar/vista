@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { TreeView } from '@ark-ui/vue/tree-view'
+import { TreeViewBranchIndicator, TreeViewBranchControl, TreeViewBranchContent, TreeViewNodeProvider, TreeViewBranchText, TreeViewItemText, TreeViewBranch, TreeViewItem } from '@ark-ui/vue/tree-view'
 import { IconFile, IconFolder, IconChevronRight } from '@tabler/icons-vue'
 import type { TreeNode } from './types'
 defineProps<{ node: TreeNode; indexPath: number[] }>()
@@ -7,18 +7,18 @@ const emit = defineEmits<{ activate: [value: string] }>()
 </script>
 
 <template>
-  <TreeView.NodeProvider :node="node" :index-path="indexPath">
-    <TreeView.Branch v-if="node.children">
-      <TreeView.BranchControl :data-directory-path="node.value">
-        <TreeView.BranchIndicator><IconChevronRight aria-hidden="true" /></TreeView.BranchIndicator><IconFolder aria-hidden="true" />
-        <TreeView.BranchText>{{ node.label }}</TreeView.BranchText>
-      </TreeView.BranchControl>
-      <TreeView.BranchContent>
+  <TreeViewNodeProvider :node="node" :index-path="indexPath">
+    <TreeViewBranch v-if="node.children">
+      <TreeViewBranchControl :data-directory-path="node.value">
+        <TreeViewBranchIndicator><IconChevronRight aria-hidden="true" /></TreeViewBranchIndicator><IconFolder aria-hidden="true" />
+        <TreeViewBranchText>{{ node.label }}</TreeViewBranchText>
+      </TreeViewBranchControl>
+      <TreeViewBranchContent>
         <TreeBranch v-for="(child, index) in node.children" :key="child.value" :node="child" :index-path="[...indexPath, index]" @activate="emit('activate', $event)" />
-      </TreeView.BranchContent>
-    </TreeView.Branch>
-    <TreeView.Item v-else :data-file-path="node.value" @click="emit('activate', node.value)" @keydown.enter.stop.prevent="emit('activate', node.value)" @keydown.space.stop.prevent="emit('activate', node.value)">
-      <IconFile aria-hidden="true" /><TreeView.ItemText>{{ node.label }}</TreeView.ItemText><span v-if="node.modified" class="ui-tree-modified" aria-hidden="true">●</span>
-    </TreeView.Item>
-  </TreeView.NodeProvider>
+      </TreeViewBranchContent>
+    </TreeViewBranch>
+    <TreeViewItem v-else :data-file-path="node.value" @click="emit('activate', node.value)" @keydown.enter.stop.prevent="emit('activate', node.value)" @keydown.space.stop.prevent="emit('activate', node.value)">
+      <IconFile aria-hidden="true" /><TreeViewItemText>{{ node.label }}</TreeViewItemText><span v-if="node.modified" class="ui-tree-modified" aria-hidden="true">●</span>
+    </TreeViewItem>
+  </TreeViewNodeProvider>
 </template>

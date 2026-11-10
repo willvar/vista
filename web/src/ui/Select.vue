@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, useAttrs } from 'vue'
-import { Combobox, createListCollection } from '@ark-ui/vue/combobox'
+import { ComboboxItemGroupLabel, ComboboxItemIndicator, ComboboxPositioner, ComboboxItemGroup, ComboboxItemText, ComboboxControl, ComboboxTrigger, ComboboxContent, ComboboxInput, ComboboxEmpty, ComboboxRoot, ComboboxItem, createListCollection } from '@ark-ui/vue/combobox'
 import { useVirtualizer } from '@tanstack/vue-virtual'
 import { IconChevronDown, IconX, IconCheck } from '@tabler/icons-vue'
 import { useI18n } from 'vue-i18n'
@@ -94,33 +94,33 @@ function addTag(event: KeyboardEvent) {
 </script>
 
 <template>
-  <Combobox.Root class="ui-select" :class="[attrs.class, { 'ui-select-borderless': variant === 'borderless', 'ui-select-multiple': multiple, 'ui-select-disabled': disabled }]" :style="attrs.style"
+  <ComboboxRoot class="ui-select" :class="[attrs.class, { 'ui-select-borderless': variant === 'borderless', 'ui-select-multiple': multiple, 'ui-select-disabled': disabled }]" :style="attrs.style"
     :collection="collection" :model-value="selected" :input-value="editable && (multiple || open) ? text : selectedLabel" :open="open" :multiple="multiple" :allow-custom-value="multiple" :disabled="disabled"
     :close-on-select="!multiple" open-on-click :ids="id ? { input: id } : undefined"
     :positioning="{ placement: position(placement), sameWidth, gutter: 5 }"
     :translations="{ triggerLabel: t('uiToggleOptions'), clearTriggerLabel: t('uiClear'), resultsCount: count => t('uiResultsCount', { count }), noResults: t('traceNoMatches'), loading: t('uiLoading') }"
     :scroll-to-index-fn="virtualized ? details => virtualizer.scrollToIndex(details.index) : undefined" lazy-mount unmount-on-exit
     @open-change="openChange($event.open)" @input-value-change="inputChange" @update:model-value="update">
-    <Combobox.Control ref="control" class="ui-select-selector">
+    <ComboboxControl ref="control" class="ui-select-selector">
       <template v-if="multiple"><span v-for="value in selected" :key="value" class="ui-select-tag">{{ label(value) }}<button type="button" :aria-label="`${t('remove')} ${label(value)}`" :disabled="disabled" @pointerdown.prevent @click.stop="update(selected.filter(item => item !== value))">×</button></span></template>
       <span v-else class="ui-select-selection-item" :style="[{ visibility: open && editable ? 'hidden' : undefined }, styles?.content]">{{ selectedLabel || placeholder }}</span>
-      <Combobox.Input v-bind="{ ...attrs, class: undefined, style: undefined }" class="ui-select-input" :style="!multiple && (!open || !editable) ? { color: 'transparent', caretColor: 'transparent' } : undefined"
+      <ComboboxInput v-bind="{ ...attrs, class: undefined, style: undefined }" class="ui-select-input" :style="!multiple && (!open || !editable) ? { color: 'transparent', caretColor: 'transparent' } : undefined"
         :readonly="!editable" :aria-autocomplete="editable ? 'list' : 'none'" :placeholder="multiple ? placeholder : open && editable ? selectedLabel || placeholder : undefined" @keydown.capture="addTag" />
       <button v-if="allowClear && selected.length" type="button" class="ui-select-clear" :aria-label="t('uiClear')" :disabled="disabled" @pointerdown.prevent @click.stop="update([])"><IconX /></button>
-      <Combobox.Trigger class="ui-select-arrow" tabindex="-1"><IconChevronDown /></Combobox.Trigger>
-    </Combobox.Control>
-    <Teleport to="body"><Combobox.Positioner style="z-index: 1500"><Combobox.Content :ref="setScrolling" class="ui-select-dropdown" :data-virtualized="virtualized || undefined" @layer:request-dismiss="requestDismiss">
-      <Combobox.Empty class="ui-select-empty">{{ t('traceNoMatches') }}</Combobox.Empty>
+      <ComboboxTrigger class="ui-select-arrow" tabindex="-1"><IconChevronDown /></ComboboxTrigger>
+    </ComboboxControl>
+    <Teleport to="body"><ComboboxPositioner style="z-index: 1500"><ComboboxContent :ref="setScrolling" class="ui-select-dropdown" :data-virtualized="virtualized || undefined" @layer:request-dismiss="requestDismiss">
+      <ComboboxEmpty class="ui-select-empty">{{ t('traceNoMatches') }}</ComboboxEmpty>
       <div :style="virtualized ? { height: `${virtualizer.getTotalSize()}px`, position: 'relative' } : undefined">
-        <component :is="group.label ? Combobox.ItemGroup : 'div'" v-for="group in groups" :key="group.key" class="ui-select-item-group">
-          <Combobox.ItemGroupLabel v-if="group.label" class="ui-select-group-label" :class="{ 'visually-hidden': virtualized && !group.heading }" :title="group.label"
-            :style="virtualized && group.heading ? { position: 'absolute', top: `${group.heading.top}px`, left: 0, right: 0, height: `${groupHeadingHeight}px` } : undefined">{{ group.label }}</Combobox.ItemGroupLabel>
-          <Combobox.Item v-for="row in group.rows" :key="String(row.item.value)" :item="row.item" :index="row.index" class="ui-select-item-option"
+        <component :is="group.label ? ComboboxItemGroup : 'div'" v-for="group in groups" :key="group.key" class="ui-select-item-group">
+          <ComboboxItemGroupLabel v-if="group.label" class="ui-select-group-label" :class="{ 'visually-hidden': virtualized && !group.heading }" :title="group.label"
+            :style="virtualized && group.heading ? { position: 'absolute', top: `${group.heading.top}px`, left: 0, right: 0, height: `${groupHeadingHeight}px` } : undefined">{{ group.label }}</ComboboxItemGroupLabel>
+          <ComboboxItem v-for="row in group.rows" :key="String(row.item.value)" :item="row.item" :index="row.index" class="ui-select-item-option"
             :style="virtualized ? { position: 'absolute', top: `${row.top + (row.heading ? groupHeadingHeight : 0)}px`, left: 0, right: 0, height: '40px' } : undefined">
-            <Combobox.ItemText class="ui-select-item-option-content">{{ row.item.label }}</Combobox.ItemText><Combobox.ItemIndicator><IconCheck /></Combobox.ItemIndicator>
-          </Combobox.Item>
+            <ComboboxItemText class="ui-select-item-option-content">{{ row.item.label }}</ComboboxItemText><ComboboxItemIndicator><IconCheck /></ComboboxItemIndicator>
+          </ComboboxItem>
         </component>
       </div>
-    </Combobox.Content></Combobox.Positioner></Teleport>
-  </Combobox.Root>
+    </ComboboxContent></ComboboxPositioner></Teleport>
+  </ComboboxRoot>
 </template>

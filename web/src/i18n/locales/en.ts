@@ -1,4 +1,7 @@
 export default {
+  "frontendLoadFailed": "Some interface files could not load. Check the connection or reload to use the current version.",
+  "frontendReload": "Reload page",
+  "frontendReloadConfirm": "Reloading loads the current version. Message text drafts saved in this browser are restored; unsaved settings and image attachments need to be entered or selected again.",
   "skillFiles": "Skill files",
   "skillReloadFile": "Reload file",
   "skillBinaryFile": "This file cannot be previewed or edited here.",

@@ -28,7 +28,9 @@ function afterClose() {
 // A routed modal must stay mounted until the library finishes its leave motion.
 // Switching settings tabs reuses the same overlay and keeps the modal open.
 onBeforeRouteLeave((to, from) => {
-  if (to.matched.at(-1)?.components?.overlay === from.matched.at(-1)?.components?.overlay) {
+  // Lazy route functions become component objects after loading; their identity
+  // is not a stable way to recognize another tab of the same overlay.
+  if (from.meta.workspaceOverlay && to.meta.workspaceOverlay === from.meta.workspaceOverlay) {
     visible.value = props.open
     afterClose()
     return

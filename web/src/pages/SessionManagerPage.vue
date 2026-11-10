@@ -2,8 +2,8 @@
 import { computed, onUnmounted, ref, shallowRef, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
-import { RadioGroup } from '@ark-ui/vue/radio-group'
-import { Menu } from '@ark-ui/vue/menu'
+import { RadioGroupRoot, RadioGroupItem, RadioGroupItemHiddenInput, RadioGroupItemText } from '@ark-ui/vue/radio-group'
+import { MenuRoot, MenuTrigger, MenuPositioner, MenuContent, MenuRadioItemGroup, MenuRadioItem, MenuItemText, MenuItemIndicator } from '@ark-ui/vue/menu'
 import { IconCheck, IconCheckbox, IconDots, IconPinFilled, IconSearch, IconSortAscending, IconSortDescending } from '@tabler/icons-vue'
 import { Empty as VEmpty, Alert as VAlert, Button as VButton, Checkbox as VCheckbox, Dropdown as VDropdown, Input as VInput, Modal as VModal, Tooltip as VTooltip } from '../ui'
 import WorkspaceModal from '../WorkspaceModal.vue'
@@ -268,34 +268,34 @@ function localTime(utc: string) {
           :disabled="busy || !!renamingSessionID" allow-clear><template #prefix><IconSearch aria-hidden="true" /></template></v-input>
       </div>
       <div class="session-manager-controls">
-        <RadioGroup.Root class="session-manager-filters" :model-value="sessionFilter" :aria-label="t('sessionFilter')"
+        <RadioGroupRoot class="session-manager-filters" :model-value="sessionFilter" :aria-label="t('sessionFilter')"
           :disabled="busy || !!renamingSessionID" orientation="horizontal" @update:model-value="changeFilter">
-          <RadioGroup.Item v-for="filter in filters" :key="filter.value" :value="filter.value" class="session-filter">
-            <RadioGroup.ItemHiddenInput :aria-label="filter.accessibleLabel" :aria-labelledby="undefined" :aria-describedby="`session-filter-count-${filter.value}`" />
-            <RadioGroup.ItemText class="session-filter-label">{{ filter.label }}<span :id="`session-filter-count-${filter.value}`" class="session-filter-count">{{ n(filter.count) }}</span></RadioGroup.ItemText>
-          </RadioGroup.Item>
-        </RadioGroup.Root>
+          <RadioGroupItem v-for="filter in filters" :key="filter.value" :value="filter.value" class="session-filter">
+            <RadioGroupItemHiddenInput :aria-label="filter.accessibleLabel" :aria-labelledby="undefined" :aria-describedby="`session-filter-count-${filter.value}`" />
+            <RadioGroupItemText class="session-filter-label">{{ filter.label }}<span :id="`session-filter-count-${filter.value}`" class="session-filter-count">{{ n(filter.count) }}</span></RadioGroupItemText>
+          </RadioGroupItem>
+        </RadioGroupRoot>
         <small v-if="debugMode" class="session-manager-workers">{{ t('workers') }} · {{ n(managedStats.workers) }}</small>
       </div>
       <div class="session-manager-actions">
-        <Menu.Root :positioning="{ placement: 'bottom-end', gutter: 6 }" lazy-mount unmount-on-exit>
-          <Menu.Trigger as-child>
+        <MenuRoot :positioning="{ placement: 'bottom-end', gutter: 6 }" lazy-mount unmount-on-exit>
+          <MenuTrigger as-child>
             <v-button variant="text" class="icon-button session-sort-trigger" :aria-label="t('sortSessions')" :title="sortTitle"
               :disabled="busy || !!renamingSessionID || !totalSessions">
               <IconSortAscending v-if="sessionSort.endsWith('-asc')" aria-hidden="true" /><IconSortDescending v-else aria-hidden="true" />
             </v-button>
-          </Menu.Trigger>
-          <Teleport to="body"><Menu.Positioner style="z-index: 1500">
-            <Menu.Content class="ui-menu session-sort-menu" :aria-label="t('sortSessions')">
-              <Menu.RadioItemGroup v-model="sessionSort">
-                <Menu.RadioItem v-for="option in sortOptions" :key="option.value" :value="option.value" class="ui-menu-item">
-                  <Menu.ItemText>{{ option.label }}</Menu.ItemText>
-                  <Menu.ItemIndicator><IconCheck aria-hidden="true" /></Menu.ItemIndicator>
-                </Menu.RadioItem>
-              </Menu.RadioItemGroup>
-            </Menu.Content>
-          </Menu.Positioner></Teleport>
-        </Menu.Root>
+          </MenuTrigger>
+          <Teleport to="body"><MenuPositioner style="z-index: 1500">
+            <MenuContent class="ui-menu session-sort-menu" :aria-label="t('sortSessions')">
+              <MenuRadioItemGroup v-model="sessionSort">
+                <MenuRadioItem v-for="option in sortOptions" :key="option.value" :value="option.value" class="ui-menu-item">
+                  <MenuItemText>{{ option.label }}</MenuItemText>
+                  <MenuItemIndicator><IconCheck aria-hidden="true" /></MenuItemIndicator>
+                </MenuRadioItem>
+              </MenuRadioItemGroup>
+            </MenuContent>
+          </MenuPositioner></Teleport>
+        </MenuRoot>
         <v-tooltip :title="t(selecting ? 'finishSessionSelection' : 'selectSessions')">
           <v-button variant="text" class="icon-button session-selection-toggle" :aria-label="t(selecting ? 'finishSessionSelection' : 'selectSessions')" :aria-pressed="selecting"
             :disabled="busy || !!renamingSessionID || !totalSessions" @click="toggleSelection">

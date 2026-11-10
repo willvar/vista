@@ -61,7 +61,7 @@ func TestSearchSettingsPageCanBeRefreshed(t *testing.T) {
 	app := &App{}
 	w := httptest.NewRecorder()
 	app.handler().ServeHTTP(w, httptest.NewRequest(http.MethodGet, "http://127.0.0.1:5186/settings/search", nil))
-	if w.Code != http.StatusOK || !strings.Contains(w.Header().Get("Content-Type"), "text/html") || !strings.Contains(w.Body.String(), `src="/app.js"`) {
+	if w.Code != http.StatusOK || !strings.Contains(w.Header().Get("Content-Type"), "text/html") || !strings.Contains(w.Body.String(), `type="module"`) || !strings.Contains(w.Body.String(), `src="/assets/`) {
 		t.Fatalf("search settings page cannot be opened directly: %d %s", w.Code, w.Body.String())
 	}
 }

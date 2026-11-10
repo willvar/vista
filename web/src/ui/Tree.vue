@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { TreeView, createTreeCollection } from '@ark-ui/vue/tree-view'
+import { TreeViewRoot, TreeViewTree, createTreeCollection } from '@ark-ui/vue/tree-view'
 import TreeBranch from './TreeBranch.vue'
 import type { TreeNode } from './types'
 
@@ -14,11 +14,11 @@ const collection = computed(() => createTreeCollection<TreeNode>({
 </script>
 
 <template>
-  <TreeView.Root class="ui-tree" :collection="collection" :selected-value="value ? [value] : []" selection-mode="single">
-    <TreeView.Tree :aria-label="label">
+  <TreeViewRoot class="ui-tree" :collection="collection" :selected-value="value ? [value] : []" selection-mode="single">
+    <TreeViewTree :aria-label="label">
       <TreeBranch v-for="(node, index) in nodes" :key="node.value" :node="node" :index-path="[index]" @activate="emit('update:value', $event)" />
-    </TreeView.Tree>
-  </TreeView.Root>
+    </TreeViewTree>
+  </TreeViewRoot>
 </template>
 
 <style>

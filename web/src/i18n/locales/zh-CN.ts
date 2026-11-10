@@ -2,6 +2,9 @@ import type en from './en.ts'
 
 
 export default {
+  "frontendLoadFailed": "部分界面文件未能加载，请检查连接或刷新以使用当前版本。",
+  "frontendReload": "刷新页面",
+  "frontendReloadConfirm": "刷新会加载当前版本。已保存在此浏览器中的消息文字草稿会恢复；未保存的设置和图片附件需要重新填写或选择。",
   "skillFiles": "技能文件",
   "skillReloadFile": "重新读取文件",
   "skillBinaryFile": "此文件不支持预览或编辑。",

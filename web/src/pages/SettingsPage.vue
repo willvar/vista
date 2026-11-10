@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, reactive, onMounted, onUnmounted, ref, watch } from 'vue'
+import { computed, defineAsyncComponent, h, nextTick, reactive, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { IconChevronRight, IconPalette, IconUser, IconPlugConnected, IconInfoCircle, IconSearch, IconLink, IconBook2, IconSun, IconMoon, IconDeviceDesktop, IconDatabase, IconAlertCircle, IconMaximize, IconMinimize, IconPlus, IconFileImport, IconRefresh, IconRobot, IconRobotFace, IconUsers, IconCompass, IconTool, IconMessage, IconFolderOpen, IconFolder, IconFileText } from '@tabler/icons-vue'
@@ -22,12 +22,15 @@ import RestartVistaSettings from '../RestartVistaSettings.vue'
 import ServerConfigSettings from '../ServerConfigSettings.vue'
 import SchemaForm from '../SchemaForm.vue'
 import VistaMark from '../VistaMark.vue'
-import StatisticsSettings from '../StatisticsSettings.vue'
 import { IconChartBar, IconClearAll } from '@tabler/icons-vue'
 import { useWorkspace } from '../composables/useWorkspace'
 import { useProviderSettings } from '../composables/useProviderSettings'
 import { useAppearance } from '../ui/appearance'
 
+const StatisticsSettings = defineAsyncComponent({
+  loader: () => import('../StatisticsSettings.vue'),
+  loadingComponent: () => h('p', { class: 'settings-content', role: 'status' }, t('statisticsLoading')),
+})
 const route = useRoute()
 const { t } = useI18n({ useScope: 'global' })
 const { appearance, setAppearance } = useAppearance()

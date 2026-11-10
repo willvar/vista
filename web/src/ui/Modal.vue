@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Dialog } from '@ark-ui/vue/dialog'
+import { DialogPositioner, DialogBackdrop, DialogContent, DialogRoot } from '@ark-ui/vue/dialog'
 import { ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import Button from './Button.vue'
@@ -23,13 +23,13 @@ function exitComplete() { props.afterClose?.() }
 </script>
 
 <template>
-  <Dialog.Root :open="!!open" :close-on-escape="keyboard" :close-on-interact-outside="maskClosable" lazy-mount :unmount-on-exit="destroyOnHidden"
+  <DialogRoot :open="!!open" :close-on-escape="keyboard" :close-on-interact-outside="maskClosable" lazy-mount :unmount-on-exit="destroyOnHidden"
     :initial-focus-el="initialFocus" @open-change="!$event.open && close()" @exit-complete="exitComplete">
     <Teleport to="body">
-      <Dialog.Backdrop class="ui-modal-mask" :class="rootClass" :style="[{ zIndex }, styles?.mask]" />
-      <Dialog.Positioner class="ui-modal-wrap" :class="[wrapClassName, rootClass]" :style="{ zIndex }">
+      <DialogBackdrop class="ui-modal-mask" :class="rootClass" :style="[{ zIndex }, styles?.mask]" />
+      <DialogPositioner class="ui-modal-wrap" :class="[wrapClassName, rootClass]" :style="{ zIndex }">
         <div v-bind="$attrs" class="ui-modal" :style="[{ width: typeof width === 'number' ? `${width}px` : width }, $attrs.style]">
-          <Dialog.Content ref="content" class="ui-modal-container" :style="styles?.container">
+          <DialogContent ref="content" class="ui-modal-container" :style="styles?.container">
             <slot v-if="$slots.header" name="header" />
             <ModalHeader v-else :title="title" :closable="closable" :close-label="closeLabel" :close-disabled="closeDisabled">
               <template v-if="$slots.title" #title><slot name="title" /></template>
@@ -40,9 +40,9 @@ function exitComplete() { props.afterClose?.() }
               <Button :disabled="cancelButtonProps?.disabled" @click="close">{{ cancelText || t('cancel') }}</Button>
               <Button variant="primary" :danger="okButtonProps?.danger" :disabled="okButtonProps?.disabled" :loading="confirmLoading" @click="emit('ok')">{{ okText || 'OK' }}</Button>
             </slot></div>
-          </Dialog.Content>
+          </DialogContent>
         </div>
-      </Dialog.Positioner>
+      </DialogPositioner>
     </Teleport>
-  </Dialog.Root>
+  </DialogRoot>
 </template>

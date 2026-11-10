@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
-import { Popover } from '@ark-ui/vue/popover'
+import { PopoverPositioner, PopoverTrigger, PopoverContent, PopoverRoot } from '@ark-ui/vue/popover'
 import type { CSSProperties } from 'vue'
 import { placement as position } from './placement'
 defineOptions({ inheritAttrs: false })
@@ -39,10 +39,10 @@ onBeforeUnmount(() => clearTimeout(timer))
 </script>
 
 <template>
-  <Popover.Root :open="visible" :positioning="{ placement: position(placement), gutter: 8, overlap: true }" :auto-focus="false" :final-focus-el="finalFocus" lazy-mount unmount-on-exit @open-change="change($event.open)" @request-dismiss="requestDismiss">
-    <Popover.Trigger ref="triggerElement" as-child @mouseenter="enter" @mouseleave="leave" @click.capture="click"><slot /></Popover.Trigger>
-    <Teleport to="body"><Popover.Positioner :style="{ zIndex }"><Popover.Content ref="contentElement" v-bind="$attrs" class="ui-popover" :class="rootClass" :style="styles?.root" @mouseenter="enter" @mouseleave="leave">
+  <PopoverRoot :open="visible" :positioning="{ placement: position(placement), gutter: 8, overlap: true }" :auto-focus="false" :final-focus-el="finalFocus" lazy-mount unmount-on-exit @open-change="change($event.open)" @request-dismiss="requestDismiss">
+    <PopoverTrigger ref="triggerElement" as-child @mouseenter="enter" @mouseleave="leave" @click.capture="click"><slot /></PopoverTrigger>
+    <Teleport to="body"><PopoverPositioner :style="{ zIndex }"><PopoverContent ref="contentElement" v-bind="$attrs" class="ui-popover" :class="rootClass" :style="styles?.root" @mouseenter="enter" @mouseleave="leave">
       <div class="ui-popover-inner"><slot name="content" /></div>
-    </Popover.Content></Popover.Positioner></Teleport>
-  </Popover.Root>
+    </PopoverContent></PopoverPositioner></Teleport>
+  </PopoverRoot>
 </template>

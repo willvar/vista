@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Slider } from '@ark-ui/vue/slider'
+import { SliderMarkerGroup, SliderHiddenInput, SliderControl, SliderMarker, SliderTrack, SliderRange, SliderThumb, SliderRoot } from '@ark-ui/vue/slider'
 import { onBeforeUnmount, ref } from 'vue'
 import Tooltip from './Tooltip.vue'
 const props = withDefaults(defineProps<{ value?: number; min?: number; max?: number; step?: number; dots?: boolean; disabled?: boolean; tooltip?: { formatter: (index?: number) => string }; ariaLabelForHandle?: string; ariaValueTextFormatterForHandle?: (value: number) => string }>(), { min: 0, max: 100, step: 1, value: 0 })
@@ -27,13 +27,13 @@ onBeforeUnmount(endPointer)
 </script>
 
 <template>
-  <Slider.Root class="ui-slider" :class="{ 'ui-slider-moving': moving }" :model-value="[value]" :min="min" :max="max" :step="step" thumb-alignment="center" :disabled="disabled" :aria-label="[ariaLabelForHandle || '']"
+  <SliderRoot class="ui-slider" :class="{ 'ui-slider-moving': moving }" :model-value="[value]" :min="min" :max="max" :step="step" thumb-alignment="center" :disabled="disabled" :aria-label="[ariaLabelForHandle || '']"
     :get-aria-value-text="details => ariaValueTextFormatterForHandle?.(details.value) || String(details.value)" @value-change="emit('update:value', $event.value[0]!)"
     @pointerdown.capture="trackPointer" @value-change-end="endPointer">
-    <Slider.Control class="ui-slider-control"><Slider.Track class="ui-slider-rail"><Slider.Range class="ui-slider-track" /></Slider.Track>
-      <Slider.MarkerGroup v-if="dots" class="ui-slider-markers"><Slider.Marker v-for="index in Math.floor((max - min) / step) + 1" :key="index" :value="min + (index - 1) * step" class="ui-slider-dot" :class="{ 'ui-slider-dot-active': min + (index - 1) * step <= value }" /></Slider.MarkerGroup>
-      <Tooltip v-if="tooltip && !disabled" :title="tooltip.formatter(value)"><Slider.Thumb :index="0" class="ui-slider-handle"><Slider.HiddenInput /></Slider.Thumb></Tooltip>
-      <Slider.Thumb v-else :index="0" class="ui-slider-handle"><Slider.HiddenInput /></Slider.Thumb>
-    </Slider.Control>
-  </Slider.Root>
+    <SliderControl class="ui-slider-control"><SliderTrack class="ui-slider-rail"><SliderRange class="ui-slider-track" /></SliderTrack>
+      <SliderMarkerGroup v-if="dots" class="ui-slider-markers"><SliderMarker v-for="index in Math.floor((max - min) / step) + 1" :key="index" :value="min + (index - 1) * step" class="ui-slider-dot" :class="{ 'ui-slider-dot-active': min + (index - 1) * step <= value }" /></SliderMarkerGroup>
+      <Tooltip v-if="tooltip && !disabled" :title="tooltip.formatter(value)"><SliderThumb :index="0" class="ui-slider-handle"><SliderHiddenInput /></SliderThumb></Tooltip>
+      <SliderThumb v-else :index="0" class="ui-slider-handle"><SliderHiddenInput /></SliderThumb>
+    </SliderControl>
+  </SliderRoot>
 </template>

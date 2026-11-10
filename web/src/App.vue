@@ -1,9 +1,11 @@
 <script setup lang="ts">
-import { computed, nextTick, ref, watch } from 'vue'
+import { computed, nextTick, onErrorCaptured, ref, watch } from 'vue'
 import { Empty as VEmpty, Button as VButton, Modal as VModal, Dropdown as VDropdown } from './ui'
 import { IconLayoutGrid, IconSettings, IconX, IconPlus, IconDots, IconLoader2 } from '@tabler/icons-vue'
 import { useI18n } from 'vue-i18n'
 import AppProvider from './AppProvider.vue'
+import AssetLoadNotice from './AssetLoadNotice.vue'
+import { captureAssetError } from './asset-recovery'
 import WorkspaceSplit from './ui/WorkspaceSplit.vue'
 import { provideWorkspace } from './composables/useWorkspace'
 import { useSidebarWidth } from './composables/useSidebarWidth'
@@ -15,6 +17,7 @@ import SessionPin from './SessionPin.vue'
 import type { Session } from './client/types'
 import { sessionHasUnread } from './state/workspace'
 const { t } = useI18n({ useScope: 'global' })
+onErrorCaptured(error => { if (captureAssetError(error)) return false })
 const { router, error, busy, totalSessions, openSessions, selected, serverStatus, mobileSessionsOpen, settingsOpen,
   stateConnection, stateSync, backToWorkspace, openSettings, openSessionManager, create, action, workerAvailable, displaySessionTitle,
   closeConfirmation, cancelSessionClose, confirmSessionClose } = provideWorkspace()
@@ -80,6 +83,7 @@ function activateSession(id: string) {
 <template>
   <AppProvider>
   <main class="app-shell">
+    <AssetLoadNotice />
     <Transition name="mobile-sessions-mask"><div v-if="mobileSessionsOpen" ref="sessionsBackdrop" class="mobile-sessions-backdrop" @click="mobileSessionsOpen = false"></div></Transition>
     <p v-if="error" class="error">{{ error }}</p>
     <p v-if="stateConnection.phase === 'error'" class="error state-sync-error" role="alert" :title="stateConnection.error"><span>{{ t('stateSyncFailed') }}</span><v-button @click="stateSync.reconnect()">{{ t('retry') }}</v-button></p>

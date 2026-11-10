@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strconv"
 	"strings"
@@ -228,7 +229,23 @@ func TestNativeApplication(t *testing.T) {
 	if output, err := cli("serve"); err == nil || !strings.Contains(output, "already running") {
 		t.Fatalf("instance lock did not reject duplicate server: %v %s", err, output)
 	}
-	for _, path := range []string{"/", "/app.js", "/vista-web.css"} {
+	indexResponse, err := http.Get(endpoint + "/")
+	if err != nil {
+		t.Fatal(err)
+	}
+	indexData, err := io.ReadAll(indexResponse.Body)
+	indexResponse.Body.Close()
+	if err != nil || indexResponse.StatusCode != http.StatusOK {
+		t.Fatal("WebUI index is unavailable", err)
+	}
+	paths := []string{"/"}
+	for _, match := range regexp.MustCompile(`(?:src|href)="(/assets/[^"\s]+)"`).FindAllSubmatch(indexData, -1) {
+		paths = append(paths, string(match[1]))
+	}
+	if len(paths) < 3 {
+		t.Fatal("WebUI index does not reference JavaScript and styles")
+	}
+	for _, path := range paths {
 		response, err := http.Get(endpoint + path)
 		if err != nil {
 			t.Fatal(err)

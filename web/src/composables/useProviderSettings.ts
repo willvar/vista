@@ -43,7 +43,15 @@ export function useProviderSettings({ client, error, stateSync, modelCatalog }: 
       return { label, value: language.value, searchText: `${label} ${language.region}` }
     })
   })
-  watch(languagePreference, setLanguagePreference)
+  let languageRevision = 0
+  watch(languagePreference, async preference => {
+    const revision = ++languageRevision
+    try { await setLanguagePreference(preference) }
+    catch (cause) {
+      if (revision !== languageRevision) return
+      window.dispatchEvent(new CustomEvent('vista:asset-error', { detail: cause }))
+    }
+  })
 
   const settingsBusy = ref(false)
   const settingsError = ref('')
