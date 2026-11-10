@@ -45,6 +45,7 @@ test('ordinary selects reject typing without filtering and still support keyboar
       if (id === 'model-selection-mode') {
         const last = await options.last().innerText()
         await select.press('End')
+        await expect(options.last()).toHaveAttribute('data-highlighted', '')
         await select.press('Enter')
         await expect(select).toHaveValue(last)
       } else await select.press('Escape')

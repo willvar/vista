@@ -1,4 +1,4 @@
-import { test as base, expect } from '@playwright/test'
+import { test as base, expect, type Locator } from '@playwright/test'
 import { controlAssets, startFrontend } from './frontend-server'
 
 // Exercise the production wrappers directly, including states that are hard to
@@ -15,6 +15,15 @@ test.beforeEach(async ({ page, controlsOrigin }) => {
   await page.goto(controlsOrigin)
   await expect(page.getByRole('heading', { name: 'Buttons', exact: true })).toBeVisible()
 })
+
+async function tapDisabledPopupItem(item: Locator) {
+  await expect(item).toHaveAttribute('aria-disabled', 'true')
+  // Wait for popup placement before a forced action can scroll the page to
+  // an intermediate position. Then let Playwright wait for stable geometry.
+  await expect(item).toBeInViewport({ ratio: 1 })
+  await item.scrollIntoViewIfNeeded()
+  await item.tap({ force: true })
+}
 
 test('buttons preserve native form behavior and disabled/loading actions cannot fire', { tag: '@responsive' }, async ({ page }) => {
   const section = page.getByTestId('buttons')
@@ -408,7 +417,7 @@ test('touch text actions, toggles and selections keep their native behavior', { 
   const select = page.getByRole('combobox', { name: 'Options', exact: true })
   await expect(select).not.toBeEditable()
   await select.tap()
-  await page.getByRole('option', { name: 'Beta', exact: true }).tap({ force: true })
+  await tapDisabledPopupItem(page.getByRole('option', { name: 'Beta', exact: true }))
   await expect(select).toHaveValue('')
   await page.getByRole('option', { name: 'Gamma', exact: true }).tap()
   await expect(select).toHaveValue('Gamma')
@@ -418,10 +427,7 @@ test('touch text actions, toggles and selections keep their native behavior', { 
 test('touch menus, popovers, dialogs, tabs and pagination respond without a mouse', { tag: '@responsive' }, async ({ page, isMobile }) => {
   test.skip(!isMobile, 'Touch behavior is exercised in the touch-enabled projects')
   await page.getByRole('button', { name: 'Menu', exact: true }).tap()
-  const disabled = page.getByRole('menuitem', { name: 'Disabled item', exact: true })
-  await disabled.scrollIntoViewIfNeeded()
-  await expect(disabled).toBeInViewport()
-  await disabled.tap({ force: true })
+  await tapDisabledPopupItem(page.getByRole('menuitem', { name: 'Disabled item', exact: true }))
   await expect(page.getByTestId('menu')).toHaveText('')
   await page.getByRole('menuitem', { name: 'Enabled item', exact: true }).tap()
   await expect(page.getByTestId('menu')).toHaveText('enabled')
