@@ -178,8 +178,15 @@ for (const { browser, locale, reply } of cases) {
       const options = page.locator('.ui-select-dropdown:visible .ui-select-item-option')
       // Query filtered options so the check also works with virtual lists.
       if (locale === 'ko') {
+        const input = picker.locator('input')
         for (const alias of ['韩语', '朝鲜语', '조선말', '조선어']) {
-          await picker.locator('input').fill(alias)
+          // Replace the previous query with native editing keys. Chromium's
+          // fill selection can race the controlled combobox's caret sync.
+          await input.press('ControlOrMeta+A')
+          await input.press('Backspace')
+          await expect(input).toHaveValue('')
+          await input.pressSequentially(alias)
+          await expect(input).toHaveValue(alias)
           await expect(options).toHaveText(['한국어'])
         }
       }
