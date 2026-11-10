@@ -203,7 +203,12 @@ func TestDelegatedRulesContainActualTextAndRevalidateChanges(t *testing.T) {
 	}
 	encoded, _ := json.Marshal(rules)
 	child := projectInstructionState{}
-	child.acknowledge([]provider.ChatMessage{{Role: "system", Content: inheritedRulesPrefix + string(encoded)}})
+	inheritedMessages := []provider.ChatMessage{{Role: "system", Content: "Base instructions"}, {Role: "system", Content: inheritedRulesPrefix + string(encoded)}}
+	child.acknowledge(inheritedMessages)
+	kept, err := retainedProjectInstructionResults(context.Background(), inheritedMessages)
+	if err != nil || len(kept) != 1 || !kept[1] {
+		t.Fatalf("inherited rules retained an unrelated source message: %v %v", kept, err)
+	}
 	call := instructionCall(t, "read", "read_file", map[string]string{"path": filepath.Join(root, "file.go")})
 	if notice, err := child.prepare(context.Background(), call); err != nil || notice != "" {
 		t.Fatalf("inherited text required another read: %s %v", notice, err)

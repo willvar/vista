@@ -68,7 +68,7 @@ func (r *toolRuntime) projectInstructions(ctx context.Context, call provider.Too
 	return marshalResult(files)
 }
 
-var readProjectInstructionSchema = map[string]any{"type": "function", "function": map[string]any{"name": "read_project_instruction", "description": "Read a page of a discovered project instruction file. Follow nextOffset until every page is read before retrying an operation that returned instructions_required.", "parameters": map[string]any{"type": "object", "properties": map[string]any{"path": map[string]any{"type": "string"}, "offset": map[string]any{"type": "integer", "minimum": 0}}, "required": []string{"path"}}}}
+var readProjectInstructionSchema = map[string]any{"type": "function", "function": map[string]any{"name": "read_project_instruction", "description": "Read missing pages of a discovered project instruction file. An instructions_required result already supplies rule pages; continue at their nextOffset only when truncated, or offset 0 for a file with no supplied page. Apply all applicable rules before retrying the operation.", "parameters": map[string]any{"type": "object", "properties": map[string]any{"path": map[string]any{"type": "string"}, "offset": map[string]any{"type": "integer", "minimum": 0}}, "required": []string{"path"}}}}
 
 func (r *toolRuntime) readProjectInstruction(ctx context.Context, call provider.ToolCall) (string, error) {
 	var input struct {

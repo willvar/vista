@@ -322,60 +322,61 @@ func TestAgentExecutesWithoutAnEmptyInstructionRound(t *testing.T) {
 	}
 }
 
-func TestAgentWaitsForModelToConsumeRulesBeforeWriting(t *testing.T) {
-	root, _ := continuationFixture(t)
-	path, rule := filepath.Join(root, "created.txt"), filepath.Join(root, "AGENTS.md")
-	if err := os.WriteFile(rule, []byte("Use the project writing rules."), 0600); err != nil {
-		t.Fatal(err)
-	}
-	write := instructionCall(t, "blocked-write", "write_file", map[string]string{"path": path, "expectedSha256": "missing", "content": "written after reading"})
-	read := instructionCall(t, "read-rules", "read_project_instruction", map[string]string{"path": rule})
-	var requests atomic.Int32
-	model := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		turn := requests.Add(1)
-		var body struct{ Messages []provider.ChatMessage }
-		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-			t.Error(err)
-		}
-		if turn <= 3 {
-			if _, err := os.Stat(path); !os.IsNotExist(err) {
-				t.Errorf("write ran before model consumed rules, turn=%d err=%v", turn, err)
+func TestAgentConsumesDiscoveredRulesWithoutASeparateReadRound(t *testing.T) {
+	for _, concurrentRead := range []bool{false, true} {
+		t.Run(fmt.Sprint("concurrent explicit read=", concurrentRead), func(t *testing.T) {
+			root, _ := continuationFixture(t)
+			path, rule := filepath.Join(root, "created.txt"), filepath.Join(root, "AGENTS.md")
+			if err := os.WriteFile(rule, []byte("Use the project writing rules."), 0600); err != nil {
+				t.Fatal(err)
 			}
-		}
-		switch turn {
-		case 1:
-			instructionTurn(w, write)
-		case 2:
-			var notice instructionNotice
-			if err := json.Unmarshal([]byte(body.Messages[len(body.Messages)-1].Content), &notice); err != nil || notice.Status != "instructions_required" || notice.Executed {
-				t.Errorf("model did not receive the blocked result: %+v %v", notice, err)
+			write := instructionCall(t, "blocked-write", "write_file", map[string]string{"path": path, "expectedSha256": "missing", "content": "written after reading"})
+			read := instructionCall(t, "read-rules", "read_project_instruction", map[string]string{"path": rule})
+			var requests atomic.Int32
+			model := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				turn := requests.Add(1)
+				var body struct{ Messages []provider.ChatMessage }
+				if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+					t.Error(err)
+				}
+				if turn <= 2 {
+					if _, err := os.Stat(path); !os.IsNotExist(err) {
+						t.Errorf("write ran before model consumed rules, turn=%d err=%v", turn, err)
+					}
+				}
+				switch turn {
+				case 1:
+					if concurrentRead {
+						instructionTurn(w, read, write)
+					} else {
+						instructionTurn(w, write)
+					}
+				case 2:
+					var notice instructionNotice
+					if err := json.Unmarshal([]byte(body.Messages[len(body.Messages)-1].Content), &notice); err != nil || notice.Status != "instructions_required" || notice.Executed || len(notice.Pages) != 1 || notice.Pages[0].Content != "Use the project writing rules." {
+						t.Errorf("model did not receive the blocked result and actual rules: %+v %v", notice, err)
+					}
+					write.ID = "after-reading-write"
+					instructionTurn(w, write)
+				default:
+					if data, err := os.ReadFile(path); err != nil || string(data) != "written after reading" {
+						t.Errorf("retry did not write: %q %v", data, err)
+					}
+					continuationAnswer(w, "done")
+				}
+			}))
+			defer model.Close()
+			blocked := 0
+			answer, err := Run(context.Background(), continuationCommand(model.URL, "Create the file."), func(event workerproto.Result) error {
+				if event.Kind == "tool" && event.Status == "succeeded" && strings.Contains(event.Content, `"status":"instructions_required"`) {
+					blocked++
+				}
+				return nil
+			})
+			if err != nil || answer != "done" || requests.Load() != 3 || blocked != 1 {
+				t.Fatalf("rule retry: answer=%q requests=%d blocked=%d err=%v", answer, requests.Load(), blocked, err)
 			}
-			write.ID = "same-turn-write"
-			instructionTurn(w, read, write)
-		case 3:
-			encoded, _ := json.Marshal(body.Messages)
-			if !strings.Contains(string(encoded), "Use the project writing rules.") {
-				t.Error("model did not receive rule text")
-			}
-			write.ID = "after-reading-write"
-			instructionTurn(w, write)
-		default:
-			if data, err := os.ReadFile(path); err != nil || string(data) != "written after reading" {
-				t.Errorf("retry did not write: %q %v", data, err)
-			}
-			continuationAnswer(w, "done")
-		}
-	}))
-	defer model.Close()
-	blocked := 0
-	answer, err := Run(context.Background(), continuationCommand(model.URL, "Create the file."), func(event workerproto.Result) error {
-		if event.Kind == "tool" && event.Status == "succeeded" && strings.Contains(event.Content, `"status":"instructions_required"`) {
-			blocked++
-		}
-		return nil
-	})
-	if err != nil || answer != "done" || requests.Load() != 4 || blocked != 2 {
-		t.Fatalf("rule retry: answer=%q requests=%d blocked=%d err=%v", answer, requests.Load(), blocked, err)
+		})
 	}
 }
 

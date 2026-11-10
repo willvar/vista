@@ -88,10 +88,10 @@ func executeToolBatch(ctx context.Context, command workerproto.Command, turn int
 				ref := bounded.reference
 				var contentOutput *workerproto.OutputRef
 				if len(preview) > 8<<10 {
-					// The network tools' initial model output is controlled only by
-					// the user's setting. Transport a reference, then restore that
-					// exact result locally instead of applying the notice budget.
-					if (call.Function.Name == "websearch" || call.Function.Name == "webfetch") && emitErr == nil {
+					// Network output and rule pages already applied their own budgets.
+					// Restore that exact result instead of letting the runtime notice
+					// preview hide user-selected output or rule acknowledgement text.
+					if (call.Function.Name == "websearch" || call.Function.Name == "webfetch" || hasInstructionPages(call.Function.Name, bounded.model)) && emitErr == nil {
 						contentOutput, emitErr = recordToolOutputStream(ctx, command.RunID, call.ID, func(w io.Writer) error {
 							_, err := io.WriteString(w, bounded.model)
 							return err

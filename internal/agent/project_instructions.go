@@ -45,7 +45,13 @@ type instructionNotice struct {
 	Executed     bool                    `json:"executed"`
 	Target       string                  `json:"target"`
 	Instructions []tools.InstructionFile `json:"instructions"`
+	Pages        []instructionTextPage   `json:"pages,omitempty"`
 	Message      string                  `json:"message"`
+}
+
+type instructionTextPage struct {
+	Offset int `json:"offset"`
+	tools.SkillPage
 }
 
 func (s *projectInstructionState) prepare(ctx context.Context, call provider.ToolCall) (string, error) {
@@ -106,46 +112,91 @@ func (s *projectInstructionState) prepare(ctx context.Context, call provider.Too
 	if len(unread) == 0 {
 		return "", nil
 	}
-	return marshalResult(instructionNotice{
+	notice := instructionNotice{
 		Status: "instructions_required", Target: target, Instructions: unread,
-		Message: "Operation not executed. Read all pages of these rules with read_project_instruction, apply them within their directory scope, then retry or revise this operation.",
-	})
+		Message: "Operation not executed. Apply the rule text in pages within each file's directory scope. Read any remaining pages with read_project_instruction at nextOffset (or offset 0 if no page is included), then retry or revise this operation. Do not rediscover these same paths.",
+	}
+	for _, file := range unread {
+		offset := 0
+		if read := s.read[file.Path]; read.hash == file.SHA256 && len(read.ranges) > 0 && read.ranges[0].start == 0 {
+			offset = read.ranges[0].end
+		}
+		page, err := tools.ReadProjectInstruction(file.Path, offset)
+		if err != nil {
+			return "", err
+		}
+		if page.SHA256 != file.SHA256 {
+			return "", fmt.Errorf("project instructions changed while reading %s; retry the operation", file.Path)
+		}
+		if !notice.addPage(page, offset) {
+			break
+		}
+	}
+	return marshalResult(notice)
 }
 
 // Only complete tool pages actually present in the request acknowledge text.
 // Discovery metadata, previews, skipped pages and changed hashes never suffice.
 type instructionPage struct {
-	index, offset int
-	page          tools.SkillPage
+	index, sourceIndex, offset int
+	page                       tools.SkillPage
 }
 
 func projectInstructionPages(messages []provider.ChatMessage) []instructionPage {
+	type callSource struct {
+		index int
+		call  provider.ToolCall
+	}
 	var pages []instructionPage
-	calls := make(map[string]provider.ToolCall)
+	calls := make(map[string]callSource)
 	for index, message := range messages {
 		if message.Role == "system" && strings.HasPrefix(message.Content, inheritedRulesPrefix) {
 			var rules []workerproto.ProjectRule
 			if json.Unmarshal([]byte(strings.TrimPrefix(message.Content, inheritedRulesPrefix)), &rules) == nil {
 				for _, rule := range rules {
 					if filepath.IsAbs(rule.Path) && fmtHash(rule.Content) == rule.SHA256 {
-						pages = append(pages, instructionPage{index: index, page: tools.SkillPage{Path: rule.Path, SHA256: rule.SHA256, Content: rule.Content, NextOffset: len(rule.Content)}})
+						pages = append(pages, instructionPage{index: index, sourceIndex: index, page: tools.SkillPage{Path: rule.Path, SHA256: rule.SHA256, Content: rule.Content, NextOffset: len(rule.Content)}})
 					}
 				}
 			}
 		}
 		if message.Role == "assistant" {
 			for _, call := range message.ToolCalls {
-				if call.Function.Name == "read_project_instruction" {
-					calls[call.ID] = call
+				if call.Function.Name == "read_project_instruction" || scopedInstructionTool(call.Function.Name) {
+					calls[call.ID] = callSource{index: index, call: call}
 				}
 			}
 		}
-		if message.Role != "tool" {
+		callID, content := message.ToolCallID, message.Content
+		if message.RuntimeData {
+			_, encoded, _ := strings.Cut(content, "\n")
+			var event workerproto.RuntimeEvent
+			if json.Unmarshal([]byte(encoded), &event) != nil || event.Kind != "tool" {
+				continue
+			}
+			callID, content = event.SourceID, event.Content
+		} else if message.Role != "tool" {
 			continue
 		}
-		call, ok := calls[message.ToolCallID]
-		delete(calls, message.ToolCallID)
+		source, ok := calls[callID]
 		if !ok {
+			continue
+		}
+		call := source.call
+		if call.Function.Name != "read_project_instruction" {
+			var notice instructionNotice
+			if json.Unmarshal([]byte(content), &notice) == nil && notice.Status == "instructions_required" && !notice.Executed {
+				for _, page := range notice.Pages {
+					for _, file := range notice.Instructions {
+						if page.Path == file.Path && page.SHA256 == file.SHA256 && page.Offset >= 0 &&
+							page.NextOffset-page.Offset == len(page.Content) && int64(page.NextOffset) <= file.Bytes &&
+							(page.Truncated || int64(page.NextOffset) == file.Bytes) {
+							pages = append(pages, instructionPage{index: index, sourceIndex: source.index, offset: page.Offset, page: page.SkillPage})
+							break
+						}
+					}
+				}
+			}
 			continue
 		}
 		var input struct {
@@ -153,11 +204,11 @@ func projectInstructionPages(messages []provider.ChatMessage) []instructionPage 
 			Offset int
 		}
 		var page tools.SkillPage
-		if json.Unmarshal([]byte(call.Function.Arguments), &input) != nil || json.Unmarshal([]byte(message.Content), &page) != nil ||
+		if json.Unmarshal([]byte(call.Function.Arguments), &input) != nil || json.Unmarshal([]byte(content), &page) != nil ||
 			page.SHA256 == "" || page.Path != filepath.Clean(input.Path) || input.Offset < 0 || page.NextOffset-input.Offset != len(page.Content) {
 			continue
 		}
-		pages = append(pages, instructionPage{index: index, offset: input.Offset, page: page})
+		pages = append(pages, instructionPage{index: index, sourceIndex: source.index, offset: input.Offset, page: page})
 	}
 	return pages
 }
@@ -190,6 +241,15 @@ func (s *projectInstructionState) acknowledge(messages []provider.ChatMessage) {
 		}
 		s.read[page.Path] = read
 	}
+	// Ordinary scoped tools can also return JSON resembling a rule notice.
+	// Only complete text matching the recorded hash can authorize an operation.
+	for path, read := range s.read {
+		if read.complete() {
+			if _, valid := s.ruleText(path, read); !valid {
+				delete(s.read, path)
+			}
+		}
+	}
 }
 
 func fmtHash(content string) string {
@@ -197,20 +257,25 @@ func fmtHash(content string) string {
 	return fmt.Sprintf("%x", sum)
 }
 
+func (s *projectInstructionState) ruleText(path string, read instructionRead) (string, bool) {
+	if !read.complete() {
+		return "", false
+	}
+	text := make([]byte, read.total)
+	for _, item := range s.pages {
+		if item.page.Path == path && item.page.SHA256 == read.hash {
+			copy(text[item.offset:], item.page.Content)
+		}
+	}
+	content := string(text)
+	return content, fmtHash(content) == read.hash
+}
+
 func (s *projectInstructionState) inherited() []workerproto.ProjectRule {
 	var rules []workerproto.ProjectRule
 	for path, read := range s.read {
-		if !read.complete() {
-			continue
-		}
-		text := make([]byte, read.total)
-		for _, item := range s.pages {
-			if item.page.Path == path && item.page.SHA256 == read.hash {
-				copy(text[item.offset:], item.page.Content)
-			}
-		}
-		if fmtHash(string(text)) == read.hash {
-			rules = append(rules, workerproto.ProjectRule{Path: path, SHA256: read.hash, Content: string(text)})
+		if text, valid := s.ruleText(path, read); valid {
+			rules = append(rules, workerproto.ProjectRule{Path: path, SHA256: read.hash, Content: text})
 		}
 	}
 	sort.Slice(rules, func(i, j int) bool { return rules[i].Path < rules[j].Path })
@@ -240,6 +305,8 @@ func retainedProjectInstructionResults(ctx context.Context, messages []provider.
 	for _, item := range state.pages {
 		if hash, ok := current[item.page.Path]; ok && hash == item.page.SHA256 {
 			keep[item.index] = true
+			// Async rule text needs its originating assistant/tool pair too.
+			keep[item.sourceIndex] = true
 		}
 	}
 	return keep, ctx.Err()
