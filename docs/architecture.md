@@ -246,6 +246,9 @@ A run can retain multiple formal replies at interjection and completion boundari
 The shared `runScope.modelTurns` allocates turn numbers; it is not a model-call budget. Delegation depth is checked, but there is no unified run-wide deadline or total-call budget.
 
 Checklists are replacement events scoped to a run, not conversation-global state. New runs start without inheriting the old checklist. Tool-specific validation reports argument errors as tool results. A valid `question` call is main-agent-only and must be alone in its model turn; it persists until answered or superseded. Provider-hosted tools are saved as already executed and are never dispatched as local tools.
+`update_checklist` can set `finish: true` when it is the response's sole tool call and the normal response text contains the complete final answer.
+After a successful checklist commit, the same turn enters normal completion checks without another model request; failed updates, missing text and mixed calls cannot finish it.
+Pending required work, runtime results and new user inputs retain their existing continuation behavior; checklist statuses are never inferred from run completion.
 
 ## Context continuity
 
@@ -313,6 +316,10 @@ OMP and models.dev supply model metadata. Vista owns routing and authentication;
 `websearch` tries configured external providers in saved order; `webfetch` tries Jina Reader and DeepSeek in its separate saved order, defaulting to Jina first. The first search order is shuffled once. Each reader response is fully decoded and staged before selection; empty extracted content, explicit error/verification pages, JS-only placeholders and unsupported response formats fail over to the next configured reader. Short useful content remains valid. There is no built-in origin fetch/converter; local or private downloads use `shell`. Search and fetch DeepSeek keys are independent. Initial output defaults to 50 KiB of UTF-8 text for all results of one search and 50 KiB per page; zero removes that initial truncation. Search source metadata and summaries share one payload budget; artifact/continuation metadata is additional. Saved character-based defaults migrate to the new defaults, unlimited stays unlimited, and custom limits migrate using the maximum UTF-8 capacity, rounded up to KiB. There is no second fixed tool-result cutoff for these network results. Explicit artifact rereads remain byte-paged. Public settings live in `config.json` · `search`, while its static keys resolve from `key.json`; typed settings API saves apply from the next run, while manual file edits retain the reload/start boundary described above.
 
 File search applies ancestor/nested `.gitignore` rules, including exceptions, before scanning ignored subtrees. Explicit reads are unaffected. `read_file` uses 1-based `startLine` and `lineCount` (default 200), returns original line numbers and `nextLine`, and streams the full original file for SHA-256 and total line count while spooling selected lines to disk. Oversized lines use saved artifacts without a whole-line RAM allocation. `find_files` searches path globs (`**` supported) without reading file contents; `search` matches file contents and supports include/exclude globs, literal or regex matching, case folding, surrounding lines, and content/files/count modes.
+Search tool results carry one absolute `root` and relative paths; content matches are grouped under `files`, preserving every returned line, line number, context flag and count.
+The UI also reads older absolute-path results.
+Literal directory prefixes prune unrelated branches; basename globs such as `*.go` still match at every depth.
+Inaccessible descendant directories, including subtrees whose `.gitignore` cannot be read, are skipped with `truncated: true`, `skippedDirectories` and up to 20 path/error warnings; an inaccessible requested root still fails.
 Both reuse the same ignore-aware traversal; content search scans bounded fragments and rereads long lines through a bounded-memory matcher.
 Content search includes files larger than 1 MiB with a shared 32 MiB / 10,000-file scan budget, a 100-hit content/files limit and an explicit incomplete-result flag; count mode counts within the scan budget.
 `read_tool_output` remains byte-paged and can search an existing artifact or background output by pattern, returning matching lines, context and byte positions for continuation without rerunning its producer.
@@ -335,9 +342,11 @@ Shell and MCP file side effects have no automatic diff; Vista does not snapshot 
 
 Before `read_file`, `write_file`, `apply_patch`, `find_files`, `search`, filesystem `read_skill`/`read_resource`, `shell`, or `start_background`, the tool runtime discovers ancestor `AGENTS.md`, `CLAUDE.md`, and `.github/copilot-instructions.md` files from the explicit target path or working directory, ordered outer to nearest.
 When every applicable version is already fully read in the model's retained context, or no rules exist, the operation runs immediately without a separate discovery turn.
-Otherwise it returns `instructions_required` with `executed: false` and unread file paths, sizes and SHA-256 hashes; the original operation has no effects.
-The model reads all pages through `read_project_instruction`, applies their scope and precedence, and retries or revises its operation.
-Read coverage is rebuilt from paired tool results in each successful request, separately per task, so a same-turn read cannot authorize a concurrent operation; omitted pages, changed files, and compacted-away text require rereading.
+Otherwise it returns `instructions_required` with `executed: false`, unread file paths, sizes, SHA-256 hashes and rule text pages fitted to the complete tool-result budget; the original operation has no effects.
+The model applies the supplied text and reads only missing pages through `read_project_instruction` before retrying or revising its operation.
+Read coverage is rebuilt from actual paired tool results and their runtime completions in each successful request, separately per task, so a same-turn read cannot authorize a concurrent operation; discovery metadata, previews, omitted pages, changed files and compacted-away text cannot authorize work.
+Complete retained text must match its recorded SHA-256 before it can authorize an operation.
+Asynchronous rule results restore their complete supplied text from saved output before the model consumes them.
 Children inherit the parent's actual fully acknowledged rule text, paths, scope and content hashes; inherited read flags alone never authorize work.
 Inherited text is retained through compaction while current; target discovery still detects new or changed rules.
 Patch checks cover all affected paths.
