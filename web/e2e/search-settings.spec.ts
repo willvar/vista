@@ -1,24 +1,11 @@
-import { rmSync } from 'node:fs'
 import { installMockStateStream } from './state-stream-fixture'
 import { openSettingsSection } from './settings-navigation'
-import { test as base, expect, type Page, type Locator } from '@playwright/test'
-import { createServer } from 'vite'
-import { resolve } from 'node:path'
+import { test, expect } from './frontend-fixture'
+import type { Page, Locator } from '@playwright/test'
 
-const test = base.extend<{}, { mockOrigin: string }>({
-  mockOrigin: [async ({}, use) => {
-    const server = await createServer({
-      cacheDir: resolve(import.meta.dirname, `../.vista/test-state/search-settings-vite-${process.pid}`),
-      root: resolve(import.meta.dirname, '..'),
-      configFile: resolve(import.meta.dirname, '../vite.config.ts'),
-      server: { host: '127.0.0.1', port: 0, strictPort: false, watch: { ignored: ['**/.vista/**'] } },
-    })
-    await server.listen()
-    const address = server.httpServer!.address()
-    if (!address || typeof address === 'string') throw new Error('Mock UI server did not start')
-    try { await use(`http://127.0.0.1:${address.port}`) } finally { await server.close(); rmSync(server.config.cacheDir, { recursive: true, force: true }) }
-  }, { scope: 'worker' }],
-})
+// Credential/state checks do not need to replay each modal transition. The
+// figure contract below explicitly checks both motion preferences.
+test.use({ contextOptions: { reducedMotion: 'reduce' } })
 
 async function mockSearchSettings(page: Page, origin: string) {
   const fixture = {
@@ -459,6 +446,7 @@ test('search settings remain readable and reachable in English and Chinese', asy
     await expect.poll(runningAnimations).toBe(0)
     await page.emulateMedia({ reducedMotion: 'no-preference' })
     await expect.poll(runningAnimations).toBeGreaterThan(0)
+    await page.emulateMedia({ reducedMotion: 'reduce' })
     for (const colorScheme of ['light', 'dark'] as const) {
       await page.emulateMedia({ colorScheme })
       await expect(page.locator('html')).toHaveAttribute('data-theme', colorScheme)

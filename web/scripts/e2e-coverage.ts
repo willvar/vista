@@ -4,11 +4,13 @@ const escape = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 
 // Desktop runs every browser scenario. Additional viewports cover actual
 // layout, pointer/touch, scrolling and responsive control behavior.
+// Mixed contract/state suites opt in per scenario with @responsive rather
+// than repeating every keyboard, value-rule and request assertion on phones.
 const responsiveFiles = [
-  'appearance', 'background-process', 'composer-sizing', 'controls', 'drawer-swipe', 'images', 'layout',
-  'main-outputs', 'modal-header', 'modal-motion', 'model-names', 'quoted-reply', 'reduced-motion',
+  'appearance', 'composer-sizing', 'drawer-swipe', 'images', 'layout',
+  'main-outputs', 'modal-header', 'modal-motion', 'model-names', 'reduced-motion',
   'session-batch', 'session-bulk', 'session-reminders', 'settings-batch', 'settings-navigation',
-  'sidebar-width', 'ui-contracts', 'worker-status',
+  'sidebar-width', 'worker-status',
 ]
 const responsiveTitles: Record<string, string> = {
   'agent-settings': 'full-screen instructions|Appearance and Personalization remain usable',
@@ -66,7 +68,7 @@ export function browserScope(paths: readonly string[], available: readonly strin
   const frontendSourceChanged = paths.some(path => /^web\/src\//.test(path) && !/\.(?:test|spec)\.ts$/.test(path))
   for (const path of paths) {
     if (/^(?:docs\/|\.vista\/)|(?:\.md|LICENSE|NOTICE)$/.test(path) || /^licenses\//.test(path)) continue
-    if (frontendSourceChanged && /^internal\/server\/assets\/(?:app\.js|vista-web\.css)$/.test(path)) continue
+    if (frontendSourceChanged && /^internal\/server\/assets\//.test(path)) continue
     if (/^web\/e2e\/[^/]+\.spec\.ts$/.test(path)) { selected.add(path.slice('web/e2e/'.length)); continue }
     if (/\.(?:test|spec)\.ts$|_test\.(?:go|py)$/.test(path)) continue
     const matches = consumers.filter(([pattern]) => pattern.test(path))

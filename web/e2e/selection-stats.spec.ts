@@ -1,25 +1,9 @@
-import { rmSync } from 'node:fs'
 import { installMockStateStream, notifyState } from './state-stream-fixture'
 import { coreSnapshot, installConversationStream } from './conversation-fixture'
-import { test as base, expect, type Page } from '@playwright/test'
-import { createServer } from 'vite'
-import { resolve } from 'node:path'
+import { test, expect } from './frontend-fixture'
+import type { Page } from '@playwright/test'
 import type { ModelSelectionStats, Session } from '../src/client/types'
-
-const test = base.extend<{}, { mockOrigin: string }>({
-  mockOrigin: [async ({}, use) => {
-    const server = await createServer({
-      cacheDir: resolve(import.meta.dirname, `../.vista/test-state/selection-stats-vite-${process.pid}`),
-      root: resolve(import.meta.dirname, '..'),
-      configFile: resolve(import.meta.dirname, '../vite.config.ts'),
-      server: { host: '127.0.0.1', port: 0, strictPort: false, watch: { ignored: ['**/.vista/**'] } },
-    })
-    await server.listen()
-    const address = server.httpServer!.address()
-    if (!address || typeof address === 'string') throw new Error('Mock UI server did not start')
-    try { await use(`http://127.0.0.1:${address.port}`) } finally { await server.close(); rmSync(server.config.cacheDir, { recursive: true, force: true }) }
-  }, { scope: 'worker' }],
-})
+import { settleLayout } from './layout-ready'
 
 function statistics(): ModelSelectionStats {
   const result: ModelSelectionStats = {
@@ -101,11 +85,6 @@ async function mockSettings(page: Page, origin: string) {
 async function chooseMode(page: Page, option: string) {
   await page.getByRole('combobox', { name: 'Model selection', exact: true }).click()
   await page.locator('.ui-select-dropdown:visible').getByText(option, { exact: true }).click()
-}
-
-async function settleLayout(page: Page) {
-  await page.waitForTimeout(350)
-  await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))))
 }
 
 async function expectSettingsLayout(page: Page) {

@@ -1,8 +1,13 @@
 import { closeSettings, openSettingsSection } from './settings-navigation'
 import { test, expect } from './fixtures'
+import { test as layoutTest } from './settings-layout-fixture'
 import type { Page } from '@playwright/test'
 import { messages } from '../src/i18n/catalogs.ts'
 import { languages, type Language } from '../src/i18n/languages.ts'
+
+// These workflows check language, persistence and geometry. Normal opening and
+// closing motion is exercised separately in modal-motion and reduced-motion.
+test.use({ contextOptions: { reducedMotion: 'reduce' } })
 
 const cases: { browser: string; locale: Language; reply: string }[] = [
   { browser: 'en-US', locale: 'en', reply: 'English' },
@@ -127,13 +132,14 @@ test('regional wording and formatting choices survive manual selection and reloa
 for (const { browser, locale, reply } of cases) {
   test.describe(`UI language ${locale}`, () => {
     test.use({ locale: browser })
-    test('translated settings and nested dialogs fit each viewport', { tag: '@responsive' }, async ({ page, vista }, testInfo) => {
+    layoutTest('translated settings and nested dialogs fit each viewport', { tag: '@responsive' }, async ({ page, mockOrigin }, testInfo) => {
       const text = messages[locale]
       await page.addInitScript(value => localStorage.setItem('vista-language', value), locale)
-      await page.goto(vista.origin + '/settings/general')
+      await page.goto(mockOrigin + '/settings/general')
       await expect(page.locator('html')).toHaveAttribute('lang', locale)
       for (const theme of ['light', 'dark']) {
         await page.emulateMedia({ colorScheme: theme as 'light' | 'dark' })
+        await expect(page.locator('html')).toHaveAttribute('data-theme', theme)
         for (const section of ['general', 'models', 'mcp', 'skills', 'storage', 'about', 'search']) {
           await openSettingsSection(page, section)
           const geometry = await page.locator('.settings-page').evaluate(element => ({
@@ -199,9 +205,13 @@ for (const { browser, locale, reply } of cases) {
       // Filter using the current locale's region name.
       await region.locator('input').fill(selectedRegion!)
       await options.getByText(selectedRegion!, { exact: true }).click()
-      const [languageBox, regionBox] = await Promise.all([picker.boundingBox(), region.boundingBox()])
-      expect(regionBox!.x).toBeGreaterThanOrEqual(languageBox!.x + languageBox!.width)
-      expect(regionBox!.y).toBe(languageBox!.y)
+      const alignment = await page.locator('.locale-settings').evaluate(element => {
+        const language = element.querySelector('.language-setting .ui-select')!.getBoundingClientRect()
+        const region = element.querySelector('.region-setting .ui-select')!.getBoundingClientRect()
+        return { gap: region.x - language.right, languageY: language.y, regionY: region.y }
+      })
+      expect(alignment.gap).toBeGreaterThanOrEqual(0)
+      expect(alignment.regionY).toBe(alignment.languageY)
       await page.reload()
       await expect(page.locator('html')).toHaveAttribute('lang', override)
       await expect(region).toContainText(selectedRegion)
@@ -214,25 +224,9 @@ for (const { browser, locale, reply } of cases) {
       await expect(picker).toContainText(text.automaticLanguage)
       await expect(page.locator('.region-setting')).toHaveCount(0)
 
-      const checkLayout = async () => {
-        const bounds = await page.locator('.settings-page').evaluate(element => ({
-          page: document.documentElement.scrollWidth - innerWidth,
-          body: element.scrollWidth - element.clientWidth,
-          content: [...element.querySelectorAll<HTMLElement>('.settings-content')].map(item => item.scrollWidth - item.clientWidth),
-          left: element.getBoundingClientRect().left, right: element.getBoundingClientRect().right, width: innerWidth,
-        }))
-        expect(bounds.page).toBeLessThanOrEqual(2)
-        expect(bounds.body).toBeLessThanOrEqual(2)
-        expect(bounds.content.every(width => width <= 2)).toBe(true)
-        expect(bounds.left).toBeGreaterThanOrEqual(-1)
-        expect(bounds.right).toBeLessThanOrEqual(bounds.width + 1)
-      }
-      for (const theme of ['light', 'dark'] as const) {
-        await page.emulateMedia({ colorScheme: theme })
-        await expect(page.locator('html')).toHaveAttribute('data-theme', theme)
-        await checkLayout()
-        await page.screenshot({ path: testInfo.outputPath(`${locale}-general-${theme}.png`), animations: 'disabled' })
-      }
+      // The responsive case above owns page-wide geometry, both themes and
+      // nested-dialog rendering for this locale. Keep this flow focused on
+      // detection, saved overrides, localized page controls and model metadata.
       for (const [path, label, action] of [
         ['models', text.modelConnections, text.connectProvider],
         ['mcp', text.mcpSettings, text.mcpAdd],
@@ -247,18 +241,18 @@ for (const { browser, locale, reply } of cases) {
           await expect(button).toHaveAttribute('aria-label', action)
           await expect(button).toBeEnabled()
           await expect(page.locator('.settings-content').getByRole('button', { name: action, exact: true })).toHaveCount(0)
-          const bounds = await button.boundingBox()
-          const close = await page.locator('.ui-modal-close').boundingBox()
-          if (close) {
-            expect(close.x - (bounds!.x + bounds!.width)).toBeGreaterThanOrEqual(0)
-            expect(close.x - (bounds!.x + bounds!.width)).toBeLessThanOrEqual(16)
+          const gap = await button.evaluate(element => {
+            const close = document.querySelector('.ui-modal-close')?.getBoundingClientRect()
+            return close ? close.x - element.getBoundingClientRect().right : null
+          })
+          if (gap !== null) {
+            expect(gap).toBeGreaterThanOrEqual(0)
+            expect(gap).toBeLessThanOrEqual(16)
           }
         } else {
           await expect(page.getByRole('button', { name: path === 'skills' ? text.refresh : text.resourceStorageRefresh, exact: true })).toHaveCount(0)
         }
-        await checkLayout()
         expect(new URL(page.url()).pathname).toBe(`/settings/${path}`)
-        if (locale === 'zh-CN' || locale === 'ko') await page.screenshot({ path: testInfo.outputPath(`${locale}-${path}-dark.png`), animations: 'disabled' })
       }
       await openSettingsSection(page, 'search')
       const orders = page.locator('.search-config-form')
@@ -267,16 +261,6 @@ for (const { browser, locale, reply } of cases) {
       await expect(preview.locator('figure')).toHaveCount(1)
       await expect(orders.getByRole('spinbutton')).toHaveCount(2)
       await expect(preview.locator('figure')).not.toContainText(/[↘↗→]/)
-      await checkLayout()
-      await page.screenshot({ path: testInfo.outputPath(`${locale}-search-dark.png`), animations: 'disabled' })
-      // A nested modal uses the chosen locale too.
-      await page.locator('.search-credentials').getByRole('button', { name: text.editSearchKey.replace('{name}', 'Exa'), exact: true }).click()
-      const dialog = page.getByRole('dialog', { name: text.editSearchKey.replace('{name}', 'Exa'), exact: true })
-      const cancel = dialog.getByRole('button', { name: text.cancel === '取消' ? /^取\s*消$/ : text.cancel, exact: true })
-      await expect(cancel).toBeVisible()
-      await expect(dialog.getByRole('button', { name: text.saveChanges, exact: true })).toBeVisible()
-      await page.screenshot({ path: testInfo.outputPath(`${locale}-key-dark.png`), animations: 'disabled' })
-      await cancel.click()
       await closeSettings(page)
       const sender = page.locator('.sender-card textarea')
       await sender.fill('Check language metadata')

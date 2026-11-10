@@ -3,6 +3,7 @@ import type { Locator, Page } from '@playwright/test'
 import { test, expect } from './fixtures'
 import { closeSettings } from './settings-navigation'
 import { sessionManagerAction } from './session-manager-actions'
+import { settleLayout } from './layout-ready'
 
 test.beforeEach(async ({ vista }) => {
   await vista.api('/preferences', { method: 'PATCH', body: JSON.stringify({ feedbackInvitationSeen: true }) })
@@ -10,12 +11,6 @@ test.beforeEach(async ({ vista }) => {
 
 const eightLines = Array.from({ length: 8 }, (_, index) => `Draft line ${index + 1}`).join('\n')
 const longTool = 'mcp_browser_read_document_with_full_metadata'
-
-// Wait for the component library's entrance animation and textarea auto sizing.
-async function settleLayout(page: Page) {
-  await page.waitForTimeout(350)
-  await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))))
-}
 
 async function expectControlReachable(control: Locator) {
   await expect(control).toBeVisible()

@@ -87,10 +87,6 @@ test.describe('attention badge', () => {
     const card = page.locator(`.sessions-panel [data-session-id="${session.id}"]`)
     const badge = page.locator('.mobile-sessions-trigger:visible .session-attention-dot')
     const reads: string[] = []
-    page.on('request', request => {
-      const path = new URL(request.url()).pathname
-      if (request.method() === 'GET' && ['/api/sessions', '/api/status', '/api/models'].includes(path)) reads.push(path)
-    })
 
     async function expectBadgeInsideTrigger() {
       const trigger = page.locator('.mobile-sessions-trigger:visible')
@@ -110,6 +106,11 @@ test.describe('attention badge', () => {
 
     await expect(page.locator('.workspace.welcome')).toBeVisible()
     await expectBadgeInsideTrigger()
+    // Count navigation reads after the initial workspace has synchronized.
+    page.on('request', request => {
+      const path = new URL(request.url()).pathname
+      if (request.method() === 'GET' && ['/api/sessions', '/api/status', '/api/models'].includes(path)) reads.push(path)
+    })
     await page.screenshot({ path: testInfo.outputPath('home-attention-badge.png'), animations: 'disabled' })
     const panel = await openDrawer(page)
     await panel.locator(`[data-session-id="${other.id}"] .session-name`).tap()

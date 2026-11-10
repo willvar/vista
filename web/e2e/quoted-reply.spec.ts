@@ -55,7 +55,7 @@ async function quoteSelected(page: Page, touch: boolean) {
   await expect(page.locator('.sender-card textarea')).toBeFocused()
 }
 
-test('selected text reaches the model with the question and remains quoted after refresh', async ({ page, vista, isMobile }, testInfo) => {
+test('selected text reaches the model with the question and remains quoted after refresh', { tag: '@responsive' }, async ({ page, vista, isMobile }, testInfo) => {
   const session = await createConversation(page, vista)
   const input = page.locator('.sender-card textarea')
   await input.fill('Explain this passage.')
@@ -82,7 +82,7 @@ test('selected text reaches the model with the question and remains quoted after
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(page.viewportSize()!.width)
 })
 
-test('quotes replace, persist with their own session draft, and can be removed independently', async ({ page, vista, isMobile }) => {
+test('quotes replace, persist with their own session draft, and can be removed independently', { tag: '@responsive' }, async ({ page, vista, isMobile }) => {
   const first = await createConversation(page, vista)
   const input = page.locator('.sender-card textarea')
   await input.fill('Keep my existing question.')
@@ -115,7 +115,7 @@ test('quotes replace, persist with their own session draft, and can be removed i
   await expect(page.getByRole('button', { name: 'Send', exact: true })).toBeDisabled()
 })
 
-test('the quote action waits for a settled selection and stays dismissed after copying, scrolling, or Escape', async ({ page, vista, isMobile }) => {
+test('the quote action waits for a settled selection and stays dismissed after copying, scrolling, or Escape', { tag: '@responsive' }, async ({ page, vista, isMobile }) => {
   await createConversation(page, vista)
   const source = page.locator('article.assistant [data-quote-role]')
   const action = page.locator('.message-quote-action')
@@ -196,7 +196,7 @@ test('a quote sent during execution reaches the next model request intact', asyn
   } finally { release() }
 })
 
-test('long selections remain complete while the quote preview keeps the composer reachable', async ({ page, vista, isMobile }, testInfo) => {
+test('long selections remain complete while the quote preview keeps the composer reachable', { tag: '@responsive' }, async ({ page, vista, isMobile }, testInfo) => {
   const content = 'Long quoted text café 中文🙂. '.repeat(160) + 'End of the full quote.'
   await createConversation(page, vista, content)
   const source = page.locator('article.assistant [data-quote-role]')

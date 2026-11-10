@@ -1,5 +1,6 @@
 import { test, expect } from './fixtures'
 import type { CompactionStatus } from '../src/client/types'
+import { settleLayout } from './layout-ready'
 
 test('worker metrics stay behind an icon and their popup fits the viewport', async ({ page, vista }, testInfo) => {
   await page.addInitScript(() => {
@@ -43,8 +44,7 @@ test('worker metrics stay behind an icon and their popup fits the viewport', asy
   expect(geometry.bottom).toBeLessThanOrEqual(geometry.viewportHeight + 1)
   // Wait for initial font loading, textarea autosizing and entrance transitions
   // before attributing any later geometry change to opening a popup.
-  await page.evaluate(() => document.fonts.ready.then(() => undefined))
-  await page.waitForTimeout(350)
+  await settleLayout(page)
   const headerBefore = await header.boundingBox()
   const senderBefore = await sender.boundingBox()
   await page.screenshot({ path: testInfo.outputPath('worker-status-collapsed.png'), animations: 'disabled' })

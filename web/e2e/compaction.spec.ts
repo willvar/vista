@@ -118,6 +118,9 @@ test('manual compaction preserves chat and draft, and Tab completes Continue wit
   await page.goto(`${vista.origin}/sessions/${session.id}`)
   const compact = page.locator('.conversation-header .context-compaction')
   await expect(compact).toHaveAttribute('data-tokens', String(beforeUsage.tokens))
+  // The usage estimate can arrive before history's initial scroll. Scrolling
+  // dismisses tooltips, so wait for presentation rather than just header data.
+  await expect(page.locator('.messages')).toHaveAttribute('aria-busy', 'false')
   await compact.hover()
   await expect(page.locator('.context-usage-hint:visible')).toContainText('Estimated tokens from retained instructions, messages, summaries and tool content:')
   await page.keyboard.press('Escape')

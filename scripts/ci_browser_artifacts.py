@@ -14,9 +14,12 @@ def collect(suite, source, output):
     count = 0
     for spec in suite.get("specs", []):
         for test in spec.get("tests", []):
-            for result in test.get("results", []):
-                if result.get("status") not in {"failed", "timedOut", "interrupted"}:
-                    continue
+            results = test.get("results", [])
+            if not any(result.get("status") in {"failed", "timedOut", "interrupted"} for result in results):
+                continue
+            # A passing diagnostic retry still contains the trace needed to
+            # investigate the original failure; the gate rejects flaky tests.
+            for result in results:
                 for attachment in result.get("attachments", []):
                     if attachment.get("name") not in {"trace", "screenshot", "error-context"} or not attachment.get("path"):
                         continue

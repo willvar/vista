@@ -1,14 +1,14 @@
 import { installMockStateStream } from './state-stream-fixture'
 import { closeSettings, openSettingsSection } from './settings-navigation'
 import { test as base, expect, type Locator, type Page } from '@playwright/test'
-import { createServer } from 'vite'
-import { mkdirSync, readFileSync, writeFileSync, rmSync } from 'node:fs'
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { Artifact, ChecklistItem, Job, Message, ModelResultView, RunOverview, Session, StreamEvent } from '../src/client/types'
 import { coreSnapshot } from './conversation-fixture'
 import { scrollToConversationEntry } from './conversation-scroll'
 import { buildRunTrace } from '../src/state/runTrace'
+import { startFrontend, startSourceFrontend } from './frontend-server'
 const replaySources = new WeakMap<Page, StreamEvent[]>()
 
 // Chromium's Unix socket needs a short profile directory, still inside this checkout.
@@ -17,25 +17,23 @@ mkdirSync(browserRuntime, { recursive: true })
 process.env.TMPDIR = browserRuntime
 const streamHandlers = new Map<string, (request: IncomingMessage, response: ServerResponse) => void>()
 
+async function executionFrontend(use: (origin: string) => Promise<void>, source = false) {
+  let origin = ''
+  const handle = (request: IncomingMessage, response: ServerResponse) => {
+    const handler = streamHandlers.get(origin)
+    if (!handler || !/^\/api\/sessions\/[^/]+\/events\?/.test(request.url || '')) return false
+    handler(request, response)
+    return true
+  }
+  const server = source ? await startSourceFrontend(handle) : await startFrontend({ handle })
+  origin = server.origin
+  try { await use(origin) } finally { streamHandlers.delete(origin); await server.close() }
+}
 const test = base.extend<{}, { mockOrigin: string }>({
-  mockOrigin: [async ({}, use) => {
-    let origin = ''
-    const server = await createServer({
-      cacheDir: resolve(import.meta.dirname, `../.vista/test-state/execution-flow-vite-${process.pid}`), root: resolve(import.meta.dirname, '..'), configFile: resolve(import.meta.dirname, '../vite.config.ts'), server: { host: '127.0.0.1', port: 0, strictPort: false, watch: { ignored: ['**/.vista/**'] } },
-      plugins: [{ name: 'replay-events', enforce: 'pre', configureServer(server) {
-        server.middlewares.use((request, response, next) => {
-          const handler = streamHandlers.get(origin)
-          if (handler && /^\/api\/sessions\/[^/]+\/events\?/.test(request.url || '')) handler(request, response)
-          else next()
-        })
-      } }],
-    })
-    await server.listen()
-    const address = server.httpServer!.address()
-    if (!address || typeof address === 'string') throw new Error('Mock UI server did not start')
-    origin = `http://127.0.0.1:${address.port}`
-    try { await use(origin) } finally { streamHandlers.delete(origin); await server.close(); rmSync(server.config.cacheDir, { recursive: true, force: true }) }
-  }, { scope: 'worker' }],
+  mockOrigin: [async ({}, use) => executionFrontend(use), { scope: 'worker' }],
+})
+const sourceTest = test.extend<{}, { mockOrigin: string }>({
+  mockOrigin: [async ({}, use) => executionFrontend(use, true), { scope: 'worker' }],
 })
 
 const initialChecklist: ChecklistItem[] = [
@@ -561,33 +559,10 @@ async function settledHeight(node: Locator) {
 // Seek through the same continuous scrollbar a user can drag. Event sequence
 // identifies the target; no product-only jump/debug API is introduced for tests.
 async function scrollToTraceStep(page: Page, task: Locator, runId: string, key: string, from: 'start' | 'end' = 'start') {
-  await expect(page.locator('.messages')).toHaveAttribute('aria-busy', 'false')
-  const scroller = page.locator('.messages')
   const target = buildRunTrace(replaySources.get(page) || [], { runId, active: true }).nodes.find(node => node.key === key)
   expect(target, `Fixture contains step ${key}`).toBeTruthy()
   const title = nodeTitle(task, runId, key)
-  let low = 0, high = 1, fraction = from === 'start' ? 0 : 1
-  let previousStart = -1
-  await scroller.dispatchEvent('wheel', { deltaY: -1 })
-  for (let attempt = 0; attempt < 60; attempt++) {
-    if (await title.count()) break
-    const first = Number(await scroller.getAttribute('data-history-start'))
-    if (first !== previousStart) { low = 0; high = 1; previousStart = first }
-    if (target!.sequence < first) { fraction = 0; low = 0; high = 1 }
-    await scroller.evaluate((element, value) => { element.scrollTop = (element.scrollHeight - element.clientHeight) * value; element.dispatchEvent(new Event('scroll')) }, fraction)
-    await page.waitForTimeout(200)
-    if (target!.sequence < first) await expect.poll(async () => Number(await scroller.getAttribute('data-history-start')), { timeout: 20_000 }).toBeLessThan(first)
-    if (await title.count()) break
-    const sequences = await scroller.locator('[data-timeline-sequence]').evaluateAll(nodes => nodes.map(node => Number((node as HTMLElement).dataset.timelineSequence)))
-    if (!sequences.length || target!.sequence < Number(await scroller.getAttribute('data-history-start'))) continue
-    if (Math.max(...sequences) < target!.sequence) low = fraction
-    else high = fraction
-    fraction = (low + high) / 2
-  }
-  await expect(title, `Step ${key} must be reachable through continuous scrolling`).toHaveCount(1)
-  await title.scrollIntoViewIfNeeded()
-  await page.waitForTimeout(200)
-  await expect(title).toBeVisible()
+  await scrollToConversationEntry(page, `[id="trace-${runId}-0-${encodeURIComponent(key)}"]`, target!.sequence, from)
   return title
 }
 
@@ -2252,7 +2227,7 @@ test('debug mode defaults off and settings persist both diagnostic entrances acr
   expect(fixture.unexpected).toEqual([])
 })
 
-test('a failed execution-details render leaves the formal answer visible', async ({ page, mockOrigin }) => {
+sourceTest('a failed execution-details render leaves the formal answer visible', async ({ page, mockOrigin }) => {
   await page.route('**/src/RunTrace.vue', route => route.fulfill({ contentType: 'text/javascript', body: 'export default { setup() { throw new Error("Injected execution rendering failure") } }' }))
   const source = hydrationEvents()
   const runId = source[0].data.runId
@@ -2263,7 +2238,7 @@ test('a failed execution-details render leaves the formal answer visible', async
   await expect(page.locator('.messages article.assistant:not(.main-output) .markdown')).toHaveText(answer.content)
 })
 
-test('a failed Markdown renderer displays escaped plain text and retains copying', async ({ page, mockOrigin }) => {
+sourceTest('a failed Markdown renderer displays escaped plain text and retains copying', async ({ page, mockOrigin }) => {
   await page.route('**/src/ui/markdown.ts', route => route.fulfill({ contentType: 'text/javascript', body: 'export function renderMarkdown() { throw new Error("Injected Markdown rendering failure") }' }))
   const source = hydrationEvents()
   const answer: Message = { id: 'plain-answer', sequence: source.at(-1)!.sequence + 1, runId: source[0].data.runId, role: 'assistant', content: 'Saved <script>unsafe()</script> **answer**.', createdAt: '' }

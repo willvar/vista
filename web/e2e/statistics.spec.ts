@@ -163,6 +163,7 @@ test('usage header reset requires confirmation and synchronizes all periods and 
   const sibling=await page.context().newPage()
   await sibling.goto(vista.origin+'/settings/statistics')
   await expect(sibling.locator('.statistics-token-value')).toHaveAttribute('aria-label','Token usage details: 50 tokens')
+  await page.bringToFront()
   const mutations:string[]=[]
   const unrelated:string[]=[]
   page.on('request',request=>{

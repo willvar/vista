@@ -4,7 +4,7 @@ test.beforeEach(async ({ vista }) => {
   await vista.api('/preferences', { method: 'PATCH', body: JSON.stringify({ feedbackInvitationSeen: true }) })
 })
 
-test('composer retains its text padding and borderless model search states', async ({ page, vista }) => {
+test('composer retains its text padding and borderless model search states', { tag: '@responsive' }, async ({ page, vista }) => {
   await page.goto(vista.origin)
   const input = page.locator('.sender-card textarea')
   await expect(input).toBeEnabled()
@@ -104,7 +104,7 @@ test('danger actions keep their warning colors before and during hover', async (
   await expect(page.locator('.managed-session')).toHaveCount(1)
 })
 
-test('statistics tab marker follows selection, keyboard navigation and reduced motion', async ({ page, vista }) => {
+test('statistics tab marker follows selection, keyboard navigation and reduced motion', { tag: '@responsive' }, async ({ page, vista }) => {
   await vista.api('/preferences', { method: 'PATCH', body: JSON.stringify({ lastMode: 'auto' }) })
   await page.goto(vista.origin + '/settings/general')
   const stats = page.locator('.model-selection-stats')
@@ -214,7 +214,7 @@ test('switches distinguish off and on in both themes and keep the native state s
 test.describe('inline execution messages', () => {
   test.use({ progressCalls: 1 })
   for (const reducedMotion of ['no-preference', 'reduce'] as const) {
-    test(`tool headers toggle their result in place with ${reducedMotion} motion`, async ({ page, vista }) => {
+    test(`tool headers toggle their result in place with ${reducedMotion} motion`, { tag: '@responsive' }, async ({ page, vista }) => {
       await page.emulateMedia({ reducedMotion })
       await page.goto(vista.origin)
       const input = page.locator('.sender-card textarea')

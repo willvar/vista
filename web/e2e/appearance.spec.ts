@@ -35,6 +35,7 @@ test('appearance follows the system, persists an override, and leaves the conver
 test('appearance updates in another open tab without reloading it', async ({ page, context, vista }) => {
   const other = await context.newPage()
   await other.goto(vista.origin)
+  await page.bringToFront()
   await page.goto(vista.origin + '/settings/general')
   await page.locator('.appearance-options').getByRole('button', { name: 'Dark', exact: true }).click()
   await expect(other.locator('html')).toHaveAttribute('data-theme', 'dark')

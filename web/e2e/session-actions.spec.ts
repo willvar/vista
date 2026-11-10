@@ -242,11 +242,13 @@ test('pins keep the existing relative order in both lists and synchronize withou
     await other.goto(`${vista.origin}/sessions?session=${active.id}`)
     const managerRows = other.locator('.managed-session')
     await expect(managerRows).toHaveCount(3)
+    await page.bringToFront()
     const reads: string[] = []
     page.on('request', request => {
       const path = new URL(request.url()).pathname
       if (request.method() === 'GET' && ['/api/sessions', '/api/status', '/api/models'].includes(path)) reads.push(path)
     })
+    await sidebarRow(page, oldest.id).hover({ position: { x: 8, y: 8 } })
     const pin = sidebarRow(page, oldest.id).getByRole('button', { name: 'Pin session', exact: true })
     const menuBounds = await sidebarRow(page, oldest.id).locator('.session-menu').boundingBox()
     const pinBounds = await pin.boundingBox()
@@ -257,16 +259,21 @@ test('pins keep the existing relative order in both lists and synchronize withou
     await expect(sidebarRow(page, oldest.id).locator('.session-pin')).toHaveAttribute('aria-pressed', 'true')
     await expect(page).toHaveURL(url => url.pathname === `/sessions/${active.id}`)
     // Pinning the newest after the oldest still uses creation order inside the group.
+    // Move into the row before targeting its hover controls, dismissing the
+    // preceding pin's tooltip even when sorting moved it under the pointer.
+    await sidebarRow(page, original[0]!.id).hover({ position: { x: 8, y: 8 } })
     await sidebarRow(page, original[0]!.id).getByRole('button', { name: 'Pin session', exact: true }).click()
     const pinned = new Set([oldest.id, original[0]!.id])
     const expected = [...original.filter(item => pinned.has(item.id)), ...original.filter(item => !pinned.has(item.id))].map(item => item.id)
     await expect.poll(() => rowIDs(page.locator('.session-card'))).toEqual(expected)
     await expect.poll(() => rowIDs(managerRows)).toEqual(expected)
     expect(reads).toEqual([])
+    await other.bringToFront()
     await other.locator(`.managed-session[data-session-id="${oldest.id}"]`).getByRole('button', { name: 'Unpin session', exact: true }).click()
     await expect.poll(() => rowIDs(page.locator('.session-card'))).toEqual(original.map(item => item.id))
     await expect(sidebarRow(page, oldest.id).locator('.session-pin')).toHaveAttribute('aria-pressed', 'false')
     expect(reads).toEqual([])
+    await page.bringToFront()
     await page.reload()
     await showSidebar(page)
     await expect(sidebarRow(page, original[0]!.id).locator('.session-pin')).toHaveAttribute('aria-pressed', 'true')

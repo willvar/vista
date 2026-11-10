@@ -4,6 +4,12 @@ import { test, expect } from './fixtures'
 
 test.use({ imageModel: true })
 
+test.afterEach(async ({ vista }, info) => {
+  if (info.status === info.expectedStatus) return
+  const storage = await vista.api('/resource-storage', { signal: AbortSignal.timeout(2000) }).catch(error => ({ error: String(error) }))
+  await info.attach('resource-storage-after-failure', { body: JSON.stringify(storage, null, 2), contentType: 'application/json' })
+})
+
 test('originals survive compaction and closing, and become cleanable only after the last owner is deleted', async ({ page, vista }, testInfo) => {
   await vista.api('/preferences', { method: 'PATCH', body: JSON.stringify({ feedbackInvitationSeen: true }) })
   const original = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/lN8AAAAASUVORK5CYII=', 'base64')

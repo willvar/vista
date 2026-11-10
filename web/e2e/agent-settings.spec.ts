@@ -1,24 +1,8 @@
-import { rmSync } from 'node:fs'
 import { installMockStateStream } from './state-stream-fixture'
 import { openSettingsSection } from './settings-navigation'
-import { test as base, expect, type Locator, type Page } from '@playwright/test'
-import { createServer } from 'vite'
-import { resolve } from 'node:path'
-
-const test = base.extend<{}, { mockOrigin: string }>({
-  mockOrigin: [async ({}, use) => {
-    const server = await createServer({
-      cacheDir: resolve(import.meta.dirname, `../.vista/test-state/agent-settings-vite-${process.pid}`),
-      root: resolve(import.meta.dirname, '..'),
-      configFile: resolve(import.meta.dirname, '../vite.config.ts'),
-      server: { host: '127.0.0.1', port: 0, strictPort: false, watch: { ignored: ['**/.vista/**'] } },
-    })
-    await server.listen()
-    const address = server.httpServer!.address()
-    if (!address || typeof address === 'string') throw new Error('Mock UI server did not start')
-    try { await use(`http://127.0.0.1:${address.port}`) } finally { await server.close(); rmSync(server.config.cacheDir, { recursive: true, force: true }) }
-  }, { scope: 'worker' }],
-})
+import { test, expect } from './frontend-fixture'
+import type { Locator, Page } from '@playwright/test'
+import { fillTextFixture } from './text-fixture'
 
 async function mockAgentSettings(page: Page, origin: string, section = 'general') {
   const saved = { instructions: 'Keep responses concise.', instructionsPath: '/home/test/.config/vista/AGENTS.md', delegationDepth: 1, maxDelegationDepth: 8, automaticTitles: true }
@@ -226,9 +210,7 @@ test('full-screen instructions keep an unsaved draft, focus the editor and scrol
   await expect(editor).toBeFocused()
   await expect(editor).toHaveValue(fixture.saved.instructions)
   const draft = Array.from({ length: 1800 }, (_, index) => `${index + 1}. Keep this constraint.`).join('\n') + '\n保留用户指定的要求。'
-  // Chromium's multiline insertion can exceed the normal action deadline on
-  // shared runners; keep the full long-document fixture and scope its budget.
-  await editor.fill(draft, { timeout: 20_000 })
+  await fillTextFixture(editor, draft)
   const viewport = page.viewportSize()!
   const bounds = await dialog.boundingBox()
   expect(bounds!.x).toBe(0)
@@ -253,7 +235,7 @@ test('full-screen instructions keep an unsaved draft, focus the editor and scrol
 
   await expand.click()
   await expect(editor).toHaveValue(draft)
-  await editor.fill('中'.repeat(18000))
+  await fillTextFixture(editor, '中'.repeat(18000))
   expect(await editor.evaluate(element => (element as HTMLTextAreaElement).checkValidity())).toBe(true)
   await dialog.getByRole('button', { name: 'Exit full screen', exact: true }).click()
   await expect(dialog).toBeHidden()
@@ -261,7 +243,7 @@ test('full-screen instructions keep an unsaved draft, focus the editor and scrol
   await expect(save).toBeEnabled()
   await expand.click()
   await expect(editor).toHaveValue('中'.repeat(18000))
-  await editor.fill(draft, { timeout: 20_000 })
+  await fillTextFixture(editor, draft)
   await dialog.getByRole('button', { name: 'Exit full screen', exact: true }).click()
   await expect(dialog).toBeHidden()
   await save.scrollIntoViewIfNeeded()

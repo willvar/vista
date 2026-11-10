@@ -3,6 +3,7 @@ import { mkdirSync, readFileSync, readdirSync, writeFileSync, rmSync } from 'nod
 import { join } from 'node:path'
 import type { Locator } from '@playwright/test'
 import { test, expect } from './fixtures'
+import { fillTextFixture } from './text-fixture'
 
 const review = '---\nname: Code review\ndescription: Check changes and tests\n---\n\nRead references/checklist.md before reviewing.\n'
 
@@ -169,7 +170,7 @@ test('editing a local skill preserves its binary assets and references', async (
   await expect(editor.getByLabel('scripts/check.py', { exact: true })).toHaveValue('print("checked")\n')
   await selectFile(editor, 'SKILL.md')
   const longContent = review.replace('Check changes and tests', '中'.repeat(1024)) + 'Keep the full supporting evidence. 中文资料。\n'.repeat(2000)
-  await editor.getByLabel('SKILL.md', { exact: true }).fill(longContent)
+  await fillTextFixture(editor.getByLabel('SKILL.md', { exact: true }), longContent)
   await editor.getByRole('button', { name: 'Save changes', exact: true }).scrollIntoViewIfNeeded()
   const layout = await editor.evaluate(element => ({ width: element.scrollWidth - element.clientWidth, form: element.querySelector('.skill-browser')!.scrollWidth - element.querySelector('.skill-browser')!.clientWidth }))
   expect(layout.width).toBeLessThanOrEqual(2)

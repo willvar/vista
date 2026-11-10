@@ -24,7 +24,7 @@ test('documentation and unit-only changes keep smoke without inventing affected 
   assert.equal(browserSelection(scope.files), '@smoke')
 })
 test('regenerated frontend bundles follow source coverage and remain conservative without source', () => {
-  const assets = ['internal/server/assets/app.js', 'internal/server/assets/vista-web.css']
+  const assets = ['internal/server/assets/index.html', 'internal/server/assets/assets/index-abcdef.js', 'internal/server/assets/assets/SettingsPage-ghijkl.css']
   const source = ['web/src/state/conversation.ts']
   assert.deepEqual(browserScope([...source, ...assets], files), browserScope(source, files))
   assert.equal(browserScope(assets, files).full, true)
@@ -33,6 +33,25 @@ test('regenerated frontend bundles follow source coverage and remain conservativ
 test('responsive coverage retains touch/layout checks while business recovery runs once on desktop', () => {
   for (const title of ['mobile-portrait layout.spec.ts composer fits', 'mobile-landscape execution-flow.spec.ts new runs clear the composer checklist', 'mobile-portrait i18n.spec.ts UI language de translated settings @responsive']) assert.ok(responsiveGrep.test(title), title)
   for (const title of ['mobile-portrait state-sync.spec.ts workspace initializes once', 'mobile-landscape model-retry.spec.ts stopping during the wait', 'mobile-portrait i18n.spec.ts browser detection, searchable override']) assert.equal(responsiveGrep.test(title), false, title)
+})
+
+test('mixed suites repeat explicitly tagged layout and touch cases without dropping their desktop contracts', () => {
+  for (const [file, responsive, contract] of [
+    ['controls', 'touch slider follows a finger and releases its drag state', 'number fields keep integer precision, bounds, empty drafts and fractional budgets'],
+    ['ui-contracts', 'composer retains its text padding and borderless model search states', 'ordinary selects reject typing without filtering and still support keyboard selection'],
+    ['quoted-reply', 'long selections remain complete while the quote preview keeps the composer reachable', 'a quote sent during execution reaches the next model request intact'],
+    ['background-process', 'real process survives foreground completion, persists metadata and logs, and stops from the monitor', 'explicit background timeout beyond 24 hours reaches the model and process monitor'],
+  ]) {
+    const spec = `${file}.spec.ts`
+    const scope = browserScope([`web/e2e/${spec}`], [spec])
+    assert.deepEqual(scope, { full: false, files: [spec] })
+    const desktopSelection = new RegExp(browserSelection(scope.files)!)
+    assert.ok(desktopSelection.test(`desktop ${spec} ${contract}`), spec)
+    for (const project of ['mobile-portrait', 'mobile-landscape']) {
+      assert.ok(responsiveGrep.test(`${project} ${spec} ${responsive} @responsive`), spec)
+      assert.equal(responsiveGrep.test(`${project} ${spec} ${contract}`), false, spec)
+    }
+  }
 })
 
 test('local runner accepts execution options but cannot filter out required coverage', () => {

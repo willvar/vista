@@ -38,7 +38,7 @@ if (!localBrowserArgumentsValid(args)) {
 }
 const output = resolve(root, '.vista/acceptance/local-checks', new Date().toISOString().replace(/[:.]/g, '-'))
 mkdirSync(output, { recursive: true })
-const command = ['web/node_modules/@playwright/test/cli.js', 'test', '--config=web/playwright.config.ts', '--workers=2', '--forbid-only', ...args]
+const command = ['web/node_modules/@playwright/test/cli.js', 'test', '--config=web/playwright.config.ts', '--forbid-only', ...args]
 const binary = process.env.VISTA_BIN
 const identity = {
   base, sourceCommit: git('rev-parse', 'HEAD'), sourceModified: !!git('status', '--porcelain'), sourceDiffHash: sourceHash(), paths, ...scope,

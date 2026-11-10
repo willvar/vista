@@ -1,22 +1,12 @@
-import { rmSync } from 'node:fs'
 import { test as base, expect } from '@playwright/test'
-import { createServer } from 'vite'
-import vue from '@vitejs/plugin-vue'
-import { resolve } from 'node:path'
+import { controlAssets, startFrontend } from './frontend-server'
 
 // Exercise the production wrappers directly, including states that are hard to
 // hold while a real server acknowledges a write. No product route is added.
 const test = base.extend<{}, { controlsOrigin: string }>({
   controlsOrigin: [async ({}, use) => {
-    const server = await createServer({
-      root: resolve(import.meta.dirname, '..'), configFile: false, plugins: [vue()],
-      cacheDir: resolve(import.meta.dirname, `../.vista/test-state/controls-vite-${process.pid}`),
-      server: { host: '127.0.0.1', port: 0, watch: { ignored: ['**/.vista/**'] } },
-    })
-    await server.listen()
-    const address = server.httpServer!.address()
-    if (!address || typeof address === 'string') throw new Error('Control fixture did not start')
-    try { await use(`http://127.0.0.1:${address.port}/e2e/controls/`) } finally { await server.close(); rmSync(server.config.cacheDir, { recursive: true, force: true }) }
+    const server = await startFrontend({ directory: controlAssets })
+    try { await use(server.origin) } finally { await server.close() }
   }, { scope: 'worker' }],
 })
 
@@ -26,7 +16,7 @@ test.beforeEach(async ({ page, controlsOrigin }) => {
   await expect(page.getByRole('heading', { name: 'Buttons', exact: true })).toBeVisible()
 })
 
-test('buttons preserve native form behavior and disabled/loading actions cannot fire', async ({ page }) => {
+test('buttons preserve native form behavior and disabled/loading actions cannot fire', { tag: '@responsive' }, async ({ page }) => {
   const section = page.getByTestId('buttons')
   await section.getByRole('button', { name: 'Ordinary', exact: true }).click()
   await expect(page.getByTestId('clicks')).toHaveText('1')
@@ -94,7 +84,7 @@ test('password visibility preserves values and disabled passwords have no active
   await expect(disabled).toHaveAttribute('type', 'password')
 })
 
-test('clicking text field padding and prefixes focuses the input without changing control height', async ({ page }) => {
+test('clicking text field padding and prefixes focuses the input without changing control height', { tag: '@responsive' }, async ({ page }) => {
   for (const name of ['Text', 'Prefixed text', 'Read only text', 'Secret']) {
     const input = page.getByLabel(name, { exact: true })
     const wrapper = input.locator('..')
@@ -118,7 +108,7 @@ test('clicking text field padding and prefixes focuses the input without changin
   }
 })
 
-test('clicking composer content padding focuses its textarea and preserves footer actions', async ({ page }) => {
+test('clicking composer content padding focuses its textarea and preserves footer actions', { tag: '@responsive' }, async ({ page }) => {
   const input = page.getByRole('textbox', { name: 'Message', exact: true })
   const sender = input.locator('..').locator('..')
   await sender.locator('.ui-sender-content').evaluate(element => { (element as HTMLElement).style.padding = '12px' })
@@ -135,7 +125,7 @@ test('clicking composer content padding focuses its textarea and preserves foote
   await expect(input).toHaveValue('Draft')
 })
 
-test('textarea respects fixed rows and releases automatic height when autosize is disabled', async ({ page }) => {
+test('textarea respects fixed rows and releases automatic height when autosize is disabled', { tag: '@responsive' }, async ({ page }) => {
   const fixed = page.getByRole('textbox', { name: 'Fixed rows', exact: true })
   await expect(fixed).toHaveJSProperty('rows', 5)
   const automatic = page.getByRole('textbox', { name: 'Autosize', exact: true })
@@ -382,7 +372,7 @@ test('message controls retain draft, keyboard, collapse and copy semantics', asy
   await expect(copy).toContainText('Clipboard refused')
 })
 
-test('status, empty and loading controls keep readable content and reduced motion', async ({ page }) => {
+test('status, empty and loading controls keep readable content and reduced motion', { tag: '@responsive' }, async ({ page }) => {
   const feedback = page.getByTestId('feedback')
   await expect(feedback.getByRole('alert')).toContainText('error details')
   for (const type of ['info', 'success', 'warning', 'error']) {
@@ -395,7 +385,7 @@ test('status, empty and loading controls keep readable content and reduced motio
   await expect(feedback.locator('.ui-spinner')).toHaveCSS('animation-name', 'none')
 })
 
-test('touch text actions, toggles and selections keep their native behavior', async ({ page, isMobile }) => {
+test('touch text actions, toggles and selections keep their native behavior', { tag: '@responsive' }, async ({ page, isMobile }) => {
   test.skip(!isMobile, 'Touch behavior is exercised in the touch-enabled projects')
   await page.getByRole('button', { name: 'Ordinary', exact: true }).tap()
   await expect(page.getByTestId('clicks')).toHaveText('1')
@@ -425,7 +415,7 @@ test('touch text actions, toggles and selections keep their native behavior', as
   await expect(page.getByRole('listbox')).toHaveCount(0)
 })
 
-test('touch menus, popovers, dialogs, tabs and pagination respond without a mouse', async ({ page, isMobile }) => {
+test('touch menus, popovers, dialogs, tabs and pagination respond without a mouse', { tag: '@responsive' }, async ({ page, isMobile }) => {
   test.skip(!isMobile, 'Touch behavior is exercised in the touch-enabled projects')
   await page.getByRole('button', { name: 'Menu', exact: true }).tap()
   await page.getByRole('menuitem', { name: 'Disabled item', exact: true }).tap({ force: true })
@@ -455,7 +445,7 @@ test('touch menus, popovers, dialogs, tabs and pagination respond without a mous
   await expect(pagination.getByRole('button', { name: 'Page 2', exact: true })).toHaveAttribute('aria-current', 'page')
 })
 
-test('touch slider follows a finger and releases its drag state', async ({ page, isMobile }) => {
+test('touch slider follows a finger and releases its drag state', { tag: '@responsive' }, async ({ page, isMobile }) => {
   test.skip(!isMobile, 'Touch behavior is exercised in the touch-enabled projects')
   const section = page.getByTestId('slider')
   await section.scrollIntoViewIfNeeded()

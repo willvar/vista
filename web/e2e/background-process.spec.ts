@@ -2,7 +2,7 @@ import { test, expect } from './fixtures'
 
 test.use({ backgroundProcess: true })
 
-test('real process survives foreground completion, persists metadata and logs, and stops from the monitor', async ({ page, vista }, testInfo) => {
+test('real process survives foreground completion, persists metadata and logs, and stops from the monitor', { tag: '@responsive' }, async ({ page, vista }, testInfo) => {
   await vista.api('/preferences', { method: 'PATCH', body: JSON.stringify({ feedbackInvitationSeen: true }) })
   await page.reload()
   await page.locator('.sender-card textarea').fill('Start process')

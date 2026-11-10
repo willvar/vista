@@ -1,5 +1,6 @@
 import { test, expect } from './fixtures'
 import { scrollToConversationEntry } from './conversation-scroll'
+import { test as historyTest } from './long-history-fixture'
 
 test.describe('persistent main output', () => {
   test.use({ progressCalls: 6 })
@@ -103,14 +104,20 @@ test.describe('persistent main output', () => {
   })
 })
 
-test.describe('long progress history', () => {
-  test.use({ progressCalls: 105, longProgress: true })
-  test('prepares complete long bodies in a continuous timeline with bounded mounted rows', async ({ page, vista }, testInfo) => {
+historyTest.describe('long progress history', () => {
+  historyTest('prepares complete long bodies in a continuous timeline with bounded mounted rows', async ({ context, vista, historySeed }, testInfo) => {
     test.setTimeout(90_000)
     await vista.api('/preferences', { method: 'PATCH', body: JSON.stringify({ feedbackInvitationSeen: true }) })
-    const session = await vista.api('/sessions', { method: 'POST', body: '{}' })
-    await vista.api(`/sessions/${session.id}/messages`, { method: 'POST', body: JSON.stringify({ content: 'Many progress calls' }) })
-    await expect.poll(async () => (await vista.api('/sessions')).find((s: any) => s.id === session.id)?.executing, { timeout: 60_000 }).toBe(false)
+    const session = (await vista.api('/sessions')).find((item: { id: string }) => item.id === historySeed.sessionId)
+    expect(session.executing).toBe(false)
+    expect(vista.modelRequests).toHaveLength(0)
+    const artifacts = await vista.api(`/sessions/${session.id}/artifacts`)
+    expect(artifacts).toHaveLength(105)
+    expect((await vista.api(`/sessions/${session.id}/artifacts/${artifacts[0].id}/output`)).content).toBe('Tool result')
+    await testInfo.attach('native-history-seed', { body: JSON.stringify(historySeed), contentType: 'application/json' })
+    // Each viewport restores an independent database and managed outputs from
+    // the same real 105-tool run prepared once for this Playwright invocation.
+    const page = await context.newPage()
     const indexes: string[] = []
     page.on('request', request => { if (request.url().includes('/main-outputs')) indexes.push(request.url()) })
     await page.goto(`${vista.origin}/sessions/${session.id}`)
@@ -139,5 +146,6 @@ test.describe('long progress history', () => {
     await expect(page.locator('.messages')).toHaveAttribute('aria-busy', 'false')
     await scrollToConversationEntry(page, '[data-display-key^="output/"][data-display-key$="/main/1"]', 1)
     await expect(first).toContainText('Long progress ending.')
+    expect(vista.modelRequests).toHaveLength(0)
   })
 })
