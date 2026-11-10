@@ -32,6 +32,14 @@ const provider = createServer(async (request, response) => {
       response.end('data: {"choices":[{"delta":{"content":"Checklist acknowledged."},"finish_reason":"stop"}]}\n\ndata: [DONE]\n\n')
     } else if (calls === 3) {
       response.end('data: {"choices":[{"delta":{"content":"No checklist needed."},"finish_reason":"stop"}]}\n\ndata: [DONE]\n\n')
+    } else if (calls === 7) {
+      const chunk = { choices: [{ delta: { content: 'Final answer with checklist.', tool_calls: [{ index: 0, id: 'check_7', type: 'function', function: { name: 'update_checklist', arguments: JSON.stringify({ items: items.map(item => ({ ...item, status: 'done' })), finish: true }) } }] }, finish_reason: 'tool_calls' }] }
+      response.end(`data: ${JSON.stringify(chunk)}\n\ndata: [DONE]\n\n`)
+    } else if (calls === 8) {
+      const answers = body.messages.filter(message => message.role === 'assistant' && message.content === 'Final answer with checklist.')
+      const paired = body.messages.filter(message => message.role === 'tool' && message.tool_call_id === 'check_7' && JSON.parse(message.content).finish === true)
+      if (answers.length !== 1 || paired.length !== 1) throw new Error('final answer/checklist history was lost or duplicated after restart')
+      response.end('data: {"choices":[{"delta":{"content":"Final state retained."},"finish_reason":"stop"}]}\n\ndata: [DONE]\n\n')
     } else throw new Error('unexpected model call')
   } catch (error) {
     if (response.headersSent) response.destroy(error)
@@ -55,7 +63,7 @@ try {
   }
   let api = await start()
   const session = await api('/sessions', { method: 'POST', body: JSON.stringify({ title: 'checklist' }) })
-  async function run(prompt, expected) {
+  async function run(prompt, expected, expectedText) {
     const sent = await api(`/sessions/${session.id}/messages`, { method: 'POST', body: JSON.stringify({ content: prompt }) })
     let finished = false
     for (let i = 0; i < 250; i++) {
@@ -66,6 +74,7 @@ try {
         const tools = events.filter(event => event.kind === 'tool' && event.data.runId === sent.runId && event.data.tool?.name === 'update_checklist' && event.data.status === 'succeeded')
         if (updates.length !== tools.length || updates.some((event, index) => event.sequence >= tools[index].sequence)
           || JSON.stringify(updates.at(-1)?.data.items) !== JSON.stringify(expected)) throw new Error(`checklist events incorrect: ${JSON.stringify(events)}`)
+        if (expectedText && !events.some(event => event.kind === 'run_finished' && event.data.runId === sent.runId && event.data.message?.role === 'assistant' && event.data.message.content === expectedText)) throw new Error('final answer was not persisted with its checklist')
         break
       }
       await new Promise(resolve => setTimeout(resolve, 25))
@@ -86,7 +95,14 @@ try {
   await run('answer without a checklist')
   await run('create and clear checklist', [])
   if (calls !== 6) throw new Error(`unexpected model call count: ${calls}`)
-  console.log('Run checklist isolation, persistence, replay, and clear passed')
+  await run('finish checklist with the answer', items.map(item => ({ ...item, status: 'done' })), 'Final answer with checklist.')
+  if (calls !== 7) throw new Error(`final checklist added an unnecessary model request: ${calls}`)
+  await promisify(execFile)(binary, ['stop'], { env })
+  started = false
+  api = await start()
+  await run('recall the final state', undefined, 'Final state retained.')
+  if (calls !== 8) throw new Error(`unexpected replay model call count: ${calls}`)
+  console.log('Run checklist isolation, persistence, replay, clear and single-response completion passed')
 } catch (error) {
   try { console.error(readFileSync(join(state, 'vista', 'state', 'server.log'), 'utf8')) } catch {}
   throw error

@@ -163,15 +163,18 @@ func (r *toolRuntime) readToolOutput(ctx context.Context, call provider.ToolCall
 	return readToolOutput(ctx, call.Function.Arguments, r.parent)
 }
 
-var updateChecklistSchema = map[string]any{"type": "function", "function": map[string]any{"name": "update_checklist", "description": "Replace this run's visible checklist for complex or long-running work that benefits from progress tracking. Skip short, straightforward tasks. Update at meaningful phase changes, alongside independent tool calls when practical. Use pending, in_progress, done, or blocked. Mark only verified work done; an empty list clears the checklist. Main Agent only.", "parameters": map[string]any{"type": "object", "properties": map[string]any{"items": map[string]any{"type": "array", "maxItems": 16, "items": map[string]any{"type": "object", "properties": map[string]any{"text": map[string]any{"type": "string", "maxLength": 160}, "status": map[string]any{"type": "string", "enum": []string{"pending", "in_progress", "done", "blocked"}}}, "required": []string{"text", "status"}}}}, "required": []string{"items"}}}}
+var updateChecklistSchema = map[string]any{"type": "function", "function": map[string]any{"name": "update_checklist", "description": "Replace this run's visible checklist for complex or long-running work that benefits from progress tracking. Skip short tasks. Batch intermediate updates with independent tools. Mark only verified work done; an empty list clears it. To finish, output the complete final answer as normal response text alongside this sole tool call with finish=true, saving the final checklist without another model request. Do not use finish for progress text; other tools cannot share that response. Pending required work and new user messages still continue execution. Main Agent only.", "parameters": map[string]any{"type": "object", "properties": map[string]any{"items": map[string]any{"type": "array", "maxItems": 16, "items": map[string]any{"type": "object", "properties": map[string]any{"text": map[string]any{"type": "string", "maxLength": 160}, "status": map[string]any{"type": "string", "enum": []string{"pending", "in_progress", "done", "blocked"}}}, "required": []string{"text", "status"}}}, "finish": map[string]any{"type": "boolean", "description": "The normal response text is the complete final answer; finish after saving this checklist, subject to pending work and new inputs. Default false."}}, "required": []string{"items"}}}}
+
+type checklistUpdate struct {
+	Items  []workerproto.ChecklistItem `json:"items"`
+	Finish bool                        `json:"finish,omitempty"`
+}
 
 func (r *toolRuntime) updateChecklist(ctx context.Context, call provider.ToolCall) (string, error) {
 	if r.depth != 0 || r.parent.SessionID == "" {
 		return "", errors.New("only the main Agent can update the run checklist")
 	}
-	var input struct {
-		Items []workerproto.ChecklistItem `json:"items"`
-	}
+	var input checklistUpdate
 	if err := decodeArguments(call.Function.Arguments, &input); err != nil {
 		return "", err
 	}
@@ -188,5 +191,5 @@ func (r *toolRuntime) updateChecklist(ctx context.Context, call provider.ToolCal
 	if err := r.emit(workerproto.Result{RunID: r.parent.RunID, Kind: "checklist", Status: "succeeded", Checklist: &workerproto.Checklist{Items: input.Items}}); err != nil {
 		return "", err
 	}
-	return marshalResult(map[string]any{"items": input.Items})
+	return marshalResult(input)
 }

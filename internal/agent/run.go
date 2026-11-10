@@ -407,7 +407,108 @@ turnLoop:
 				return "", err
 			}
 		}
-		if len(turn.Calls) == 0 {
+		finishChecklist := false
+		if len(turn.Calls) > 0 {
+			finishCall := ""
+			callErrors := make([]error, len(turn.Calls))
+			checklistUpdates := 0
+			for _, call := range turn.Calls {
+				if call.Function.Name == "update_checklist" {
+					checklistUpdates++
+				}
+			}
+			for index, call := range turn.Calls {
+				if call.Function.Name == "update_checklist" && checklistUpdates > 1 {
+					callErrors[index] = errors.New("request only one checklist replacement per turn")
+				}
+				if call.Function.Name == "update_checklist" {
+					var input checklistUpdate
+					if decodeArguments(call.Function.Arguments, &input) == nil && input.Finish {
+						if len(turn.Calls) != 1 || strings.TrimSpace(turn.Text) == "" {
+							callErrors[index] = errors.New("finish=true requires a complete final answer as normal response text and no other tool calls")
+						} else {
+							finishCall = call.ID
+						}
+					}
+				}
+				if call.Function.Name != "question" {
+					continue
+				}
+				if depth != 0 || command.SessionID == "" || len(turn.Calls) != 1 {
+					callErrors[index] = errors.New("only the main Agent may ask a question, without other tool calls")
+					continue
+				}
+				pending, err := questionRequest(call)
+				if err != nil {
+					callErrors[index] = err
+					continue
+				}
+				questionMessage := turn.AssistantMessage(turn.Text)
+				if err := retainModelMessage(command, turnID, "question", 0, questionMessage, depth, emit); err != nil {
+					return "", err
+				}
+				messages = append(messages, questionMessage)
+				if count, err := consumeInputs(nil); err != nil {
+					return "", err
+				} else if count > 0 {
+					messages = completeInterruptedToolHistory(messages, "")
+					continue turnLoop
+				}
+				if err := emit(workerproto.Result{RunID: command.RunID, Kind: "question", Pending: &pending}); err != nil {
+					return "", err
+				}
+				return pending.Content, nil
+			}
+			assistantText := turn.Text
+			if finishCall == "" && exceedsToolBudget(assistantText) {
+				assistantText = modelToolPreview(assistantText, &workerproto.OutputRef{RunID: command.RunID, Turn: turnID, Bytes: int64(len(turn.Text))})
+			}
+			assistantMessage := turn.AssistantMessage(assistantText)
+			if err := retainModelMessage(command, turnID, "assistant", 0, assistantMessage, depth, emit); err != nil {
+				return "", err
+			}
+			messages = append(messages, assistantMessage)
+			checkpointed := false
+			checkpointContinuation := func() error {
+				if checkpointed || depth != 0 || command.Action != "resume" || strings.TrimSpace(turn.Text) == "" {
+					return nil
+				}
+				reply := &workerproto.CompletedReply{Turn: turnID, FullBytes: len(turn.Text), Content: answerPreview(turn.Text, command.RunID, turnID)}
+				if err := emit(workerproto.Result{RunID: command.RunID, Kind: "reply_checkpoint", Reply: reply}); err != nil {
+					return err
+				}
+				checkpointed = true
+				return nil
+			}
+			// Continuations have no user row to anchor tool-turn text. Preserve
+			// it before tools can fail or be canceled. A potential final checklist
+			// waits for its result so a successful finish has only one formal reply.
+			if finishCall == "" {
+				if err := checkpointContinuation(); err != nil {
+					return "", err
+				}
+			}
+			if err := emitContextUsage(ctx, command, messages, offeredTools, depth, emit); err != nil {
+				return "", errors.Join(err, checkpointContinuation())
+			}
+			toolMessages, err := executeToolBatch(toolCtx, command, turnID, turn.Calls, callErrors, &prepared, mcp, scope, depth, jobs, runChild, &toolWork, emit)
+			if err != nil {
+				return "", errors.Join(err, checkpointContinuation())
+			}
+			messages = append(messages, toolMessages...)
+			if finishCall != "" && len(toolMessages) == 1 && toolMessages[0].ToolCallID == finishCall {
+				var result checklistUpdate
+				// A running, failed or truncated result cannot authorize completion.
+				finishChecklist = json.Unmarshal([]byte(toolMessages[0].Content), &result) == nil && result.Finish && result.Items != nil
+			}
+			if !finishChecklist {
+				if err := checkpointContinuation(); err != nil {
+					return "", err
+				}
+				continue
+			}
+		}
+		if len(turn.Calls) == 0 || finishChecklist {
 			hasText := strings.TrimSpace(turn.Text) != ""
 			if !hasText {
 				if continuation, ok := turn.HostedContinuation(); ok {
@@ -427,16 +528,18 @@ turnLoop:
 			if hasText {
 				preview = answerPreview(turn.Text, command.RunID, turnID)
 				reply = &workerproto.CompletedReply{Turn: turnID, FullBytes: len(turn.Text), Content: preview}
-				message := provider.ChatMessage{Role: "assistant", Content: preview}
-				if len(turn.Text) <= 8<<10 {
-					message = turn.AssistantMessage(preview)
+				if !finishChecklist {
+					message := provider.ChatMessage{Role: "assistant", Content: preview}
+					if len(turn.Text) <= 8<<10 {
+						message = turn.AssistantMessage(preview)
+					}
+					retained := message
+					retained.Content = turn.Text // The next run also retains long formal answers in full.
+					if err := retainModelMessage(command, turnID, "assistant", 0, retained, depth, emit); err != nil {
+						return "", err
+					}
+					messages = append(messages, retained)
 				}
-				retained := message
-				retained.Content = turn.Text // The next run also retains long formal answers in full.
-				if err := retainModelMessage(command, turnID, "assistant", 0, retained, depth, emit); err != nil {
-					return "", err
-				}
-				messages = append(messages, retained)
 			}
 			for {
 				// Capture wake generations before inspecting current state. A result
@@ -499,71 +602,6 @@ turnLoop:
 			}
 			return preview, nil
 		}
-		callErrors := make([]error, len(turn.Calls))
-		checklistUpdates := 0
-		for _, call := range turn.Calls {
-			if call.Function.Name == "update_checklist" {
-				checklistUpdates++
-			}
-		}
-		for index, call := range turn.Calls {
-			if call.Function.Name == "update_checklist" && checklistUpdates > 1 {
-				callErrors[index] = errors.New("request only one checklist replacement per turn")
-			}
-			if call.Function.Name != "question" {
-				continue
-			}
-			if depth != 0 || command.SessionID == "" || len(turn.Calls) != 1 {
-				callErrors[index] = errors.New("only the main Agent may ask a question, without other tool calls")
-				continue
-			}
-			pending, err := questionRequest(call)
-			if err != nil {
-				callErrors[index] = err
-				continue
-			}
-			questionMessage := turn.AssistantMessage(turn.Text)
-			if err := retainModelMessage(command, turnID, "question", 0, questionMessage, depth, emit); err != nil {
-				return "", err
-			}
-			messages = append(messages, questionMessage)
-			if count, err := consumeInputs(nil); err != nil {
-				return "", err
-			} else if count > 0 {
-				messages = completeInterruptedToolHistory(messages, "")
-				continue turnLoop
-			}
-			if err := emit(workerproto.Result{RunID: command.RunID, Kind: "question", Pending: &pending}); err != nil {
-				return "", err
-			}
-			return pending.Content, nil
-		}
-		assistantText := turn.Text
-		if exceedsToolBudget(assistantText) {
-			assistantText = modelToolPreview(assistantText, &workerproto.OutputRef{RunID: command.RunID, Turn: turnID, Bytes: int64(len(turn.Text))})
-		}
-		assistantMessage := turn.AssistantMessage(assistantText)
-		if err := retainModelMessage(command, turnID, "assistant", 0, assistantMessage, depth, emit); err != nil {
-			return "", err
-		}
-		messages = append(messages, assistantMessage)
-		// Continuations have no user row to anchor their streamed tool-turn text.
-		// Preserve the actual text as a display projection, including when the
-		// model later finishes normally without another textual answer.
-		if depth == 0 && command.Action == "resume" && strings.TrimSpace(turn.Text) != "" {
-			reply := &workerproto.CompletedReply{Turn: turnID, FullBytes: len(turn.Text), Content: answerPreview(turn.Text, command.RunID, turnID)}
-			if err := emit(workerproto.Result{RunID: command.RunID, Kind: "reply_checkpoint", Reply: reply}); err != nil {
-				return "", err
-			}
-		}
-		if err := emitContextUsage(ctx, command, messages, offeredTools, depth, emit); err != nil {
-			return "", err
-		}
-		toolMessages, err := executeToolBatch(toolCtx, command, turnID, turn.Calls, callErrors, &prepared, mcp, scope, depth, jobs, runChild, &toolWork, emit)
-		if err != nil {
-			return "", err
-		}
-		messages = append(messages, toolMessages...)
 	}
 }
 

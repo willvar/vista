@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -265,6 +266,54 @@ func TestRuntimeContinuationKeepsToolTurnTextBeforeEmptyFinalReply(t *testing.T)
 	})
 	if err != nil || answer != "" || requests != 2 || len(replies) != 1 || replies[0].Content != "Checking the completed background work." || replies[0].Turn != 1 {
 		t.Fatalf("continuation lost visible text: answer=%q replies=%+v requests=%d err=%v", answer, replies, requests, err)
+	}
+}
+
+func TestRuntimeContinuationKeepsToolTurnTextWhenCanceled(t *testing.T) {
+	for _, finish := range []bool{false, true} {
+		name := "ordinary tool"
+		if finish {
+			name = "final checklist"
+		}
+		t.Run(name, func(t *testing.T) {
+			_, baseCtx := checkpointFixture(t)
+			path := filepath.Join(t.TempDir(), "input.txt")
+			if err := os.WriteFile(path, []byte("fixture"), 0600); err != nil {
+				t.Fatal(err)
+			}
+			encoded, err := json.Marshal(map[string]string{"path": path})
+			if err != nil {
+				t.Fatal(err)
+			}
+			call := scriptedToolCall("read", "read_file", string(encoded))
+			if finish {
+				call = scriptedToolCall("finish", "update_checklist", `{"items":[],"finish":true}`)
+			}
+			upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				checklistTextTurn(w, "Continuation text before the tool.", call)
+			}))
+			defer upstream.Close()
+			ctx, cancel := context.WithCancel(baseCtx)
+			defer cancel()
+			command := continuationCommand(upstream.URL, "Continue.")
+			command.Action, command.SessionID = "resume", "session"
+			var replies []workerproto.CompletedReply
+			_, err = Run(ctx, command, func(result workerproto.Result) error {
+				if result.Kind == "reply_checkpoint" && result.Reply != nil {
+					replies = append(replies, *result.Reply)
+				}
+				if result.Kind == "tool" && result.Status == "started" {
+					if !finish && len(replies) != 1 {
+						t.Error("ordinary continuation text was not checkpointed before starting tools")
+					}
+					cancel()
+				}
+				return nil
+			})
+			if !errors.Is(err, context.Canceled) || len(replies) != 1 || replies[0].Content != "Continuation text before the tool." || replies[0].Turn != 1 {
+				t.Fatalf("cancellation lost or duplicated continuation text: replies=%+v err=%v", replies, err)
+			}
+		})
 	}
 }
 
