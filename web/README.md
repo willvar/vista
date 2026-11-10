@@ -19,10 +19,45 @@ Use the backend's actual port. The dev server listens on `127.0.0.1`; `/api` str
 | `npm run typecheck` / `npm run check` | Vue/TypeScript checking, including Vite and E2E configuration |
 | `npm run generate:i18n` | Generate Chinese catalogs and backend reply-language names |
 | `npm run check:i18n` | Verify generation, keys, placeholders, and message syntax |
-| `npm run build` | Generate/validate translations and build embedded `app.js`/`vista-web.css` |
-| `npm run test:e2e` | Playwright projects, requiring `VISTA_CHROME` |
+| `npm run build` | Generate/validate translations and build the embedded static site |
+| `npm run test:e2e` | Playwright projects, requiring built frontend assets and `VISTA_CHROME` |
 
 From the repository root, `make test frontend` runs unit/types/build and `make test e2e` builds its isolated application and runs browser checks. General requirements and evidence limits are in [verification](../docs/testing.md).
+
+## Browser fixtures
+
+`e2e/frontend-fixture.ts` serves the built application through Vite preview; workers share only the read-only files in `internal/server/assets/`.
+`scripts/e2e-setup.ts` builds the separate control-contract page once per Playwright run under ignored `web/.vista/test-state/controls/`; it is not part of the shipped application.
+Each worker has its own listener, and each case has its own browser context and mutable API fixtures.
+Execution-history fixtures retain real streaming HTTP responses through the listener's SSE handler.
+Only the two rendering-failure tests use `startSourceFrontend` to replace source modules before mounting.
+Native-server cases in `e2e/fixtures.ts` keep separate configurations and databases; the immutable catalog template is cached per worker, and CLI startup/shutdown is asynchronous.
+`shared-fixture.ts` prepares immutable data once per Playwright invocation; global setup gives it a fresh directory and teardown removes it. Failed preparation propagates to every consumer; data is never reused between runs.
+`settings-layout-fixture.ts` captures current settings responses from an isolated native instance, then serves them through the built frontend for every language and viewport. It rejects uncaptured reads and configuration/model mutations; saving, reload recovery and reply-language checks retain native-server coverage.
+Its worker listener serves pre-serialized JSON and persistent SSE directly over HTTP, keeping large response bodies out of Playwright routing. Settings geometry reads batch related bounds into one browser evaluation; clicks, input and asynchronous readiness retain their own checks.
+Geometry helpers wait for fonts, rendering frames and finite animations; timing, negative-observation and gesture tests retain the waits needed by their assertions.
+Language and web-credential workflows use reduced motion; dedicated motion tests retain normal transitions and preference-change coverage.
+Bulk progress history is generated once through the real Server/Worker, without artificial model latency, and its successful 105-tool/106-model run is checked before shutdown. Each viewport restores its own database and tool outputs with rebased managed paths, without process identities or runtime locks; persistence, pagination, full text, scrolling and refresh assertions stay on the native server.
+First attempts retain failure screenshots and error context without continuously recording DOM/network traces.
+A failed case runs once more with a trace containing DOM snapshots, sources, network records and attachments, without a screenshot filmstrip; the trace is kept even if that diagnostic retry passes.
+`failOnFlakyTests` keeps the command unsuccessful after a first-attempt failure. A retry cannot retroactively record the original failure; its screenshot/error context and the separate retry trace are retained together by CI.
+Use `--trace=retain-on-failure` to capture the original attempt when investigating an intermittent failure.
+Multi-page workflows activate the page receiving input; peer-page assertions still verify cross-tab updates.
+
+## Static build and loading
+
+`index.html` is the Vite application entry; output is a complete static site in `internal/server/assets/`, embedded as a directory by Go.
+The same output can be served by a static host with SPA route fallback and same-origin proxies for `/api` and `/licenses`; backend Host/Origin validation still applies.
+Browser API requests use the same-origin `/api` endpoint.
+Settings and session management use lazy routes; statistics loads its charts only when that section opens.
+The initial language load requests the effective catalog and English fallback before mounting; later switches apply only after loading and reject superseded selections.
+`src/i18n/catalogs.ts` eagerly assembles all catalogs for checks and tests only; browser code uses `loaders.ts`.
+Use named Ark component parts so unused parts can be removed from the build.
+
+Assets use content-hashed filenames and immutable caching; HTML uses `no-cache` with ETag revalidation.
+Vista serves uncompressed assets; deployments may configure response compression at their reverse proxy.
+Missing chunks return 404 rather than HTML.
+Lazy-load failures preserve the active view and editors, with an explicit reload confirmation; browser-saved message text drafts restore, while unsaved settings and image attachments must be re-entered or selected.
 
 ## State and UI boundaries
 
@@ -40,6 +75,8 @@ From the repository root, `make test frontend` runs unit/types/build and `make t
 | Routes and modal layout | `src/pages/`, `src/WorkspaceModal.vue`, `src/App.vue` |
 
 Settings and the manager overlay the conversation through named route views; opening them keeps SSE active. Mobile settings uses a category page, then the selected settings page; Back returns through that hierarchy. Desktop retains the settings sidebar.
+
+`meta.workspaceOverlay` identifies routes sharing a modal; `WorkspaceModal.vue` uses this stable identity to preserve the frame while switching settings tabs, independent of lazy component resolution.
 
 `ui/Modal.vue` owns the Ark dialog lifecycle, focus, mask and footer; `ui/ModalHeader.vue` provides the shared accessible title, action area and close control. Use the `header-actions` slot for actions beside Close; keep the `title` slot limited to title content. `WorkspaceModal.vue` reuses this header inside its routed frame and owns mobile Back and route-exit motion. Pages supply titles, labels and actions rather than rebuilding modal headers. `closeDisabled` keeps the close control visible but disabled; `closable: false` hides it. Full-screen editing places its explicit exit action in the same action slot.
 
@@ -170,7 +207,7 @@ All maintained languages share the instructions and controls; Chinese regional c
 
 Language registration and client matching are in `src/i18n/languages.ts`; region choices are in `src/i18n/regions.ts`. Only maintained wording variants are offered, not every CLDR territory or differences in date formatting alone. Automatic mode and single-region languages hide the region selector. Effective region is used for formatting and the next run's default reply language; explicit user language requests take precedence.
 
-Maintain Simplified Chinese in `src/i18n/locales/zh-CN.ts`, with corrections in `src/i18n/chinese-overrides.ts`. `scripts/generate-chinese.ts` uses locked OpenCC JS to generate Taiwan (`twp`), Hong Kong/Macau (`hk`), and Singapore/Malaysia catalogs. Do not edit generated catalogs directly. Generation preserves placeholders, inline code, and URLs; OpenCC is a build dependency, not browser runtime code.
+Maintain Simplified Chinese in `src/i18n/locales/zh-CN.ts`, with corrections in `src/i18n/chinese-overrides.ts`. `scripts/generate-chinese.ts` uses locked OpenCC JS to generate Taiwan (`twp`), Hong Kong/Macau (`hk`), and Singapore/Malaysia catalogs, storing only differences from their shared bases. Do not edit generated catalogs directly. Generation preserves placeholders, inline code, and URLs; OpenCC is a build dependency, not browser runtime code.
 
 Other regional wording is maintained in `src/i18n/regional-overrides.ts`. `AppProvider.vue` passes the effective locale to Ark UI; component labels and announcements use the same application catalogs. `scripts/generate-reply-languages.ts` derives `internal/replylanguage/language_names.json` from the same language registry. Dev and production builds generate both outputs; `check:i18n` rejects stale generation. Tests cover keys, syntax, placeholders, region matching/formatting, backend names, and plural forms.
 
@@ -190,4 +227,4 @@ Set `VISTA_CHROME` to the browser executable; direct Playwright runs may set `VI
 VISTA_CHROME=/absolute/path/to/chrome npm run test:e2e -- --list
 ```
 
-[e2e/fixtures.ts](./e2e/fixtures.ts) manages separate configuration/state, explicit ports, simulated model services, and cleanup. Reports, failed screenshots, traces, and browser profiles stay under `web/.vista/test-state/`. Tests run without automatic retries. Catalog tests seed the automatic-check schedule to avoid unintended upstream fetches.
+[e2e/fixtures.ts](./e2e/fixtures.ts) manages separate configuration/state, explicit ports, simulated model services, and cleanup. Reports, failed screenshots, traces, and browser profiles stay under `web/.vista/test-state/`. Failed cases get one diagnostic retry and remain gate failures even if the retry passes. Catalog tests seed the automatic-check schedule to avoid unintended upstream fetches.

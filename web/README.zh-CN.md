@@ -19,10 +19,45 @@ VISTA_DEV_BACKEND=http://127.0.0.1:5186 npm run dev
 | `npm run typecheck`／`npm run check` | Vue／TypeScript 检查，包含 Vite 和 E2E 配置 |
 | `npm run generate:i18n` | 生成中文词条和后端回复语言名 |
 | `npm run check:i18n` | 检查生成结果、词条键、占位符及消息语法 |
-| `npm run build` | 生成／检查译文，构建内嵌 `app.js`／`vista-web.css` |
-| `npm run test:e2e` | Playwright 项目，需要 `VISTA_CHROME` |
+| `npm run build` | 生成／检查译文，构建内嵌静态站点 |
+| `npm run test:e2e` | Playwright 项目，需要已构建的前端资源和 `VISTA_CHROME` |
 
 仓库根目录的 `make test frontend` 执行单测／类型／构建，`make test e2e` 构建独立应用并执行浏览器检查。一般要求和证据边界见[验证](../docs/testing.zh-CN.md)。
+
+## 浏览器 fixture
+
+`e2e/frontend-fixture.ts` 通过 Vite preview 提供已构建的应用，工作进程只共享 `internal/server/assets/` 中的只读文件。
+`scripts/e2e-setup.ts` 在每次 Playwright 运行前构建一次独立的控件契约页面，产物位于被忽略的 `web/.vista/test-state/controls/`，不进入应用发布产物。
+每个工作进程有独立监听器，每项用例有独立浏览器上下文和可变 API fixture。
+执行历史 fixture 通过监听器的 SSE 处理器保留真实流式 HTTP 响应。
+仅两项渲染故障测试使用 `startSourceFrontend`，在挂载前替换源码模块。
+`e2e/fixtures.ts` 中的原生服务用例继续使用独立配置和数据库，按工作进程缓存不可变的模型目录模板，CLI 启停异步执行。
+`shared-fixture.ts` 每次 Playwright 运行只准备一份不可变数据；全局初始化创建新目录，结束时清理。准备失败会传递给所有使用者，不跨次复用数据。
+`settings-layout-fixture.ts` 从隔离的原生实例读取当前设置响应，再通过已构建的前端验证每种语言及视口。它拒绝未收录的读取和配置／模型修改请求；保存、刷新恢复和回复语言检查继续使用原生服务。
+工作进程的监听器通过 HTTP 直接返回预先序列化的 JSON 和持续的 SSE，避免大响应经过 Playwright 路由转发。设置页面的相关边界在一次浏览器执行中读取；点击、输入和异步就绪状态继续单独检查。
+几何检查等待字体、渲染帧及有限动画完成；时间语义、负向观察和手势测试保留断言所需的等待。
+语言和网页服务密钥流程使用减少动态效果模式；专门的动画测试继续覆盖正常过渡及偏好切换。
+批量进度历史通过真实 Server／Worker 生成一次，不叠加人为模型延迟；确认 105 次工具执行、106 次模型调用成功后停止实例。每个视口恢复独立数据库及工具输出，并重定位托管路径，不复制进程身份或运行时锁；持久化、分页、完整正文、滚动和刷新检查继续走原生服务。
+首轮保留失败截图和错误上下文，不持续记录 DOM／网络 trace。
+失败用例再执行一次，记录含 DOM 快照、源码、网络记录和附件的 trace，不录制截图时间轴；即使这次诊断重跑通过，也保留 trace。
+`failOnFlakyTests` 确保首轮失败后整条命令仍不通过。重跑不能补录原始故障过程；CI 同时保留首轮截图／错误上下文及单独的重跑 trace。
+调查偶发故障时，可用 `--trace=retain-on-failure` 记录原始执行过程。
+多页面流程将接收操作的页面切到前台；其他页面继续验证跨标签更新。
+
+## 静态构建与加载
+
+`index.html` 是 Vite 应用入口，产物是 `internal/server/assets/` 中的完整静态站点，由 Go 整目录内嵌。
+同一份产物也可由静态服务器托管，配合页面路由回退及同源 `/api`、`/licenses` 反向代理；后端的 Host／Origin 校验仍然适用。
+浏览器通过同源 `/api` 请求后端。
+设置和会话管理按路由加载，统计图表在打开使用情况时加载。
+首次挂载前加载实际语言及英文回退词条，后续切换在加载完成后生效，并拒绝被新选择取代的旧结果。
+`src/i18n/catalogs.ts` 仅供检查和测试整合全部词条，浏览器使用 `loaders.ts`。
+Ark 子组件使用具名导入，使构建器可以移除未使用的部分。
+
+资源文件名包含内容哈希，并使用不可变缓存；HTML 通过 `no-cache` 和 ETag 校验更新。
+Vista 返回未压缩的资源，部署时可在反向代理层配置响应压缩。
+缺失的分块返回 404，不回退为 HTML。
+按需加载失败会保留当前页面和编辑器，刷新需明确确认；保存在浏览器中的消息文字草稿会恢复，未保存的设置和图片附件需要重新填写或选择。
 
 ## 状态与界面边界
 
@@ -40,6 +75,8 @@ VISTA_DEV_BACKEND=http://127.0.0.1:5186 npm run dev
 | 路由及弹框布局 | `src/pages/`、`src/WorkspaceModal.vue`、`src/App.vue` |
 
 设置和管理器通过命名路由视图覆盖会话，打开时 SSE 继续工作。手机设置先显示分类目录，再进入分类页；返回按此层级逐级退出，桌面保留设置侧栏。
+
+`meta.workspaceOverlay` 标识共用同一弹框的路由，`WorkspaceModal.vue` 用此稳定标识保留切换设置 tab 时的框架，不依赖按需加载前后的组件对象。
 
 `ui/Modal.vue` 负责 Ark 弹窗的生命周期、焦点、遮罩和底部操作；`ui/ModalHeader.vue` 提供共用的无障碍标题、操作区及关闭控件。关闭按钮旁的操作使用 `header-actions` 插槽，`title` 插槽只放标题内容。`WorkspaceModal.vue` 在路由弹窗框架内复用此标题栏，并负责移动端返回和路由退出动画。页面提供标题、标签和操作，不再重写弹窗标题栏。`closeDisabled` 保留并禁用关闭控件，`closable` 控制其显示；全屏编辑的退出按钮也放入同一操作插槽。
 
@@ -170,7 +207,7 @@ HTTP 200 返回 `status=exchanging` 且 `authorizationUrl` 为空的 Login；HTT
 
 语言注册与客户端匹配位于 `src/i18n/languages.ts`，地区选项位于 `src/i18n/regions.ts`。只列已维护的文字变体，不因 CLDR 地区或日期格式差异扩充列表。自动模式及单一地区语言隐藏地区控件。生效地区用于格式化及下一执行的默认回复语言，用户明确语言要求优先。
 
-简体中文维护 `src/i18n/locales/zh-CN.ts`，校订位于 `src/i18n/chinese-overrides.ts`。`scripts/generate-chinese.ts` 使用锁定的 OpenCC JS 生成台湾（`twp`）、香港／澳门（`hk`）、新加坡／马来西亚词条，不直接编辑生成文件。生成保留占位符、行内代码及 URL；OpenCC 仅用于构建，不进入浏览器运行代码。
+简体中文维护 `src/i18n/locales/zh-CN.ts`，校订位于 `src/i18n/chinese-overrides.ts`。`scripts/generate-chinese.ts` 使用锁定的 OpenCC JS 生成台湾（`twp`）、香港／澳门（`hk`）、新加坡／马来西亚词条，仅保存相对共享基础词条的差异，不直接编辑生成文件。生成保留占位符、行内代码及 URL；OpenCC 仅用于构建，不进入浏览器运行代码。
 
 其他地区文案差异在 `src/i18n/regional-overrides.ts`，`AppProvider.vue` 将生效语言传给 Ark UI，组件标签和无障碍播报使用应用的同一套文案。`scripts/generate-reply-languages.ts` 从同一注册表生成 `internal/replylanguage/language_names.json`。开发和生产构建均执行这两类生成，`check:i18n` 拒绝过期结果。测试覆盖键、语法、占位符、地区匹配／格式、后端语言名及复数。
 
@@ -190,4 +227,4 @@ HTTP 200 返回 `status=exchanging` 且 `authorizationUrl` 为空的 Login；HTT
 VISTA_CHROME=/absolute/path/to/chrome npm run test:e2e -- --list
 ```
 
-[e2e/fixtures.ts](./e2e/fixtures.ts)管理独立配置／状态、明确端口、模拟模型及清理。报告、失败截图、trace 和浏览器 profile 留在 `web/.vista/test-state/`，失败不自动重试。目录测试预设自动检查时间，避免意外访问上游。
+[e2e/fixtures.ts](./e2e/fixtures.ts)管理独立配置／状态、明确端口、模拟模型及清理。报告、失败截图、trace 和浏览器 profile 留在 `web/.vista/test-state/`。失败用例诊断重跑一次，即使重跑通过，整轮检查仍不通过。目录测试预设自动检查时间，避免意外访问上游。

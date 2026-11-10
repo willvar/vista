@@ -24,7 +24,7 @@
 | `internal/buildinfo/` | 版本、二进制哈希及 Go VCS 信息 |
 | `web/src/` | Vue 界面、会话状态、HTTP/SSE 客户端及虚拟滚动 |
 
-前端构建到 `internal/server/assets/`，由 Go 内嵌。Server、Worker、MCP 托管进程和 CLI 共用一个可执行文件，服务商协议在 Go 内实现，无独立 JavaScript 服务商进程。
+前端在 `internal/server/assets/` 构建静态 ESM 应用，包含 HTML 入口及带内容哈希的 JS／CSS，由 Go 整目录内嵌。设置、会话管理、统计和语言词条按需加载。静态资源使用不可变缓存，HTML 通过 ETag 校验更新。Vista 返回未压缩的资源，响应压缩由部署层的反向代理负责。Server、Worker、MCP 托管进程和 CLI 共用一个可执行文件，服务商协议在 Go 内实现，无独立 JavaScript 服务商进程。
 
 ## 进程与存储归属
 

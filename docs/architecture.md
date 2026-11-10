@@ -24,7 +24,7 @@ This document describes the current source. Product tradeoffs are in [product be
 | `internal/buildinfo/` | Version, executable hash, and Go VCS metadata |
 | `web/src/` | Vue UI, conversation state, HTTP/SSE client, and virtual scrolling |
 
-The frontend builds into `internal/server/assets/` and is embedded by Go. Server, Worker, MCP host, and CLI use one executable. Providers run in Go without a separate JavaScript provider process.
+The frontend builds a static ESM application into `internal/server/assets/`, with an HTML entry and content-hashed JS/CSS, and Go embeds the entire directory. Settings, session management, statistics and language catalogs load on demand. Static resources use immutable caching; HTML revalidates with ETag. Vista serves uncompressed resources; response compression belongs to the deployment's reverse proxy. Server, Worker, MCP host, and CLI use one executable. Providers run in Go without a separate JavaScript provider process.
 
 ## Process and storage ownership
 

@@ -37,6 +37,11 @@ Explicit goals such as `make test frontend memory` run only those checks; shared
 Make builds test executables under `.vista/test-state/bin` and uses separate configurations and ports. It does not replace `bin/vista` or restart the user's instance. Browser state, traces, screenshots, and HTML reports live under `web/.vista/test-state/`; see [frontend checks](../web/README.md).
 
 `E2E_ARGS` passes options to Playwright without changing the default projects, for example `make test e2e E2E_ARGS='--max-failures=1 --workers=2'`.
+Independent cases can run in parallel within one spec file.
+Local runs default to at most four workers, capped by available CPU parallelism; CI uses two, and `--workers` overrides either default.
+Each case retains its own browser context and mutable fixture state, including isolated configuration, database and port for native Vista instances.
+Shared browser fixture builds and the two source-module failure-injection exceptions are described in [frontend checks](../web/README.md#browser-fixtures).
+Failed cases run once more to capture a trace; even a passing retry fails the gate. The original failure keeps its screenshot/error context, while the trace describes the retry. Use `--trace=retain-on-failure` when original-attempt tracing is needed for intermittent failures.
 
 `make test` compares staged, unstaged and untracked source against `HEAD` by default.
 Set `TEST_BASE=<commit>` to include changes already committed since an earlier validation.
@@ -49,8 +54,10 @@ Custom file/grep filters use `make test e2e`; the local selector rejects filters
 
 Desktop remains the complete browser baseline.
 Mobile projects use the explicit responsive coverage list, including multilingual layout, touch, dragging, scrolling, virtualized history and modal geometry; width-independent persistence and protocol recovery run once on desktop.
+Mixed suites for controls, page contracts, quoted replies and background processes mark their viewport-dependent cases with `@responsive` instead of repeating the whole file on phones.
+Value rules, keyboard behavior and request contents retain their desktop browser assertions; dedicated touch cases and layout checks still run in both mobile orientations.
 The same classification applies locally and in CI.
-Language detection, saved preferences and request-language injection remain desktop workflows; a separate language-parameterized layout check covers both themes and all three viewports.
+Language detection, saved preferences, localized controls and request-language injection remain desktop workflows; separate language-parameterized checks perform the page-wide layout sweeps, verify both themes, and capture nested dialogs on all three viewports.
 Pure state/protocol checks also run through Node and Go tests rather than depending solely on browser repetitions.
 
 ## GitHub builds and releases
