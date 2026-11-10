@@ -25,6 +25,32 @@ test('path discovery, count-only searches and saved-output matches have distinct
   assert.equal(saved.search?.truncated,true)
 })
 
+test('grouped search results restore full paths, context and incomplete-search warnings', () => {
+  const warning = { path: '/project/locked', error: 'permission denied' }
+  const result = projectToolOutput(JSON.stringify({ root: '/project', files: [
+    { path: 'src/app.ts', matches: [{ line: 41, text: 'before', context: true }, { line: 42, text: 'needle' }] },
+  ], count: 1, filesScanned: 3, truncated: true, skippedDirectories: 1, warnings: [warning] }), 'search')
+  assert.deepEqual(result.search, { matches: [
+    { path: '/project/src/app.ts', line: 41, text: 'before', context: true },
+    { path: '/project/src/app.ts', line: 42, text: 'needle' },
+  ], count: 1, filesScanned: 3, truncated: true, warnings: [warning] })
+  assert.equal(projectToolOutput(JSON.stringify({ root: '/project', files: [], count: 0, filesScanned: 3, truncated: false }), 'search').search?.count, 0)
+})
+
+test('relative discovery coordinates work for Unix, Windows, roots and file roots', () => {
+  for (const [root, path, expected] of [
+    ['/project/', 'src/app.ts', '/project/src/app.ts'],
+    ['/', 'app.ts', '/app.ts'],
+    [String.raw`C:\project`, 'src/app.ts', String.raw`C:\project\src\app.ts`],
+    ['C:\\', 'app.ts', String.raw`C:\app.ts`],
+    ['/project/app.ts', '.', '/project/app.ts'],
+    ['/project', '/outside/app.ts', '/outside/app.ts'],
+  ]) {
+    const found = projectToolOutput(JSON.stringify({ root, paths: [path], truncated: false }), 'find_files')
+    assert.deepEqual(found.search?.paths, [expected])
+  }
+})
+
 const event = (sequence: number, kind: string, data: any = {}): StreamEvent => ({ sequence, kind, createdAt: '2026-10-03T00:00:00Z', data: { runId: 'run', taskId: 'main', ...data } })
 const options = { runId: 'run', active: true }
 

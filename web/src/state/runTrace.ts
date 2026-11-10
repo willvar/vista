@@ -2,7 +2,7 @@ import type { AgentTaskView, ChecklistItem, ModelResultView, StreamEvent, ToolOu
 import { inRunTraceRange, type RunTraceRange } from './runTraceRange.ts'
 
 export type TraceStatus = 'loading' | 'success' | 'error' | 'abort'
-export type TraceSearchOutput = { matches: { path: string; line?: number; text: string; context?: boolean }[]; paths?: string[]; count?: number; filesScanned?: number; truncated: boolean }
+export type TraceSearchOutput = { matches: { path: string; line?: number; text: string; context?: boolean }[]; paths?: string[]; count?: number; filesScanned?: number; truncated: boolean; warnings?: { path: string; error: string }[] }
 export type TraceInstructionOutput = { path: string; bytes?: number }[]
 export type TraceFileDiff = { path: string; created: boolean; deleted?: boolean; unified: string; omitted?: 'too_large' | 'unavailable' }
 export type RunTraceNode = {
@@ -103,6 +103,13 @@ export function reasoningDisplayText(content: string): string {
   return /^\*\*[^*\n`\\]+(?:\*\*\*\*[^*\n`\\]+)+\*\*$/.test(content)
     ? content.replaceAll('****', '**\n**') : content
 }
+function searchResultPath(root: unknown, path: string): string {
+  if (typeof root !== 'string' || !root || /^(?:[\\/]|[A-Za-z]:)/.test(path)) return path
+  if (path === '.') return root
+  const separator = root.includes('\\') && !root.includes('/') ? '\\' : '/'
+  return root.replace(/[\\/]+$/, '') + separator + path.replaceAll('/', separator)
+}
+
 export function projectToolOutput(raw: string, toolName?: string): Pick<RunTraceNode, 'body' | 'rawBody' | 'markdown' | 'search' | 'instructions' | 'diff' | 'diffs' | 'error' | 'resultSummaryKey' | 'resultSummaryParams'> {
   try {
     const value: unknown = JSON.parse(raw)
@@ -152,11 +159,14 @@ export function projectToolOutput(raw: string, toolName?: string): Pick<RunTrace
     if (operation === 'traceOpDelegate' && typeof fields.taskId === 'string' && fields.status === 'running') return { body: '', rawBody: raw, resultSummaryKey: 'traceAgentStarted' }
     if (operation === 'traceOpAwaitAgent' && fields.status === 'running' && Array.isArray(fields.pendingTaskIds)) return { body: '', rawBody: raw, resultSummaryKey: 'traceAgentsRunning', resultSummaryParams: { count: fields.pendingTaskIds.length } }
     if (Array.isArray(fields.items) && toolOperationLabelKey(toolName) === 'traceOpChecklist') return { body: '', rawBody: raw, resultSummaryKey: 'traceChecklistUpdated', resultSummaryParams: { count: fields.items.length } }
-    if (Array.isArray(fields.matches)) {
-      const matches = fields.matches.filter(item => item && (typeof item.path === 'string' || typeof item.offset === 'number') && typeof item.text === 'string').map(item => ({ path: typeof item.path === 'string' ? item.path : `@${item.offset} B`, line: typeof item.line === 'number' ? item.line : undefined, text: item.text, ...(item.context === true ? { context: true } : {}) }))
-      return { body: '', rawBody: raw, search: { matches, ...(Array.isArray(fields.paths) ? { paths: fields.paths.filter(path => typeof path === 'string') } : {}), ...(typeof fields.count === 'number' ? { count: fields.count } : {}), filesScanned: typeof fields.filesScanned === 'number' ? fields.filesScanned : undefined, truncated: fields.truncated === true } }
+    const warnings = Array.isArray(fields.warnings) ? fields.warnings.filter(item => item && typeof item.path === 'string' && typeof item.error === 'string') : []
+    const searchWarnings = warnings.length ? { warnings } : {}
+    if (Array.isArray(fields.matches) || (operation === 'traceOpSearch' && Array.isArray(fields.files))) {
+      const rows = Array.isArray(fields.matches) ? fields.matches : (fields.files as any[]).flatMap(file => file && typeof file.path === 'string' && Array.isArray(file.matches) ? file.matches.map((match: any) => ({ ...match, path: file.path })) : [])
+      const matches = rows.filter(item => item && (typeof item.path === 'string' || typeof item.offset === 'number') && typeof item.text === 'string').map(item => ({ path: typeof item.path === 'string' ? searchResultPath(fields.root, item.path) : `@${item.offset} B`, line: typeof item.line === 'number' ? item.line : undefined, text: item.text, ...(item.context === true ? { context: true } : {}) }))
+      return { body: '', rawBody: raw, search: { matches, ...(Array.isArray(fields.paths) ? { paths: fields.paths.filter(path => typeof path === 'string').map(path => searchResultPath(fields.root, path)) } : {}), ...(typeof fields.count === 'number' ? { count: fields.count } : {}), filesScanned: typeof fields.filesScanned === 'number' ? fields.filesScanned : undefined, truncated: fields.truncated === true, ...searchWarnings } }
     }
-    if (operation === 'traceOpFindFiles' && Array.isArray(fields.paths)) return { body: '', rawBody: raw, search: { matches: [], paths: fields.paths.filter(path => typeof path === 'string'), truncated: fields.truncated === true } }
+    if (operation === 'traceOpFindFiles' && Array.isArray(fields.paths)) return { body: '', rawBody: raw, search: { matches: [], paths: fields.paths.filter(path => typeof path === 'string').map(path => searchResultPath(fields.root, path)), truncated: fields.truncated === true, ...searchWarnings } }
     if (typeof fields.answer === 'string') return { body: fields.answer, rawBody: raw, markdown: true }
     if (operation === 'traceOpShell' && typeof fields.preview === 'string') return { body: preview, rawBody: raw }
     for (const name of ['preview', 'content', 'text', 'output']) if (typeof fields[name] === 'string') return { body: fields[name], rawBody: raw }

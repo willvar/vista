@@ -133,7 +133,7 @@ func (r *toolRuntime) readFile(ctx context.Context, call provider.ToolCall) (str
 	return modelToolPreview(output, reference), nil
 }
 
-var searchSchema = map[string]any{"type": "function", "function": map[string]any{"name": "search", "description": "Search UTF-8 file contents under an absolute root, respecting .gitignore. Use include/exclude path globs, literal for plain text, contextLines for nearby numbered lines, and mode content/files/count. Files mode returns paths whose CONTENT matches; use find_files to match file names without opening files.", "parameters": map[string]any{"type": "object", "properties": map[string]any{
+var searchSchema = map[string]any{"type": "function", "function": map[string]any{"name": "search", "description": "Search UTF-8 file contents under an absolute root, respecting .gitignore. Start with the known project directory and narrow include globs. Use literal for plain text, contextLines for nearby numbered lines, and mode content/files/count. Results group numbered matches by file; join each relative path to root for read_file. Files mode returns paths whose CONTENT matches; use find_files to match names. Inaccessible subtrees are skipped with warnings and truncated=true.", "parameters": map[string]any{"type": "object", "properties": map[string]any{
 	"root": map[string]any{"type": "string"}, "pattern": map[string]any{"type": "string"},
 	"include": map[string]any{"type": "array", "items": map[string]any{"type": "string"}}, "exclude": map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
 	"literal": map[string]any{"type": "boolean"}, "ignoreCase": map[string]any{"type": "boolean"},
@@ -149,10 +149,10 @@ func (r *toolRuntime) search(ctx context.Context, call provider.ToolCall) (strin
 	if err != nil {
 		return "", err
 	}
-	return marshalResult(result)
+	return marshalSearchOutput(input.Root, result)
 }
 
-var findFilesSchema = map[string]any{"type": "function", "function": map[string]any{"name": "find_files", "description": "Find file paths by glob, such as **/*settings*.vue, beneath an absolute root without reading file contents. Respects ancestor/nested .gitignore; skips .git, node_modules and symlinks. Results are sorted by traversal path and bounded; narrow pattern/root when truncated.", "parameters": map[string]any{"type": "object", "properties": map[string]any{
+var findFilesSchema = map[string]any{"type": "function", "function": map[string]any{"name": "find_files", "description": "Find names by glob under an absolute root without reading file contents. Start in the known workspace/project rather than scanning the whole home directory. A basename glob like * or *.go matches at every depth; use a path prefix like src/**/*.go to narrow the tree. Join returned relative paths to root. Respects ancestor/nested .gitignore; skips .git, node_modules and symlinks. Results are sorted by traversal path and bounded; narrow pattern/root when truncated. Inaccessible subtrees are skipped with warnings and truncated=true.", "parameters": map[string]any{"type": "object", "properties": map[string]any{
 	"root": map[string]any{"type": "string"}, "pattern": map[string]any{"type": "string"}, "exclude": map[string]any{"type": "array", "items": map[string]any{"type": "string"}}, "limit": map[string]any{"type": "integer", "minimum": 1, "maximum": tools.MaxToolResultLines},
 }, "required": []string{"root", "pattern"}}}}
 
@@ -170,7 +170,7 @@ func (r *toolRuntime) findFiles(ctx context.Context, call provider.ToolCall) (st
 	if err != nil {
 		return "", err
 	}
-	return marshalResult(result)
+	return marshalFindFilesOutput(input.Root, result)
 }
 
 var writeFileSchema = map[string]any{"type": "function", "function": map[string]any{"name": "write_file", "description": "Atomically write UTF-8 content at an absolute path only if its SHA-256 matches the value from read_file, or expectedSha256 is 'missing' for a new file.", "parameters": map[string]any{"type": "object", "properties": map[string]any{"path": map[string]any{"type": "string"}, "expectedSha256": map[string]any{"type": "string"}, "content": map[string]any{"type": "string"}}, "required": []string{"path", "expectedSha256", "content"}}}}

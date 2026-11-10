@@ -22,6 +22,7 @@ const { t } = useI18n()
     <small v-if="!(node.search.count ?? node.search.paths?.length ?? node.search.matches.length)">{{ t('traceNoMatches') }}</small>
     <ul class="trace-search-results"><li v-for="path in node.search.paths" :key="path"><code>{{ path }}</code></li><li v-for="(match, index) in node.search.matches" :key="index" :class="{ 'trace-search-context': match.context }"><code>{{ match.path }}{{ match.line ? `:${match.line}` : '' }}</code><pre class="trace-output">{{ match.text }}</pre></li></ul>
     <small v-if="node.search.truncated">{{ t('traceSearchPartial') }}</small>
+    <p v-for="warning in node.search.warnings" :key="warning.path" class="trace-result-summary"><code>{{ warning.path }}</code>: {{ warning.error }}</p>
   </template>
   <template v-else-if="node.instructions">
     <p class="trace-result-summary">{{ t(node.resultSummaryKey || (node.instructions.length ? 'traceInstructionFiles' : 'traceNoInstructionFiles'), { count: node.instructions.length }) }}</p>

@@ -29,6 +29,26 @@ type SearchResult struct {
 	Count        int      `json:"count"`
 	Truncated    bool     `json:"truncated"`
 	FilesScanned int      `json:"filesScanned"`
+	SearchOmissions
+}
+
+// A partial search must not silently look like a complete negative result.
+// Keep diagnostics bounded even when a broad root has many unreadable trees.
+type SearchOmissions struct {
+	SkippedDirectories int             `json:"skippedDirectories,omitempty"`
+	Warnings           []SearchWarning `json:"warnings,omitempty"`
+}
+
+type SearchWarning struct {
+	Path  string `json:"path"`
+	Error string `json:"error"`
+}
+
+func (s *SearchOmissions) skip(path string, err error) {
+	s.SkippedDirectories++
+	if len(s.Warnings) < 20 {
+		s.Warnings = append(s.Warnings, SearchWarning{Path: path, Error: err.Error()})
+	}
 }
 
 type SearchOptions struct {
@@ -67,7 +87,7 @@ func matchesGlobs(patterns []string, relative string) bool {
 // Both discovery and content search use the same depth-first ignore scopes.
 // The traversal callback is deliberately sequential: inherited .gitignore
 // scope must not be shared between concurrent directory callbacks.
-func walkSearchFiles(ctx context.Context, root string, include, exclude []string, visit func(string, fs.DirEntry) error) error {
+func walkSearchFiles(ctx context.Context, root string, include, exclude []string, omissions *SearchOmissions, visit func(string, fs.DirEntry) error) error {
 	if err := validateGlobs(append(append([]string{}, include...), exclude...)); err != nil {
 		return err
 	}
@@ -75,11 +95,16 @@ func walkSearchFiles(ctx context.Context, root string, include, exclude []string
 	if err != nil {
 		return err
 	}
+	prefixes := searchDirectoryPrefixes(include)
 	return filepath.WalkDir(root, func(path string, entry fs.DirEntry, walkErr error) error {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
 		if walkErr != nil {
+			if path != root && errors.Is(walkErr, fs.ErrPermission) {
+				omissions.skip(path, walkErr)
+				return filepath.SkipDir
+			}
 			return walkErr
 		}
 		for ignores.directory != path && ignores.directory != filepath.Dir(path) {
@@ -90,6 +115,9 @@ func walkSearchFiles(ctx context.Context, root string, include, exclude []string
 			return err
 		}
 		relative = filepath.ToSlash(relative)
+		if entry.IsDir() && !searchDirectoryMayMatch(prefixes, relative) {
+			return filepath.SkipDir
+		}
 		if ignores.ignored(path, entry.IsDir()) || matchesGlobs(exclude, relative) {
 			if entry.IsDir() {
 				return filepath.SkipDir
@@ -101,9 +129,18 @@ func walkSearchFiles(ctx context.Context, root string, include, exclude []string
 				return filepath.SkipDir
 			}
 			if ignores.directory != path {
-				ignores, err = ignores.descend(path)
+				next, err := ignores.descend(path)
+				if err != nil {
+					if path != root && errors.Is(err, fs.ErrPermission) {
+						// Never traverse a subtree without its ignore rules.
+						omissions.skip(path, err)
+						return filepath.SkipDir
+					}
+					return err
+				}
+				ignores = next
 			}
-			return err
+			return nil
 		}
 		if len(include) != 0 && !matchesGlobs(include, relative) {
 			return nil
@@ -115,9 +152,44 @@ func walkSearchFiles(ctx context.Context, root string, include, exclude []string
 	})
 }
 
+// Only literal directory prefixes can rule a branch out. Basename globs and
+// leading wildcards still match at every depth, with their existing semantics.
+func searchDirectoryPrefixes(patterns []string) []string {
+	var prefixes []string
+	for _, pattern := range patterns {
+		parts := strings.Split(pattern, "/")
+		end := 0
+		for _, part := range parts[:len(parts)-1] {
+			if strings.ContainsAny(part, "*?[]{}\\") {
+				break
+			}
+			end++
+		}
+		literal := strings.Join(parts[:end], "/")
+		if literal == "" {
+			return nil // This include can match anywhere; no branch can be pruned.
+		}
+		prefixes = append(prefixes, literal)
+	}
+	return prefixes
+}
+
+func searchDirectoryMayMatch(prefixes []string, directory string) bool {
+	if directory == "." || len(prefixes) == 0 {
+		return true
+	}
+	for _, prefix := range prefixes {
+		if directory == prefix || strings.HasPrefix(prefix, directory+"/") || strings.HasPrefix(directory, prefix+"/") {
+			return true
+		}
+	}
+	return false
+}
+
 type FindFilesResult struct {
 	Paths     []string `json:"paths"`
 	Truncated bool     `json:"truncated"`
+	SearchOmissions
 }
 
 func FindFiles(ctx context.Context, root, pattern string, exclude []string, limit int) (FindFilesResult, error) {
@@ -135,7 +207,7 @@ func FindFiles(ctx context.Context, root, pattern string, exclude []string, limi
 		return FindFilesResult{}, errors.New("limit must be between 1 and 2000")
 	}
 	result := FindFilesResult{Paths: []string{}}
-	err = walkSearchFiles(ctx, root, []string{pattern}, exclude, func(path string, _ fs.DirEntry) error {
+	err = walkSearchFiles(ctx, root, []string{pattern}, exclude, &result.SearchOmissions, func(path string, _ fs.DirEntry) error {
 		if len(result.Paths) == limit {
 			result.Truncated = true
 			return fs.SkipAll
@@ -143,6 +215,7 @@ func FindFiles(ctx context.Context, root, pattern string, exclude []string, limi
 		result.Paths = append(result.Paths, path)
 		return nil
 	})
+	result.Truncated = result.Truncated || result.SkippedDirectories > 0
 	return result, err
 }
 
@@ -206,7 +279,7 @@ func SearchFiles(ctx context.Context, options SearchOptions) (SearchResult, erro
 	}
 	result := SearchResult{Matches: []Match{}}
 	var bytesRead int64
-	err = walkSearchFiles(ctx, root, options.Include, options.Exclude, func(path string, entry fs.DirEntry) error {
+	err = walkSearchFiles(ctx, root, options.Include, options.Exclude, &result.SearchOmissions, func(path string, entry fs.DirEntry) error {
 		if result.FilesScanned >= maxSearchFiles || bytesRead >= maxSearchBytes {
 			result.Truncated = true
 			return fs.SkipAll
@@ -331,5 +404,6 @@ func SearchFiles(ctx context.Context, options SearchOptions) (SearchResult, erro
 		}
 		return nil
 	})
+	result.Truncated = result.Truncated || result.SkippedDirectories > 0
 	return result, err
 }

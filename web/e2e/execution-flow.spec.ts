@@ -1761,6 +1761,27 @@ test('tool output failure falls back to one inline preview and Retry replaces it
   await page.screenshot({ path: testInfo.outputPath('tool-output-retry.png'), animations: 'disabled' })
 })
 
+test('grouped search results keep full paths and permission warnings after refresh @responsive', async ({ page, mockOrigin }) => {
+  const events = hydrationEvents()
+  const searched = events.find(event => event.kind === 'tool' && event.data.tool.callId === 'search-title' && event.data.status === 'succeeded')!
+  const original = JSON.parse(searched.data.content)
+  searched.data.content = JSON.stringify({ root: '/project', files: original.matches.map((match: any) => ({ path: match.path, matches: [{ line: match.line, text: match.text }] })), count: 2, filesScanned: 7, truncated: true,
+    skippedDirectories: 1, warnings: [{ path: '/project/locked', error: 'permission denied' }] })
+  const fixture = await mockExecution(page, mockOrigin, events)
+  for (const reload of [false, true]) {
+    if (reload) await page.reload()
+    const trace = page.locator(`.run-trace[data-run-id="${fixture.runId}"]`)
+    const title = nodeTitle(trace, fixture.runId, 'tool/main/search-title')
+    await readFull(title)
+    const node = title.locator('xpath=ancestor::div[contains(concat(" ",normalize-space(@class)," ")," ui-thought-chain-node ")][1]')
+    await expect(node.locator('.trace-search-results li')).toHaveCount(2)
+    await expect(node.locator('.trace-search-results')).toContainText('/project/src/title.test.ts:24')
+    await expect(node).toContainText('/project/locked: permission denied')
+    await expect(node).toContainText('The tool returned a partial list of matches.')
+    await expect(node.locator('.trace-result-summary').first()).toHaveText('2 matches · 7 files scanned')
+  }
+})
+
 test('truncated file and search steps hydrate on expansion, and jump to latest resumes following', async ({ page, mockOrigin }, testInfo) => {
   const fixture = await mockExecution(page, mockOrigin, hydrationEvents())
   const trace = page.locator(`.run-trace[data-run-id="${fixture.runId}"]`)
