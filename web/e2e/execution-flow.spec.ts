@@ -6,7 +6,7 @@ import { resolve } from 'node:path'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { Artifact, ChecklistItem, Job, Message, ModelResultView, RunOverview, Session, StreamEvent } from '../src/client/types'
 import { coreSnapshot } from './conversation-fixture'
-import { scrollToConversationEntry } from './conversation-scroll'
+import { scrollConversationTo, scrollToConversationEntry } from './conversation-scroll'
 import { buildRunTrace } from '../src/state/runTrace'
 import { startFrontend, startSourceFrontend } from './frontend-server'
 const replaySources = new WeakMap<Page, StreamEvent[]>()
@@ -711,9 +711,8 @@ nativeScrollbarTest.describe('native conversation scrollbar', () => {
     const scroller = page.locator('.messages')
     const trace = page.locator(`.run-trace[data-run-id="${fixture.runId}"]`)
     if (longMessages) await scrollToTraceStep(page, trace, fixture.runId, 'tool/main/call-410')
-    await scroller.dispatchEvent('wheel', { deltaY: -100 })
     // Setup may position the viewport; every tested drag below uses only the mouse.
-    await scroller.evaluate(element => { element.scrollTop = 0; element.dispatchEvent(new Event('scroll')) })
+    await scrollConversationTo(page, 0)
     await page.waitForTimeout(600)
     const measure = () => scroller.evaluate(element => {
       const bounds = element.getBoundingClientRect()
@@ -937,8 +936,7 @@ test('opening a short conversation keeps following when content grows before a q
     })
     await expect.poll(() => distanceToLatest(page)).toBeLessThanOrEqual(3)
   }
-  await scroller.dispatchEvent('wheel', { deltaY: -100 })
-  await scroller.evaluate(element => { element.scrollTop = 0 })
+  await scrollConversationTo(page, 0)
   await expect(page.getByText('Retained message 1.', { exact: true })).toBeVisible()
   await scroller.evaluate(element => {
     const late = document.createElement('div')
@@ -964,8 +962,7 @@ test('jump to latest prepares pending output and reaches its actual bottom', { t
   const release = fixture.holdOutput(path)
   const scroller = page.locator('.messages')
   await expect.poll(() => distanceToLatest(page)).toBeLessThanOrEqual(3)
-  await scroller.dispatchEvent('wheel', { deltaY: -100 })
-  await scroller.evaluate(element => { element.scrollTop = 0 })
+  await scrollConversationTo(page, 0)
   const reply: Message = { id: 'latest-jump-reply', sequence: 61, runId, role: 'assistant', outputTurn: 61,
     outputBytes: Buffer.byteLength(content), content: 'Latest reply preview.', createdAt }
   fixture.messages.push(reply)
@@ -982,8 +979,7 @@ test('jump to latest prepares pending output and reaches its actual bottom', { t
   await page.waitForTimeout(200)
   expect(await distanceToLatest(page)).toBeLessThanOrEqual(3)
   await expect(jump).toHaveCount(0)
-  await scroller.dispatchEvent('wheel', { deltaY: -100 })
-  await scroller.evaluate(element => { element.scrollTop = 0 })
+  await scrollConversationTo(page, 0)
   const viewport = page.viewportSize()!
   await page.setViewportSize({ ...viewport, width: Math.max(320, viewport.width - 160) })
   await expect(jump).toBeVisible()
@@ -1038,8 +1034,7 @@ test('jump to latest survives offset corrections without a total height change',
   const fixture = await mockExecution(page, mockOrigin, messages.map(message => ({ sequence: message.sequence, kind: 'message', createdAt, data: message })), { messages })
   const scroller = page.locator('.messages')
   await expect.poll(() => distanceToLatest(page)).toBeLessThanOrEqual(3)
-  await scroller.dispatchEvent('wheel', { deltaY: -100 })
-  await scroller.evaluate(element => { element.scrollTop = element.scrollHeight * .35 })
+  await scrollConversationTo(page, .35)
   const jump = page.getByRole('button', { name: 'Jump to latest', exact: true })
   await expect(jump).toBeVisible()
   await page.waitForTimeout(200)
@@ -1093,11 +1088,10 @@ for (const input of ['wheel', 'keyboard', 'touch'] as const) test(`manual scroll
   const fixture = await mockExecution(page, mockOrigin, messages.map(message => ({ sequence: message.sequence, kind: 'message', createdAt, data: message })), { messages })
   const scroller = page.locator('.messages')
   await expect.poll(() => distanceToLatest(page)).toBeLessThanOrEqual(3)
-  await scroller.dispatchEvent('wheel', { deltaY: -100 })
   // Measure the history first, so the next jump remains a smooth journey
   // which the user can interrupt rather than a resize-triggered snap.
   for (const fraction of [.7, .4, .1, 0]) {
-    await scroller.evaluate((element, fraction) => { element.scrollTop = (element.scrollHeight - element.clientHeight) * fraction }, fraction)
+    await scrollConversationTo(page, fraction)
     await page.waitForTimeout(50)
   }
   await page.getByRole('button', { name: 'Jump to latest', exact: true }).click()
@@ -1153,8 +1147,7 @@ test('jump to latest skips unrelated off-page executions @responsive', async ({ 
   }))
   const fixture = await mockExecution(page, mockOrigin, events, { messages: [...history('Earlier', 1), user, ...history('Latest', 1000)] })
   await expect(page.getByText('Latest reply 30.', { exact: true })).toBeVisible()
-  await page.locator('.messages').dispatchEvent('wheel', { deltaY: -100 })
-  await page.locator('.messages').evaluate(element => { element.scrollTop = 0; element.dispatchEvent(new Event('scroll')) })
+  await scrollConversationTo(page, 0)
   await page.waitForTimeout(250)
   await page.getByRole('button', { name: 'Jump to latest', exact: true }).click()
   await expect(page.getByText('Latest reply 30.', { exact: true })).toBeVisible()
@@ -1172,8 +1165,8 @@ test('receiving a new reply retains the continuous history and reading position'
   const scroller = page.locator('.messages')
   await expect(page.locator('.message-space')).toHaveAttribute('data-count', '20')
   await expect(scroller).toHaveAttribute('aria-busy', 'false')
-  await scroller.dispatchEvent('wheel', { deltaY: -100 })
   await scroller.evaluate(async element => {
+    element.dispatchEvent(new WheelEvent('wheel', { deltaY: -100 }))
     element.scrollTop = (element.scrollHeight - element.clientHeight) * .45
     element.dispatchEvent(new Event('scroll'))
     await new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())))
@@ -1215,8 +1208,8 @@ test('rapid scrolling keeps readable content while a top loader locks and prepar
   const origin = await observeScrollLoading(page)
   const reply: Message = { id: 'viewport-new', sequence: events.at(-1)!.sequence + 1, runId, role: 'assistant', createdAt, content: 'Reply received during rapid scrolling.' }
   for (const fraction of [.15, .6, .3]) {
-    await scroller.dispatchEvent('wheel', { deltaY: -100 })
     await scroller.evaluate(async (element, fraction) => {
+      element.dispatchEvent(new WheelEvent('wheel', { deltaY: -100 }))
       element.scrollTop = (element.scrollHeight - element.clientHeight) * fraction
       element.dispatchEvent(new Event('scroll'))
       await new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())))
@@ -1265,8 +1258,7 @@ test('earlier history uses one loading indicator and a failed body read exposes 
   const scroller = page.locator('.messages'), loader = page.locator('.history-loading')
   await expect(scroller).toHaveAttribute('aria-busy', 'false')
   try {
-    await scroller.dispatchEvent('wheel', { deltaY: -100 })
-    await scroller.evaluate(element => { element.scrollTop = 0; element.dispatchEvent(new Event('scroll')) })
+    await scrollConversationTo(page, 0)
     await expect.poll(() => fixture.outputReads.some(read => read.startsWith(path))).toBe(true)
     await expect(loader).toHaveCount(1)
     await expect(loader).toBeVisible()
@@ -1298,8 +1290,11 @@ test('historical full text is prepared before display and virtual recycling does
   const reads = { history: fixture.historyPages.length, outputs: fixture.outputReads.length, overview: fixture.overviewReads.length }
   const heights: number[] = []
   for (const fraction of [0, .25, .5, .75, 1, .5, 0, 1]) {
-    await page.locator('.messages').dispatchEvent('wheel', { deltaY: fraction ? 100 : -100 })
-    heights.push(await page.locator('.messages').evaluate((element, fraction) => { element.scrollTop = (element.scrollHeight - element.clientHeight) * fraction; return element.scrollHeight }, fraction))
+    heights.push(await page.locator('.messages').evaluate((element, fraction) => {
+      element.dispatchEvent(new WheelEvent('wheel', { deltaY: fraction ? 100 : -100 }))
+      element.scrollTop = (element.scrollHeight - element.clientHeight) * fraction
+      return element.scrollHeight
+    }, fraction))
     await page.waitForTimeout(60)
   }
   expect(heights.every(height => height > 0)).toBe(true)
