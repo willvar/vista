@@ -598,7 +598,7 @@ for (const theme of ['light', 'dark']) test(`execution messages appear without o
   await expect(trace.locator('.trace-steps')).toHaveAttribute('data-step-count', '24')
   await expect(trace.locator('.ui-think, [data-part="trigger"]')).toHaveCount(0)
   await expect(trace.locator('pre.trace-output')).toHaveCount(0)
-  expect(await trace.locator('button.ui-thought-chain-node-header[aria-expanded="false"]').count()).toBeGreaterThan(0)
+  await expect.poll(() => trace.locator('button.ui-thought-chain-node-header[aria-expanded="false"]').count()).toBeGreaterThan(0)
   expect(await trace.locator('.trace-step-row').count()).toBeLessThan(24)
   const first = await scrollToTraceStep(page, trace, fixture.runId, 'tool/main/main-1')
   await expect(page.locator('.conversation-execution')).toBeVisible()
@@ -908,13 +908,7 @@ test('continuous history prepares scoped batches and keeps mounted DOM bounded',
   await expect(page.getByText('Completed task 40.', { exact: true })).toBeVisible()
   expect(await page.evaluate(() => (window as Window & { mountedCounts?: { maxRows: number } }).mountedCounts!.maxRows)).toBeLessThan(40)
   expect(new Set(fixture.overviewReads).size, 'Opening a history page must not read every offscreen execution').toBeLessThan(40)
-  await page.locator('.messages').dispatchEvent('wheel', { deltaY: -100 })
-  await page.locator('.messages').evaluate(element => { element.scrollTop = 0 })
-  for (let attempt = 0; attempt < 20 && !await page.getByText('Task 1', { exact: true }).isVisible(); attempt++) {
-    await page.locator('.messages').dispatchEvent('wheel', { deltaY: -100 })
-    await page.locator('.messages').evaluate(element => { element.scrollTop = 0; element.dispatchEvent(new Event('scroll')) })
-    await page.waitForTimeout(250)
-  }
+  await scrollToConversationEntry(page, '[data-display-key="user-0"]', 1)
   await expect(page.getByText('Task 1', { exact: true })).toBeVisible()
   expect(await page.locator('.timeline-row').count()).toBeLessThan(40)
   expect(fixture.unexpected).toEqual([])

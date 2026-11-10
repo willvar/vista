@@ -19,13 +19,13 @@ test('background child survives refresh and the next reply, then saves its tool 
   await expect(page.locator('article.assistant').last()).toContainText('Mock reply: Next question')
   vista.finishDetachedTask()
   await expect(child).toHaveAttribute('data-task-status', 'succeeded')
+  await expect(page.locator('article.assistant').last()).toContainText('Background completion received: succeeded.')
   await expect.poll(async () => (await vista.api('/sessions')).find((s: any) => s.id === session.id)?.running).toBe(false)
   const messages = await vista.api(`/sessions/${session.id}/messages`)
   expect(messages.filter((message: any) => message.role === 'user').map((message: any) => message.content)).toEqual(['Start background', 'Next question'])
   expect(messages.filter((message: any) => message.role === 'assistant').map((message: any) => message.content)).toEqual([
     'Mock reply: Start background', 'Mock reply: Next question', 'Background completion received: succeeded.',
   ])
-  await expect(page.locator('article.assistant').last()).toContainText('Background completion received: succeeded.')
   const events = await vista.api(`/sessions/${session.id}/event-page`)
   expect(events.filter((event: any) => event.kind === 'runtime_event')).toHaveLength(1)
   expect(vista.modelRequests.filter(request => request.messages?.some(message => message.role === 'system'

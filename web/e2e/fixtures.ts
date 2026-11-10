@@ -111,6 +111,7 @@ export const nativeFixture = {
       }
       const completionPath = providerOutput === 'responses' ? '/v1/responses' : '/v1/chat/completions'
       if (request.method !== 'POST' || path !== completionPath) { response.writeHead(404).end(); return }
+      request.setEncoding('utf8')
       let body = ''
       for await (const chunk of request) body += chunk
       let input: ModelRequest
@@ -329,23 +330,35 @@ export const nativeFixture = {
     writeFileSync(join(configDirectory, 'models.json'), JSON.stringify(configuredProvider
       ? { default: 'test', models: [{ key: 'test', name: 'Layout test', ...configuredModel, baseUrl: modelEndpoint, apiKey: 'test-key', ...(imageModel ? { inputModalities: ['text', 'image'] } : {}) }] }
       : { default: '', models: [] }), { mode: 0o600 })
-    const reservation = createPortReservation()
-    await new Promise<void>(done => reservation.listen(0, '127.0.0.1', done))
-    const reservedAddress = reservation.address()
-    if (!reservedAddress || typeof reservedAddress === 'string') throw new Error('Test port reservation failed')
-    const port = String(reservedAddress.port)
-    await new Promise<void>((done, reject) => reservation.close(error => error ? reject(error) : done()))
-    const env = { ...process.env, XDG_CONFIG_HOME: state, XDG_DATA_HOME: join(state, 'data'), OPENCODE_CONFIG: '', OPENCODE_CONFIG_DIR: '', APPDATA: state, VISTA_NO_BROWSER: '1', VISTA_PORT: port }
+    const reservePort = async () => {
+      const reservation = createPortReservation()
+      await new Promise<void>(done => reservation.listen(0, '127.0.0.1', done))
+      const address = reservation.address()
+      if (!address || typeof address === 'string') throw new Error('Test port reservation failed')
+      await new Promise<void>((done, reject) => reservation.close(error => error ? reject(error) : done()))
+      return String(address.port)
+    }
+    const env = { ...process.env, XDG_CONFIG_HOME: state, XDG_DATA_HOME: join(state, 'data'), OPENCODE_CONFIG: '', OPENCODE_CONFIG_DIR: '', APPDATA: state, VISTA_NO_BROWSER: '1', VISTA_PORT: await reservePort() }
     let started = false
     const stop = async () => {
       if (started) { await execute(binary, ['stop'], { env, timeout: 15_000 }); started = false }
       return join(configDirectory, 'state')
     }
     try {
-      try { await execute(binary, ['start'], { env, timeout: 15_000 }) }
-      catch (error) {
-        const log = join(configDirectory, 'state', 'server.log')
-        throw new Error(`${error}${existsSync(log) ? '\n' + readFileSync(log, 'utf8') : ''}`, { cause: error })
+      for (let attempt = 0; ; attempt++) {
+        const logPath = join(configDirectory, 'state', 'server.log')
+        const previousLog = existsSync(logPath) ? readFileSync(logPath, 'utf8') : ''
+        try { await execute(binary, ['start'], { env, timeout: 15_000 }); break }
+        catch (error) {
+          const log = existsSync(logPath) ? readFileSync(logPath, 'utf8') : ''
+          // Another process can claim the port between reservation and bind.
+          // Retry only that setup race, never application/test failures.
+          if (attempt < 2 && log.slice(previousLog.length).includes('bind: address already in use')) {
+            env.VISTA_PORT = await reservePort()
+            continue
+          }
+          throw new Error(`${error}${log ? '\n' + log : ''}`, { cause: error })
+        }
       }
       started = true
       const info = JSON.parse(readFileSync(join(configDirectory, 'state', 'instance.json'), 'utf8')) as { address: string }

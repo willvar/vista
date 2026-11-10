@@ -418,7 +418,10 @@ test('touch text actions, toggles and selections keep their native behavior', { 
 test('touch menus, popovers, dialogs, tabs and pagination respond without a mouse', { tag: '@responsive' }, async ({ page, isMobile }) => {
   test.skip(!isMobile, 'Touch behavior is exercised in the touch-enabled projects')
   await page.getByRole('button', { name: 'Menu', exact: true }).tap()
-  await page.getByRole('menuitem', { name: 'Disabled item', exact: true }).tap({ force: true })
+  const disabled = page.getByRole('menuitem', { name: 'Disabled item', exact: true })
+  await disabled.scrollIntoViewIfNeeded()
+  await expect(disabled).toBeInViewport()
+  await disabled.tap({ force: true })
   await expect(page.getByTestId('menu')).toHaveText('')
   await page.getByRole('menuitem', { name: 'Enabled item', exact: true }).tap()
   await expect(page.getByTestId('menu')).toHaveText('enabled')

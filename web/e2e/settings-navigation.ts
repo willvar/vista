@@ -8,7 +8,9 @@ export async function openSettingsSection(page: Page, section: string) {
     await back.click()
     await expect(settings).toHaveClass(/settings-index/)
   }
-  await settings.locator(`.settings-nav a[href^="/settings/${section}"]`).click()
+  const link = settings.locator(`.settings-nav a[href^="/settings/${section}"]`)
+  await link.click()
+  await expect(link).toHaveAttribute('aria-current', 'page')
 }
 
 export async function closeSettings(page: Page) {
