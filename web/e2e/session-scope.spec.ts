@@ -78,7 +78,7 @@ test('archives stay out of homepage HTTP and SSE and synchronize only while the 
   const manager = page.locator('.session-manager-page')
   await expect(manager.locator('.managed-session')).toHaveCount(10)
   const archiveReads = () => reads.filter(read => new URLSearchParams(read.scope).has('page'))
-  expect(archiveReads()).toHaveLength(1)
+  await expect.poll(() => archiveReads().length).toBe(1)
   expect(archiveReads()[0]!.scope).toBe('?page=1&pageSize=10')
   expect(archiveReads()[0]!.items).toHaveLength(10)
   expect(archiveReads()[0]!.total).toBe(13)

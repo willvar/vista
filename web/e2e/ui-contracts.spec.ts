@@ -39,6 +39,10 @@ test('ordinary selects reject typing without filtering and still support keyboar
       const options = page.locator('.ui-select-dropdown:visible').getByRole('option')
       const count = await options.count()
       expect(count).toBeGreaterThan(0)
+      if (id === 'model-selection-mode') {
+        await expect(page.locator('.ui-select-dropdown:visible').getByRole('option', { selected: true }))
+          .toHaveAttribute('data-highlighted', '')
+      }
       await select.pressSequentially('no matching option')
       await expect(options).toHaveCount(count)
       await expect(select).toHaveValue(previous)
