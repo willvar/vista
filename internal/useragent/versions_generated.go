@@ -9,10 +9,10 @@ const CodexVersion = "0.167.0"
 const OpenCodeVersion = "1.19.5"
 
 // OhMyPiVersion tracks @oh-my-pi/pi-coding-agent@latest.
-const OhMyPiVersion = "18.18.3"
+const OhMyPiVersion = "18.18.6"
 
 // ClaudeCodeVersion tracks @anthropic-ai/claude-code@latest.
-const ClaudeCodeVersion = "2.1.319"
+const ClaudeCodeVersion = "2.1.322"
 
 // GeminiCLIVersion tracks @google/gemini-cli@latest.
 const GeminiCLIVersion = "0.67.0"
@@ -24,4 +24,4 @@ const KimiCodeVersion = "2.5.2"
 const ClineVersion = "3.0.74"
 
 // CopilotVersion tracks @github/copilot@latest.
-const CopilotVersion = "1.0.107"
+const CopilotVersion = "1.0.108"
