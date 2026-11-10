@@ -42,10 +42,21 @@ test('preparation failures reach waiters and a fresh invocation does not reuse o
   const previous = process.env.VISTA_E2E_PREPARATIONS
   try {
     process.env.VISTA_E2E_PREPARATIONS = root
-    const results = await Promise.allSettled([
-      sharedFixture('history', async () => { await new Promise(resolve => setTimeout(resolve, 60)); throw new Error('Producer failed') }),
+    let startProducer!: () => void, releaseProducer!: () => void
+    const started = new Promise<void>(resolve => { startProducer = resolve })
+    const released = new Promise<void>(resolve => { releaseProducer = resolve })
+    const producer = sharedFixture('history', async () => {
+      startProducer()
+      await released
+      throw new Error('Producer failed')
+    })
+    await started
+    const pending = Promise.allSettled([
+      producer,
       sharedFixture('history', async () => assert.fail('A waiter must not generate a replacement')),
     ])
+    releaseProducer()
+    const results = await pending
     for (const result of results) {
       assert.equal(result.status, 'rejected')
       if (result.status === 'rejected') assert.match(String(result.reason), /Producer failed/)
