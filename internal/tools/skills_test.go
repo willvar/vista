@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"unicode/utf8"
 )
 
 func TestDiscoverAndPageSkills(t *testing.T) {
@@ -42,7 +43,8 @@ func TestDiscoverAndPageSkills(t *testing.T) {
 	if assembled.String() != content {
 		t.Fatal("paged skill content changed")
 	}
-	if _, err := ReadSkill(path, first.NextOffset+1); err != nil {
+	_, width := utf8.DecodeRuneInString(content[first.NextOffset:])
+	if _, err := ReadSkill(path, first.NextOffset+width); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := ReadSkill(filepath.Join(root, "wrong.md"), 0); err == nil {
