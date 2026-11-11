@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"net"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -85,8 +87,30 @@ func Lock(dir string) (*os.File, error) {
 }
 func Unlock(f *os.File) error { return f.Close() }
 func IsAlive(pid int) bool    { return platform.IsAlive(pid) }
-func IsLoopbackAddress(addr string) bool {
-	return strings.HasPrefix(addr, "http://127.0.0.1:") || strings.HasPrefix(addr, "http://[::1]:")
+func IsLocalAddress(addr string) bool {
+	u, err := url.Parse(addr)
+	if err != nil || u.Scheme != "http" || u.User != nil || u.RawQuery != "" || u.ForceQuery || u.Fragment != "" || u.Path != "" && u.Path != "/" {
+		return false
+	}
+	ip := net.ParseIP(u.Hostname())
+	port, err := strconv.Atoi(u.Port())
+	if err != nil || port < 1 || port > 65535 || ip == nil || ip.IsUnspecified() {
+		return false
+	}
+	if ip.IsLoopback() {
+		return true
+	}
+	addresses, err := net.InterfaceAddrs()
+	if err != nil {
+		return false
+	}
+	for _, address := range addresses {
+		local, _, err := net.ParseCIDR(address.String())
+		if err == nil && local.Equal(ip) {
+			return true
+		}
+	}
+	return false
 }
 func Port(addr string) string {
 	i := strings.LastIndex(addr, ":")

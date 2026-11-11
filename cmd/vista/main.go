@@ -23,6 +23,9 @@ import (
 
 var desktopLaunch bool
 
+// Local instance control must not traverse an environment-configured proxy.
+var instanceHTTPClient = &http.Client{Transport: &http.Transport{Proxy: nil}}
+
 func main() {
 	desktopLaunch = prepareLauncher()
 	command := newRootCommand()
@@ -99,7 +102,7 @@ func addPortFlag(command *cobra.Command, port *int) {
 func dir() (string, error) { return instance.Dir() }
 func readLiveInstance(dir string) (instance.Info, bool) {
 	x, err := instance.Read(dir)
-	if err != nil || !instance.IsLoopbackAddress(x.Address) || !instance.IsAlive(x.PID) {
+	if err != nil || !instance.IsLocalAddress(x.Address) || !instance.IsAlive(x.PID) {
 		return x, false
 	}
 	return x, true
@@ -117,7 +120,7 @@ func probe(dir string) (instance.Info, bool) {
 	if err != nil {
 		return x, false
 	}
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := instanceHTTPClient.Do(req)
 	if err != nil {
 		return x, false
 	}
@@ -214,7 +217,7 @@ func requestContext(ctx context.Context, method, path string) (*http.Response, e
 	if err != nil {
 		return nil, err
 	}
-	return http.DefaultClient.Do(req)
+	return instanceHTTPClient.Do(req)
 }
 func stop() error {
 	resp, err := request("POST", "/api/stop")

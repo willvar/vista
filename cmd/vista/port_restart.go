@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"vista/internal/appdirs"
 	"vista/internal/platform"
 	"vista/internal/server"
 )
@@ -133,7 +134,15 @@ func serveReserved(port int) error {
 	if port < 1 || port > 65535 {
 		return errors.New("reserved port must be from 1 to 65535")
 	}
-	listener, err := net.Listen("tcp", (server.RuntimeConfig{Port: port}).Address())
+	root, err := appdirs.Config()
+	if err != nil {
+		return err
+	}
+	config, err := server.PreviewRuntimeConfig(root, port)
+	if err != nil {
+		return err
+	}
+	listener, err := net.Listen("tcp4", config.Address())
 	if err != nil {
 		_ = json.NewEncoder(os.Stdout).Encode(portHandoffMessage{Port: port, Error: err.Error()})
 		return err

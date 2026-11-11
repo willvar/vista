@@ -19,11 +19,24 @@ const DefaultPort = 5186
 // RuntimeConfig configures the local HTTP listener independently of model and
 // Agent settings. Changes take effect on the next Server start.
 type RuntimeConfig struct {
-	Port int `json:"port"`
+	Port int    `json:"port"`
+	Host string `json:"-"` // Startup environment only; the settings form edits the port.
 }
 
 func (c RuntimeConfig) Address() string {
-	return net.JoinHostPort("127.0.0.1", strconv.Itoa(c.Port))
+	host := c.Host
+	if host == "" {
+		host = "0.0.0.0"
+	}
+	return net.JoinHostPort(host, strconv.Itoa(c.Port))
+}
+
+// ClientAddress never advertises an unspecified bind address to the CLI.
+func (c RuntimeConfig) ClientAddress() string {
+	if c.Host == "" || c.Host == "0.0.0.0" {
+		c.Host = "127.0.0.1"
+	}
+	return c.Address()
 }
 
 func parseRuntimeConfig(data []byte) (RuntimeConfig, error) {
@@ -71,6 +84,13 @@ func resolveRuntimeConfig(data []byte, present bool, portOverride int) (RuntimeC
 		if err != nil {
 			return RuntimeConfig{}, fmt.Errorf("parse config.json server section: %w", err)
 		}
+	}
+	if value := strings.TrimSpace(os.Getenv("VISTA_HOST")); value != "" {
+		ip := net.ParseIP(value)
+		if ip == nil || ip.To4() == nil {
+			return RuntimeConfig{}, errors.New("VISTA_HOST must be an IPv4 address")
+		}
+		config.Host = ip.To4().String()
 	}
 	if value := strings.TrimSpace(os.Getenv("VISTA_PORT")); value != "" && portOverride == 0 {
 		port, err := strconv.Atoi(value)

@@ -47,7 +47,7 @@ Multi-page workflows activate the page receiving input; peer-page assertions sti
 ## Static build and loading
 
 `index.html` is the Vite application entry; output is a complete static site in `internal/server/assets/`, embedded as a directory by Go.
-The same output can be served by a static host with SPA route fallback and same-origin proxies for `/api` and `/licenses`; backend Host/Origin validation still applies.
+The same output can be served by a static host with SPA route fallback and same-origin proxies for `/api` and `/licenses`; the backend accepts any Host and Origin and provides credentialed CORS. Deployment access restrictions belong to the environment or reverse proxy.
 Browser API requests use the same-origin `/api` endpoint.
 Settings and session management use lazy routes; statistics loads its charts only when that section opens.
 The initial language load requests the effective catalog and English fallback before mounting; later switches apply only after loading and reject superseded selections.

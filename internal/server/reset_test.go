@@ -38,7 +38,7 @@ func resetFixture(t *testing.T) (*appHandler, http.Handler) {
 	}
 	handler := newAppHandler(app, open)
 	t.Cleanup(handler.close)
-	return handler, app.host(handler)
+	return handler, cors(handler)
 }
 
 func resetCall(handler http.Handler, method, body string) *httptest.ResponseRecorder {
@@ -154,7 +154,7 @@ func TestResetAllReopensEmptyDataAndKeepsInstanceLock(t *testing.T) {
 	}
 }
 
-func TestResetRequiresConfirmationAndSameOrigin(t *testing.T) {
+func TestResetRequiresExplicitConfirmation(t *testing.T) {
 	h, handler := resetFixture(t)
 	path := filepath.Join(h.app.configDir, "AGENTS.md")
 	writeResetFixture(t, path, "keep")
@@ -166,13 +166,13 @@ func TestResetRequiresConfirmationAndSameOrigin(t *testing.T) {
 	if result := resetCall(handler, http.MethodGet, ""); result.Code != http.StatusMethodNotAllowed {
 		t.Fatalf("GET reset: %d", result.Code)
 	}
-	for _, input := range []struct{ host, origin string }{{"evil.example", ""}, {"127.0.0.1:5186", "https://evil.example"}} {
-		r := httptest.NewRequest(http.MethodPost, "http://"+input.host+"/api/reset", strings.NewReader(`{"confirm":"reset-all"}`))
+	for _, input := range []struct{ host, origin string }{{"vista.example", ""}, {"127.0.0.1:5186", "https://example.com"}} {
+		r := httptest.NewRequest(http.MethodPost, "http://"+input.host+"/api/reset", strings.NewReader(`{}`))
 		r.Header.Set("Origin", input.origin)
 		w := httptest.NewRecorder()
 		handler.ServeHTTP(w, r)
-		if w.Code != http.StatusForbidden {
-			t.Fatalf("foreign reset accepted: %d", w.Code)
+		if w.Code != http.StatusBadRequest {
+			t.Fatalf("unconfirmed reset accepted: %d", w.Code)
 		}
 	}
 	if contents, err := os.ReadFile(path); err != nil || string(contents) != "keep" {

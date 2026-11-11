@@ -26,9 +26,11 @@ async function reset() {
   error.value = ''
   try {
     const result = await client.request<{ reset: boolean; address: string }>('/reset', { method: 'POST', body: JSON.stringify({ confirm: 'reset-all' }) })
+    const target = new URL(window.location.origin)
+    if (target.protocol === 'http:') target.port = new URL(result.address).port
     clearVistaBrowserData()
-    document.cookie = `vista-reset-pending=${encodeURIComponent(result.address)}; Path=/; Max-Age=300; SameSite=Strict`
-    window.location.replace(result.address + '/')
+    document.cookie = `vista-reset-pending=${encodeURIComponent(target.origin)}; Path=/; Max-Age=300; SameSite=Strict`
+    window.location.replace(target.href)
   } catch (failure) {
     error.value = String(failure)
     busy.value = false

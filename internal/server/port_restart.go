@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"time"
 
+	"vista/internal/appdirs"
 	"vista/internal/configstore"
 	"vista/internal/platform"
 )
@@ -59,6 +60,7 @@ func (h *appHandler) changePort(w http.ResponseWriter, r *http.Request, config R
 	}
 	h.restarting = true
 	app := h.app
+	config.Host = app.listenerHost
 	h.mu.Unlock()
 	accepted := false
 	defer func() {
@@ -129,7 +131,7 @@ func (h *appHandler) changePort(w http.ResponseWriter, r *http.Request, config R
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Connection", "close")
 	w.WriteHeader(http.StatusAccepted)
-	jsonOut(w, map[string]any{"accepted": true, "restarting": true, "address": "http://" + config.Address(), "instanceId": processInstanceID, "port": config.Port})
+	jsonOut(w, map[string]any{"accepted": true, "restarting": true, "address": "http://" + config.ClientAddress(), "instanceId": processInstanceID, "port": config.Port})
 	if flush, ok := w.(http.Flusher); ok {
 		flush.Flush()
 	}
@@ -140,7 +142,18 @@ func (h *appHandler) changePort(w http.ResponseWriter, r *http.Request, config R
 
 // RunReserved is used by a prepared successor, not by ordinary startup.
 func RunReserved(port int, listener net.Listener, onReady func(context.Context) func(), restart func(int) (func() error, error), reserve func(int) (*ReservedPortRestart, error)) error {
-	if listener == nil || listener.Addr().String() != (RuntimeConfig{Port: port}).Address() {
+	if listener == nil {
+		return errors.New("invalid reserved listener")
+	}
+	root, err := appdirs.Config()
+	if err != nil {
+		return err
+	}
+	config, err := PreviewRuntimeConfig(root, port)
+	if err != nil {
+		return err
+	}
+	if listener.Addr().String() != config.Address() {
 		return errors.New("invalid reserved listener")
 	}
 	return Run(port, onReady, restart, RunOptions{Listener: listener, WaitForInstance: true, ReservePortRestart: reserve})

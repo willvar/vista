@@ -130,9 +130,9 @@ About Vista presents these sections in order:
 
 Service configuration edits the listening port, an integer from 1 to 65535.
 Changing it uses **Save and restart** with a separate confirmation showing the impact on active tasks and managed background processes.
-Before saving, an independent successor binds the target loopback port and keeps that socket through startup. If reservation fails, the current instance and saved configuration remain unchanged, and the form preserves the draft and displays the error.
+Before saving, an independent successor binds the target port on the configured IPv4 listening address and keeps that socket through startup. If reservation fails, the current instance and saved configuration remain unchanged, and the form preserves the draft and displays the error.
 A revision conflict aborts the reservation instead of overwriting another edit. Unchanged listening ports can be saved without a restart.
-After acceptance, the old tab stays open with the new address and an explicit **Open Vista in a new tab** link. Acceptance is not readiness; a bounded, credential-free readiness image check confirms that the new address serves HTTP. Lost responses and timeouts remain unconfirmed and never automatically repeat a lifecycle mutation.
+After acceptance, the old tab stays open with the new address and an explicit **Open Vista in a new tab** link. Direct HTTP access keeps the browser's hostname and changes its port; HTTPS proxy access retains the public origin, and proxy upstream changes remain deployment work. Reset navigation follows the same browser-origin rule. Acceptance is not readiness; a bounded, credential-free readiness image check confirms that the entry serves HTTP. Lost responses and timeouts remain unconfirmed and never automatically repeat a lifecycle mutation.
 Port changes retain server-side data. Origin-local browser preferences and drafts remain at the old origin; Vista does not copy browser identity or login state across origins.
 Ordinary startup priority remains CLI `--port` > `VISTA_PORT` > saved port > default. The separate **Restart Vista** action keeps the actual listening port rather than applying a pending saved port.
 
@@ -165,6 +165,6 @@ Conversation deletion or withdrawal does not deduct retained consumption; a conf
 
 ## Current boundaries
 
-Vista binds to loopback and runs tools with the service user's local permissions. There is no per-tool approval or filesystem rollback. Conversations share the real filesystem and have no fixed project directory; tools require explicit target paths. Optimistic checks in file-writing tools do not cover arbitrary shell writes.
+Vista listens on all IPv4 interfaces (`0.0.0.0`) by default, accepts any request Host and browser Origin, and permits credentialed cross-origin access. Set the optional startup environment variable `VISTA_HOST` to a specific IPv4 address to restrict listening. Access restrictions belong to the deployment environment or reverse proxy; the service has no user login or per-client data isolation and does not terminate HTTPS. Tools run with the service user's permissions, without per-tool approval or filesystem rollback. Conversations share the real filesystem and have no fixed project directory; tools require explicit target paths. Optimistic checks in file-writing tools do not cover arbitrary shell writes.
 
 Image attachments currently accept PNG, JPEG, WebP, and GIF, up to 50 MiB each. The model can import local images through `read_resource`, including downloaded files and extracted frames. Audio/video input and automatic frame extraction are not supported. There is no built-in LSP, dedicated Git workflow, or terminal UI. Model/protocol metadata and local simulations do not certify every upstream account or model; see [providers](./providers.md) and [verification](./testing.md).

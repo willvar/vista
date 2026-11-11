@@ -11,7 +11,7 @@ Vista is a general-purpose agent for Linux, Windows, and macOS. Describe a goal 
 Download the archive for your system from [GitHub Releases](https://github.com/willvar/vista/releases/latest) and extract it.
 Linux, Windows, and macOS each provide x86-64 (`amd64`) and ARM64 (`arm64`) archives.
 
-Run `vista`; on Windows, you can also double-click `vista.exe`. It starts the service in the background and opens the default browser. Opening it again uses the running instance. The default address is `http://127.0.0.1:5186/`.
+Run `vista`; on Windows, you can also double-click `vista.exe`. It starts the service in the background and opens the default browser. Opening it again uses the running instance. The browser opens `http://127.0.0.1:5186/` by default, while the service listens on all IPv4 interfaces (`0.0.0.0`). Other devices use `http://<host-IP>:5186/`. Set the optional `VISTA_HOST` environment variable to a specific IPv4 address to restrict the listener; HTTPS is provided by a reverse proxy, not Vista itself.
 
 On Windows, the running service has a notification-area icon. Click or double-click it to open Vista; right-click for Restart, Status, and Stop. Status opens a native window with service, conversation, process, memory, and build information. Stop removes the icon along with stopping the service.
 

@@ -337,8 +337,8 @@ func TestSearchSettingsRejectInvalidRequestsAndFailedWrites(t *testing.T) {
 		request.Header.Set("Origin", "https://example.com")
 		w := httptest.NewRecorder()
 		app.handler().ServeHTTP(w, request)
-		if w.Code != http.StatusForbidden {
-			t.Fatal("cross-origin write accepted")
+		if w.Code != http.StatusBadRequest || w.Header().Get("Access-Control-Allow-Origin") != "https://example.com" {
+			t.Fatal("cross-origin request skipped input validation or CORS headers")
 		}
 	}
 	if data, err := os.ReadFile(path); err != nil || string(data) != string(original) {

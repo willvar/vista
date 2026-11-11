@@ -19,11 +19,11 @@ Closing a Vista conversation stops its Worker. Switching pages or closing the br
 ## Port-change restart
 
 `PUT /api/server-config` with a port different from the live socket requires `confirmRestart: true` after a dedicated WebUI confirmation.
-The hidden `serve-reserved` successor binds the new loopback port before configuration is saved; readiness and commit use bounded stdin/stdout control messages, not inherited socket descriptors.
+The hidden `serve-reserved` successor binds the new port on the configured IPv4 address (`0.0.0.0` by default, or `VISTA_HOST`) before configuration is saved; readiness and commit use bounded stdin/stdout control messages, not inherited socket descriptors.
 On reservation failure, no configuration is saved and the old process keeps running. Section revision conflicts cancel the prepared successor. An arming failure restores only the section written by this request using compare-and-swap; it never overwrites a concurrent edit.
 The successor holds the socket while waiting up to 45 seconds for the old instance lock, then performs normal startup on that same listener. It never releases and rebinds the target port. This avoids an ownership gap and uses the same mechanism on Linux, macOS and Windows.
 The accepted response supplies the new address and old process identity before the old process shuts down. Startup after acceptance can still fail; a late failure is not represented as success or automatically reverted over newer configuration.
-The old tab keeps an explicit new-tab link. A bounded cross-origin image check of `GET /api/port-ready.svg` exposes no application state and marks HTTP availability at the new address; it is not routine application polling or a claim about upstream model readiness. An unconfirmed outcome only permits checking the address again, not automatically repeating a save/restart.
+The old tab keeps an explicit new-tab link. Direct HTTP access retains the browser's hostname and switches to the new port; HTTPS reverse-proxy access retains its public origin, with any required upstream proxy adjustment left to the deployment. The browser never navigates to the Server's loopback control address or a wildcard bind address. A bounded cross-origin image check of `GET /api/port-ready.svg` exposes no application state and marks HTTP availability at the entry; it is not routine application polling or a claim about upstream model readiness. An unconfirmed outcome only permits checking the address again, not automatically repeating a save/restart.
 Server-side data is preserved. Browser origin-local preferences and drafts stay on the old origin, and identity/login snapshots are not transferred. The regular same-port Restart action below is unchanged.
 
 ## Server process restart

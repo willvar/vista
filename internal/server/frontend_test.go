@@ -51,7 +51,7 @@ func TestFrontendAssetsCachingAndHead(t *testing.T) {
 		path := "/" + strings.TrimPrefix(file, "assets/")
 		original, _ := webAssets.ReadFile(file)
 		response := frontendRequest(t, "GET", path, map[string]string{"Accept-Encoding": "gzip, deflate, br"})
-		if response.Code != http.StatusOK || response.Header().Get("Content-Encoding") != "" || response.Header().Get("Vary") != "" || response.Header().Get("Cache-Control") != "public, max-age=31536000, immutable" {
+		if response.Code != http.StatusOK || response.Header().Get("Content-Encoding") != "" || response.Header().Get("Vary") != "Origin" || response.Header().Get("Cache-Control") != "public, max-age=31536000, immutable" {
 			t.Fatalf("%s: %d %v", path, response.Code, response.Header())
 		}
 		if !bytes.Equal(response.Body.Bytes(), original) {

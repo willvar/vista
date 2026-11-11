@@ -10,6 +10,7 @@ import (
 
 func TestRuntimePortConfigurationPrecedence(t *testing.T) {
 	t.Setenv("VISTA_PORT", "")
+	t.Setenv("VISTA_HOST", "")
 	dir := t.TempDir()
 	if err := os.Chmod(dir, 0700); err != nil {
 		t.Fatal(err)
@@ -20,8 +21,8 @@ func TestRuntimePortConfigurationPrecedence(t *testing.T) {
 		if err != nil || config.Port != want {
 			t.Fatalf("port override %d: got %+v, %v; want %d", override, config, err, want)
 		}
-		if want == DefaultPort && config.Address() != "127.0.0.1:5186" {
-			t.Fatalf("default listener is not fixed: %q", config.Address())
+		if want == DefaultPort && config.Address() != "0.0.0.0:5186" {
+			t.Fatalf("default listener does not cover all IPv4 interfaces: %q", config.Address())
 		}
 	}
 	check(0, DefaultPort)
@@ -38,6 +39,7 @@ func TestRuntimePortConfigurationPrecedence(t *testing.T) {
 
 func TestRuntimePortRejectsEphemeralAndInvalidConfiguration(t *testing.T) {
 	t.Setenv("VISTA_PORT", "")
+	t.Setenv("VISTA_HOST", "")
 	for _, input := range []string{
 		`{"port":0}`, `{"port":-1}`, `{"port":65536}`, `{"port":"5186"}`,
 		`{"port":5186,"unknown":true}`, `{"port":5186}{}`, `null`, `[]`, ``,

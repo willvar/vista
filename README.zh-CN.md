@@ -11,7 +11,7 @@ Vista 是适用于 Linux、Windows 和 macOS 的通用型智能体。在浏览�
 从 [GitHub Releases](https://github.com/willvar/vista/releases/latest) 下载适合当前系统的压缩包并解压。
 Linux、Windows 和 macOS 均提供 x86-64（`amd64`）与 ARM64（`arm64`）版本。
 
-运行 `vista`；Windows 也可以直接双击 `vista.exe`。它会在后台启动服务并打开默认浏览器，再次打开会复用已运行的实例。默认地址为 `http://127.0.0.1:5186/`。
+运行 `vista`；Windows 也可以直接双击 `vista.exe`。它会在后台启动服务并打开默认浏览器，再次打开会复用已运行的实例。浏览器默认打开 `http://127.0.0.1:5186/`，服务则监听所有 IPv4 网卡（`0.0.0.0`），其他设备使用 `http://<主机IP>:5186/` 访问。可选环境变量 `VISTA_HOST` 可设为某个 IPv4 地址以收窄监听范围；HTTPS 由反向代理提供，Vista 自身不处理。
 
 Windows 服务运行时会显示托盘图标，单击或双击可打开 Vista；右键提供 Restart（重启）、Status（状态）和 Stop（停止）。Status 通过原生窗口展示服务、会话、进程、内存及构建信息。Stop 停止服务并移除图标。
 

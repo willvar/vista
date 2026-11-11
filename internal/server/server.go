@@ -64,6 +64,7 @@ type App struct {
 	agentSettingsMu        sync.Mutex
 	serverConfigMu         sync.Mutex
 	listenerPort           func() int
+	listenerHost           string
 	portChange             func(http.ResponseWriter, *http.Request, RuntimeConfig, string, bool)
 	storageStatus          resourceStorageStatus
 	storageGeneration      uint64
@@ -161,7 +162,7 @@ func Run(portOverride int, onReady func(context.Context) func(), startRestart fu
 	}
 	socket := option.Listener
 	if socket == nil {
-		socket, err = net.Listen("tcp", config.Address())
+		socket, err = net.Listen("tcp4", config.Address())
 	}
 	if err != nil {
 		return fmt.Errorf("listen on %s: %w", config.Address(), err)
@@ -176,6 +177,7 @@ func Run(portOverride int, onReady func(context.Context) func(), startRestart fu
 			return nil, err
 		}
 		app.listenerPort = func() int { return listener.Addr().(*net.TCPAddr).Port }
+		app.listenerHost = listener.Addr().(*net.TCPAddr).IP.String()
 		if err := app.start(); err != nil {
 			app.closeContext()
 			app.stopAll()
@@ -197,7 +199,7 @@ func Run(portOverride int, onReady func(context.Context) func(), startRestart fu
 			return startRestart(listener.Addr().(*net.TCPAddr).Port)
 		}
 	}
-	srv := &http.Server{Handler: app.host(handler), ReadHeaderTimeout: 5 * time.Second, MaxHeaderBytes: 16 << 10}
+	srv := &http.Server{Handler: cors(handler), ReadHeaderTimeout: 5 * time.Second, MaxHeaderBytes: 16 << 10}
 	handler.restart = func() (string, error) {
 		// The saved port was deleted. Resolve startup defaults and external
 		// environment again, rather than carrying the previous CLI launch port.
@@ -205,9 +207,9 @@ func Run(portOverride int, onReady func(context.Context) func(), startRestart fu
 		if err != nil {
 			return "", err
 		}
-		address := "http://" + config.Address()
+		address := "http://" + config.ClientAddress()
 		if config.Address() != listener.Addr().String() {
-			next, err := net.Listen("tcp", config.Address())
+			next, err := net.Listen("tcp4", config.Address())
 			if err != nil {
 				return "", fmt.Errorf("listen after reset on %s: %w", config.Address(), err)
 			}
@@ -231,12 +233,12 @@ func Run(portOverride int, onReady func(context.Context) func(), startRestart fu
 		defer c()
 		_ = srv.Shutdown(shutdown)
 	}()
-	address := "http://" + listener.Addr().String()
+	address := "http://" + config.ClientAddress()
 	if err := instance.Write(dir, instance.Info{PID: os.Getpid(), Address: address}); err != nil {
 		return err
 	}
 	defer os.Remove(filepath.Join(dir, "instance.json"))
-	log.Printf("Vista listening on %s", address)
+	log.Printf("Vista listening on http://%s", listener.Addr())
 	if onReady != nil {
 		if closeControls := onReady(ctx); closeControls != nil {
 			defer closeControls()
@@ -376,7 +378,6 @@ func (a *App) handler() http.Handler {
 		w.Header().Set("Content-Type", "image/svg+xml")
 		w.Header().Set("Cache-Control", "no-store")
 		w.Header().Set("Cross-Origin-Resource-Policy", "cross-origin")
-		w.Header().Set("Access-Control-Allow-Origin", "*")
 		_, _ = io.WriteString(w, `<svg xmlns="http://www.w3.org/2000/svg" width="1" height="1"/>`)
 	})
 	mux.HandleFunc("/api/memory-config", a.memorySettingsHTTP)
@@ -412,24 +413,36 @@ func (a *App) handler() http.Handler {
 	mux.HandleFunc("/api/sessions/", a.session)
 	mux.HandleFunc("/assets/", a.asset)
 	mux.HandleFunc("/", a.root)
-	return a.host(a.stateMutations(mux))
+	return cors(a.stateMutations(mux))
 }
-func (a *App) host(next http.Handler) http.Handler {
+
+// CORS is intentionally unrestricted; deployment controls access.
+func cors(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/api/restart" || r.URL.Path == "/api/reset" {
 			w.Header().Set("Cache-Control", "no-store")
 		}
-		defaultHTTPHost := r.Host == "127.0.0.1" && a.listenerPort != nil && a.listenerPort() == 80
-		if r.Host == "" || !defaultHTTPHost && (!strings.HasPrefix(r.Host, "127.0.0.1:") && !strings.HasPrefix(r.Host, "[::1]:")) {
-			http.Error(w, "invalid host", http.StatusForbidden)
-			return
+		headers := w.Header()
+		origin := r.Header.Get("Origin")
+		if origin == "" {
+			origin = "*"
 		}
-		if r.Method != "GET" && r.Method != "HEAD" {
-			origin := r.Header.Get("Origin")
-			if origin != "" && origin != "http://"+r.Host {
-				http.Error(w, "invalid origin", http.StatusForbidden)
-				return
+		headers.Set("Access-Control-Allow-Origin", origin)
+		headers.Set("Access-Control-Allow-Credentials", "true")
+		headers.Set("Access-Control-Expose-Headers", "Allow, Content-Disposition, Content-Range, ETag, Location")
+		headers.Set("Vary", "Origin")
+		if r.Method == http.MethodOptions {
+			method := r.Header.Get("Access-Control-Request-Method")
+			if method == "" {
+				method = "GET, HEAD, POST, PUT, PATCH, DELETE, OPTIONS"
 			}
+			headers.Set("Access-Control-Allow-Methods", method)
+			headers.Set("Access-Control-Allow-Headers", r.Header.Get("Access-Control-Request-Headers"))
+			headers.Set("Access-Control-Max-Age", "3600")
+			headers.Set("Vary", "Origin, Access-Control-Request-Method, Access-Control-Request-Headers")
+			headers.Set("Cache-Control", "no-store")
+			w.WriteHeader(http.StatusNoContent)
+			return
 		}
 		next.ServeHTTP(w, r)
 	})

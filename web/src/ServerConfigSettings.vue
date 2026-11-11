@@ -74,7 +74,12 @@ async function save(confirmed = false) {
   if (portChanges.value && !confirmed) { showConfirm(); return }
   const switching = portChanges.value, port = Number(draft.value.port)
   saving.value = true; error.value = ''; saved.value = false
-  if (switching) targetAddress.value = `http://127.0.0.1:${port}`
+  if (switching) {
+    const target = new URL(window.location.origin)
+    // HTTPS reverse proxies retain their public entry when the backend port changes.
+    if (target.protocol === 'http:') target.port = String(port)
+    targetAddress.value = target.origin
+  }
   try {
     const value = await client.request<ServerConfig | { restarting: true; accepted: boolean; address: string; instanceId: string; port: number }>('/server-config', {
       method: 'PUT', body: JSON.stringify({ config: draft.value, revision: baseRevision.value, ...(switching ? { confirmRestart: true } : {}) }),
@@ -83,8 +88,8 @@ async function save(confirmed = false) {
     if (lifetime.signal.aborted) return
     if ('restarting' in value) {
       const target = new URL(value.address)
-      if (!value.accepted || value.port !== port || target.protocol !== 'http:' || target.hostname !== '127.0.0.1' || Number(target.port || '80') !== port) throw new Error(t('portChangeUnconfirmed'))
-      targetAddress.value = target.origin; probeTarget()
+      if (!value.accepted || value.port !== port || target.protocol !== 'http:' || Number(target.port || '80') !== port) throw new Error(t('portChangeUnconfirmed'))
+      probeTarget()
     } else { receive(value, true); saved.value = !conflict.value }
   } catch (cause) {
     if (lifetime.signal.aborted) return
