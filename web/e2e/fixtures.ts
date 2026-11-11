@@ -43,7 +43,7 @@ function modelCatalogFixture() {
   return catalogFixture = JSON.stringify(catalog)
 }
 
-type NativeOptions = { configuredProvider: boolean; imageModel: boolean; budgetModel: boolean; replyWithPrompt: boolean; followUpTool: boolean; questionTool: boolean; memoryTool: boolean; progressCalls: number; longProgress: boolean; terminalReasoning: boolean; emptyReply: boolean; detachedTask: boolean; backgroundProcess: boolean; fileChanges: boolean; providerOutput: ProviderOutput | undefined; modelFailure: ModelFailure | undefined }
+type NativeOptions = { configuredProvider: boolean; imageModel: boolean; budgetModel: boolean; replyWithPrompt: boolean; followUpTool: boolean; questionTool: boolean; memoryTool: boolean; progressCalls: number; longProgress: boolean; terminalReasoning: boolean; interleavedOutput: boolean; emptyReply: boolean; detachedTask: boolean; backgroundProcess: boolean; fileChanges: boolean; providerOutput: ProviderOutput | undefined; modelFailure: ModelFailure | undefined }
 
 const nativeDefaults: NativeOptions = {
   configuredProvider: true,
@@ -56,6 +56,7 @@ const nativeDefaults: NativeOptions = {
   progressCalls: 0,
   longProgress: false,
   terminalReasoning: false,
+  interleavedOutput: false,
   emptyReply: false,
   detachedTask: false,
   backgroundProcess: false,
@@ -68,7 +69,7 @@ const nativeDefaults: NativeOptions = {
 // persistent data; ordinary cases retain the same per-test lifecycle.
 export const nativeFixture = {
   async use(options: Partial<NativeOptions>, use: (vista: VistaFixture, stop: () => Promise<string>) => Promise<void>, seed?: string) {
-    const { configuredProvider, imageModel, budgetModel, replyWithPrompt, followUpTool, questionTool, memoryTool, progressCalls, longProgress, terminalReasoning, emptyReply, detachedTask, backgroundProcess, fileChanges, providerOutput, modelFailure } = { ...nativeDefaults, ...options }
+    const { configuredProvider, imageModel, budgetModel, replyWithPrompt, followUpTool, questionTool, memoryTool, progressCalls, longProgress, terminalReasoning, interleavedOutput, emptyReply, detachedTask, backgroundProcess, fileChanges, providerOutput, modelFailure } = { ...nativeDefaults, ...options }
     if (!process.env.VISTA_CHROME) throw new Error('Set VISTA_CHROME to the isolated test browser executable')
     const binary = resolve(process.env.VISTA_BIN || join(import.meta.dirname, '../../bin/vista'))
     const root = resolve(import.meta.dirname, '../.vista/test-state')
@@ -152,16 +153,26 @@ export const nativeFixture = {
       if (providerOutput) {
         const event = (value: object) => `data: ${JSON.stringify(value)}\n\n`
         const source = 'https://example.com/source'
-        const text = titleRequest ? 'Provider output' : emptyReply ? '' : 'Cited answer.'
+        const text = titleRequest ? 'Provider output' : emptyReply ? '' : interleavedOutput ? 'Final answer🙂.' : 'Cited answer.'
         if (providerOutput === 'responses') {
-          const annotations = titleRequest ? [] : [{ type: 'url_citation', url: source }]
-          const summary = !titleRequest && !emptyReply && input.reasoning?.summary === 'auto' ? 'Checked the available source before answering.' : ''
-          if (summary && !terminalReasoning) response.write(event({ type: 'response.reasoning_summary_text.delta', item_id: 'reasoning', delta: summary }))
+          const opening = !titleRequest && interleavedOutput ? 'Opening🙂. ' : ''
+          const annotations = titleRequest || interleavedOutput ? [] : [{ type: 'url_citation', url: source }]
+          const summaries = opening ? ['Checking one. ', 'Checking two. ', 'Checking three.'] : ['Checked the available source before answering.']
+          const summary = !titleRequest && !emptyReply && input.reasoning?.summary === 'auto' ? summaries.join('') : ''
+          if (opening) response.write(event({ type: 'response.output_text.delta', item_id: 'opening', delta: opening }))
+          if (summary && !terminalReasoning) for (const [index, delta] of summaries.entries()) {
+            // Cross the runtime's 250 ms stream-coalescing window before
+            // pausing, so the last reasoning fragment is durably visible.
+            if (opening && index === summaries.length - 1) await new Promise<void>(done => setTimeout(done, 300))
+            response.write(event({ type: 'response.reasoning_summary_text.delta', item_id: 'reasoning', delta }))
+          }
+          if (opening && gate && streamBeforeGate) await gate
           if (text) response.write(event({ type: 'response.output_text.delta', item_id: 'message', delta: text }))
           for (const annotation of annotations) response.write(event({ type: 'response.output_text.annotation.added', item_id: 'message', annotation }))
           response.end(event({ type: 'response.completed', response: { status: 'completed', output: [
+            ...opening ? [{ type: 'message', id: 'opening', role: 'assistant', content: [{ type: 'output_text', text: opening }] }] : [],
             ...summary ? [{ type: 'reasoning', id: 'reasoning', summary: [{ type: 'summary_text', text: summary }] }] : [],
-            ...(titleRequest || emptyReply ? [] : [{ type: 'mcp_call', id: 'hosted-fixture', status: 'completed', result: { evidence: 'Provider executed this tool.' } }]),
+            ...(titleRequest || emptyReply || interleavedOutput ? [] : [{ type: 'mcp_call', id: 'hosted-fixture', status: 'completed', result: { evidence: 'Provider executed this tool.' } }]),
             { type: 'message', id: 'message', role: 'assistant', content: [{ type: 'output_text', text, annotations }] },
           ] } }))
         } else {
@@ -393,14 +404,15 @@ export const test = base.extend<NativeOptions & { vista: VistaFixture }>({
   progressCalls: [0, { option: true }],
   longProgress: [false, { option: true }],
   terminalReasoning: [false, { option: true }],
+  interleavedOutput: [false, { option: true }],
   emptyReply: [false, { option: true }],
   detachedTask: [false, { option: true }],
   backgroundProcess: [false, { option: true }],
   fileChanges: [false, { option: true }],
   providerOutput: [undefined, { option: true }],
   modelFailure: [undefined, { option: true }],
-  vista: async ({ configuredProvider, imageModel, budgetModel, replyWithPrompt, followUpTool, questionTool, memoryTool, progressCalls, longProgress, terminalReasoning, emptyReply, detachedTask, backgroundProcess, fileChanges, providerOutput, modelFailure }, use) => {
-    await nativeFixture.use({ configuredProvider, imageModel, budgetModel, replyWithPrompt, followUpTool, questionTool, memoryTool, progressCalls, longProgress, terminalReasoning, emptyReply, detachedTask, backgroundProcess, fileChanges, providerOutput, modelFailure }, use)
+  vista: async ({ configuredProvider, imageModel, budgetModel, replyWithPrompt, followUpTool, questionTool, memoryTool, progressCalls, longProgress, terminalReasoning, interleavedOutput, emptyReply, detachedTask, backgroundProcess, fileChanges, providerOutput, modelFailure }, use) => {
+    await nativeFixture.use({ configuredProvider, imageModel, budgetModel, replyWithPrompt, followUpTool, questionTool, memoryTool, progressCalls, longProgress, terminalReasoning, interleavedOutput, emptyReply, detachedTask, backgroundProcess, fileChanges, providerOutput, modelFailure }, use)
   },
   page: async ({ page, vista }, use) => {
     await page.goto(vista.origin + '/')

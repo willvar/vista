@@ -1,7 +1,10 @@
 package store
 
 import (
+	"encoding/json"
 	"errors"
+	"reflect"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -141,5 +144,138 @@ func TestMainOutputsExcludeReasoningFromMessages(t *testing.T) {
 	outputs, err = s.MainOutputs(ctx, "session", "run", 0)
 	if err != nil || !outputs[len(outputs)-1].Complete {
 		t.Fatalf("failed run text: %+v %v", outputs, err)
+	}
+}
+
+func TestMainOutputsKeepTextSpansAroundReasoning(t *testing.T) {
+	s, ctx := executionStore(t)
+	first, err := s.AppendModelDelta(ctx, "session", "run", 1, 0, "Opening🙂", "main")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, text := range []string{"Checking one.", "Checking two.", "Checking three."} {
+		if _, err := s.AppendRunEvent(ctx, "session", "run", "model_reasoning_delta", workerproto.Result{RunID: "run", TaskID: "main", Turn: 1, Content: text}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	last, err := s.AppendModelDelta(ctx, "session", "run", 1, 0, "Final answer.", "main")
+	if err != nil {
+		t.Fatal(err)
+	}
+	outputs, err := s.MainOutputs(ctx, "session", "run", 0)
+	if err != nil || len(outputs) != 2 {
+		t.Fatalf("text spans: %+v %v", outputs, err)
+	}
+	if outputs[0].Sequence != first.Sequence || outputs[0].LastSequence != first.Sequence || outputs[1].Sequence != last.Sequence {
+		t.Fatalf("text spans lost their event positions: %+v", outputs)
+	}
+	if outputs[0].Offset != 0 || outputs[0].EndOffset != int64(len("Opening🙂")) || outputs[1].Offset != outputs[0].EndOffset || outputs[1].EndOffset != int64(len("Opening🙂Final answer.")) {
+		t.Fatalf("invalid UTF-8 byte ranges: %+v", outputs)
+	}
+	var delta struct {
+		Offset int64 `json:"offset"`
+	}
+	if err := json.Unmarshal(last.Data, &delta); err != nil || delta.Offset != outputs[1].Offset {
+		t.Fatalf("live text offset differs from durable index: %+v %v", delta, err)
+	}
+	full, err := s.ReadFullModelOutput(ctx, "session", "run", 1)
+	if err != nil || full.Content != "Opening🙂Final answer." {
+		t.Fatalf("canonical output changed: %+v %v", full, err)
+	}
+}
+
+func TestMainOutputsPageManySpansOfOneTurn(t *testing.T) {
+	s, ctx := executionStore(t)
+	if _, err := s.RecordModelRequestEvent(ctx, "session", workerproto.Result{RunID: "run", Turn: 1, ModelUse: &workerproto.ModelUse{Provider: "openai-responses", ID: "model", Key: "choice"}}); err != nil {
+		t.Fatal(err)
+	}
+	var expected []MainOutput
+	var body strings.Builder
+	for i := range 107 {
+		text := "片段🙂" + strconv.Itoa(i)
+		first, err := s.AppendModelDelta(ctx, "session", "run", 1, 0, text, "main")
+		if err != nil {
+			t.Fatal(err)
+		}
+		expected = append(expected, MainOutput{Sequence: first.Sequence, Offset: int64(body.Len()), EndOffset: int64(body.Len() + len(text))})
+		body.WriteString(text)
+		if _, err := s.AppendRunEvent(ctx, "session", "run", "model_reasoning_delta", workerproto.Result{RunID: "run", Turn: 1, Content: "Consider the next part."}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := s.FinishRun(ctx, "session", "run", "reply", "succeeded", body.String(), ModelOutputRef{Turn: 1, Bytes: body.Len()}); err != nil {
+		t.Fatal(err)
+	}
+	latest, err := s.MainOutputs(ctx, "session", "run", 0)
+	if err != nil || len(latest) != 100 {
+		t.Fatalf("latest span page: %d %v", len(latest), err)
+	}
+	older, err := s.MainOutputs(ctx, "session", "run", latest[0].Sequence)
+	if err != nil || len(older) != 7 {
+		t.Fatalf("older span page: %d %v", len(older), err)
+	}
+	for i, output := range append(older, latest...) {
+		want := expected[i]
+		if output.Sequence != want.Sequence || output.LastSequence != want.Sequence || output.Offset != want.Offset || output.EndOffset != want.EndOffset || output.Bytes != int64(body.Len()) || !output.Complete || output.ModelKey != "choice" {
+			t.Fatalf("span %d: %+v; expected %+v", i, output, want)
+		}
+	}
+	full, err := s.ReadFullModelOutput(ctx, "session", "run", 1)
+	if err != nil || full.Content != body.String() || !full.Complete {
+		t.Fatalf("canonical body changed: %+v %v", full, err)
+	}
+	// This also exercises existing deltas that predate the live offset field.
+	if _, err := s.db.ExecContext(ctx, "UPDATE events SET data=json_remove(data,'$.offset') WHERE session_id='session' AND kind='model_delta'"); err != nil {
+		t.Fatal(err)
+	}
+	restored, err := s.MainOutputs(ctx, "session", "run", 0)
+	if err != nil || !reflect.DeepEqual(restored, latest) {
+		t.Fatalf("legacy event restoration changed spans: %v", err)
+	}
+}
+
+func TestMainOutputsSplitOnlyAtVisibleContent(t *testing.T) {
+	for index, boundary := range []struct {
+		kind string
+		data map[string]any
+	}{
+		{"model_reasoning_delta", map[string]any{"runId": "run", "turn": 1, "content": "Reasoning"}},
+		{"model_delta", map[string]any{"runId": "run", "taskId": "child", "depth": 1, "turn": 2, "content": "Child output"}},
+		{"model_reasoning_delta", map[string]any{"runId": "earlier-run", "taskId": "child", "turn": 2, "content": "Detached reasoning"}},
+		{"tool", map[string]any{"runId": "run", "tool": map[string]any{"name": "shell"}}},
+		{"model_retry", map[string]any{"runId": "run", "modelRetry": map[string]any{"attempt": 1}}},
+		{"source", map[string]any{"runId": "run", "content": "https://example.com"}},
+		{"message", map[string]any{"runId": "run", "role": "user", "content": "Follow up"}},
+	} {
+		t.Run(boundary.kind+"/"+strconv.Itoa(index), func(t *testing.T) {
+			s, ctx := executionStore(t)
+			first, err := s.AppendModelDelta(ctx, "session", "run", 1, 0, "Before", "main")
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, hidden := range []map[string]any{
+				{"runId": "run", "turn": 1, "content": ""},
+				{"runId": "run", "turn": 1, "purpose": "summary", "content": "Auxiliary text"},
+			} {
+				if _, err := s.AppendRunEvent(ctx, "session", "run", "model_reasoning_delta", hidden); err != nil {
+					t.Fatal(err)
+				}
+			}
+			continued, err := s.AppendModelDelta(ctx, "session", "run", 1, 0, " boundary", "main")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := s.AppendRunEvent(ctx, "session", "run", boundary.kind, boundary.data); err != nil {
+				t.Fatal(err)
+			}
+			last, err := s.AppendModelDelta(ctx, "session", "run", 1, 0, "After", "main")
+			if err != nil {
+				t.Fatal(err)
+			}
+			outputs, err := s.MainOutputs(ctx, "session", "run", 0)
+			if err != nil || len(outputs) != 2 || outputs[0].Sequence != first.Sequence || outputs[0].LastSequence != continued.Sequence || outputs[1].Sequence != last.Sequence {
+				t.Fatalf("visible boundary lost: %+v %v", outputs, err)
+			}
+		})
 	}
 }

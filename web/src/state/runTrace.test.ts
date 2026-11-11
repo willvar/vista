@@ -54,6 +54,27 @@ test('relative discovery coordinates work for Unix, Windows, roots and file root
 const event = (sequence: number, kind: string, data: any = {}): StreamEvent => ({ sequence, kind, createdAt: '2026-10-03T00:00:00Z', data: { runId: 'run', taskId: 'main', ...data } })
 const options = { runId: 'run', active: true }
 
+test('reasoning and child text merge only until other visible content intervenes', () => {
+  const events = [
+    event(1, 'model_reasoning_delta', { turn: 1, content: 'First ' }),
+    event(2, 'model_reasoning_delta', { turn: 1, content: 'thought' }),
+    event(3, 'model_delta', { turn: 1, content: 'Opening' }),
+    event(4, 'model_reasoning_delta', { turn: 1, content: 'Second thought' }),
+    event(5, 'model_delta', { taskId: 'child', depth: 1, turn: 2, content: 'Child start' }),
+    event(6, 'model_delta', { turn: 1, content: 'Answer' }),
+    event(7, 'model_delta', { taskId: 'child', depth: 1, turn: 2, content: 'Child end' }),
+    event(8, 'model_reasoning_delta', { turn: 1, purpose: 'summary', content: 'Auxiliary summary' }),
+    event(9, 'model_delta', { taskId: 'child', depth: 1, turn: 2, content: ' continued' }),
+  ]
+  const before = buildRunTrace(events.slice(0, 5), options).nodes
+  const after = buildRunTrace(events, options).nodes
+  assert.deepEqual(after.map(node => [node.sequence, node.lastSequence, node.body]), [
+    [1, 2, 'First thought'], [4, 4, 'Second thought'], [5, 5, 'Child start'], [7, 9, 'Child end continued'],
+  ])
+  assert.deepEqual(after.slice(0, 3).map(node => node.key), before.map(node => node.key))
+  assert.equal(new Set(after.map(node => node.key)).size, after.length)
+})
+
 test('old adjacent reasoning headings get display boundaries without rewriting streamed history', () => {
   const fragments = ['**Checking ', 'source**', '**核对', '测试**', '**Finishing**']
   const events = fragments.map((content, index) => event(index + 1, 'model_reasoning_delta', { turn: 1, content }))

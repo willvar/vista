@@ -1207,6 +1207,27 @@ test('full reply reads deduplicate and copying prepared text needs no second bod
   assert.equal(paths.length, 1)
 })
 
+test('copying a small final fragment returns the whole canonical reply without a body request', async t => {
+  let reads = 0
+  const { conversation, streams } = fixture(t, path => {
+    if (path.includes('/model-output?')) { reads++; return Promise.reject(new Error('Unnecessary body read')) }
+  })
+  await conversation.selectSession(session('a'))
+  const emit = (sequence: number, kind: string, data: object) => streams.get('a')!.onEvent({ sequence, kind, data: { runId: 'history', taskId: 'main', turn: 1, ...data } })
+  emit(2, 'model_delta', { offset: 0, content: 'Opening🙂' })
+  emit(3, 'model_reasoning_delta', { content: 'Reasoning' })
+  emit(4, 'model_delta', { offset: Buffer.byteLength('Opening🙂'), content: 'Answer' })
+  emit(5, 'model_result', {})
+  emit(6, 'run_finished', { status: 'succeeded', message: { ...message('reply', 6, 'history', 'assistant'),
+    content: 'Opening🙂Answer', outputTurn: 1, outputBytes: Buffer.byteLength('Opening🙂Answer') } })
+  const final = conversation.displayMessages.value.find(row => row.id === 'reply')!
+  assert.equal(final.content, 'Answer')
+  assert.equal(await conversation.fullMessageText(final), 'Opening🙂Answer')
+  conversation.releaseDisplayOutput(final)
+  assert.equal(await conversation.fullMessageText(final), 'Opening🙂Answer')
+  assert.equal(reads, 0)
+})
+
 test('a late full reply cannot replace output or errors in a new session', async t => {
   const loading = deferred<OutputView>()
   let signal: AbortSignal | null | undefined

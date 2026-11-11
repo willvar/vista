@@ -1,5 +1,6 @@
 import type { AgentTaskView, ChecklistItem, ModelResultView, StreamEvent, ToolOutputRef } from '../client/types.ts'
 import { inRunTraceRange, type RunTraceRange } from './runTraceRange.ts'
+import { isTimelineEvent } from './conversationTimeline.ts'
 
 export type TraceStatus = 'loading' | 'success' | 'error' | 'abort'
 export type TraceSearchOutput = { matches: { path: string; line?: number; text: string; context?: boolean }[]; paths?: string[]; count?: number; filesScanned?: number; truncated: boolean; warnings?: { path: string; error: string }[] }
@@ -190,6 +191,7 @@ export function buildRunTrace(events: readonly StreamEvent[], options: RunTraceR
   const outputLinks = new Map<string, { artifacts: Set<string>; jobs: Set<string> }>()
   let checklist: ChecklistItem[] | undefined
   let finished: StreamEvent | undefined
+  let activeTextGroup = '', activeTextKey = ''
   for (const result of options.modelResults || []) {
     if (result.runId !== options.runId || !inRunTraceRange(result.sequence, options)) continue
     const id = result.taskId || 'main'
@@ -225,6 +227,7 @@ export function buildRunTrace(events: readonly StreamEvent[], options: RunTraceR
     const data = event.data || {}
     const id = traceTaskId(event)
     const turn = `${id}/${data.turn}`
+    if (isTimelineEvent(event) && !['model_delta', 'model_reasoning_delta'].includes(event.kind)) activeTextGroup = ''
     if (event.kind === 'agent_task' && data.task?.id) {
       const current = task(data.task.id, event)
       Object.assign(current, data.task)
@@ -289,10 +292,13 @@ export function buildRunTrace(events: readonly StreamEvent[], options: RunTraceR
       task(id, event)
     } else if (['model_delta', 'model_reasoning_delta'].includes(event.kind) && !data.purpose && data.turn > 0 && typeof data.content === 'string' && data.content) {
       const reasoning = event.kind === 'model_reasoning_delta'
+      const group = `${reasoning ? 'reasoning' : 'text'}/${turn}`
+      const key = activeTextGroup === group ? activeTextKey : nodes.has(group) ? `${group}/${event.sequence}` : group
+      activeTextGroup = group
+      activeTextKey = key
       // Main answer text stays in the conversation. Reasoning and child output
       // follow the original event order within their execution process.
       if (id === 'main' && !reasoning) continue
-      const key = `${reasoning ? 'reasoning' : 'text'}/${turn}`
       const previous = nodes.get(key)
       const body = (previous?.body || '') + data.content
       const node: RunTraceNode = {

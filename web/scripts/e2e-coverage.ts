@@ -53,6 +53,7 @@ const groups: Record<string, string[]> = {
 const consumers: [RegExp, string[]][] = [
   [/^web\/src\/(?:pages\/ConversationPage|Conversation|Message|Run|Trace|TimelineItem|Context|PendingInputs|QuestionForm|BackgroundProcesses|WorkerStatus)|^web\/src\/(?:client\/queries|state\/(?:conversation|checklist|mainOutputs|runTrace|quotedReply|jobs|failureAnalysis)|composables\/use(?:Conversation|Presentation|FullOutput|RunHistory|ScrollbarDrag))|^internal\/(?:agent|worker|workerproto|provider|modeltrace|tool)\//, ['conversation']],
   [/^web\/src\/(?:pages\/SessionManager|Session|InlineSessionTitle)|^web\/src\/composables\/useSessions/, ['sessions']],
+  [/^internal\/store\/(?:main_outputs|model_output)/, ['conversation']],
   [/^internal\/store\/(?:display_messages|message_results|conversation_snapshot|records)|^internal\/server\/(?:events|compaction_messages|message_results)/, ['conversation', 'sessions', 'statistics']],
   [/^web\/src\/(?:Provider|Model|DefaultModel|Reasoning)|^web\/src\/(?:state\/model|composables\/useProvider)|^internal\/(?:model|models|selection)\//, ['models', 'conversation']],
   [/^web\/src\/(?:AgentSettings|Memory|Delegation)|^internal\/(?:agentconfig|memory)\//, ['personalization', 'conversation']],

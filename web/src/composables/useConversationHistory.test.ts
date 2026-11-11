@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { effectScope, nextTick, ref, watch } from 'vue'
+import { computed, effectScope, nextTick, ref, watch } from 'vue'
 import { useConversationHistory } from './useConversationHistory.ts'
-import type { ConversationItem } from '../state/mainOutputs.ts'
+import { conversationItems, hydrateMainOutput, mergeMainOutputs, type ConversationItem } from '../state/mainOutputs.ts'
 
 const item = (sequence: number): ConversationItem => ({ id: String(sequence), displayKey: String(sequence), sequence, displaySequence: sequence, runId: String(sequence), role: 'assistant', content: 'text', createdAt: '' })
 const settle = async () => { await nextTick(); await new Promise(resolve => setImmediate(resolve)) }
@@ -12,6 +12,37 @@ function defaults(items = ref([item(1)])) {
     indexes: async (_runs: string[]) => {}, output: async (_item: ConversationItem) => {}, text: (row: ConversationItem) => row.content,
     traceKeys: () => [] as string[], hasOlder: () => false, older: async () => {} }
 }
+
+test('all fragments of one reply prepare from one shared body before releasing it', async () => {
+  const scope = effectScope()
+  const fragments = Array.from({ length: 6 }, (_, index) => String(index).repeat(10_000))
+  const full = fragments.join('')
+  const records = ref(mergeMainOutputs([], fragments.map((_, index) => ({ runId: 'run', taskId: 'main', turn: 1,
+    sequence: index * 2 + 2, lastSequence: index * 2 + 2, createdAt: '', bytes: full.length, complete: true,
+    offset: index * 10_000, endOffset: (index + 1) * 10_000 }))))
+  const reply = { ...item(14), runId: 'run', outputTurn: 1, outputBytes: full.length, content: full.slice(0, 8192) }
+  const source = computed(() => conversationItems([reply], records.value))
+  let reads = 0, releases = 0
+  const history = scope.run(() => useConversationHistory({ ...defaults(), items: source,
+    output: async () => {
+      reads++
+      records.value = records.value.map(record => hydrateMainOutput(record, {
+        content: full, offset: 0, nextOffset: full.length, availableBytes: full.length, lastSequence: 12,
+      }))
+    },
+    release: () => {
+      releases++
+      records.value = records.value.map(record => ({ ...record, content: '', contentSequence: 0, deltas: [], loaded: false }))
+    },
+  }))!
+  await settle()
+  assert.equal(history.prepared.value, true)
+  assert.deepEqual(history.items.value.map(row => row.content), fragments)
+  assert.equal(reads, 1)
+  assert.equal(releases, 1)
+  assert.ok(records.value.every(record => !record.content && !record.loaded), 'The history owns the prepared fragments, without a second full-body cache')
+  scope.stop()
+})
 
 test('history prepares indexes, full bodies and execution sources before exposing its first batch', async () => {
   const scope = effectScope(), index = deferred(), text = deferred()
@@ -185,7 +216,8 @@ test('authoritative recovery prepares a replacement without discarding the brows
 test('a final message reuses its already prepared complete streaming body', async () => {
   const scope = effectScope(), text = 'Complete streamed text. '.repeat(500)
   const record = { runId: 'run', taskId: 'main', turn: 1, sequence: 2, lastSequence: 5, createdAt: '', bytes: text.length,
-    complete: true, content: text, contentSequence: 5, loaded: true, deltas: [] }
+    complete: true, content: text, contentSequence: 5, loaded: true, deltas: [],
+    spans: [{ sequence: 2, lastSequence: 5, createdAt: '', offset: 0, endOffset: text.length, closed: true }] }
   const source = ref<ConversationItem[]>([{ ...item(2), id: 'output/run/main/1', displayKey: 'output/run/main/1', runId: 'run',
     outputTurn: 1, outputBytes: text.length, mainOutput: record, progress: true, content: text }])
   let reads = 0

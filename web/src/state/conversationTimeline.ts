@@ -1,4 +1,15 @@
 import type { ConversationItem } from './mainOutputs.ts'
+import type { StreamEvent } from '../client/types.ts'
+
+export function isTimelineEvent(event: StreamEvent): boolean {
+  const data = event.data || {}
+  if (event.kind === 'message') return true
+  if (event.kind === 'tool') return !!data.tool
+  if (event.kind === 'model_retry') return !!data.modelRetry
+  if (event.kind === 'source') return /^https?:\/\//.test(data.content || '')
+  return ['model_delta', 'model_reasoning_delta'].includes(event.kind) && !data.purpose && data.turn > 0
+    && typeof data.content === 'string' && !!data.content
+}
 
 export type TraceTimelineEntry = { key: string; sequence: number; lastSequence: number; estimate: number }
 export type TimelineEntry = {

@@ -5,7 +5,7 @@ import { createConversationSync, type ConversationSyncStatus, type ConversationS
 import type { Artifact, ConversationSnapshot, CompactionStatus, ContextUsage, Job, MainOutput, Message, ModelCatalog, OutputView, QuestionAnswer, QueuedInput, SendMessageResult, Session, StreamEvent } from '../client/types'
 import { appendMessage, createConversationState, messageResults, runResults, pruneConversationWindow, reduceConversationEvent, replyTraceSegments } from '../state/conversation.ts'
 import { toolOperationLabelKey, compactTraceText } from '../state/runTrace.ts'
-import { conversationItems, hydrateMainOutput, mainOutputKey, mergeMainOutputs, type ConversationItem, type MainOutputRecord } from '../state/mainOutputs.ts'
+import { conversationItems, displayOutputKey, hydrateMainOutput, mainOutputKey, mainOutputText, mergeMainOutputs, type ConversationItem, type MainOutputRecord } from '../state/mainOutputs.ts'
 import { useInteractionPreferences, type InteractionPreferences, type SelectionMode, type SelectionTier } from './useInteractionPreferences.ts'
 import { formatQuotedReply, quoteStoragePrefix, readQuotedText, type QuotedText } from '../state/quotedReply.ts'
 import { reasoningChoiceLabel } from '../ui/reasoning.ts'
@@ -718,8 +718,12 @@ export function useConversation({ client, sessions, modelCatalog, error, busy, r
     })
   }
   async function fullMessageText(message: Message) {
-    if (!message.outputTurn || !message.outputBytes || message.outputBytes <= 8192) return message.content
+    if (!message.outputTurn || !message.outputBytes) return message.content
     if (new TextEncoder().encode(message.content).length === message.outputBytes) return message.content
+    const text = messages.value.find(item => item.id === message.id)?.content ?? message.content
+    if (new TextEncoder().encode(text).length === message.outputBytes) return text
+    const streamed = state.mainOutputs.find(output => output.runId === message.runId && output.turn === message.outputTurn)
+    if (streamed?.loaded && streamed.bytes === message.outputBytes) return mainOutputText(streamed)
     const output = await loadFullModelOutput(message)
     releaseDisplayOutput({ ...message, displayKey: message.id, displaySequence: message.sequence })
     return output.content
@@ -1144,7 +1148,7 @@ export function useConversation({ client, sessions, modelCatalog, error, busy, r
   }
   function readDisplayOutput(message: ConversationItem, retry = false) {
     if (!message.mainOutput) return readModelOutput(message, retry)
-    if (modelOutputFailure.value[message.id] && !retry) return Promise.resolve()
+    if (modelOutputFailure.value[displayOutputKey(message)] && !retry) return Promise.resolve()
     return loadMainOutput(message.mainOutput).catch(() => {})
   }
   function releaseDisplayOutput(message: ConversationItem) {

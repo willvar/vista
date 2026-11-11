@@ -1,5 +1,5 @@
 import { computed, hasInjectionContext, inject, nextTick, onScopeDispose, ref, shallowRef, watch, type InjectionKey, type Ref } from 'vue'
-import type { ConversationItem } from '../state/mainOutputs.ts'
+import { displayOutputKey, type ConversationItem } from '../state/mainOutputs.ts'
 
 export const historyReadKey: InjectionKey<(key: symbol, pending: boolean) => void> = Symbol('historyReads')
 export function useHistoryRead(loading: Ref<boolean>) {
@@ -154,23 +154,35 @@ export function useConversationHistory(options: {
         await options.indexes(batch.map(item => item.runId))
         if (disposed || current !== generation) return
         if (initial && start.value === undefined) start.value = options.items.value.slice(-batchSize)[0]?.displaySequence ?? 0
-        const outputs = candidates.value.filter(item => needsBody(item) && (versions.get(item.displayKey) !== bodyVersion(item)
-          || visible.has(item.displayKey) && bodies.get(item.displayKey)?.version !== bodyVersion(item)))
+        const groups = new Map<string, ConversationItem[]>()
+        for (const item of candidates.value) {
+          if (!needsBody(item) || versions.get(item.displayKey) === bodyVersion(item)
+            && (!visible.has(item.displayKey) || bodies.get(item.displayKey)?.version === bodyVersion(item))) continue
+          const key = displayOutputKey(item)
+          const group = groups.get(key) || []
+          group.push(item)
+          groups.set(key, group)
+        }
+        const outputs = [...groups.values()]
         await Promise.all(Array.from({ length: Math.min(4, outputs.length) }, async () => {
           while (outputs.length && current === generation && !disposed) {
-            const item = outputs.shift()!
-            await options.output(item)
-            if (current !== generation || disposed || !needsBody(item)) continue
-            const latest = candidatesByKey.value.get(item.displayKey)
-            if (!latest) continue
-            const version = bodyVersion(latest)
-            versions.set(item.displayKey, version)
-            removeBody(item.displayKey)
-            const text = options.text(latest)
-            bodies.set(item.displayKey, { version, text })
-            bodyBytes += text.length * 2
-            changedBodies.add(item.displayKey)
-            options.release?.(latest)
+            const group = outputs.shift()!
+            await options.output(group[0]!)
+            if (current !== generation || disposed) continue
+            for (const item of group) {
+              const latest = candidatesByKey.value.get(item.displayKey)
+              if (!latest) continue
+              const version = bodyVersion(latest)
+              versions.set(item.displayKey, version)
+              removeBody(item.displayKey)
+              const text = options.text(latest)
+              bodies.set(item.displayKey, { version, text })
+              bodyBytes += text.length * 2
+              changedBodies.add(item.displayKey)
+            }
+            // Fragments share one canonical body. Prepare the whole group
+            // before releasing it, so later fragments do not fetch it again.
+            options.release?.(group[0]!)
           }
         }))
         if (disposed || current !== generation) return

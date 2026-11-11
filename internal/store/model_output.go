@@ -52,7 +52,7 @@ func (s *Store) AppendModelDelta(ctx context.Context, sessionID, runID string, t
 	if err := tx.QueryRowContext(ctx, "SELECT COALESCE(MAX(offset+length),0) FROM model_output_chunks WHERE session_id=? AND run_id=? AND turn=?", sessionID, runID, turn).Scan(&offset); err != nil {
 		return nil, err
 	}
-	data := map[string]any{"runId": runID, "turn": turn, "depth": depth, "content": content}
+	data := map[string]any{"runId": runID, "turn": turn, "depth": depth, "content": content, "offset": offset}
 	if len(taskIDs) > 0 && taskIDs[0] != "" {
 		data["taskId"] = taskIDs[0]
 	}

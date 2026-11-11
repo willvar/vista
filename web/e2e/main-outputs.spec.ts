@@ -2,6 +2,63 @@ import { test, expect } from './fixtures'
 import { scrollToConversationEntry } from './conversation-scroll'
 import { test as historyTest } from './long-history-fixture'
 
+test.describe('interleaved reply text and reasoning', () => {
+  test.use({ providerOutput: 'responses', interleavedOutput: true })
+
+  test('opening, reasoning and answer keep their order during execution, recovery and reload', async ({ page, context, vista }) => {
+    await vista.api('/preferences', { method: 'PATCH', body: JSON.stringify({ feedbackInvitationSeen: true }) })
+    await context.grantPermissions(['clipboard-read', 'clipboard-write'])
+    await page.reload()
+    const release = vista.pauseModelReplies(true)
+    const reads: string[] = []
+    page.on('request', request => { if (request.url().includes('/model-output?')) reads.push(request.url()) })
+    const opening = page.locator('.main-output .markdown')
+    const reasoning = page.locator('.trace-reasoning')
+    const answer = page.locator('article.assistant:not(.main-output)')
+    const order = () => page.locator('.message-row.assistant .markdown, .trace-reasoning').evaluateAll(elements => elements
+      .map(element => ({ text: element.textContent?.trim(), y: element.getBoundingClientRect().top }))
+      .sort((a, b) => a.y - b.y).map(item => item.text))
+    try {
+      await page.locator('.sender-card textarea').fill('Explain the result')
+      await page.getByRole('button', { name: 'Send', exact: true }).click()
+      for (const reload of [false, true]) {
+        if (reload) await page.reload()
+        await expect(opening).toHaveText('Opening🙂.')
+        await expect(reasoning).toHaveText('Checking one. Checking two. Checking three.')
+        await expect.poll(order).toEqual(['Opening🙂.', 'Checking one. Checking two. Checking three.'])
+        await expect(page.locator('.message-row.assistant .reply-footer')).toHaveCount(0)
+      }
+      release()
+      await expect(answer.locator('.markdown')).toHaveText('Final answer🙂.')
+      const sessionPath = new URL(page.url()).pathname
+      const messages = await vista.api(`${sessionPath}/messages`)
+      expect(messages).toHaveLength(2)
+      expect(messages[1].content).toBe('Opening🙂. Final answer🙂.')
+      const outputs = await vista.api(`${sessionPath}/runs/${messages[1].runId}/main-outputs`)
+      expect(outputs).toHaveLength(2)
+      expect(outputs.map((output: { offset: number; endOffset: number }) => [output.offset, output.endOffset])).toEqual([
+        [0, Buffer.byteLength('Opening🙂. ')], [Buffer.byteLength('Opening🙂. '), Buffer.byteLength(messages[1].content)],
+      ])
+      for (const reload of [false, true]) {
+        if (reload) {
+          reads.length = 0
+          await page.reload()
+        }
+        await expect(opening).toHaveText('Opening🙂.')
+        await expect(answer.locator('.markdown')).toHaveText('Final answer🙂.')
+        await expect(reasoning).toHaveText('Checking one. Checking two. Checking three.')
+        await expect.poll(order).toEqual(['Opening🙂.', 'Checking one. Checking two. Checking three.', 'Final answer🙂.'])
+        await expect(page.locator('.message-row.assistant .reply-footer')).toHaveCount(1)
+        await expect(page.locator('.message-row.assistant .message-model-name')).toHaveCount(1)
+        await answer.getByRole('button', { name: 'Copy reply', exact: true }).click()
+        await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe(messages[1].content)
+        if (reload) expect(reads.length).toBeLessThanOrEqual(1)
+      }
+      expect(vista.modelRequests).toHaveLength(1)
+    } finally { release() }
+  })
+})
+
 test.describe('persistent main output', () => {
   test.use({ progressCalls: 6 })
 
