@@ -36,6 +36,7 @@ func TestNativeResetPort(t *testing.T) {
 		t.Setenv(name, root)
 	}
 	t.Setenv("VISTA_NO_BROWSER", "1")
+	t.Setenv("VISTA_HOST", "0.0.0.0")
 	config, err := appdirs.Config()
 	if err != nil {
 		t.Fatal(err)
@@ -45,7 +46,10 @@ func TestNativeResetPort(t *testing.T) {
 	}
 	reserve := func() net.Listener {
 		t.Helper()
-		listener, err := net.Listen("tcp", "127.0.0.1:0")
+		// Reserve the application's full bind scope. A loopback-only listener
+		// can coexist with a wildcard listener on macOS and Windows, so it
+		// does not reliably make the application's target address unavailable.
+		listener, err := net.Listen("tcp4", "0.0.0.0:0")
 		if err != nil {
 			t.Fatal(err)
 		}
