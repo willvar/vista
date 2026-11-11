@@ -949,6 +949,57 @@ test('opening a short conversation keeps following when content grows before a q
   expect(fixture.unexpected).toEqual([])
 })
 
+test('jump to latest appears after native focus scrolling', async ({ page, mockOrigin }) => {
+  const runId = 'native-focus-scroll', createdAt = '2026-01-01T12:00:00Z'
+  const messages: Message[] = Array.from({ length: 20 }, (_, index) => ({
+    id: `focus-${index}`, sequence: index + 1, runId, role: index ? 'assistant' : 'user',
+    content: `History message ${index + 1}.\n\n` + 'A retained paragraph for reading and keyboard focus.\n\n'.repeat(4), createdAt,
+  }))
+  const fixture = await mockExecution(page, mockOrigin, messages.map(message => ({ sequence: message.sequence, kind: 'message', createdAt, data: message })), { messages })
+  const jump = page.getByRole('button', { name: 'Jump to latest', exact: true })
+  await expect.poll(() => distanceToLatest(page)).toBeLessThanOrEqual(3)
+  await expect(jump).toHaveCount(0)
+  await page.locator('.sender-card textarea').focus()
+  // Let Chromium scroll focused message actions into view, without a wheel
+  // event or a navigation key that explicitly takes scrolling ownership.
+  for (let attempt = 0; attempt < 35 && await distanceToLatest(page) <= 60; attempt++) {
+    await page.keyboard.press('Shift+Tab')
+    await page.waitForTimeout(70)
+  }
+  expect(await distanceToLatest(page)).toBeGreaterThan(60)
+  await expect(jump).toBeVisible()
+  await jump.click()
+  await expect.poll(() => distanceToLatest(page)).toBeLessThanOrEqual(3)
+  await expect(jump).toHaveCount(0)
+  expect(fixture.unexpected).toEqual([])
+})
+
+test('jump to latest appears after native text selection autoscroll', async ({ page, mockOrigin }) => {
+  const runId = 'native-selection-scroll', createdAt = '2026-01-01T12:00:00Z'
+  const messages: Message[] = Array.from({ length: 20 }, (_, index) => ({
+    id: `selection-${index}`, sequence: index + 1, runId, role: index ? 'assistant' : 'user',
+    content: `History message ${index + 1}.\n\n` + 'A retained paragraph for reading and selecting.\n\n'.repeat(5), createdAt,
+  }))
+  const fixture = await mockExecution(page, mockOrigin, messages.map(message => ({ sequence: message.sequence, kind: 'message', createdAt, data: message })), { messages })
+  const jump = page.getByRole('button', { name: 'Jump to latest', exact: true })
+  await expect.poll(() => distanceToLatest(page)).toBeLessThanOrEqual(3)
+  const box = (await page.locator('.messages').boundingBox())!
+  const text = (await page.locator('.message-row.assistant .markdown p').last().boundingBox())!
+  await page.mouse.move(text.x + 160, text.y + text.height / 2)
+  await page.mouse.down()
+  await page.mouse.move(text.x + 50, box.y + 5, { steps: 12 })
+  await page.mouse.move(text.x + 50, box.y - 12)
+  await page.waitForTimeout(1000)
+  await page.mouse.up()
+  expect(await page.evaluate(() => window.getSelection()?.toString().length || 0)).toBeGreaterThan(0)
+  await expect.poll(() => distanceToLatest(page)).toBeGreaterThan(60)
+  await expect(jump).toBeVisible()
+  await jump.click()
+  await expect.poll(() => distanceToLatest(page)).toBeLessThanOrEqual(3)
+  await expect(jump).toHaveCount(0)
+  expect(fixture.unexpected).toEqual([])
+})
+
 test('jump to latest prepares pending output and reaches its actual bottom', { tag: '@responsive' }, async ({ page, mockOrigin }, testInfo) => {
   const runId = 'jump-latest', createdAt = '2026-01-01T12:00:00Z'
   const messages: Message[] = Array.from({ length: 60 }, (_, index) => ({

@@ -18,6 +18,7 @@ export function useConversationScroll(options: {
 }) {
   const { element, rows, paused } = options
   const following = ref(true)
+  const atEnd = ref(true)
   const presented = ref(false)
   const jumpPhase = ref<'preparing' | 'scrolling' | null>(null)
   type Anchor = { key: string; within: number }
@@ -193,12 +194,18 @@ export function useConversationScroll(options: {
   watch([presented, paused, following, jumpPhase, preparation, options.missing,
     readRevision, measurementRevision,
     () => viewport.value.map(item => `${item.key}/${item.start}/${item.size}`).join('|')], updatePreparation, { flush: 'post' })
-  const showJumpToLatest = computed(() => presented.value && !following.value && virtualizer.value.getDistanceFromEnd() > 3)
+  // Focus navigation and text selection can scroll without taking input
+  // ownership. Button visibility follows the DOM position, not follow intent.
+  function updatePosition() {
+    const viewport = element.value
+    atEnd.value = !viewport || viewport.scrollHeight - viewport.clientHeight - viewport.scrollTop <= 3
+  }
+  const showJumpToLatest = computed(() => presented.value && !jumpPhase.value && !atEnd.value)
   const totalSize = computed(() => virtualizer.value.getTotalSize())
   // The Vue adapter updates options before the DOM commits. Finish TanStack's
   // layout lifecycle afterwards as well, so a bottom correction clamped by
   // the previous spacer height is retried against the new scroll range.
-  onUpdated(() => virtualizer.value._willUpdate())
+  onUpdated(() => { virtualizer.value._willUpdate(); updatePosition() })
 
   function measure(node: Element | null) { virtualizer.value.measureElement(node as HTMLElement | null) }
   function measureVisible() {
@@ -211,6 +218,7 @@ export function useConversationScroll(options: {
     if (viewport.scrollTop < Math.max(240, viewport.clientHeight * .75)) void options.earlier()
   }
   function onScroll() {
+    updatePosition()
     if (preparation.value) {
       if (!applying) virtualizer.value.scrollToOffset(offsetFor(preparation.value.from))
       return
@@ -322,6 +330,7 @@ export function useConversationScroll(options: {
     clearMeasurements()
     reads.clear()
     following.value = true
+    atEnd.value = true
     clearTimeout(idleTimer)
     releaseTouchTarget()
     input = false; touching.value = false; motion.value = false
@@ -354,6 +363,7 @@ export function useConversationScroll(options: {
         if (following.value && !loading.value && !paused.value && jumpPhase.value !== 'preparing') {
           virtualizer.value.scrollToEnd({ behavior: smoothCommand ? 'smooth' : 'auto' })
         }
+        updatePosition()
       })
     })
     viewportObserver.observe(viewport)
