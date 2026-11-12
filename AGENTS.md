@@ -52,6 +52,16 @@ Vista supports its own development. Product documentation serves users; developm
 - Keep the installed runtime hosting development conversations separate from the checkout's build output. Validate changes in the isolated development instance. Before reporting that a change is active, verify the target process's executable, source commit, and modified-source state; restarting an installed release does not load `bin/vista`.
 - Tie verification claims to the source commit, artifact hash, environment, and checks actually used. Keep local verification records under `.vista/acceptance/`. Mock protocol tests do not establish live-provider compatibility; cross-compilation does not establish runtime behavior on the target OS.
 
+## Development and Test Synchronization
+
+- Before changing behavior, identify the changed contract, invariants, affected consumers and target platforms in the task's working plan. Inspect their existing tests and fixtures before editing; a green unrelated suite is not coverage of the change.
+- Update implementation, existing fixtures, assertions, build flags and local/CI invocation together in the same development batch. Check implicit assumptions about defaults, bind addresses, configuration paths, process ownership and event ordering. Share fixture construction where useful, but keep expected contract assertions independent of the implementation being tested.
+- Select checks by behavior, not only file type: listener, CLI, restart/reset and process changes require the relevant built-application native checks with an explicit `VISTA_TEST_BINARY`; ordinary Go tests may skip these. Interface, persistence and event changes require producer and consumer coverage; layout, scrolling and touch changes require the affected browser viewports.
+- Update `web/scripts/e2e-coverage.ts` when consumer scope changes. Keep local and CI test entry points aligned, including executable version, generated assets and required environment. Do not add a second competing test map or a parallel validation framework.
+- Required checks must actually execute on the relevant platform. A skipped required native test, unavailable dependency, cross-compilation or mock cannot stand in for target-platform execution. Report missing coverage as incomplete rather than treating the suite's overall success as proof.
+- For a defect, demonstrate that the relevant check detects the old behavior when practical, then verify the fix without weakening the contract. Decide whether the implementation or the test premise is wrong before changing an assertion; do not merely edit tests until CI is green.
+- Development is complete only when the implementation and affected tests/fixtures/entry points agree and their required checks pass for the delivered source and binary. Reuse unchanged valid evidence; rerun affected checks after subsequent edits. Separate environment/bootstrap failures from product assertion failures and resolve the failing prerequisite before repeating a full matrix.
+
 ## Git Commit Messages
 
 Use exactly one line, with no body:
