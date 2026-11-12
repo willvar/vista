@@ -196,10 +196,15 @@ export function useConversation({ client, sessions, modelCatalog, error, busy, r
     finally { if (current(scope)) feedbackBusy.value = { ...feedbackBusy.value, [message.id]: false } }
   }
   const agentWorking = computed(() => !manualCompacting.value && !!selected.value?.executing && !(runProgress.value?.runId === activeRunID.value && runProgress.value.phase === 'finished'))
+  const compacting = computed(() => manualCompacting.value || compactionRequestPending.value
+    || agentWorking.value && compaction.value?.runId === activeRunID.value && compaction.value.phase === 'compacting')
+  const compactionResult = computed(() => !compacting.value && !agentWorking.value
+    && ['failed', 'interrupted'].includes(compaction.value?.phase || '')
+    && (compaction.value?.sequence || 0) > latestUserSequence.value ? compaction.value : null)
   const agentStatus = computed(() => {
     if (synchronization.value.phase === 'error') return t('conversationSyncFailed')
     if (['connecting', 'recovering'].includes(synchronization.value.phase)) return t('conversationSynchronizing')
-    if (compaction.value?.phase === 'compacting') return t('contextCompacting')
+    if (compacting.value) return t('contextCompacting')
     const progress = runProgress.value?.runId === activeRunID.value ? runProgress.value : null
     if (progress?.phase === 'retry' && progress.retry) return t('modelRetryWaiting', progress.retry)
     if (progress?.phase === 'tool') return [t(toolOperationLabelKey(progress.tool)), compactTraceText(progress.summary, 90)].filter(Boolean).join(' · ')
@@ -256,10 +261,15 @@ export function useConversation({ client, sessions, modelCatalog, error, busy, r
     } catch { /* A display estimate must not interrupt the conversation. */ }
   }
   function applyCompaction(status: CompactionStatus | null | undefined, sequence: number, terminal = true) {
-    if (!status?.runId || !['compacting', 'compacted', 'failed'].includes(status.phase) || sequence < (compaction.value?.sequence || 0)) return
+    if (!status?.runId || !['compacting', 'compacted', 'failed', 'interrupted'].includes(status.phase) || sequence < (compaction.value?.sequence || 0)) return
+    const incomingPhase = status.phase
+    // Preserve a committed manual checkpoint, not every automatic recovery in
+    // the same run. The incoming lifecycle still owns the maintenance slot.
+    if (status.manual && status.runId === compaction.value?.runId && compaction.value.phase === 'compacted' && status.phase !== 'compacted')
+      status = { ...compaction.value }
     compaction.value = { ...status, sequence }
     if (!status.manual || sequence < state.activeRunSequence || !selected.value) return
-    if (status.phase === 'compacting') {
+    if (incomingPhase === 'compacting') {
       maintenanceRunID = status.runId
       selected.value = { ...selected.value, executing: true }
     } else if (terminal) {
@@ -306,7 +316,9 @@ export function useConversation({ client, sessions, modelCatalog, error, busy, r
       if (event.kind === 'context_notice' && !event.data?.depth) applyContextUsage(event.data?.contextUsage, event.sequence)
       if (event.kind === 'context_notice' && !event.data?.depth) applyCompaction(event.data?.context, event.sequence, false)
       if (event.kind === 'run_finished' && event.data?.runId === compaction.value?.runId && compaction.value?.phase === 'compacting') {
-        applyCompaction({ ...compaction.value, phase: 'failed', error: event.data?.message?.content || event.data?.reason || t('contextUnavailable') }, event.sequence)
+        const interrupted = ['interrupted', 'canceled', 'cancelled'].includes(event.data?.status)
+        applyCompaction({ ...compaction.value, phase: interrupted ? 'interrupted' : 'failed',
+          error: event.data?.message?.content || event.data?.reason || t(interrupted ? 'contextInterrupted' : 'contextUnavailable') }, event.sequence)
       }
       if (event.kind === 'model_request' && event.data?.runId === activeRunID.value && !event.data?.depth && !event.data?.purpose && selectionMode.value === 'auto') {
         const models = visibleModels(modelCatalog.value)
@@ -1048,7 +1060,7 @@ export function useConversation({ client, sessions, modelCatalog, error, busy, r
   }
   async function cancelExecution() {
     const scope = currentScope
-    if (!scope || !current(scope) || !selected.value?.executing || busy.value) return
+    if (!scope || !current(scope) || !selected.value?.executing || busy.value || manualCompacting.value || compactionRequestPending.value) return
     const owner = startBusy()
     try {
       await request(scope, `/sessions/${scope.id}/cancel`, { method: 'POST' })
@@ -1169,7 +1181,7 @@ export function useConversation({ client, sessions, modelCatalog, error, busy, r
     ...refs, displayMessages, readOutputIndexes, readDisplayOutput, releaseDisplayOutput, olderActivity, hasOlderActivity, activityPaging, paging, selectedModel, selectedModelInfo,
     selectedReasoning, reasoningChoices, canAttachImage, attachedImages, attachedPreviewURLs,
     selectionMode, selectionTier, chooseSelectionMode, chooseSelectionTier, feedbackInvitationOpen,
-    feedback, feedbackBusy, rateMessage, pendingInputs, inputQueuePaused, pendingBusy, mutateInput, resumeInputs, compaction, contextUsage, canCompact, compactSession, manualCompacting, compactionRequestPending, continueAfterCompaction, fillContinueDraft,
+    feedback, feedbackBusy, rateMessage, pendingInputs, inputQueuePaused, pendingBusy, mutateInput, resumeInputs, compaction, compacting, compactionResult, contextUsage, canCompact, compactSession, manualCompacting, compactionRequestPending, continueAfterCompaction, fillContinueDraft,
     draft, quotedText, quoteSelection, removeQuote, agentWorking, agentStatus, hasTaskDetails, chooseModel, recallLastUserMessage,
     synchronization, syncDiagnostics, snapshotReady, viewRevision, resynchronize, renderFailure,
     selectSession, clearSession, refreshConversation, loadOlderActivity, showRecentActivity, loadOlder, loadNewer, loadLatest, markRead,

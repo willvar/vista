@@ -769,7 +769,9 @@ test('context totals follow runtime and compaction, reject stale snapshots, and 
 test('manual compaction is idle-only, survives early SSE, and Continue only fills a draft', async t => {
   const post = deferred<unknown>()
   let posts = 0
+  let cancels = 0
   const { conversation, streams } = fixture(t, (path, options) => {
+    if (path.endsWith('/cancel')) { cancels++; return Promise.resolve({}) }
     if (path.endsWith('/compact')) { posts++; return post.promise }
     if (path.endsWith('/messages') && options?.method !== 'POST') return Promise.resolve([message('u', 1, 'old'), message('a', 2, 'old', 'assistant')])
   })
@@ -781,9 +783,19 @@ test('manual compaction is idle-only, survives early SSE, and Continue only fill
   const stream = streams.get('a')!
   stream.onEvent({ sequence: 3, kind: 'context_status', data: compactStatus('compacting', 3) })
   assert.equal(conversation.manualCompacting.value, true)
+  assert.equal(conversation.compacting.value, true)
+  assert.equal(conversation.agentWorking.value, false)
+  assert.equal(conversation.agentStatus.value, 'contextCompacting')
+  await conversation.cancelExecution()
+  assert.equal(cancels, 0)
   assert.equal(conversation.canCompact.value, false)
-  stream.onEvent({ sequence: 4, kind: 'context_status', data: compactStatus('compacted', 4) })
-  stream.onEvent({ sequence: 4, kind: 'context_status', data: compactStatus('compacted', 4) })
+  stream.onEvent({ sequence: 4, kind: 'context_notice', data: { depth: 0, context: compactStatus('compacted', 4) } })
+  assert.equal(conversation.manualCompacting.value, true)
+  stream.onEvent({ sequence: 5, kind: 'context_status', data: compactStatus('compacting', 5) })
+  assert.equal(conversation.manualCompacting.value, true)
+  stream.onEvent({ sequence: 6, kind: 'context_status', data: compactStatus('compacted', 6) })
+  stream.onEvent({ sequence: 6, kind: 'context_status', data: compactStatus('compacted', 6) })
+  stream.onEvent({ sequence: 7, kind: 'context_status', data: compactStatus('interrupted', 7) })
   post.resolve({ runId: 'compact-a', event: { sequence: 3, kind: 'context_status', data: compactStatus('compacting', 3) } })
   await pending
   assert.equal(conversation.compaction.value?.phase, 'compacted')
@@ -820,11 +832,26 @@ test('automatic compaction failure remains visible and never offers manual Conti
   stream.onEvent({ sequence: 2, kind: 'message', data: message('u', 2, 'run') })
   stream.onEvent({ sequence: 3, kind: 'context_status', data: { ...compactStatus('compacting', 3, false), runId: 'run' } })
   assert.equal(conversation.agentStatus.value, 'contextCompacting')
-  stream.onEvent({ sequence: 4, kind: 'run_finished', data: { runId: 'run', status: 'failed', message: { ...message('f', 4, 'run', 'assistant'), content: 'overflow recovery failed', failure: true } } })
+  assert.equal(conversation.compacting.value, true)
+  stream.onEvent({ sequence: 4, kind: 'context_notice', data: { depth: 0, context: { ...compactStatus('compacted', 4, false), runId: 'run' } } })
+  assert.equal(conversation.compacting.value, false)
+  stream.onEvent({ sequence: 5, kind: 'context_status', data: { ...compactStatus('compacting', 5, false), runId: 'run' } })
+  assert.equal(conversation.compacting.value, true)
+  stream.onEvent({ sequence: 6, kind: 'run_finished', data: { runId: 'run', status: 'failed', message: { ...message('f', 6, 'run', 'assistant'), content: 'overflow recovery failed', failure: true } } })
   assert.equal(conversation.compaction.value?.phase, 'failed')
   assert.equal(conversation.compaction.value?.error, 'overflow recovery failed')
+  assert.equal(conversation.compactionResult.value?.phase, 'failed')
   assert.equal(conversation.agentWorking.value, false)
   assert.equal(conversation.continueAfterCompaction.value, false)
+  stream.onEvent({ sequence: 7, kind: 'message', data: message('next', 7, 'new-run') })
+  assert.equal(Boolean(conversation.compactionResult.value), false)
+  assert.equal(conversation.compacting.value, false)
+  assert.notEqual(conversation.agentStatus.value, 'contextCompacting')
+  stream.onEvent({ sequence: 8, kind: 'context_status', data: { ...compactStatus('compacting', 8, false), runId: 'new-run' } })
+  stream.onEvent({ sequence: 9, kind: 'run_finished', data: { runId: 'new-run', status: 'interrupted', reason: 'Worker exited' } })
+  assert.equal(conversation.compactionResult.value?.phase, 'interrupted')
+  assert.equal(conversation.compactionResult.value?.error, 'Worker exited')
+  assert.equal(conversation.compacting.value, false)
 })
 
 test('a late compaction POST or SSE cannot modify a different session', async t => {

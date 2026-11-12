@@ -1354,16 +1354,29 @@ test('historical full text is prepared before display and virtual recycling does
   expect(fixture.unexpected).toEqual([])
 })
 
-test('current action, timing and Todo stay above the composer through live work and reload', { tag: '@smoke' }, async ({ page, mockOrigin }, testInfo) => {
+test('current action, timing and header checklist survive live work and reload', { tag: '@smoke' }, async ({ page, mockOrigin }, testInfo) => {
   const source = independentWindowEvents()
   const runId = source[0].data.runId as string
   source.push({ sequence: source.at(-1)!.sequence + 1, kind: 'checklist', createdAt: source.at(-1)!.createdAt, data: { runId, items: initialChecklist } })
   const fixture = await mockExecution(page, mockOrigin, source)
   const dock = page.locator('.conversation-execution')
   const checklist = page.locator('.conversation-checklist')
+  const entry = page.locator('.conversation-header .checklist-trigger')
+  await expect(checklist).toHaveCount(0)
   const assertDock = async () => {
     await expect(dock).toBeVisible()
+    await expect(entry).toBeVisible()
+    await expect(entry.locator('svg.tabler-icon-list-check')).toBeVisible()
+    await entry.click()
     await expect(checklist).toContainText('Analyze duplicate images')
+    const box = await checklist.boundingBox()
+    expect(box!.x).toBeGreaterThanOrEqual(-1)
+    expect(box!.x + box!.width).toBeLessThanOrEqual(page.viewportSize()!.width + 1)
+    expect(box!.y + box!.height).toBeLessThanOrEqual(page.viewportSize()!.height + 1)
+    await page.keyboard.press('Escape')
+    await expect(entry).toHaveAttribute('aria-expanded', 'false')
+    await expect(checklist).toHaveCount(0)
+    expect(fixture.session.executing, 'Dismissing the checklist must not stop the task').toBe(true)
     expect(await dock.evaluate(element => !!element.closest('.messages'))).toBe(false)
     const geometry = await dock.evaluate(element => ({ bottom: element.getBoundingClientRect().bottom, height: innerHeight, sender: document.querySelector('.sender-card')!.getBoundingClientRect().top }))
     expect(geometry.bottom).toBeLessThanOrEqual(geometry.sender)
@@ -1382,6 +1395,7 @@ test('current action, timing and Todo stay above the composer through live work 
   fixture.session.executing = false
   fixture.append('run_finished', { status: 'succeeded' })
   await expect(dock).toHaveCount(0)
+  await expect(entry).toHaveCount(0)
   await expect(page.locator('.conversation-column > .conversation-checklist')).toHaveCount(0)
   await expect(page.locator('.messages [data-checklist-summary]')).toHaveCount(1)
   await expect(page.locator('.checklist-summary-text')).toContainText('incomplete: Analyze duplicate images')
@@ -1389,6 +1403,7 @@ test('current action, timing and Todo stay above the composer through live work 
   await expect(page.locator('.run-trace')).toHaveAttribute('data-run-status', 'succeeded')
   await page.reload()
   await expect(dock).toHaveCount(0)
+  await expect(entry).toHaveCount(0)
   await expect(page.locator('.conversation-column > .conversation-checklist')).toHaveCount(0)
   await expect(page.locator('.messages [data-checklist-summary]')).toHaveCount(1)
   await expect(page.locator('.checklist-summary-text')).toContainText('incomplete: Analyze duplicate images')
@@ -1414,6 +1429,7 @@ test('stopping a run shows interrupted Todo immediately and after reload without
   const checklist = page.locator('.conversation-checklist')
   const header = checklist
   await expect(overview).toHaveAttribute('data-run-status', 'active')
+  await page.locator('.conversation-header .checklist-trigger').click()
   await expect(checklist.locator('[data-checklist-status="in_progress"]')).toHaveCount(2)
   await expect(header).toContainText('1/5 checklist items complete')
 
@@ -1423,6 +1439,7 @@ test('stopping a run shows interrupted Todo immediately and after reload without
   const assertStoppedChecklist = async () => {
     await expect(overview).toHaveAttribute('data-run-status', 'canceled')
     await expect(page.locator('.conversation-column > .conversation-checklist')).toHaveCount(0)
+    await expect(page.locator('.conversation-header .checklist-trigger')).toHaveCount(0)
     await expect(page.locator('.messages [data-checklist-summary]')).toHaveCount(1)
     await expect(trace.locator('.trace-step-row')).toHaveCount(4)
     await expect(checklist).toHaveCount(0)
@@ -1454,7 +1471,7 @@ test('stopping a run shows interrupted Todo immediately and after reload without
   await page.screenshot({ path: testInfo.outputPath('stopped-todo-reloaded.png'), animations: 'disabled' })
 })
 
-test('new runs clear the composer checklist without changing earlier saved plans', async ({ page, mockOrigin }) => {
+test('new runs clear the header checklist without changing earlier saved plans', async ({ page, mockOrigin }) => {
   const events = hydrationEvents().slice(0, 2)
   const runId = events[0].data.runId as string
   const oldItems = [{ text: 'Earlier unfinished work', status: 'in_progress' }]
@@ -1480,6 +1497,7 @@ test('new runs clear the composer checklist without changing earlier saved plans
   const assertSeparate = async () => {
     await expect(newTrace).toBeVisible()
     await expect(page.locator('.conversation-column > .conversation-checklist')).toHaveCount(0)
+    await expect(page.locator('.conversation-header .checklist-trigger')).toHaveCount(0)
     await expect(page.locator('.messages [data-checklist-summary]')).toHaveCount(1)
     await expect(oldTrace.locator('.checklist')).toHaveCount(0)
     await expect(newTrace.locator('.checklist')).toHaveCount(0)
@@ -1489,10 +1507,13 @@ test('new runs clear the composer checklist without changing earlier saved plans
   await assertSeparate()
   const newItems: ChecklistItem[] = [{ text: 'Verify the new task', status: 'in_progress' }]
   fixture.append('checklist', { runId: newRun, items: newItems })
-  await expect(page.locator('.conversation-column > .conversation-checklist')).toContainText('Verify the new task')
-  await expect(page.locator('.conversation-column > .conversation-checklist')).not.toContainText('Earlier unfinished work')
+  await page.locator('.conversation-header .checklist-trigger').click()
+  await expect(page.locator('.conversation-checklist')).toContainText('Verify the new task')
+  await expect(page.locator('.conversation-checklist')).not.toContainText('Earlier unfinished work')
   fixture.append('checklist', { runId: newRun, items: [] })
   await expect(page.locator('.conversation-column > .conversation-checklist')).toHaveCount(0)
+  await expect(page.locator('.conversation-header .checklist-trigger')).toHaveCount(0)
+  await expect(page.locator('.conversation-checklist')).toHaveCount(0)
   fixture.append('checklist', { runId: newRun, items: [{ ...newItems[0], status: 'done' }] })
   const checklistTime = fixture.events.at(-1)!.createdAt!
   fixture.append('tool', { runId: newRun, turn: 1, taskId: 'main', status: 'succeeded', tool, content: 'File read.' })

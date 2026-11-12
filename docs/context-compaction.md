@@ -133,13 +133,23 @@ manual recovery releases a paused empty queue so the next explicit send starts
 normally; existing pending inputs retain their paused state. It creates no new
 user input or model turn and never launches queued input on completion.
 Cancellation, Worker loss, and restart release the slot through the same
-terminal transaction. The committed checkpoint is the success boundary.
+terminal transaction. The committed checkpoint is the success boundary; an interruption after commit cannot replace success.
+The status API and events distinguish `interrupted` from `failed`; older interrupted events
+are projected from their run result without rewriting history. Reconnection synchronizes
+the actual result rather than assuming a browser disconnection interrupted compaction.
+After an uncommitted interruption or failure, the previous effective context remains.
+Once the session is available and idle, users can confirm a new compaction through the
+existing upper-right entry; there is no separate retry button. Manual compaction does not
+resume a stopped task; the user sends a continuation explicitly.
 
 `GET /api/sessions/:id/context` and ordered `context_status`/`context_notice`
 events expose progress and outcome. The frontend compares event sequences,
 retains its session cancellation guards, and does not let a late POST restore
-an older status. There is no capacity, remaining-token, or percentage display. The composer's
-context status shows compaction progress or a failure. The conversation header's compaction icon shows an estimated token total on hover for the retained main context,
+an older status. There is no capacity, remaining-token, or percentage display. The execution area above the
+composer shows automatic and manual compaction progress once, without a dedicated cancel
+control. Manual maintenance does not expose the ordinary task stop button or Escape action.
+Stopping an ordinary task during automatic recovery still interrupts that task.
+Interrupted and failed outcomes retain error details, copying and failure analysis here. The conversation header's compaction icon shows an estimated token total on hover for the retained main context,
 including instructions, summaries, messages and tool content. Runtime
 `context_usage` events and committed compaction notices update the total;
 `GET /api/sessions/:id/context-usage` restores it outside the recent event window.
@@ -147,7 +157,7 @@ While idle, the same context assembly used for the next request recomputes the
 estimate, including retained tool turns from completed or interrupted runs. This number
 is never cumulative request usage or an automatic compaction threshold.
 Clicking the icon opens a confirmation explaining automatic compaction, reduced context size, model-call cost and possible loss of detail; only confirmation starts manual compaction.
-Successful automatic and manual compaction hide the composer status and display
+Successful automatic and manual compaction hide the compaction progress and display
 the committed summary as a normal assistant message, with Markdown, copying,
 the actual compression model and its token usage/call details,
 at its event position in the conversation. The execution details do not repeat

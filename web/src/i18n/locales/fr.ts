@@ -385,6 +385,8 @@ export default {
   "contextCompacting": "Compression du contexte…",
   "contextCompactionDone": "Contexte compressé",
   "contextDetails": "Détails du contexte",
+  "contextInterrupted": "Compression du contexte interrompue",
+  "compactionRetryHint": "Le contexte précédent est conservé. Lorsque la conversation est disponible et inactive, relancez la compression en haut à droite.",
   "manualCompactionProgress": "Résumé de la conversation. L’historique est conservé.",
   "autoCompactionProgress": "Résumé de la conversation. La tâche reprendra automatiquement.",
   "contextUsageDetail": "Tokens estimés à partir des instructions, messages, résumés et contenus des outils conservés : {tokens}.",

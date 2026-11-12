@@ -382,6 +382,8 @@ export default {
   "contextCompacting": "Compacting context…",
   "contextCompactionDone": "Context compacted",
   "contextDetails": "Context details",
+  "contextInterrupted": "Context compaction interrupted",
+  "compactionRetryHint": "The previous context is retained. Once the session is available and idle, use Compact context in the upper right to try again.",
   "manualCompactionProgress": "Summarizing the conversation. Your chat history is kept.",
   "autoCompactionProgress": "Summarizing the conversation. The task will resume automatically.",
   "contextUsageDetail": "Estimated tokens from retained instructions, messages, summaries and tool content: {tokens}.",

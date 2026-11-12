@@ -291,8 +291,13 @@ test('tabs, pagination and menus keep keyboard navigation and disabled boundarie
   const trigger = page.getByRole('button', { name: 'Menu', exact: true })
   await trigger.press('ArrowDown')
   await expect(page.getByRole('menu')).toBeVisible()
+  // Opening and keyboard focus settle separately in the menu state machine.
+  // Send navigation only after focus, then wait for its highlighted target.
+  await expect(page.getByRole('menu')).toBeFocused()
   await expect(page.getByRole('menuitem', { name: 'Disabled item', exact: true })).toHaveAttribute('aria-disabled', 'true')
   await page.keyboard.press('End')
+  const enabled = page.getByRole('menuitem', { name: 'Enabled item', exact: true })
+  await expect(enabled).toHaveAttribute('data-highlighted', '')
   await page.keyboard.press('Enter')
   await expect(page.getByTestId('menu')).toHaveText('enabled')
   await expect(page.getByRole('menu')).toHaveCount(0)

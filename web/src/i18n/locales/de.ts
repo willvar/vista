@@ -385,6 +385,8 @@ export default {
   "contextCompacting": "Kontext wird komprimiert…",
   "contextCompactionDone": "Kontext komprimiert",
   "contextDetails": "Kontextdetails",
+  "contextInterrupted": "Kontextkomprimierung unterbrochen",
+  "compactionRetryHint": "Der bisherige Kontext bleibt erhalten. Sobald die Unterhaltung verfügbar und inaktiv ist, können Sie oben rechts erneut komprimieren.",
   "manualCompactionProgress": "Unterhaltung wird zusammengefasst. Der Verlauf bleibt erhalten.",
   "autoCompactionProgress": "Unterhaltung wird zusammengefasst. Die Aufgabe wird automatisch fortgesetzt.",
   "contextUsageDetail": "Geschätzte Token aus beibehaltenen Anweisungen, Nachrichten, Zusammenfassungen und Werkzeuginhalten: {tokens}.",

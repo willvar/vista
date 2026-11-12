@@ -385,6 +385,8 @@ export default {
   "contextCompacting": "컨텍스트 압축 중…",
   "contextCompactionDone": "컨텍스트 압축 완료",
   "contextDetails": "컨텍스트 상세 정보",
+  "contextInterrupted": "컨텍스트 압축이 중단되었습니다",
+  "compactionRetryHint": "이전 컨텍스트가 유지됩니다. 대화를 사용할 수 있고 실행 중인 작업이 없으면 오른쪽 위에서 다시 압축할 수 있습니다.",
   "manualCompactionProgress": "대화를 요약하고 있습니다. 대화 기록은 유지됩니다.",
   "autoCompactionProgress": "대화를 요약하고 있습니다. 작업은 자동으로 재개됩니다.",
   "contextUsageDetail": "유지된 지침, 메시지, 요약 및 도구 내용을 기준으로 추정한 토큰 수: {tokens}.",

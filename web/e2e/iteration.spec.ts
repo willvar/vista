@@ -229,6 +229,19 @@ test('independent selection, voluntary feedback, pending controls, and context f
   await page.getByRole('button', { name: 'Unhelpful answer', exact: true }).click()
   await expect.poll(() => fixture.feedback['assistant-1']).toBeUndefined()
 
+  const queueLayout = await page.locator('.pending-inputs').evaluate(element => {
+    const column = element.closest('.conversation-column')!
+    const sender = column.querySelector('.sender-card')!
+    const execution = column.querySelector('.conversation-execution')
+    const next = element.nextElementSibling
+    return { inHistory: !!element.closest('.conversation-history'), adjacentComposer: !!(next?.matches('.sender-card') || next?.querySelector('.sender-card')),
+      top: element.getBoundingClientRect().top, bottom: element.getBoundingClientRect().bottom,
+      senderTop: sender.getBoundingClientRect().top, executionBottom: execution?.getBoundingClientRect().bottom }
+  })
+  expect(queueLayout.inHistory).toBe(false)
+  expect(queueLayout.adjacentComposer).toBe(true)
+  expect(queueLayout.bottom).toBeLessThanOrEqual(queueLayout.senderTop + 1)
+  if (queueLayout.executionBottom !== undefined) expect(queueLayout.executionBottom).toBeLessThanOrEqual(queueLayout.top + 1)
   const first = page.locator('[data-input-id="pending-1"]')
   await first.getByRole('button', { name: 'Edit pending message', exact: true }).click()
   await first.getByRole('textbox', { name: 'Edit pending message', exact: true }).fill('Edited gardening note')

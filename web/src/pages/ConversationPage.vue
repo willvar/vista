@@ -2,7 +2,7 @@
 import { computed, nextTick, onMounted, onUnmounted, ref, shallowRef, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { Empty as VEmpty, Alert as VAlert, Button as VButton, Modal as VModal, Spin as VSpin } from '../ui'
-import { IconMenu2, IconArrowBarDown, IconPencil } from '@tabler/icons-vue'
+import { IconMenu2, IconArrowBarDown, IconPencil, IconSubtask } from '@tabler/icons-vue'
 import Bubble from '../ui/Bubble.vue'
 import TimelineItem from '../TimelineItem.vue'
 import ConversationSender from '../ConversationSender.vue'
@@ -33,6 +33,7 @@ import { useWorkspace } from '../composables/useWorkspace'
 import { messageModelIdentity } from '../composables/usePresentation'
 import { checklistItems } from '../state/checklist.ts'
 import { displayOutputKey } from '../state/mainOutputs.ts'
+import { jobActive } from '../state/jobs.ts'
 
 const { t } = useI18n({ useScope: 'global' })
 const workspace = useWorkspace()
@@ -47,10 +48,13 @@ const { synchronization, snapshotReady, viewRevision, resynchronize, renderFailu
   feedback, feedbackBusy, rateMessage, selectionMode, pendingInputs, inputQueuePaused, pendingBusy, mutateInput, resumeInputs,
   displayMessages: messages, processEvents, mainOutputs, modelOutput,
   agentWorking, agentStatus, jobs, artifacts, currentChecklist, runClock,
-  contextUsage, canCompact, compactSession,
+  contextUsage, canCompact, compactSession, compacting, compactionResult, compaction, manualCompacting, compactionRequestPending,
   modelByRun,
   hasOlder, hasNewer, lastEvent, loadOlder, submitQuestion, readOutputIndexes, readDisplayOutput, releaseDisplayOutput, modelOutputLoading, modelOutputFailure,
   fullMessageText, resultsForMessage, resultsForTrace, traceSegment, runReplyTurns, runActivityAnchor, firstRunSequence } = workspace.conversation
+const runningJobs = computed(() => jobs.value.filter(jobActive).length)
+const showExecution = computed(() => agentWorking.value || compacting.value || !!compactionResult.value)
+const executionClock = computed(() => manualCompacting.value || compactionRequestPending.value || compactionResult.value ? null : runClock.value)
 const pendingQuestion = computed(() => selected.value?.pendingReply?.kind === 'question' && selected.value.pendingReply.questions?.length ? selected.value.pendingReply : null)
 const questionMessageID = computed(() => pendingQuestion.value ? messages.value.filter(message =>
   message.role === 'assistant' && !message.contextSummary && message.runId === pendingQuestion.value!.runId && !message.outputTurn && message.content === pendingQuestion.value!.content).at(-1)?.id || '' : '')
@@ -190,6 +194,10 @@ onUnmounted(() => {
         <div class="conversation-header"><v-button variant="text" class="icon-button mobile-sessions-trigger" :aria-label="t('sessions')" :aria-expanded="mobileSessionsOpen" @click="mobileSessionsOpen = true"><IconMenu2 /><span v-if="attentionCount" class="session-attention-dot" role="img" :aria-label="t('sessionsNeedAttention', { count: attentionCount })"></span></v-button><div class="conversation-heading"><InlineSessionTitle :key="selected.id" :session="selected" v-model:editing="renamingTitle"><div class="session-heading-title"><h2 :title="displaySessionTitle(selected)">{{ displaySessionTitle(selected) }}</h2><v-button class="icon-button" variant="text" :aria-label="t('editTitle')" @click="renamingTitle = true"><IconPencil /></v-button></div></InlineSessionTitle></div><div class="conversation-header-tools">
           <WorkerStatus v-if="debugMode && selected.open" :key="selected.id" :memory="selectedWorkerMemory" :available="workerAvailable(selected.id)" />
           <ContextCompaction :key="selected.id" :usage="contextUsage" :disabled="!canCompact || !workerAvailable(selected.id)" @compact="compactSession" />
+          <ConversationChecklist :key="selected.id" :items="currentChecklist" :active="agentWorking" :status="selected.latestRunStatus" />
+          <v-button v-if="jobs.length" variant="text" class="icon-button header-status-trigger background-processes-trigger"
+            :aria-label="t('backgroundProcessCount', { count: runningJobs })" :title="t('backgroundProcessCount', { count: runningJobs })" @click="processes?.open()">
+            <IconSubtask aria-hidden="true" /><span class="background-processes-count">{{ runningJobs }}</span></v-button>
         </div></div>
         <v-alert v-if="needsProvider" class="session-setup-notice" type="warning" :message="t('noModelConfigured')" />
         <div v-if="synchronization.phase === 'error' || scrolling.presented.value && synchronization.phase !== 'ready' && synchronization.phase !== 'stopped'" class="conversation-sync-notice" :role="synchronization.phase === 'error' ? 'alert' : 'status'">
@@ -197,7 +205,7 @@ onUnmounted(() => {
           <v-button v-if="synchronization.phase === 'error'" @click="resynchronize">{{ t('conversationResynchronize') }}</v-button>
         </div>
         <div class="workspace-body">
-        <div class="conversation-column" :class="{ 'has-checklist': currentChecklist.length, 'has-execution': agentWorking }">
+        <div class="conversation-column" :class="{ 'has-execution': showExecution }">
         <div class="conversation-history">
         <div ref="messageList" class="messages" :class="{ empty: !messages.length, 'history-preparing': !scrolling.presented.value, 'history-scroll-locked': scrolling.locked.value }"
           :data-history-start="history.items.value[0]?.displaySequence" :data-history-loading="history.loading.value" :aria-busy="scrolling.loading.value" :inert="!scrolling.presented.value" @scroll="scrolling.onScroll" @wheel="scrolling.onWheel"
@@ -259,12 +267,11 @@ onUnmounted(() => {
           <v-button v-if="scrolling.presented.value && showJumpToLatest" class="jump-latest" variant="text" :aria-label="t('jumpToLatest')" @click="jumpToLatest"><IconArrowBarDown aria-hidden="true" /><span>{{ t('jumpToLatest') }}</span></v-button>
         </Transition>
 
-        <PendingInputs :items="pendingInputs" :paused="inputQueuePaused" :busy="pendingBusy" :mutate="mutateInput" @resume="resumeInputs" />
         </div>
         <MessageQuoteSelection :root="messageList" :session-id="selected.id" :disabled="busy || !selected.open || route.name !== 'session' || mobileSessionsOpen || feedbackInvitationOpen" @quote="workspace.conversation.quoteSelection" />
-        <ConversationExecution v-if="agentWorking" :status="agentStatus" :clock="runClock" />
-        <ConversationChecklist :items="currentChecklist" :active="agentWorking" :status="selected.latestRunStatus" />
-        <ConversationSender @send="prepareForSend" @open-processes="processes?.open()" />
+        <ConversationExecution v-if="showExecution" :key="selected.id" :status="agentStatus" :clock="executionClock" :compacting="compacting" :manual="manualCompacting || compactionRequestPending" :compaction="compactionResult || (compacting ? compaction : null)" />
+        <PendingInputs :items="pendingInputs" :paused="inputQueuePaused" :busy="pendingBusy" :mutate="mutateInput" @resume="resumeInputs" />
+        <ConversationSender @send="prepareForSend" />
         </div></div>
       </section>
       <section v-else class="workspace welcome">
@@ -291,12 +298,14 @@ onUnmounted(() => {
 
 <style scoped>
 .checklist-summary-text{white-space:pre-wrap;overflow-wrap:anywhere}
+.background-processes-trigger.ui-btn{gap:.25rem;min-width:32px;width:auto}
+.background-processes-count{font-size:12px;font-variant-numeric:tabular-nums}
 .conversation-sync-notice,.conversation-render-notice{display:flex;align-items:center;gap:12px;color:var(--muted);font-size:var(--font-size-body);line-height:1.6}
 .conversation-sync-notice{padding:8px 16px;border-bottom:1px solid var(--border)}
 .conversation-sync-notice[role="alert"]{color:var(--danger)}
 .conversation-render-notice{padding:12px 0}
 @media(max-height:520px){
-  .conversation-column.has-checklist .jump-latest,.conversation-column.has-execution .jump-latest{left:auto;right:.5rem;transform:none}
-  .conversation-column.has-checklist .jump-latest-enter-from,.conversation-column.has-checklist .jump-latest-leave-to,.conversation-column.has-execution .jump-latest-enter-from,.conversation-column.has-execution .jump-latest-leave-to{transform:translateY(6px) scale(.88)}
+  .conversation-column.has-execution .jump-latest{left:auto;right:.5rem;transform:none}
+  .conversation-column.has-execution .jump-latest-enter-from,.conversation-column.has-execution .jump-latest-leave-to{transform:translateY(6px) scale(.88)}
 }
 </style>

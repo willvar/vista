@@ -16,9 +16,9 @@ test('worker metrics stay behind an icon and their popup fits the viewport', asy
   const header = page.locator('.workspace:not(.modal-page) > .conversation-header')
   const sender = page.locator('.sender-card')
   const worker = header.locator('.worker-status-trigger')
-  const context = sender.locator('.context-status')
+  const context = page.locator('.conversation-execution .compaction-details')
   const popup = page.locator('.worker-metrics-detail:visible')
-  const contextPopup = page.locator('.context-status-detail:visible')
+  const contextPopup = page.locator('.compaction-error-detail:visible')
   await expect(worker).toBeVisible()
   await expect(worker.locator('svg.worker-memory-icon')).toBeVisible()
   await expect(worker).toHaveText('')
@@ -66,6 +66,12 @@ test('worker metrics stay behind an icon and their popup fits the viewport', asy
   expect(await header.boundingBox()).toEqual(headerBefore)
   expect(await sender.boundingBox()).toEqual(senderBefore)
   await page.screenshot({ path: testInfo.outputPath('worker-status-open.png'), animations: 'disabled' })
+  // A short viewport lets the floating metrics cover the other trigger.
+  // Dismiss that layer before selecting the independently positioned details.
+  if (testInfo.project.name === 'mobile-landscape') {
+    await page.keyboard.press('Escape')
+    await expect(popup).toHaveCount(0)
+  }
   await context.click()
   await expect(popup).toHaveCount(0)
   await expect(worker).toHaveAttribute('aria-expanded', 'false')
@@ -84,9 +90,13 @@ test('worker metrics stay behind an icon and their popup fits the viewport', asy
   expect(contextGeometry.overflow).toBeLessThanOrEqual(2)
   expect(await header.boundingBox()).toEqual(headerBefore)
   expect(await sender.boundingBox()).toEqual(senderBefore)
-  await page.screenshot({ path: testInfo.outputPath('context-status-open.png'), animations: 'disabled' })
+  await page.screenshot({ path: testInfo.outputPath('compaction-details-open.png'), animations: 'disabled' })
   await contextPopup.getByText('The previous context was retained.', { exact: true }).click()
   await expect(contextPopup).toBeVisible()
+  if (testInfo.project.name === 'mobile-landscape') {
+    await page.keyboard.press('Escape')
+    await expect(contextPopup).toHaveCount(0)
+  }
   await worker.click()
   await expect(contextPopup).toHaveCount(0)
   await expect(context).toHaveAttribute('aria-expanded', 'false')

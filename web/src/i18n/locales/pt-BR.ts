@@ -385,6 +385,8 @@ export default {
   "contextCompacting": "Compactando contexto…",
   "contextCompactionDone": "Contexto compactado",
   "contextDetails": "Detalhes do contexto",
+  "contextInterrupted": "Compactação do contexto interrompida",
+  "compactionRetryHint": "O contexto anterior foi mantido. Quando a conversa estiver disponível e ociosa, tente compactar novamente no canto superior direito.",
   "manualCompactionProgress": "Resumindo a conversa. O histórico será mantido.",
   "autoCompactionProgress": "Resumindo a conversa. A tarefa continuará automaticamente.",
   "contextUsageDetail": "Tokens estimados a partir das instruções, mensagens, resumos e conteúdo de ferramentas mantidos: {tokens}.",

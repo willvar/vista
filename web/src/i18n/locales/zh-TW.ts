@@ -362,6 +362,8 @@ export default { ...base, ...{
   "contextCompacting": "正在壓縮上下文…",
   "contextCompactionDone": "上下文已壓縮",
   "contextDetails": "上下文詳情",
+  "contextInterrupted": "壓縮已中斷",
+  "compactionRetryHint": "原有效上下文已保留。會話恢復可用且空閒後，可從右上角重新壓縮。",
   "manualCompactionProgress": "整理對話要點，保留聊天記錄。",
   "autoCompactionProgress": "整理對話要點，完成後自動繼續任務。",
   "contextUsageDetail": "根據當前保留的指令、訊息、摘要和工具內容估算詞元：{tokens}。",

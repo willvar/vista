@@ -385,6 +385,8 @@ export default {
   "contextCompacting": "コンテキストを圧縮中…",
   "contextCompactionDone": "コンテキストを圧縮しました",
   "contextDetails": "コンテキストの詳細",
+  "contextInterrupted": "コンテキストの圧縮が中断されました",
+  "compactionRetryHint": "以前のコンテキストは保持されています。会話が利用可能で待機中になったら、右上から再度圧縮できます。",
   "manualCompactionProgress": "会話の要点を整理しています。履歴は保持します。",
   "autoCompactionProgress": "会話の要点を整理しています。完了後にタスクを自動再開します。",
   "contextUsageDetail": "保持されている指示、メッセージ、要約、ツールの内容から推定したトークン数：{tokens}。",

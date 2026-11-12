@@ -5,23 +5,18 @@ import { IconPhoto, IconArrowRight, IconArrowUp } from '@tabler/icons-vue'
 import { Button as VButton, Select as VSelect, Tooltip as VTooltip } from './ui'
 import Sender from './ui/Sender.vue'
 import type { TextAreaRef as SenderRef } from './ui/types'
-import ContextStatus from './ContextStatus.vue'
 import ReasoningEffortPicker from './ReasoningEffortPicker.vue'
-import { jobActive } from './state/jobs'
 import { useWorkspace } from './composables/useWorkspace'
 
 const { t } = useI18n({ useScope: 'global' })
-const emit = defineEmits<{ send: []; openProcesses: [] }>()
+const emit = defineEmits<{ send: [] }>()
 const { selected, busy, needsProvider, workerAvailable, modelChoices, interactionPreferences, conversation, route, mobileSessionsOpen, modalQuery } = useWorkspace()
 const { draft, quotedText, removeQuote, agentWorking, selectionMode, selectionTier, chooseSelectionTier,
   editingMessage, cancelEditMessage,
   selectedModel, selectedReasoning, reasoningChoices, chooseModel,
   canAttachImage, attachedImages, attachedPreviewURLs, chooseImages, pasteImages, dropImages, removeImage,
   submitMessage, cancelExecution, recallLastUserMessage,
-  jobs, compaction, manualCompacting, compactionRequestPending, continueAfterCompaction, fillContinueDraft, feedbackInvitationOpen } = conversation
-const runningJobs = computed(() => jobs.value.filter(jobActive).length)
-const compacting = computed(() => manualCompacting.value || compactionRequestPending.value
-  || agentWorking.value && compaction.value?.phase === 'compacting')
+  manualCompacting, compactionRequestPending, continueAfterCompaction, fillContinueDraft, feedbackInvitationOpen } = conversation
 const senderDisabled = computed(() => manualCompacting.value || compactionRequestPending.value || !interactionPreferences.ready.value || !modelChoices.value.length
   || !!selected.value && (!selected.value.open || !workerAvailable(selected.value.id)))
 const sender = ref<SenderRef | null>(null)
@@ -82,8 +77,7 @@ const senderAutoSize = computed(() => compactSender.value
   ? { minRows: 1, maxRows: draft.value.trim() ? 4 : 1 }
   : { minRows: 2, maxRows: 8 })
 const senderClass = computed(() => 'composer sender-card'
-  + (selectionMode.value === 'auto' ? ' sender-card-auto' : '')
-  + (compacting.value ? ' sender-card-compacting' : ''))
+  + (selectionMode.value === 'auto' ? ' sender-card-auto' : ''))
 function updateSenderSize() {
   compactSender.value = shortViewport.matches
   smallScreen.value = smallViewport.matches
@@ -155,7 +149,6 @@ onUnmounted(() => {
         <Sender v-else ref="sender" v-model:value="draft" :class="senderClass" :auto-size="senderAutoSize" :disabled="senderDisabled" :loading="busy || agentWorking && !draft.trim() && !attachedImages.length" :placeholder="senderPlaceholder" :aria-label="t('sendMessage')" :on-key-down="senderKeyDown" @compositionstart.capture="compositionStart" @compositionend.capture="compositionEnd" @paste="pasteImages" @dragenter="enterImageDrag" @dragover="overImageDrag" @dragleave="leaveImageDrag" @drop="receiveImageDrop">
           <template #header>
           <div v-if="editingMessage" class="sender-editing" role="status"><span>{{ t('editingSentMessage') }}</span><v-button variant="text" :disabled="busy" @click="cancelEditMessage">{{ t('cancelEditMessage') }}</v-button></div>
-          <ContextStatus v-if="selected" :key="selected.id" :status="compaction" :compacting="compacting" :manual="manualCompacting || compactionRequestPending" :cancel-disabled="busy || !manualCompacting" :has-jobs="!!jobs.length" :job-count="runningJobs" @cancel="cancelExecution" @open-processes="emit('openProcesses')" />
           <div v-if="quotedText" class="sender-quote" role="group" :aria-label="t('quotedText')">
             <span class="sender-quote-mark" aria-hidden="true">“</span>
             <div class="sender-quote-body"><span class="sender-quote-label">{{ t(quotedText.role === 'assistant' ? 'quotedReply' : 'quotedMessage') }}</span><p>{{ quotedText.text }}</p></div>
@@ -203,7 +196,6 @@ onUnmounted(() => {
 .sender-quote-body{min-width:0;flex:1}
 .sender-quote-label{display:block;margin-bottom:3px;color:var(--muted);font-size:12px}
 .sender-quote-body p{max-height:5.4em;margin:0;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere;font-size:14px;line-height:1.6}
-.sender-card-compacting{border-color:var(--border-strong)!important}
 .sender-drop-hint{position:absolute;inset:0;z-index:5;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:.3rem;padding:.6rem;pointer-events:none;border:2px dashed var(--accent);border-radius:inherit;background:var(--surface);text-align:center}
 .sender-drop-hint>.tabler-icon{font-size:24px}
 .sender-drop-hint strong{font-size:16px;font-weight:500}

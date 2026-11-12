@@ -16,7 +16,7 @@ export type VistaFixture = {
   workspacePath: string
   modelRequests: ModelRequest[]
   modelUserAgents: string[]
-  pauseModelReplies: (afterText?: boolean) => () => void
+  pauseModelReplies: (afterText?: boolean, summaryOnly?: boolean) => () => void
   finishDetachedTask: () => void
   api: (path: string, options?: RequestInit) => Promise<any>
 }
@@ -92,11 +92,13 @@ export const nativeFixture = {
     const modelUserAgents: string[] = []
     let replyGate: Promise<void> | undefined
     let pauseAfterText = false
+    let pauseOnlySummary = false
     let releaseReplies = () => {}
     let finishDetachedTask!: () => void
     const backgroundGate = new Promise<void>(resolve => { finishDetachedTask = resolve })
-    const pauseModelReplies = (afterText = false) => {
+    const pauseModelReplies = (afterText = false, summaryOnly = false) => {
       pauseAfterText = afterText
+      pauseOnlySummary = summaryOnly
       replyGate = new Promise<void>(done => { releaseReplies = done })
       return () => { releaseReplies(); replyGate = undefined }
     }
@@ -121,7 +123,8 @@ export const nativeFixture = {
         : String(input.messages?.[0]?.content || '').startsWith('Write a short, specific title')
       if (!titleRequest && !providerOutput && fileChanges
         && readRules(input, response)) return
-      const gate = titleRequest ? undefined : replyGate
+      const summaryRequest = String(input.messages?.[0]?.content || '').startsWith('Compress the completed execution transcript')
+      const gate = titleRequest || pauseOnlySummary && !summaryRequest ? undefined : replyGate
       const streamBeforeGate = pauseAfterText
       if (!titleRequest) {
         modelRequests.push(input)

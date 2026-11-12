@@ -7,6 +7,9 @@ test('local coverage includes consumers, staged/new specs and core smoke', () =>
   const scope = browserScope(['web/src/state/conversation.ts', 'web/e2e/session-flow.spec.ts'], files)
   assert.equal(scope.full, false)
   assert.deepEqual(scope.files, ['compaction.spec.ts', 'conversation-sync.spec.ts', 'execution-flow.spec.ts', 'session-flow.spec.ts', 'usage.spec.ts'])
+  for (const path of ['internal/store/compaction.go', 'internal/server/worker_results_context.go']) {
+    assert.deepEqual(browserScope([path], files).files, ['compaction.spec.ts', 'conversation-sync.spec.ts', 'execution-flow.spec.ts', 'usage.spec.ts'])
+  }
   const selection = new RegExp(browserSelection(scope.files)!)
   assert.ok(selection.test('desktop onboarding.spec.ts connect @smoke'))
   assert.ok(selection.test('desktop compaction.spec.ts scoped summary usage'))
