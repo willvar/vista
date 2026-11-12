@@ -64,6 +64,7 @@ Make 在 `.vista/test-state/bin` 构建隔离测试产物，使用独立配置�
 
 [`validate.yml`](../.github/workflows/validate.yml) 接受手动 `workflow_dispatch` 运行及 `v*` tag 推送。
 可在 Actions → Build and release 中只运行检查而不发布，或执行 `gh workflow run validate.yml -f browser=true`。
+手动单视口检查可传入 `-f browser=true -f browser_project=desktop`（或任一移动视口）；此时跳过 Go／原生任务，仅运行所选浏览器项目。默认 `browser_project=all` 保留完整流程，发布 tag 推送仍执行全部必要任务和视口。
 手动运行分支时构建 `dev` 压缩包；运行 tag 时使用其 `vMAJOR.MINOR.PATCH` 版本。
 
 Go 单测／vet／竞态及前端检查在 Ubuntu 上运行。
@@ -78,6 +79,7 @@ runner 缺少 Explorer 桌面入口时，该进程会启动 Explorer，并在任
 原生脚本在编译前检查进程脱离权限，不改写应用的启动标志。
 
 Linux 浏览器矩阵安装与锁定 Playwright 包匹配的 Chromium，三个视口项目分别使用独立 runner，各运行两个工作进程，并应用上述覆盖分类。
+浏览器系统依赖通过本次安装专用的临时 APT 配置使用 Ubuntu 官方 archive／security 软件源，不改写 runner 的系统源文件或 DNS 配置。环境准备限时五分钟，与测试断言结果分别处理。
 手动运行时可关闭浏览器测试；推送发布 tag 时始终执行。
 原生报告、压缩包和浏览器结果摘要保留三天，浏览器 trace／截图仅在失败时上传。
 runner 结果只证明实际运行的检查，模拟模型端点不证明真实服务商兼容性。

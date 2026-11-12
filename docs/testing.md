@@ -64,6 +64,7 @@ Pure state/protocol checks also run through Node and Go tests rather than depend
 
 [`validate.yml`](../.github/workflows/validate.yml) accepts manual `workflow_dispatch` runs and pushes of `v*` tags.
 Run checks without publishing from Actions → Build and release, or `gh workflow run validate.yml -f browser=true`.
+For a focused manual browser check, pass `-f browser=true -f browser_project=desktop` (or either mobile project); this skips Go/native jobs and runs only that browser project. The default `browser_project=all` retains the complete workflow, and release-tag pushes always run every required job and viewport.
 Manual branch runs build `dev` archives; tag runs use the tag's `vMAJOR.MINOR.PATCH` version.
 
 Go units/vet/race and frontend checks run on Ubuntu.
@@ -78,6 +79,7 @@ When the runner lacks an Explorer desktop entry, the process starts Explorer and
 The native script checks process-breakaway permission before building, without changing the application's launch flags.
 
 The Linux browser matrix installs the Chromium version matching the pinned Playwright package and runs each viewport project on a separate runner with two workers, using the coverage classification above.
+Browser OS dependencies use official Ubuntu archive/security sources through a temporary APT configuration for that installation; the runner's system source files and DNS configuration are not rewritten. Browser setup has a five-minute deadline and remains separate from test assertion results.
 Manual runs may disable it; pushed release tags always run it.
 Native reports, archives and browser summaries are retained for three days; browser traces/screenshots are uploaded on failure only.
 Runner results establish the checks actually run; simulated model endpoints do not establish live-provider compatibility.

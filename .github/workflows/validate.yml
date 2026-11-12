@@ -10,12 +10,21 @@ on:
         description: Run the complete Linux browser suite
         type: boolean
         default: true
+      browser_project:
+        description: Manual browser-only check; all retains the complete workflow
+        type: choice
+        default: all
+        options:
+          - all
+          - desktop
+          - mobile-portrait
+          - mobile-landscape
 
 permissions:
   contents: read
 
 concurrency:
-  group: vista-build-${{ github.ref }}-${{ github.event_name }}-${{ inputs.browser }}
+  group: vista-build-${{ github.ref }}-${{ github.event_name }}-${{ inputs.browser }}-${{ inputs.browser_project }}
   cancel-in-progress: ${{ github.event_name != 'push' }}
 
 env:
@@ -32,6 +41,7 @@ env:
 jobs:
   core:
     name: Go and frontend checks
+    if: ${{ github.event_name == 'push' || inputs.browser_project == 'all' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
@@ -62,6 +72,7 @@ jobs:
 
   native:
     name: Native ${{ matrix.target }}
+    if: ${{ github.event_name == 'push' || inputs.browser_project == 'all' }}
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 30
     strategy:
@@ -134,7 +145,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        project: [desktop, mobile-portrait, mobile-landscape]
+        project: ${{ fromJSON((github.event_name == 'push' || inputs.browser_project == 'all') && '["desktop","mobile-portrait","mobile-landscape"]' || format('["{0}"]', inputs.browser_project)) }}
     env:
       BROWSER_PROJECT: ${{ matrix.project }}
       PLAYWRIGHT_JSON_OUTPUT_FILE: ${{ github.workspace }}/web/.vista/test-state/browser-report.json
@@ -151,10 +162,28 @@ jobs:
           cache: npm
           cache-dependency-path: web/package-lock.json
       - name: Install the locked browser runtime
+        timeout-minutes: 5
         working-directory: web
         run: |
           npm ci
-          npx playwright install --with-deps chromium
+          # Use official Ubuntu sources for this dependency installation only;
+          # the runner's mirror selector can resolve to an unavailable mirror.
+          apt_dir="$RUNNER_TEMP/vista-browser-apt"
+          mkdir -p "$apt_dir"
+          cat > "$apt_dir/sources.list" <<'EOF'
+          deb https://archive.ubuntu.com/ubuntu noble main restricted universe multiverse
+          deb https://archive.ubuntu.com/ubuntu noble-updates main restricted universe multiverse
+          deb https://security.ubuntu.com/ubuntu noble-security main restricted universe multiverse
+          EOF
+          cat > "$apt_dir/apt.conf" <<EOF
+          Dir::Etc::sourcelist "$apt_dir/sources.list";
+          Dir::Etc::sourceparts "-";
+          Acquire::Retries "2";
+          Acquire::http::Timeout "30";
+          Acquire::https::Timeout "30";
+          EOF
+          sudo env APT_CONFIG="$apt_dir/apt.conf" "$(command -v node)" node_modules/playwright/cli.js install-deps chromium
+          npx playwright install chromium
           node --input-type=module -e 'import { chromium } from "@playwright/test"; console.log("VISTA_CHROME=" + chromium.executablePath())' >> "$GITHUB_ENV"
       - name: Run viewport browser checks
         run: make test e2e E2E_ARGS="--project=$BROWSER_PROJECT --max-failures=0 --workers=2 --reporter=list,json --global-timeout=1800000"
