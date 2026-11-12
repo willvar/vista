@@ -53,8 +53,26 @@ func TestManualCompactionExcludesOtherRunsAndInterruptsWithoutReply(t *testing.T
 				t.Fatalf("maintenance inserted reply: %+v %v", messages, err)
 			}
 			status, err := db.CompactionStatus(ctx, "session")
-			if err != nil || status.Phase != "failed" || !status.Manual || status.Error == "" {
+			wantPhase := "failed"
+			if stop == "interrupt" {
+				wantPhase = "interrupted"
+			}
+			if err != nil || status.Phase != wantPhase || !status.Manual || status.Error == "" {
 				t.Fatalf("status=%+v %v", status, err)
+			}
+			if stop == "interrupt" {
+				// Simulate the terminal encoding used by an older version.
+				if _, err := db.db.ExecContext(ctx, `UPDATE events SET data=json_set(data,'$.phase','failed') WHERE session_id=? AND sequence=?`, "session", status.Sequence); err != nil {
+					t.Fatal(err)
+				}
+				restored, err := db.CompactionStatus(ctx, "session")
+				if err != nil || restored.Phase != "interrupted" {
+					t.Fatalf("legacy interruption=%+v error=%v", restored, err)
+				}
+				var storedPhase string
+				if err := db.db.QueryRowContext(ctx, `SELECT json_extract(data,'$.phase') FROM events WHERE session_id=? AND sequence=?`, "session", status.Sequence).Scan(&storedPhase); err != nil || storedPhase != "failed" {
+					t.Fatalf("status recovery rewrote history: phase=%s error=%v", storedPhase, err)
+				}
 			}
 			if _, _, err := db.BeginRun(ctx, "session", "next", "next-u", "continue"); err != nil {
 				t.Fatalf("maintenance lock leaked: %v", err)

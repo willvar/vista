@@ -27,9 +27,14 @@ func (s *Store) ContextCheckpoint(ctx context.Context, sessionID string) (*worke
 }
 
 func (s *Store) CompactionStatus(ctx context.Context, sessionID string) (*workerproto.CompactionStatus, error) {
+	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
 	var raw []byte
 	var sequence int64
-	err := s.db.QueryRowContext(ctx, `SELECT sequence, CASE WHEN kind='context_status' THEN data ELSE json_extract(data,'$.context') END FROM events WHERE session_id=? AND (kind='context_status' OR (kind='context_notice' AND json_extract(data,'$.depth')=0 AND json_type(data,'$.context')='object')) ORDER BY sequence DESC LIMIT 1`, sessionID).Scan(&sequence, &raw)
+	err = tx.QueryRowContext(ctx, `SELECT sequence, CASE WHEN kind='context_status' THEN data ELSE json_extract(data,'$.context') END FROM events WHERE session_id=? AND (kind='context_status' OR (kind='context_notice' AND json_extract(data,'$.depth')=0 AND json_type(data,'$.context')='object')) ORDER BY sequence DESC LIMIT 1`, sessionID).Scan(&sequence, &raw)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
@@ -41,17 +46,27 @@ func (s *Store) CompactionStatus(ctx context.Context, sessionID string) (*worker
 		return nil, err
 	}
 	status.Sequence = sequence
-	if status.Phase == "compacting" || status.Manual && status.Phase == "compacted" {
-		var running bool
-		if err := s.db.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM runs WHERE id=? AND session_id=? AND status='running')`, status.RunID, sessionID).Scan(&running); err != nil {
+	if status.Phase == "compacting" || status.Phase == "failed" || status.Manual && status.Phase == "compacted" {
+		var runStatus string
+		err := tx.QueryRowContext(ctx, `SELECT status FROM runs WHERE id=? AND session_id=?`, status.RunID, sessionID).Scan(&runStatus)
+		if err != nil && !errors.Is(err, sql.ErrNoRows) {
 			return nil, err
 		}
-		if running && status.Manual {
+		if runStatus == "running" && status.Manual && status.Phase == "compacted" {
 			status.Phase = "compacting"
 		}
-		if !running && status.Phase == "compacting" {
+		if runStatus != "running" && status.Phase == "compacting" {
 			status.Phase = "failed"
-			status.Error = "Compaction was interrupted; the previous context was retained"
+			status.Error = "Compaction failed; the previous context was retained"
+			if runStatus != "failed" {
+				status.Phase = "interrupted"
+				status.Error = "Compaction was interrupted; the previous context was retained"
+			}
+		}
+		// Older terminal events used failed for both outcomes. Project their
+		// actual run result without rewriting the saved event history.
+		if status.Phase == "failed" && runStatus == "interrupted" {
+			status.Phase = "interrupted"
 		}
 	}
 	return &status, nil
@@ -152,6 +167,9 @@ func finishCompactionInTx(ctx context.Context, tx *sql.Tx, sessionID, runID, sta
 	phase := "compacted"
 	if status != "succeeded" {
 		phase = "failed"
+		if status == "interrupted" {
+			phase = "interrupted"
+		}
 	}
 	event, err := appendEvent(ctx, tx, sessionID, "context_status", workerproto.CompactionStatus{RunID: runID, Phase: phase, Manual: true, Error: message})
 	return &event, err

@@ -311,6 +311,14 @@ func TestCompactionCompletionReleasesCapacityAfterCommitExactlyOnce(t *testing.T
 			if released != 1 {
 				t.Fatalf("compaction completion released capacity %d times", released)
 			}
+			resultStatus, err := consumer.store.CompactionStatus(consumer.ctx, consumer.sessionID)
+			wantPhase := status
+			if status == "succeeded" {
+				wantPhase = "compacted"
+			}
+			if err != nil || resultStatus.Phase != wantPhase {
+				t.Fatalf("compaction outcome=%+v error=%v", resultStatus, err)
+			}
 		})
 	}
 }

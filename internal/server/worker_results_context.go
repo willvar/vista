@@ -7,7 +7,7 @@ import (
 )
 
 func validCompactionStatus(s *workerproto.CompactionStatus) bool {
-	return s != nil && len(s.Error) <= workerproto.MaxPromptBytes && (s.Phase == "compacting" || s.Phase == "compacted" || s.Phase == "failed")
+	return s != nil && len(s.Error) <= workerproto.MaxPromptBytes && (s.Phase == "compacting" || s.Phase == "compacted" || s.Phase == "failed" || s.Phase == "interrupted")
 }
 
 func (c *workerResultConsumer) contextStatus(result workerproto.Result) error {
