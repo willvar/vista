@@ -36,12 +36,13 @@ func TestLargeToolArgumentsExecuteAndPersistInFull(t *testing.T) {
 	for _, size := range []int{5 << 10, 96 << 10} {
 		t.Run(fmt.Sprint(size), func(t *testing.T) {
 			db, ctx := checkpointFixture(t)
-			ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+			ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 			defer cancel()
 			path := filepath.Join(t.TempDir(), "large.txt")
 			content := strings.Repeat("x", size)
 			arguments, _ := json.Marshal(map[string]string{"path": path, "expectedSha256": "missing", "content": content})
-			var requests atomic.Int32
+			forceYield := size == 96<<10
+			var requests, pendingReplies, completionNotices, successfulReplies atomic.Int32
 			upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				if requests.Add(1) == 1 {
 					continuationToolCalls(w, scriptedToolCall("large-write", "write_file", string(arguments)))
@@ -52,10 +53,39 @@ func TestLargeToolArgumentsExecuteAndPersistInFull(t *testing.T) {
 					t.Error(err)
 					return
 				}
+				if len(request.Messages) == 0 {
+					t.Error("model continuation omitted its context")
+					continuationAnswer(w, "invalid context")
+					return
+				}
 				last := request.Messages[len(request.Messages)-1]
+				var pending struct {
+					Status      string `json:"status"`
+					ExecutionID string `json:"executionId"`
+				}
+				if last.Role == "tool" && last.ToolCallID == "large-write" && json.Unmarshal([]byte(last.Content), &pending) == nil && pending.Status == "running" {
+					if pending.ExecutionID != "large:tool:main/large-write" {
+						t.Errorf("pending write lost its execution identity: %+v", pending)
+					}
+					pendingReplies.Add(1)
+					continuationAnswer(w, "Waiting for the write result")
+					return
+				}
+				if runtimeNoticeOnWire(last.Role, last.Content) {
+					_, encoded, _ := strings.Cut(last.Content, "\n")
+					var notice workerproto.RuntimeEvent
+					if err := json.Unmarshal([]byte(encoded), &notice); err != nil || notice.ID != "large:tool:main/large-write" || notice.RunID != "large" || notice.Recipient != "main" || notice.Kind != "tool" || notice.SourceID != "large-write" || notice.Status != "succeeded" || notice.Content == "" {
+						t.Errorf("write completion lost its identity or success: %+v, %v", notice, err)
+						continuationAnswer(w, "invalid completion")
+						return
+					}
+					completionNotices.Add(1)
+					last.Role, last.ToolCallID, last.Content = "tool", "large-write", notice.Content
+				}
 				if last.Role != "tool" || last.ToolCallID != "large-write" || strings.Contains(last.Content, `"error"`) {
 					t.Errorf("write did not return success to model: %+v", last)
 				}
+				successfulReplies.Add(1)
 				continuationAnswer(w, "written")
 			}))
 			defer upstream.Close()
@@ -68,14 +98,25 @@ func TestLargeToolArgumentsExecuteAndPersistInFull(t *testing.T) {
 			var final store.ModelOutputRef
 			sink := historyTestSink(db, command, &final)
 			answer, err := Run(ctx, command, func(result workerproto.Result) error {
+				// Delay publication to exercise the scheduling yield without waiting on inference.
+				if forceYield && result.Kind == "tool" && result.Status == "succeeded" && result.Tool != nil && result.Tool.CallID == "large-write" {
+					select {
+					case <-time.After(2 * toolYieldDelay):
+					case <-ctx.Done():
+						return ctx.Err()
+					}
+				}
 				encoded, err := json.Marshal(result)
 				if err != nil || len(encoded) > workerproto.MaxResultFrame {
 					return fmt.Errorf("unbounded result frame: %d bytes, %v", len(encoded), err)
 				}
 				return sink(result)
 			})
-			if err != nil || answer != "written" || requests.Load() != 2 {
+			if err != nil || answer != "written" || requests.Load() != 2+pendingReplies.Load() {
 				t.Fatalf("large write: answer=%q requests=%d err=%v", answer, requests.Load(), err)
+			}
+			if successfulReplies.Load() != 1 || pendingReplies.Load() > 1 || completionNotices.Load() > 1 || forceYield && completionNotices.Load() != 1 {
+				t.Fatalf("write delivery was duplicated or missed its forced yield: success=%d pending=%d notices=%d", successfulReplies.Load(), pendingReplies.Load(), completionNotices.Load())
 			}
 			written, err := os.ReadFile(path)
 			if err != nil || string(written) != content {

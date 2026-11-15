@@ -2,6 +2,10 @@ import type en from './en.ts'
 
 
 export default {
+  "usageCacheWrite": "Запись в кэш",
+  "promptCacheCompatibility": "Совместимость кэширования промптов",
+  "promptCacheNoHints": "Не отправлять указания для кэша",
+  "promptCacheCompatibilityHint": "Выбирайте только функции, поддерживаемые этим сервисом. Запись в кэш может оплачиваться отдельно. Сервис по-прежнему может использовать автоматическое кэширование.",
 
   "networkProfileName": "Имя профиля",
   "networkLoading": "Загрузка настроек сети…",

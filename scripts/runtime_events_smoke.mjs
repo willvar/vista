@@ -33,9 +33,11 @@ const provider = createServer(async (request, response) => {
     if (body.messages[0].content.startsWith('Write a short, specific title')) return text('Runtime fixture')
     if (readRules(body, response)) return
     assert.ok(!body.tools.some(tool => tool.function.name === 'await_agent'), 'obsolete wait tool still offered')
-    const users = body.messages.filter(message => message.role === 'user').map(message => message.content)
+    const runtimeNotice = message => message.role === 'user' && message.content.startsWith('Runtime completion event.')
+    assert.ok(!body.messages.some(message => message.role === 'system' && message.content.startsWith('Runtime completion event.')), 'runtime data acquired privileged authority')
+    const users = body.messages.filter(message => message.role === 'user' && !runtimeNotice(message)).map(message => message.content)
     const outputs = body.messages.filter(message => message.role === 'tool')
-    const notices = body.messages.filter(message => message.role === 'system' && message.content.startsWith('Runtime completion event.'))
+    const notices = body.messages.filter(runtimeNotice)
       .map(message => JSON.parse(message.content.slice(message.content.indexOf('\n') + 1)))
     if (users[0]?.startsWith('child-')) {
       requests.child++

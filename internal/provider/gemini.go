@@ -110,6 +110,10 @@ func geminiTurnWithReasoning(ctx context.Context, model modelcfg.Model, messages
 	if len(declarations) > 0 {
 		body["tools"] = []any{map[string]any{"functionDeclarations": declarations}}
 	}
+	body, err = applyPromptCaching(model, body, messages)
+	if err != nil {
+		return Turn{}, err
+	}
 	encoded, err := json.Marshal(body)
 	if err != nil {
 		return Turn{}, err
@@ -175,10 +179,10 @@ func geminiTurnWithReasoning(ctx context.Context, model modelcfg.Model, messages
 		var chunk struct {
 			Error         json.RawMessage `json:"error"`
 			UsageMetadata *struct {
-				PromptTokens    int64 `json:"promptTokenCount"`
-				CandidateTokens int64 `json:"candidatesTokenCount"`
-				CachedTokens    int64 `json:"cachedContentTokenCount"`
-				ThoughtTokens   int64 `json:"thoughtsTokenCount"`
+				PromptTokens    int64  `json:"promptTokenCount"`
+				CandidateTokens int64  `json:"candidatesTokenCount"`
+				CachedTokens    *int64 `json:"cachedContentTokenCount"`
+				ThoughtTokens   int64  `json:"thoughtsTokenCount"`
 			} `json:"usageMetadata"`
 			PromptFeedback struct {
 				BlockReason string `json:"blockReason"`
@@ -204,11 +208,16 @@ func geminiTurnWithReasoning(ctx context.Context, model modelcfg.Model, messages
 		}
 		if chunk.UsageMetadata != nil {
 			u := chunk.UsageMetadata
-			if !validReportedTokens(u.PromptTokens) || !validReportedTokens(u.CandidateTokens) || !validReportedTokens(u.CachedTokens) || !validReportedTokens(u.ThoughtTokens) {
+			if !validReportedTokens(u.PromptTokens) || !validReportedTokens(u.CandidateTokens) || u.CachedTokens != nil && !validReportedTokens(*u.CachedTokens) || !validReportedTokens(u.ThoughtTokens) {
 				return Turn{}, errors.New("Gemini reported invalid token usage")
 			}
-			candidate := ModelUsage{InputTokens: u.PromptTokens, OutputTokens: u.CandidateTokens + u.ThoughtTokens, CacheReadTokens: u.CachedTokens, ReasoningTokens: u.ThoughtTokens}
-			if !validModelUsage(candidate) || candidate.CacheReadTokens > candidate.InputTokens {
+			candidate := ModelUsage{InputTokens: u.PromptTokens, OutputTokens: u.CandidateTokens + u.ThoughtTokens, ReasoningTokens: u.ThoughtTokens}
+			if u.CachedTokens != nil {
+				candidate.CacheReadTokens = *u.CachedTokens
+				known := true
+				candidate.CacheReadKnown = &known
+			}
+			if !ValidModelUsage(candidate) || candidate.CacheReadTokens > candidate.InputTokens {
 				return Turn{}, errors.New("Gemini reported invalid token usage")
 			}
 			usage = &candidate

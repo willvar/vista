@@ -13,6 +13,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/bedrockruntime/types"
 	"github.com/google/uuid"
+
 	modelcfg "vista/internal/model"
 )
 
@@ -76,7 +77,7 @@ func TestUsageRecorderOnlyCountsUsableFailedUsage(t *testing.T) {
 				if _, err := uuid.Parse(id); err != nil {
 					t.Fatal(err)
 				}
-				if usage == nil || !validModelUsage(*usage) {
+				if usage == nil || !ValidModelUsage(*usage) {
 					if tokens != nil {
 						t.Fatal("invented usage", tokens)
 					}
@@ -86,7 +87,7 @@ func TestUsageRecorderOnlyCountsUsableFailedUsage(t *testing.T) {
 			})
 			recordUsage(ctx, usage, requestErr)
 			want := 1
-			if requestErr != nil && (usage == nil || !validModelUsage(*usage)) {
+			if requestErr != nil && (usage == nil || !ValidModelUsage(*usage)) {
 				want = 0
 			}
 			if calls != want {

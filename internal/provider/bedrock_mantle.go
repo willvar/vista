@@ -54,6 +54,7 @@ func doModelRequest(request *http.Request, model modelcfg.Model) (*http.Response
 	if model.ProviderID == "opencode-go" && model.SessionID != "" {
 		request.Header.Set("x-opencode-session", model.SessionID)
 	}
+	captureCacheRequest(request, model)
 	if !isBedrockMantle(model) || model.APIKey != "" {
 		return doStreamingRequest(request, client, modelReadIdleTimeout)
 	}

@@ -2,6 +2,10 @@ import type en from './en.ts'
 
 
 export default {
+  "usageCacheWrite": "キャッシュ書き込み",
+  "promptCacheCompatibility": "プロンプトキャッシュの互換性",
+  "promptCacheNoHints": "キャッシュ指定を送信しない",
+  "promptCacheCompatibilityHint": "このサービスが対応する機能のみを選択してください。キャッシュへの書き込みには料金がかかる場合があります。サービス側の自動キャッシュは引き続き適用される場合があります。",
 
   "networkProfileName": "設定名",
   "networkLoading": "ネットワーク設定を読み込み中…",

@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	modelcfg "vista/internal/model"
 	"vista/internal/provider"
 )
 
@@ -181,7 +182,7 @@ func TestCopilotSetupUsesAccountInventory(t *testing.T) {
 		_, _ = w.Write([]byte(`{"data":[{"id":"new-copilot-model","model_picker_enabled":true,"supported_endpoints":["/v1/messages"],"capabilities":{"limits":{"max_prompt_tokens":100000,"max_output_tokens":4096},"supports":{"tool_calls":true}}}]}`))
 	}))
 	defer upstream.Close()
-	input := ConnectionInput{Provider: "catalog", ProviderID: "github-copilot", BaseURL: upstream.URL, APIKey: "copilot-token"}
+	input := ConnectionInput{Provider: "catalog", ProviderID: "github-copilot", BaseURL: upstream.URL, APIKey: "copilot-token", PromptCaching: &modelcfg.PromptCaching{Format: "none"}}
 	raw, err := ChangeConnection(context.Background(), Catalog{}, false, http.MethodPost, input)
 	if err != nil {
 		t.Fatal(err)
@@ -190,9 +191,18 @@ func TestCopilotSetupUsesAccountInventory(t *testing.T) {
 	if model.Provider != "anthropic" || model.ID != "new-copilot-model" || !Editable(model) || model.BaseURL != upstream.URL+"/v1" {
 		t.Fatal("Copilot did not use the advertised route")
 	}
-	input.Key, input.APIKey = model.Key, ""
-	if _, err := ChangeConnection(context.Background(), raw, true, http.MethodPut, input); err != nil {
+	input.Key, input.APIKey, input.Name, input.PromptCaching = model.Key, "", "Renamed Copilot", nil
+	edited, err := ChangeConnection(context.Background(), raw, true, http.MethodPut, input)
+	if err != nil {
 		t.Fatalf("edit failed to reuse credential at the same root: %v", err)
+	}
+	if edited.Models[0].PromptCaching == nil || edited.Models[0].PromptCaching.Format != "none" || edited.Models[0].Name != "Renamed Copilot" {
+		t.Fatal("Copilot rename dropped the explicitly disabled cache policy")
+	}
+	input.PromptCaching = &modelcfg.PromptCaching{Format: "anthropic"}
+	overridden, err := ChangeConnection(context.Background(), edited, true, http.MethodPut, input)
+	if err != nil || overridden.Models[0].PromptCaching.Format != "anthropic" {
+		t.Fatalf("explicit cache policy override was ignored: %v", err)
 	}
 	other := model
 	other.ConnectionID = "other-account"

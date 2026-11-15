@@ -2,6 +2,10 @@ import type en from './en.ts'
 
 
 export default {
+  "usageCacheWrite": "Cache-Schreibvorgänge",
+  "promptCacheCompatibility": "Kompatibilität der Prompt-Zwischenspeicherung",
+  "promptCacheNoHints": "Keine Cache-Hinweise senden",
+  "promptCacheCompatibilityHint": "Nur vom Dienst unterstützte Funktionen auswählen. Cache-Schreibvorgänge können kostenpflichtig sein. Die automatische Zwischenspeicherung des Dienstes bleibt möglich.",
 
   "networkProfileName": "Profilname",
   "networkLoading": "Netzwerkkonfiguration wird geladen…",

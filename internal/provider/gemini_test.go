@@ -206,7 +206,7 @@ func TestGeminiNativeTextAndFunctionTurn(t *testing.T) {
 	}
 	messages = append(messages, ChatMessage{Role: "assistant", ToolCalls: first.Calls}, ChatMessage{Role: "tool", ToolCallID: first.Calls[0].ID, Content: `{"result":"hello"}`})
 	second, err := ModelTurn(context.Background(), model, messages, schemas)
-	if err != nil || second.Text != "Found it." || second.FinishReason != "STOP" || second.Usage == nil || *second.Usage != (ModelUsage{InputTokens: 31, OutputTokens: 10, CacheReadTokens: 5, ReasoningTokens: 3}) || requests != 2 {
+	if err != nil || second.Text != "Found it." || second.FinishReason != "STOP" || second.Usage == nil || !equalUsage(second.Usage, ModelUsage{InputTokens: 31, OutputTokens: 10, CacheReadTokens: 5, ReasoningTokens: 3, CacheReadKnown: testBool(true)}) || requests != 2 {
 		t.Fatalf("text turn: %+v %v, requests=%d", second, err, requests)
 	}
 }

@@ -92,7 +92,7 @@ test.describe('captured model HTTP', () => {
     } finally { release() }
   })
 
-  test('independent HTTP diagnostics survive reload and show request, raw SSE and parser counters', async ({ page, context, vista }, testInfo) => {
+  test('independent HTTP diagnostics survive reload and show request, raw SSE and parser counters @responsive', async ({ page, context, vista }, testInfo) => {
     await vista.api('/preferences', { method: 'PATCH', body: JSON.stringify({ feedbackInvitationSeen: true }) })
     // Also verifies upgrading an existing browser preference without its cookie.
     await page.evaluate(() => { localStorage.setItem('vista-debug-mode', 'true'); document.cookie = 'vista-debug-mode=; Path=/; Max-Age=0' })
@@ -127,8 +127,13 @@ test.describe('captured model HTTP', () => {
     await expect(modal.locator('.trace-model-record')).toContainText('Private progress reasoning.')
     await expect(modal.locator('.trace-model-record')).toContainText('reasoning_content')
     await expect(modal.locator('.trace-model-record')).not.toContainText('test-key')
-    await modal.getByText('Receive timing (original byte offsets)', { exact: true }).click()
-    await expect(modal.locator('.trace-http-timings')).toContainText('offset')
+    const timings = modal.locator('.trace-http-timings')
+    await expect(timings.locator('details, summary')).toHaveCount(0)
+    const timingsTrigger = timings.getByRole('button', { name: 'Receive timing (original byte offsets)', exact: true })
+    await expect(timingsTrigger).toHaveAttribute('aria-expanded', 'false')
+    await timingsTrigger.click()
+    await expect(timings.locator('.trace-model-body')).toBeVisible()
+    await expect(timings).toContainText('offset')
     await context.grantPermissions(['clipboard-read', 'clipboard-write'])
     await modal.getByRole('button', { name: 'Copy record', exact: true }).click()
     await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toContain(first.id)

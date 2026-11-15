@@ -52,7 +52,11 @@ func Editable(model Configured) bool {
 	_ = json.Unmarshal(data, &fields)
 	for name := range fields {
 		switch name {
-		case "proxyId", "key", "connectionId", "name", "provider", "providerId", "id", "baseUrl", "apiKey", "authentication", "headers", "accessToken", "auth", "resourceName", "deploymentId", "apiVersion", "region", "project", "location":
+		case "promptCaching", "proxyId", "key", "connectionId", "name", "provider", "providerId", "id", "baseUrl", "apiKey", "authentication", "headers", "accessToken", "auth", "resourceName", "deploymentId", "apiVersion", "region", "project", "location":
+		case "responsesRoute":
+			if model.ProviderID != "custom" || model.Provider != "openai-responses" || string(model.ResponsesRoute) != "codex-compatible" {
+				return false
+			}
 		case "tools", "context":
 			if model.ConnectionID == "" || !LocalProvider(model.ProviderID) && model.ProviderID != "github-copilot" {
 				return false

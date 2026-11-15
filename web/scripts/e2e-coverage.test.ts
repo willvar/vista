@@ -10,6 +10,14 @@ test('local coverage includes consumers, staged/new specs and core smoke', () =>
   for (const path of ['internal/store/compaction.go', 'internal/server/worker_results_context.go']) {
     assert.deepEqual(browserScope([path], files).files, ['compaction.spec.ts', 'conversation-sync.spec.ts', 'execution-flow.spec.ts', 'usage.spec.ts'])
   }
+  for (const path of ['web/src/ConversationSender.vue', 'web/src/ConversationExecution.vue', 'web/src/ConversationRecentMessage.vue', 'web/src/pages/ConversationPage.vue', 'web/src/state/cacheUsage.ts']) {
+    assert.deepEqual(browserScope([path], ['layout.spec.ts']).files, ['layout.spec.ts'])
+  }
+  for (const path of ['internal/server/custom_models.go', 'internal/server/local_models.go', 'internal/server/model_directory.go']) {
+    assert.deepEqual(browserScope([path], ['provider-setup.spec.ts', 'selection-flow.spec.ts', 'provider-output.spec.ts', 'statistics.spec.ts']), {
+      full: false, files: ['provider-output.spec.ts', 'provider-setup.spec.ts', 'selection-flow.spec.ts'],
+    })
+  }
   const selection = new RegExp(browserSelection(scope.files)!)
   assert.ok(selection.test('desktop onboarding.spec.ts connect @smoke'))
   assert.ok(selection.test('desktop compaction.spec.ts scoped summary usage'))

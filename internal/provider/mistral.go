@@ -259,7 +259,7 @@ func parseMistralStreamWithReasoning(body io.Reader, onText, onReasoning func(st
 				PromptTokens        int64 `json:"prompt_tokens"`
 				CompletionTokens    int64 `json:"completion_tokens"`
 				PromptTokensDetails struct {
-					CachedTokens int64 `json:"cached_tokens"`
+					CachedTokens *int64 `json:"cached_tokens"`
 				} `json:"prompt_tokens_details"`
 				CompletionTokensDetail struct {
 					ReasoningTokens int64 `json:"reasoning_tokens"`
@@ -285,8 +285,13 @@ func parseMistralStreamWithReasoning(body io.Reader, onText, onReasoning func(st
 		}
 		if event.Usage != nil {
 			u := event.Usage
-			candidate := ModelUsage{InputTokens: u.PromptTokens, OutputTokens: u.CompletionTokens, CacheReadTokens: u.PromptTokensDetails.CachedTokens, ReasoningTokens: u.CompletionTokensDetail.ReasoningTokens}
-			if !validModelUsage(candidate) || candidate.CacheReadTokens > candidate.InputTokens || candidate.ReasoningTokens > candidate.OutputTokens {
+			candidate := ModelUsage{InputTokens: u.PromptTokens, OutputTokens: u.CompletionTokens, ReasoningTokens: u.CompletionTokensDetail.ReasoningTokens}
+			if u.PromptTokensDetails.CachedTokens != nil {
+				candidate.CacheReadTokens = *u.PromptTokensDetails.CachedTokens
+				known := true
+				candidate.CacheReadKnown = &known
+			}
+			if !ValidModelUsage(candidate) || candidate.CacheReadTokens > candidate.InputTokens || candidate.ReasoningTokens > candidate.OutputTokens {
 				return errors.New("Mistral reported invalid token usage")
 			}
 			usage = &candidate

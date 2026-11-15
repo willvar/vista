@@ -8,33 +8,36 @@ import (
 	"sort"
 
 	"vista/internal/copilotauth"
+	modelcfg "vista/internal/model"
 	"vista/internal/modelcatalog"
 	"vista/internal/network"
 	"vista/internal/provider"
 )
 
 type modelSetting struct {
-	ProxyID        string               `json:"proxyId,omitempty"`
-	Kind           string               `json:"kind,omitempty"`
-	Key            string               `json:"key"`
-	ConnectionID   string               `json:"connectionId,omitempty"`
-	Name           string               `json:"name,omitempty"`
-	Provider       string               `json:"provider"`
-	ProviderID     string               `json:"providerId,omitempty"`
-	ID             string               `json:"id"`
-	BaseURL        string               `json:"baseUrl,omitempty"`
-	HeaderNames    []string             `json:"headerNames,omitempty"`
-	CopilotAuth    *copilotauth.Options `json:"copilotAuth,omitempty"`
-	HasAPIKey      bool                 `json:"hasApiKey"`
-	Editable       bool                 `json:"editable"`
-	HasAccessToken bool                 `json:"hasAccessToken"`
-	CredentialMode string               `json:"credentialMode,omitempty"`
-	Region         string               `json:"region,omitempty"`
-	Project        string               `json:"project,omitempty"`
-	Location       string               `json:"location,omitempty"`
-	ResourceName   string               `json:"resourceName,omitempty"`
-	DeploymentID   string               `json:"deploymentId,omitempty"`
-	APIVersion     string               `json:"apiVersion,omitempty"`
+	PromptCaching  *modelcfg.PromptCaching `json:"promptCaching,omitempty"`
+	ResponsesRoute modelcfg.ResponsesRoute `json:"responsesRoute,omitempty"`
+	ProxyID        string                  `json:"proxyId,omitempty"`
+	Kind           string                  `json:"kind,omitempty"`
+	Key            string                  `json:"key"`
+	ConnectionID   string                  `json:"connectionId,omitempty"`
+	Name           string                  `json:"name,omitempty"`
+	Provider       string                  `json:"provider"`
+	ProviderID     string                  `json:"providerId,omitempty"`
+	ID             string                  `json:"id"`
+	BaseURL        string                  `json:"baseUrl,omitempty"`
+	HeaderNames    []string                `json:"headerNames,omitempty"`
+	CopilotAuth    *copilotauth.Options    `json:"copilotAuth,omitempty"`
+	HasAPIKey      bool                    `json:"hasApiKey"`
+	Editable       bool                    `json:"editable"`
+	HasAccessToken bool                    `json:"hasAccessToken"`
+	CredentialMode string                  `json:"credentialMode,omitempty"`
+	Region         string                  `json:"region,omitempty"`
+	Project        string                  `json:"project,omitempty"`
+	Location       string                  `json:"location,omitempty"`
+	ResourceName   string                  `json:"resourceName,omitempty"`
+	DeploymentID   string                  `json:"deploymentId,omitempty"`
+	APIVersion     string                  `json:"apiVersion,omitempty"`
 }
 
 func (a *App) modelSettings(w http.ResponseWriter, r *http.Request) {
@@ -65,7 +68,7 @@ func (a *App) modelSettings(w http.ResponseWriter, r *http.Request) {
 			} else if model.APIKey == "" && (modelcatalog.LocalProvider(model.ProviderID) || model.ProviderID == "amazon-bedrock" || model.ProviderID == "google-vertex") || model.BedrockAuth == "sigv4" {
 				mode = "default"
 			}
-			items = append(items, modelSetting{ProxyID: model.ProxyID, Kind: modelcatalog.SetupID(model), Key: model.Key, ConnectionID: model.ConnectionID, Name: model.Name, Provider: model.Provider, ProviderID: model.ProviderID, ID: model.ID, BaseURL: model.BaseURL, HasAPIKey: model.APIKey != "", Editable: exists && modelcatalog.Editable(model),
+			items = append(items, modelSetting{PromptCaching: model.PromptCaching, ResponsesRoute: model.ResponsesRoute, ProxyID: model.ProxyID, Kind: modelcatalog.SetupID(model), Key: model.Key, ConnectionID: model.ConnectionID, Name: model.Name, Provider: model.Provider, ProviderID: model.ProviderID, ID: model.ID, BaseURL: model.BaseURL, HasAPIKey: model.APIKey != "", Editable: exists && modelcatalog.Editable(model),
 				HeaderNames: headerNames, CopilotAuth: model.CopilotAuth, HasAccessToken: model.AccessToken != "", CredentialMode: mode, Region: model.Region, Project: model.Project, Location: model.Location, ResourceName: model.ResourceName, DeploymentID: model.DeploymentID, APIVersion: model.APIVersion})
 		}
 		jsonOut(w, map[string]any{"default": catalog.Default, "models": items, "settingsRevision": a.modelSettingsVersion(snapshot.revision)})

@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"reflect"
 	"testing"
 
 	"vista/internal/agentconfig"
@@ -44,6 +45,36 @@ func consumeTestResult(t *testing.T, consumer *workerResultConsumer, result work
 		t.Fatal(err)
 	}
 	return consumer.consumeFrame(frame)
+}
+
+func TestWorkerCacheUsageSurvivesPersistenceWithoutInventingCounts(t *testing.T) {
+	consumer, sequence := newResultConsumerTest(t)
+	known, write := true, int64(20)
+	zero := int64(0)
+	remaining, maximum := int64(60), int64(1_000_000_000)
+	usages := []*workerproto.ModelUsage{
+		{InputTokens: 100, OutputTokens: 5, CacheReadTokens: 40, CacheReadKnown: &known, CacheWriteTokens: &write},
+		{InputTokens: 100, OutputTokens: 5, CacheReadKnown: &known, CacheWriteTokens: &zero},
+		{InputTokens: 100, OutputTokens: 5},
+		{InputTokens: 100, CacheReadTokens: 40, CacheWriteTokens: &remaining},
+		{InputTokens: 1_000_000_000, OutputTokens: 1_000_000_000, CacheWriteTokens: &maximum},
+	}
+	for i, usage := range usages {
+		result := workerproto.Result{RunID: "run", Kind: "model_result", Turn: int32(i + 1), ModelResult: &workerproto.ModelResult{Provider: "openai-chat", ID: "fixture", FinishReason: "stop", Usage: usage}}
+		if err := consumeTestResult(t, consumer, result); err != nil {
+			t.Fatal(err)
+		}
+	}
+	events, err := consumer.store.EventsAfter(consumer.ctx, consumer.sessionID, sequence, 100)
+	if err != nil || len(events) != len(usages) {
+		t.Fatalf("persisted results: count=%d err=%v", len(events), err)
+	}
+	for i, event := range events {
+		var saved workerproto.Result
+		if err := json.Unmarshal(event.Data, &saved); err != nil || saved.ModelResult == nil || !reflect.DeepEqual(saved.ModelResult.Usage, usages[i]) {
+			t.Fatalf("cache telemetry changed through Worker/storage: result=%+v err=%v", saved.ModelResult, err)
+		}
+	}
 }
 
 func TestRuntimeCompletionWakesOnlyAfterCommitAndProgressDoesNotInfer(t *testing.T) {
@@ -97,6 +128,10 @@ func TestWorkerResultConsumerRejectsMalformedFramesWithoutEffects(t *testing.T) 
 		"invalid depth":           fmt.Sprintf(`{"runId":"run","depth":%d,"status":"succeeded"}`, agentconfig.MaxDelegationDepth+1),
 		"missing model":           `{"runId":"run","kind":"model_result","turn":1}`,
 		"invalid usage":           `{"runId":"run","kind":"model_result","turn":1,"modelResult":{"provider":"openai-chat","id":"model","usage":{"inputTokens":-1}}}`,
+		"negative cache write":    `{"runId":"run","kind":"model_result","turn":1,"modelResult":{"provider":"openai-chat","id":"model","usage":{"inputTokens":100,"cacheWriteTokens":-1}}}`,
+		"excess cache write":      `{"runId":"run","kind":"model_result","turn":1,"modelResult":{"provider":"openai-chat","id":"model","usage":{"inputTokens":1000000000,"cacheWriteTokens":1000000001}}}`,
+		"excess cache total":      `{"runId":"run","kind":"model_result","turn":1,"modelResult":{"provider":"openai-chat","id":"model","usage":{"inputTokens":100,"cacheReadTokens":80,"cacheWriteTokens":30}}}`,
+		"excess cache read":       `{"runId":"run","kind":"model_result","turn":1,"modelResult":{"provider":"openai-chat","id":"model","usage":{"inputTokens":100,"cacheReadTokens":101}}}`,
 		"missing tool ACK":        `{"runId":"run","kind":"tool","status":"started","tool":{"callId":"call","name":"shell"}}`,
 		"completion path":         `{"runId":"run","kind":"runtime_event","ackId":"ack","runtimeEvent":{"id":"completion","runId":"run","recipient":"main","kind":"tool","sourceId":"tool","status":"succeeded","contentOutput":{"artifactId":"00000000-0000-0000-0000-000000000001","outputPath":"/outside-output-root"}}}`,
 		"completion without path": `{"runId":"run","kind":"runtime_event","ackId":"ack","runtimeEvent":{"id":"completion","runId":"run","recipient":"main","kind":"tool","sourceId":"tool","status":"succeeded","contentOutput":{"artifactId":"00000000-0000-0000-0000-000000000001"}}}`,

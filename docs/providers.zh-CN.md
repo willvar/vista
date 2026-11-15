@@ -143,3 +143,13 @@ GOWORK=off go test ./internal/provider ./internal/modelcatalog ./scripts/provide
 协议测试使用本地模拟端点，不代表每个账号／模型均已真实兼容。
 本地真实服务检查有独立[脚本](../scripts/live_local_chat_smoke.mjs)。
 可复用测试入口见[验证](./testing.zh-CN.md)。
+
+## Codex 路由
+
+内置 Codex 保留原生端点、OAuth 凭据和账户请求头。[codex_routing.go](../internal/provider/codex_routing.go) 管理 `session-id`、每个用户回合独立的 `x-client-request-id` 及临时 `x-codex-turn-state`，通用缓存选择与诊断不管理这些请求头。
+
+对于已确认支持 Codex 路由请求头的自定义 Responses 网关，保存的配置与 `POST` / `PUT /api/provider-config` 接受显式的 `responsesRoute: "codex-compatible"`。这是路由能力声明，不是通用的缓存效率设置；`GET /api/model-config` 返回该选择。它保留配置的路径与认证，不启用 OAuth 登录，不探测其他端点。空字符串关闭路由。普通编辑保留选择，更换端点或格式后清除，除非再次显式选择。模型名称或普通客户端标识不会启用它。
+
+旧的 `codex-compatible` 配置继续派生会话缓存键。`promptCaching.key: false` 只关闭缓存键；`promptCaching.format: "none"` 不发送缓存提示，仍保留显式开启的路由。反过来，只开启缓存键支持不会添加 Codex 请求头。
+
+当前用户回合的第一个成功响应提供合法令牌后，Vista 保存该令牌。工具续跑、符合条件的重试及内部完整历史恢复继续使用；实际送达的新用户输入将其重置。归属检查包括会话、连接、模型、凭据、端点、请求头及实际网络配置，因此同 ID 代理被编辑后也会重置路由。迟到响应不能为新归属或新回合写入令牌。标题不携带主对话身份，摘要和子任务使用独立路由状态。令牌仅存在内存，Worker 重启后丢失。静态覆盖会话专有请求头会被拒绝；兼容网关需要保持该生命周期，不能在账户池切换后继续传递前一个服务账户的不透明令牌。

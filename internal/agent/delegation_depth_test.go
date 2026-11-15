@@ -86,7 +86,7 @@ func TestDelegationConfiguredDepthAndRunSnapshot(t *testing.T) {
 					continuationAnswer(w, "unexpected descendant")
 					return
 				}
-				if request.Messages[len(request.Messages)-1].Role == "user" {
+				if request.Messages[len(request.Messages)-1].Role == "user" && !runtimeNoticeOnWire(request.Messages[len(request.Messages)-1].Role, request.Messages[len(request.Messages)-1].Content) {
 					if depth == 0 && runNumber.Load() == 1 && tc.initialDepth != tc.nextDepth {
 						if err := agentconfig.WriteSettings(dir, agentconfig.Settings{DelegationDepth: tc.nextDepth}); err != nil {
 							t.Errorf("change settings during run: %v", err)

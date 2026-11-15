@@ -145,7 +145,7 @@ func discoverCopilotModels(parent context.Context, source Configured) ([]Configu
 		if protocol == "anthropic" {
 			modelBase += "/v1"
 		}
-		models = append(models, Configured{ProxyID: source.ProxyID,
+		models = append(models, Configured{ProxyID: source.ProxyID, PromptCaching: source.PromptCaching, ResponsesRoute: source.ResponsesRoute,
 			Key: fmt.Sprintf("copilot-%x", hash[:6]), ConnectionID: source.ConnectionID, Name: source.Name, Provider: protocol,
 			ProviderID: "github-copilot", ID: item.ID, BaseURL: modelBase,
 			APIKey: source.APIKey, Tools: item.Capabilities.Supports.Tools,

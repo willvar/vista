@@ -247,7 +247,7 @@ func TestRuntimeCompletionImagesStayInOutgoingProjectionAcrossProtocols(t *testi
 			t.Error(err)
 		}
 		data, _ := json.Marshal(body.Input)
-		if len(body.Input) != 2 || body.Input[1]["role"] != "user" || bytes.Count(data, []byte(encoded)) != 1 || !strings.Contains(body.Instructions, "Runtime completion event.") {
+		if len(body.Input) != 2 || body.Input[1]["role"] != "user" || bytes.Count(data, []byte(encoded)) != 1 || strings.Contains(body.Instructions, "Runtime completion event.") || !bytes.Contains(data, []byte("Runtime completion event.")) {
 			t.Errorf("Responses lost runtime attachment: %s", data)
 		}
 		w.Header().Set("Content-Type", "text/event-stream")

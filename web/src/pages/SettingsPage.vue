@@ -123,7 +123,7 @@ const {
   providerDraftVersion, providerConflict, manualModelIDs, canReuseHeader, editingProvider, providerOptions, canSaveProvider,
   providerChoice, providerChoiceSchema, providerChoiceUISchema,
   deploymentModelSelection, providerModelOptions, usesAPIKey, authenticationHeader,
-  modelConfig, modelConfigSchema, modelConfigUISchema, modelConfigValid, modelConfigDirty, modelConfigResetKey,
+  modelConfig, modelConfigSchema, modelConfigUISchema, modelConfigValid, modelConfigDirty, modelConfigResetKey, normalizeModelConfigDraft,
   modelCredentials, modelCredentialsSchema, modelCredentialsUISchema, modelCredentialsValid, showModelCredentials,
   updateSelectedModels, changeProvider,
   startProviderConnection, cancelModelForm, loadModelSettings, editProvider, providerGroups,
@@ -374,7 +374,7 @@ watch(() => route.fullPath, () => {
       <SchemaForm v-else id="provider-choice" class="provider-kind-select" v-model="providerChoice" :schema="providerChoiceSchema" :uischema="providerChoiceUISchema" :disabled="settingsBusy" />
       <p v-if="modelDraft.kind && modelDraft.credentialMode !== 'oauth' && !manualModelIDs" class="provider-help">{{ t(deploymentModelSelection ? 'azureModelHint' : 'providerModelsAutomatic') }}</p>
       <SchemaForm v-if="modelDraft.kind" id="model-connection-config" class="provider-public-config" v-model="modelConfig"
-        :schema="modelConfigSchema" :uischema="modelConfigUISchema" :disabled="settingsBusy || loginBusy" :reset-key="modelConfigResetKey"
+        :schema="modelConfigSchema" :uischema="modelConfigUISchema" :disabled="settingsBusy || loginBusy" :reset-key="modelConfigResetKey" :normalize-draft="normalizeModelConfigDraft"
         @validity="modelConfigValid = $event" @dirty="modelConfigDirty = $event" />
       <p v-if="modelDraft.kind" class="provider-help">{{ t('configEditorPrivateHint') }}</p>
       <div v-if="modelDraft.kind" class="provider-proxy-field">

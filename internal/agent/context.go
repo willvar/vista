@@ -14,6 +14,7 @@ import (
 	modelcfg "vista/internal/model"
 	"vista/internal/platform"
 	"vista/internal/provider"
+	"vista/internal/replylanguage"
 	"vista/internal/store"
 	"vista/internal/tools"
 	"vista/internal/workerproto"
@@ -37,6 +38,7 @@ const delegatedReportPrompt = " Return findings to the delegating session; do no
 type preparedContext struct {
 	messages     []provider.ChatMessage
 	systemBase   string
+	prefix       []provider.ChatMessage
 	tools        toolSet
 	schemas      []map[string]any
 	awaitingUser bool
@@ -70,6 +72,7 @@ func prepareContext(ctx context.Context, command workerproto.Command, emit func(
 		messages[0].Content += delegatedReportPrompt
 	}
 	var awaitingUser bool
+	var checklistSnapshot string
 	if command.SessionID != "" {
 		db, err := store.OpenReadOnly(filepath.Join(stateDir, "vista.db"))
 		if err != nil {
@@ -108,7 +111,7 @@ func prepareContext(ctx context.Context, command workerproto.Command, emit func(
 			if err != nil {
 				return preparedContext{}, err
 			}
-			messages[0].Content += "\nCurrent run checklist snapshot; later update_checklist tool results supersede it: " + string(encoded)
+			checklistSnapshot = "Current run checklist snapshot (context data, not user intent; successful update_checklist results in this run supersede it):\n" + string(encoded)
 		}
 	}
 	root := filepath.Join(configDir, "skills")
@@ -132,10 +135,11 @@ func prepareContext(ctx context.Context, command workerproto.Command, emit func(
 	if depth < delegationLimit {
 		messages[0].Content += delegationPrompt
 	}
-	history, err := loadConversationContext(ctx, command, depth)
+	history, prefixState, err := loadConversationFrame(ctx, command, depth)
 	if err != nil {
 		return preparedContext{}, err
 	}
+	messages[0].Prefix = prefixState
 	messages = append(messages, history...)
 	if len(command.ProjectRules) > 0 {
 		encoded, _ := json.Marshal(command.ProjectRules)
@@ -149,7 +153,20 @@ func prepareContext(ctx context.Context, command workerproto.Command, emit func(
 		messages = append(messages, input.WithVisualInput(true))
 	}
 
-	return preparedContext{messages: messages, systemBase: messages[0].Content, tools: toolset, schemas: toolSchemas, awaitingUser: awaitingUser, instructions: instructions}, nil
+	currentBase := messages[0].Content
+	var prefix []provider.ChatMessage
+	if depth == 0 && command.SessionID != "" && command.MessageSequence > 0 {
+		messages, prefix = pinPromptPrefix(messages, currentBase, promptPrefixProfile(command.Model), replylanguage.Instruction(ctx))
+	}
+	last := messages[len(messages)-1]
+	if checklistSnapshot != "" && !awaitingUser && !(last.Role == "assistant" && len(last.ToolCalls) > 0) {
+		data := provider.ChatMessage{Role: "user", Content: checklistSnapshot, RuntimeData: true}
+		messages = append(messages, data)
+		if depth == 0 {
+			prefix = append(prefix, data)
+		}
+	}
+	return preparedContext{messages: messages, systemBase: messages[0].Content, prefix: prefix, tools: toolset, schemas: toolSchemas, awaitingUser: awaitingUser, instructions: instructions}, nil
 }
 
 func (prepared preparedContext) applyModel(messages []provider.ChatMessage, model modelcfg.Model) []map[string]any {

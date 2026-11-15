@@ -80,6 +80,12 @@ func run(ctx context.Context, command workerproto.Command, emit func(workerproto
 	if command.TaskID == "" {
 		command.TaskID = "main"
 	}
+	if depth > 0 || provider.RequestStateFromContext(ctx) == nil {
+		ctx = provider.WithRequestState(ctx, new(provider.RequestState))
+	}
+	if depth > 0 && command.Model.SessionID != "" {
+		command.Model.SessionID += "/task/" + command.TaskID
+	}
 	if scope.events == nil {
 		scope.events = newRuntimeMailbox()
 	}
@@ -149,6 +155,11 @@ func run(ctx context.Context, command workerproto.Command, emit func(workerproto
 		return "", err
 	}
 	messages := prepared.messages
+	if depth == 0 {
+		if err := retainPromptPrefix(command, scope.modelTurns.Load()+1, prepared.prefix, emit); err != nil {
+			return "", err
+		}
+	}
 	// Keep the display aligned with the retained context at decision boundaries,
 	// including the final answer and cancellation after completed tools.
 	defer func() {
@@ -197,6 +208,7 @@ func run(ctx context.Context, command workerproto.Command, emit func(workerproto
 			reply = nil
 			command.MessageSequence = max(command.MessageSequence, input.MessageSequence)
 			command.Debug = input.Debug
+			provider.RequestStateFromContext(ctx).Reset()
 			if input.ReplyLanguage != "" {
 				command.ReplyLanguage = input.ReplyLanguage
 				ctx = replylanguage.WithDefault(ctx, input.ReplyLanguage)
@@ -204,6 +216,14 @@ func run(ctx context.Context, command workerproto.Command, emit func(workerproto
 			messages = append(messages, (provider.ChatMessage{Role: "user", Content: input.Prompt, Resources: input.Images}).WithVisualInput(true))
 			if nextInput == nil && input.Model.Provider != "" {
 				command.Model = provider.ForPurpose(input.Model, purpose)
+			}
+			if command.SessionID != "" && depth == 0 {
+				command.Model.SessionID = command.SessionID
+			}
+			var prefixErr error
+			messages, prefixErr = prepared.updateLanguage(ctx, command, messages, scope.modelTurns.Load()+1, emit)
+			if prefixErr != nil {
+				return count, prefixErr
 			}
 			count++
 		}
@@ -379,7 +399,7 @@ turnLoop:
 		if turn.FinishReason != "" || turn.Usage != nil {
 			result := &workerproto.ModelResult{Provider: providerID, ID: command.Model.ID, FinishReason: turn.FinishReason, DurationMS: modelDurationMS, ReasoningEffort: provider.ModelReasoningEffort(command.Model)}
 			if turn.Usage != nil {
-				result.Usage = &workerproto.ModelUsage{InputTokens: turn.Usage.InputTokens, OutputTokens: turn.Usage.OutputTokens, CacheReadTokens: turn.Usage.CacheReadTokens, ReasoningTokens: turn.Usage.ReasoningTokens}
+				result.Usage = &workerproto.ModelUsage{InputTokens: turn.Usage.InputTokens, OutputTokens: turn.Usage.OutputTokens, CacheReadTokens: turn.Usage.CacheReadTokens, CacheReadKnown: turn.Usage.CacheReadKnown, CacheWriteTokens: turn.Usage.CacheWriteTokens, ReasoningTokens: turn.Usage.ReasoningTokens}
 			}
 			if err := emit(workerproto.Result{RunID: command.RunID, Kind: "model_result", Turn: turnID, Depth: depth, ModelResult: result}); err != nil {
 				return "", err

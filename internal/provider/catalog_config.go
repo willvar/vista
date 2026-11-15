@@ -43,6 +43,7 @@ type CatalogConfig struct {
 	Effort              string
 	SafetyIdentifier    string
 	PromptCacheKey      string
+	PromptCaching       *modelcfg.PromptCaching
 	Thinking            *modelcfg.ThinkingOption
 	EnableThinking      *bool
 	ThinkingBudget      *int

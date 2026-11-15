@@ -2,6 +2,10 @@ import type en from './en.ts'
 
 
 export default {
+  "usageCacheWrite": "缓存写入",
+  "promptCacheCompatibility": "提示词缓存兼容性",
+  "promptCacheNoHints": "不发送缓存提示",
+  "promptCacheCompatibilityHint": "仅选择该服务支持的能力。缓存写入可能计费，服务端仍可能自动缓存。",
 
   "networkProfileName": "配置名称",
   "networkLoading": "正在读取网络配置…",

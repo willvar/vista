@@ -45,6 +45,7 @@ func (m Configured) providerConfig() provider.CatalogConfig {
 		Effort:              m.Effort,
 		SafetyIdentifier:    m.SafetyIdentifier,
 		PromptCacheKey:      m.PromptCacheKey,
+		PromptCaching:       m.PromptCaching,
 		Thinking:            m.Thinking,
 		EnableThinking:      m.EnableThinking,
 		ThinkingBudget:      m.ThinkingBudget,

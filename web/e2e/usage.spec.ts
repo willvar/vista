@@ -5,6 +5,80 @@ test.beforeEach(async ({ vista }) => {
   await vista.api('/preferences', { method: 'PATCH', body: JSON.stringify({ feedbackInvitationSeen: true }) })
 })
 
+test('cache usage distinguishes unavailable, measured zero and writes @responsive', async ({ page, vista }) => {
+  const session = await vista.api('/sessions', { method: 'POST', body: '{}' })
+  const usage = { inputTokens: 120, outputTokens: 10, cacheReadTokens: 0, reasoningTokens: 0 }
+  const scenarios = [
+    { id: 'unknown', title: 'Cache telemetry unavailable', usages: [usage], read: '—', write: undefined },
+    { id: 'known', title: 'Cache telemetry measured', usages: [
+      { ...usage, cacheReadKnown: true, cacheWriteTokens: 0 },
+      { ...usage, cacheReadTokens: 80, cacheReadKnown: true, cacheWriteTokens: 20 },
+    ], read: '80', write: '20' },
+    { id: 'mixed', title: 'Cache telemetry partially available', usages: [
+      usage, { ...usage, cacheReadKnown: true, cacheWriteTokens: 0 },
+    ], read: '—', write: '—' },
+  ]
+  const messages = scenarios.map((scenario, index) => ({
+    id: scenario.id, sequence: 25 + index * 10, role: 'assistant', content: scenario.title,
+    runId: scenario.id, createdAt: new Date().toISOString(), outputTurn: scenario.usages.length,
+    provider: 'openai-chat', modelId: vista.modelId, modelKey: 'test',
+    modelResults: scenario.usages.map((reported, turn) => ({
+      provider: 'openai-chat', id: vista.modelId, depth: 0, runId: scenario.id,
+      sequence: 20 + index * 10 + turn, turn: turn + 1, finishReason: 'completed', usage: reported,
+    })),
+  }))
+  const snapshot = coreSnapshot(session, messages)
+  await installConversationStream(page, snapshot)
+  await page.route('**/api/sessions/**', route => {
+    const request = route.request()
+    const path = new URL(request.url()).pathname
+    if (request.method() !== 'GET') return route.continue()
+    if (path === `/api/sessions/${session.id}/snapshot`) return route.fulfill({ json: snapshot })
+    if (path === `/api/sessions/${session.id}/messages`) return route.fulfill({ json: messages })
+    if (path === `/api/sessions/${session.id}/event-page`) return route.fulfill({ json: [] })
+    if (path.includes('/runs/') && path.endsWith('/overview')) {
+      const message = messages.find(message => message.runId === path.split('/')[5])!
+      return route.fulfill({ json: { modelCalls: message.modelResults.length, firstSequence: message.modelResults[0]!.sequence,
+        throughSequence: message.sequence, startedAt: message.createdAt, finishedAt: message.createdAt, events: [] } })
+    }
+    if (path.includes('/runs/') && path.endsWith('/main-outputs')) return route.fulfill({ json: [] })
+    return route.continue()
+  })
+  await page.goto(`${vista.origin}/sessions/${session.id}`)
+  for (const scenario of scenarios) {
+    const reply = page.locator('.messages article.assistant').filter({ hasText: scenario.title })
+    await expect(reply.locator('.token-usage')).toContainText(`cached ${scenario.read}`)
+    const trigger = reply.getByRole('button', { name: 'Model usage details', exact: true })
+    await trigger.scrollIntoViewIfNeeded()
+    await trigger.click()
+    const details = page.locator('.usage-popover:visible .usage-details')
+    const header = details.getByRole('columnheader', { name: 'Cache writes', exact: true })
+    if (scenario.write === undefined) await expect(header).toHaveCount(0)
+    else {
+      await expect(header).toBeVisible()
+      await expect(details.locator('.usage-summary dl > div').filter({ has: page.locator('dt', { hasText: /^Cache writes$/ }) }).locator('dd')).toHaveText(scenario.write)
+    }
+    for (const [index, reported] of scenario.usages.entries()) {
+      const cells = details.locator(`tbody tr[data-turn="${index + 1}"] td`)
+      await expect(cells.nth(4)).toHaveText('cacheReadKnown' in reported ? String(reported.cacheReadTokens) : '—')
+      if (scenario.write !== undefined) await expect(cells.nth(5)).toHaveText('cacheWriteTokens' in reported ? String(reported.cacheWriteTokens) : '—')
+    }
+    await page.waitForTimeout(350)
+    const bounds = await details.evaluate(element => {
+      const panel = element.getBoundingClientRect()
+      return { left: panel.left, right: panel.right, top: panel.top, bottom: panel.bottom,
+        width: innerWidth, height: innerHeight, overflow: element.scrollHeight - element.clientHeight }
+    })
+    expect(bounds.left).toBeGreaterThanOrEqual(0)
+    expect(bounds.right).toBeLessThanOrEqual(bounds.width + 2)
+    expect(bounds.top).toBeGreaterThanOrEqual(0)
+    expect(bounds.bottom).toBeLessThanOrEqual(bounds.height + 2)
+    expect(bounds.overflow).toBeLessThanOrEqual(2)
+    await page.keyboard.press('Escape')
+    await expect(details).toHaveCount(0)
+  }
+})
+
 test('message actions and usage retain their footer alignment and spacing', async ({ page, vista }, testInfo) => {
   await page.goto(vista.origin)
   const sender = page.locator('.sender-card')

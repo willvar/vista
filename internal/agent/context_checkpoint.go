@@ -24,7 +24,11 @@ type contextCheckpoint struct {
 }
 
 func saveContextCheckpoint(ctx context.Context, command workerproto.Command, messages []provider.ChatMessage) (*workerproto.ContextCheckpoint, error) {
-	path, err := saveContextFile(command, messages[1:], "context-*.gob")
+	retained := messages[1:]
+	if messages[0].Prefix != nil {
+		retained = append([]provider.ChatMessage{{Prefix: messages[0].Prefix}}, retained...)
+	}
+	path, err := saveContextFile(command, retained, "context-*.gob")
 	if err != nil {
 		return nil, err
 	}
@@ -82,13 +86,35 @@ func loadContextFile(root *os.Root, path string, command workerproto.Command) ([
 				m.ToolCalls[j].ThoughtSignature = ""
 				m.ToolCalls[j].GeminiID = ""
 			}
-			saved.Messages[i] = provider.ChatMessage{Role: m.Role, Content: m.Content, Resources: m.Resources, ToolCallID: m.ToolCallID, ToolCalls: m.ToolCalls, RuntimeData: m.RuntimeData}
+			saved.Messages[i] = provider.ChatMessage{Role: m.Role, Content: m.Content, Resources: m.Resources, ToolCallID: m.ToolCallID, ToolCalls: m.ToolCalls, RuntimeData: m.RuntimeData, InstructionUpdate: m.InstructionUpdate, LanguageControl: m.LanguageControl, Prefix: m.Prefix}
 		}
 	}
 	return saved.Messages, nil
 }
 
 func loadConversationContext(ctx context.Context, command workerproto.Command, depth int) ([]provider.ChatMessage, error) {
+	messages, _, err := loadConversationFrame(ctx, command, depth)
+	return messages, err
+}
+
+func loadConversationFrame(ctx context.Context, command workerproto.Command, depth int) ([]provider.ChatMessage, *provider.PromptPrefix, error) {
+	entries, err := loadConversationEntries(ctx, command, depth)
+	if err != nil {
+		return nil, nil, err
+	}
+	var messages []provider.ChatMessage
+	var prefix *provider.PromptPrefix
+	for _, message := range entries {
+		if message.Role == "" && message.Prefix != nil {
+			prefix = message.Prefix
+			continue
+		}
+		messages = append(messages, message)
+	}
+	return completeInterruptedToolHistory(messages, command.QuestionCallID), prefix, ctx.Err()
+}
+
+func loadConversationEntries(ctx context.Context, command workerproto.Command, depth int) ([]provider.ChatMessage, error) {
 	var messages []provider.ChatMessage
 	if depth != 0 || command.SessionID == "" || command.MessageSequence == 0 {
 		for _, m := range command.History {
@@ -170,5 +196,5 @@ func loadConversationContext(ctx context.Context, command workerproto.Command, d
 		}
 		messages = append(messages, message)
 	}
-	return completeInterruptedToolHistory(messages, command.QuestionCallID), ctx.Err()
+	return messages, ctx.Err()
 }

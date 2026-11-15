@@ -67,6 +67,7 @@ func TestCommandModelWireRoundTrip(t *testing.T) {
 						"insecureSkipVerify":true,"authentication":"password",
 						"username":"fixture-user","password":"fake-fixture-password"
 					}},
+					"promptCaching":{"format":"none","key":false},
 					"openRouter":{
 						"api_keys":{"example":"fake-fixture-key"},"usage":false,
 						"provider":{"order":["example"],"allow_fallbacks":false,
@@ -86,6 +87,10 @@ func TestCommandModelWireRoundTrip(t *testing.T) {
 				}
 				if command.Model.ProxyID != profile.ID || command.Model.Network == nil || !reflect.DeepEqual(command.Network, *command.Model.Network) {
 					t.Fatal("model connection lost its execution network snapshot")
+				}
+				cache := command.Model.PromptCaching
+				if cache == nil || cache.Format != "none" || cache.Key == nil || *cache.Key {
+					t.Fatal("Worker transport lost explicit prompt-cache capabilities")
 				}
 				o := command.Model.OpenRouter
 				if o == nil || o.Provider == nil || o.Reasoning == nil {

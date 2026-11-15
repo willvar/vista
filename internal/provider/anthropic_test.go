@@ -315,8 +315,10 @@ func TestAnthropicStreamToolCallAndResultHistory(t *testing.T) {
 			t.Errorf("Anthropic endpoint or headers: %s %+v", r.URL, r.Header)
 		}
 		var request struct {
-			System string `json:"system"`
-			Tools  []struct {
+			System []struct {
+				Text string `json:"text"`
+			} `json:"system"`
+			Tools []struct {
 				Name        string         `json:"name"`
 				InputSchema map[string]any `json:"input_schema"`
 			} `json:"tools"`
@@ -328,7 +330,7 @@ func TestAnthropicStreamToolCallAndResultHistory(t *testing.T) {
 		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
 			t.Fatal(err)
 		}
-		if request.System != "system prompt" || len(request.Tools) != 1 || request.Tools[0].Name != "read_file" {
+		if len(request.System) != 1 || request.System[0].Text != "system prompt" || len(request.Tools) != 1 || request.Tools[0].Name != "read_file" {
 			t.Errorf("Anthropic request missing system/tool: %+v", request)
 		}
 		if requests == 2 && (len(request.Messages) != 3 || request.Messages[2].Role != "user" || !strings.Contains(string(request.Messages[2].Content), "tool_result")) {
@@ -353,12 +355,12 @@ func TestAnthropicStreamToolCallAndResultHistory(t *testing.T) {
 	schema := []map[string]any{{"type": "function", "function": map[string]any{"name": "read_file", "description": "read", "parameters": map[string]any{"type": "object"}}}}
 	messages := []ChatMessage{{Role: "system", Content: "system prompt"}, {Role: "user", Content: "read a file"}}
 	first, err := ModelTurn(context.Background(), model, messages, schema)
-	if err != nil || len(first.Calls) != 1 || first.Calls[0].Function.Arguments != `{"path":"/tmp/a"}` || first.FinishReason != "tool_use" || first.Usage == nil || *first.Usage != (ModelUsage{InputTokens: 15, OutputTokens: 8, CacheReadTokens: 3}) {
+	if err != nil || len(first.Calls) != 1 || first.Calls[0].Function.Arguments != `{"path":"/tmp/a"}` || first.FinishReason != "tool_use" || first.Usage == nil || !equalUsage(first.Usage, ModelUsage{InputTokens: 15, OutputTokens: 8, CacheReadTokens: 3, CacheWriteTokens: testInt64(2), CacheReadKnown: testBool(true)}) {
 		t.Fatalf("tool turn: %+v %v", first, err)
 	}
 	messages = append(messages, ChatMessage{Role: "assistant", ToolCalls: first.Calls}, ChatMessage{Role: "tool", ToolCallID: first.Calls[0].ID, Content: "file contents"})
 	second, err := ModelTurn(context.Background(), model, messages, schema)
-	if err != nil || second.Text != "Done" || second.FinishReason != "end_turn" || second.Usage == nil || *second.Usage != (ModelUsage{InputTokens: 15, OutputTokens: 9, CacheReadTokens: 3}) || requests != 2 {
+	if err != nil || second.Text != "Done" || second.FinishReason != "end_turn" || second.Usage == nil || !equalUsage(second.Usage, ModelUsage{InputTokens: 15, OutputTokens: 9, CacheReadTokens: 3, CacheWriteTokens: testInt64(2), CacheReadKnown: testBool(true)}) || requests != 2 {
 		t.Fatalf("final turn: %+v %v requests=%d", second, err, requests)
 	}
 }

@@ -116,7 +116,7 @@ func TestVercelGatewayV3FinishUsage(t *testing.T) {
 	stream := `data: {"type":"text-delta","id":"text_1","delta":"done"}` + "\n\n" +
 		`data: {"type":"finish","finishReason":{"unified":"stop"},"usage":{"inputTokens":{"total":120,"cacheRead":30},"outputTokens":{"total":40,"reasoning":12}}}` + "\n\n"
 	turn, err := parseVercelGatewayStream(strings.NewReader(stream), nil)
-	if err != nil || turn.Text != "done" || turn.Usage == nil || *turn.Usage != (ModelUsage{InputTokens: 120, OutputTokens: 40, CacheReadTokens: 30, ReasoningTokens: 12}) {
+	if err != nil || turn.Text != "done" || turn.Usage == nil || !equalUsage(turn.Usage, ModelUsage{InputTokens: 120, OutputTokens: 40, CacheReadTokens: 30, ReasoningTokens: 12, CacheReadKnown: testBool(true)}) {
 		t.Fatalf("Gateway v3 finish usage: turn=%+v err=%v", turn, err)
 	}
 	for _, raw := range []string{
@@ -128,6 +128,26 @@ func TestVercelGatewayV3FinishUsage(t *testing.T) {
 		if _, err := parseVercelGatewayStream(strings.NewReader(bad), nil); err == nil {
 			t.Fatalf("invalid Gateway usage accepted: %s", raw)
 		}
+	}
+}
+
+func TestVercelGatewayPartialUsageDoesNotFailGeneration(t *testing.T) {
+	for _, raw := range []string{
+		`{"inputTokens":{"cacheRead":30},"outputTokens":{"total":40}}`,
+		`{"inputTokens":{"total":120},"outputTokens":{"reasoning":12}}`,
+		`{"inputTokens":{"noCache":90,"cacheRead":30,"cacheWrite":null},"outputTokens":{"total":40}}`,
+	} {
+		stream := `data: {"type":"text-delta","id":"text_1","delta":"done"}` + "\n\n" +
+			`data: {"type":"finish","finishReason":{"unified":"stop"},"usage":` + raw + `}` + "\n\n"
+		turn, err := parseVercelGatewayStream(strings.NewReader(stream), nil)
+		if err != nil || turn.Text != "done" || turn.Usage != nil {
+			t.Fatalf("partial Gateway usage: turn=%+v err=%v", turn, err)
+		}
+	}
+	stream := `data: {"type":"finish","finishReason":{"unified":"stop"},"usage":{"inputTokens":{"noCache":70,"cacheRead":30,"cacheWrite":20},"outputTokens":{"text":28,"reasoning":12}}}` + "\n\n"
+	turn, err := parseVercelGatewayStream(strings.NewReader(stream), nil)
+	if err != nil || !equalUsage(turn.Usage, ModelUsage{InputTokens: 120, OutputTokens: 40, CacheReadTokens: 30, CacheReadKnown: testBool(true), CacheWriteTokens: testInt64(20), ReasoningTokens: 12}) {
+		t.Fatalf("Gateway component totals: turn=%+v err=%v", turn, err)
 	}
 }
 

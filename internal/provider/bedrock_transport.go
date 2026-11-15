@@ -20,6 +20,9 @@ type bedrockTransport struct{ base http.RoundTripper }
 func (t bedrockTransport) Unwrap() http.RoundTripper { return t.base }
 
 func (t bedrockTransport) RoundTrip(request *http.Request) (*http.Response, error) {
+	if attempt, _ := request.Context().Value(cacheAttemptKey{}).(*cacheAttempt); attempt != nil {
+		captureCacheRequest(request, attempt.model)
+	}
 	ctx, cancel := context.WithCancel(request.Context())
 	response, err := t.base.RoundTrip(request.Clone(ctx))
 	if err != nil {

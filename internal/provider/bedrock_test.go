@@ -144,7 +144,7 @@ func TestBedrockConverseStreamToolContinuation(t *testing.T) {
 	}
 	messages = append(messages, ChatMessage{Role: "assistant", ToolCalls: first.Calls}, ChatMessage{Role: "tool", ToolCallID: "call_1", Content: "file contents"})
 	second, err := ModelTurn(context.Background(), model, messages, schemas)
-	if err != nil || second.Text != "Bedrock reply" || second.FinishReason != "end_turn" || second.Usage == nil || *second.Usage != (ModelUsage{InputTokens: 37, OutputTokens: 9, CacheReadTokens: 5}) || requests != 2 {
+	if err != nil || second.Text != "Bedrock reply" || second.FinishReason != "end_turn" || second.Usage == nil || !equalUsage(second.Usage, ModelUsage{InputTokens: 42, OutputTokens: 9, CacheReadTokens: 5, CacheReadKnown: testBool(true)}) || requests != 2 {
 		t.Fatalf("Bedrock continuation: %+v, requests=%d, err=%v", second, requests, err)
 	}
 }

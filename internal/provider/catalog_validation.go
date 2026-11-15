@@ -11,6 +11,9 @@ import (
 // ValidateCatalogOptions applies service-specific configuration rules. Catalog
 // storage validates its own keys and limits before calling this adapter boundary.
 func ValidateCatalogOptions(item CatalogConfig, metadata CatalogMetadata) error {
+	if err := ValidatePromptCaching(CatalogModelRequest(item, metadata)); err != nil {
+		return err
+	}
 	if item.Authentication != "" && item.ProviderID != "custom" {
 		return errors.New("explicit authentication requires a custom connection")
 	}
@@ -172,12 +175,12 @@ func ValidateCatalogOptions(item CatalogConfig, metadata CatalogMetadata) error 
 		}
 	}
 	if item.PromptCacheKey != "" {
-		if item.ProviderID != "xai" || item.Provider != "openai-chat" || len(item.PromptCacheKey) > 128 || strings.TrimSpace(item.PromptCacheKey) != item.PromptCacheKey {
-			return fmt.Errorf("model %q has invalid xAI Chat promptCacheKey", item.Key)
+		if !(item.ProviderID == "xai" && item.Provider == "openai-chat" || promptCacheCapabilities(CatalogModelRequest(item, metadata)).key) || len(item.PromptCacheKey) > 128 || strings.TrimSpace(item.PromptCacheKey) != item.PromptCacheKey {
+			return fmt.Errorf("model %q has invalid promptCacheKey", item.Key)
 		}
 		for _, ch := range item.PromptCacheKey {
 			if ch < 0x20 || ch == 0x7f {
-				return fmt.Errorf("model %q has invalid xAI Chat promptCacheKey", item.Key)
+				return fmt.Errorf("model %q has invalid promptCacheKey", item.Key)
 			}
 		}
 	}

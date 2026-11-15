@@ -100,7 +100,11 @@ try {
     await new Promise(resolve => setTimeout(resolve, 25))
   }
   if (!compacted) throw new Error('manual compaction did not finish')
-  if (JSON.stringify(before) !== JSON.stringify(await api(`/sessions/${session.id}/messages`))) throw new Error('compaction modified visible history')
+  const after = await api(`/sessions/${session.id}/messages`)
+  const canonical = messages => messages.filter(message => !message.contextSummary).map(({ resultsAfter, ...message }) => message)
+  if (JSON.stringify(canonical(before)) !== JSON.stringify(canonical(after))) throw new Error('compaction modified original messages')
+  const summariesInHistory = after.filter(message => message.contextSummary && message.runId === compaction.runId)
+  if (summariesInHistory.length !== 1 || summariesInHistory[0].role !== 'assistant' || !summariesInHistory[0].content) throw new Error('compaction summary projection missing or duplicated')
   const events = await api(`/sessions/${session.id}/event-page?after=${compaction.event.sequence}`)
   const checkpoint = events.find(event => event.kind === 'context_notice' && event.data.checkpoint?.path)?.data.checkpoint
   if (!checkpoint || !existsSync(checkpoint.path)) throw new Error('compaction checkpoint was not persisted')

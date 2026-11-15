@@ -16,11 +16,13 @@ type ResponsesRoute string
 const (
 	ResponsesRouteUnknown ResponsesRoute = ""
 	ResponsesRouteCodex   ResponsesRoute = "codex"
+	// CodexCompatible enables routing state without changing a gateway URL or authentication.
+	ResponsesRouteCodexCompatible ResponsesRoute = "codex-compatible"
 )
 
 func (b ResponsesRoute) Valid() bool {
 	switch b {
-	case ResponsesRouteUnknown, ResponsesRouteCodex:
+	case ResponsesRouteUnknown, ResponsesRouteCodex, ResponsesRouteCodexCompatible:
 		return true
 	default:
 		return false
@@ -90,6 +92,7 @@ type Model struct {
 	Effort                string              `json:"effort,omitempty"`
 	SafetyIdentifier      string              `json:"safetyIdentifier,omitempty"`
 	PromptCacheKey        string              `json:"promptCacheKey,omitempty"`
+	PromptCaching         *PromptCaching      `json:"promptCaching,omitempty"`
 	Thinking              *ThinkingOption     `json:"thinking,omitempty"`
 	EnableThinking        *bool               `json:"enableThinking,omitempty"`
 	ThinkingBudget        *int                `json:"thinkingBudget,omitempty"`
@@ -106,6 +109,25 @@ type Model struct {
 	ZAIUserID             string              `json:"zaiUserId,omitempty"`
 	ReasoningSplit        *bool               `json:"reasoningSplit,omitempty"`
 	OpenRouter            *OpenRouterOptions  `json:"openRouter,omitempty"`
+}
+
+// PromptCaching overrides wire capabilities, not a provider's cache lifecycle.
+// Nil uses service/model defaults; none omits Vista's cache hints, without
+// attempting to disable upstream automatic caching.
+type PromptCaching struct {
+	Format        string         `json:"format,omitempty"`
+	Key           *bool          `json:"key,omitempty"`
+	Retention     string         `json:"retention,omitempty"`
+	TTL           string         `json:"ttl,omitempty"`
+	CachedContent *CachedContent `json:"cachedContent,omitempty"`
+}
+
+// CachedContent binds an existing Gemini resource to the exact projected prefix
+// it replaces. SHA256 covers systemInstruction, tools and Messages contents.
+type CachedContent struct {
+	Name     string `json:"name"`
+	SHA256   string `json:"sha256"`
+	Messages int    `json:"messages"`
 }
 
 type ReasoningOption struct {

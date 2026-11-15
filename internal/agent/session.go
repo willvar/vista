@@ -7,6 +7,7 @@ import (
 
 	"vista/internal/instance"
 	"vista/internal/mcphost"
+	"vista/internal/provider"
 	"vista/internal/tools"
 	"vista/internal/workerproto"
 )
@@ -14,14 +15,15 @@ import (
 // Session owns detached work across foreground runs. Closing the browser or
 // finishing/canceling a foreground run does not close this supervisor.
 type Session struct {
-	ctx    context.Context
-	cancel context.CancelFunc
-	mu     sync.Mutex
-	runs   map[string]*runScope
-	wg     sync.WaitGroup
-	tasks  *delegationRegistry
-	wake   chan struct{}
-	events *runtimeMailbox
+	ctx      context.Context
+	cancel   context.CancelFunc
+	mu       sync.Mutex
+	runs     map[string]*runScope
+	wg       sync.WaitGroup
+	tasks    *delegationRegistry
+	wake     chan struct{}
+	events   *runtimeMailbox
+	requests *provider.RequestState
 }
 
 func NewSession(ctx context.Context) *Session {
@@ -58,6 +60,13 @@ func (s *Session) Run(ctx context.Context, command workerproto.Command, emit fun
 		s.mu.Unlock()
 		return "", errors.New("execution already registered")
 	}
+	if s.requests == nil {
+		s.requests = new(provider.RequestState)
+	}
+	if command.Action != "resume" {
+		s.requests.Reset()
+	}
+	ctx = provider.WithRequestState(ctx, s.requests)
 	s.runs[command.RunID] = scope
 	s.wg.Add(1)
 	s.mu.Unlock()

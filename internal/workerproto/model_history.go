@@ -1,7 +1,8 @@
 package workerproto
 
 // ModelHistory points to one immutable model message, separate from UI traces
-// and formal replies. Index identifies a tool result within its model turn.
+// and formal replies. Index identifies a tool result within its model turn,
+// a runtime event sequence, or a prefix's committed input sequence.
 type ModelHistory struct {
 	EventID string `json:"eventId,omitempty"`
 	Path    string `json:"path"`

@@ -1,4 +1,8 @@
 export default {
+  "usageCacheWrite": "Cache writes",
+  "promptCacheCompatibility": "Prompt caching compatibility",
+  "promptCacheNoHints": "Omit cache hints",
+  "promptCacheCompatibilityHint": "Select only capabilities supported by this service. Cache writes may be billed. Automatic caching at the service can still apply.",
 
   "networkProfileName": "Profile name",
   "networkLoading": "Loading network configuration…",

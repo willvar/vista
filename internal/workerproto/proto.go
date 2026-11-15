@@ -199,10 +199,12 @@ type ModelResult struct {
 	DurationMS      float64     `json:"durationMs,omitempty"`
 }
 type ModelUsage struct {
-	InputTokens     int64 `json:"inputTokens"`
-	OutputTokens    int64 `json:"outputTokens"`
-	CacheReadTokens int64 `json:"cacheReadTokens"`
-	ReasoningTokens int64 `json:"reasoningTokens"`
+	CacheReadKnown   *bool  `json:"cacheReadKnown,omitempty"`
+	CacheWriteTokens *int64 `json:"cacheWriteTokens,omitempty"`
+	InputTokens      int64  `json:"inputTokens"`
+	OutputTokens     int64  `json:"outputTokens"`
+	CacheReadTokens  int64  `json:"cacheReadTokens"`
+	ReasoningTokens  int64  `json:"reasoningTokens"`
 }
 
 type Metrics struct {

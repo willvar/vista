@@ -2,6 +2,10 @@ import type en from './en.ts'
 
 
 export default {
+  "usageCacheWrite": "Escrituras en caché",
+  "promptCacheCompatibility": "Compatibilidad de caché de instrucciones",
+  "promptCacheNoHints": "Omitir indicaciones de caché",
+  "promptCacheCompatibilityHint": "Selecciona solo funciones compatibles con este servicio. Las escrituras en caché pueden tener un coste. El servicio puede seguir usando su caché automática.",
 
   "networkProfileName": "Nombre del perfil",
   "networkLoading": "Cargando configuración de red…",

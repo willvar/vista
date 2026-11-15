@@ -100,6 +100,10 @@ func vercelGatewayTurn(ctx context.Context, model modelcfg.Model, messages []Cha
 	if len(tools) > 0 {
 		body["tools"] = tools
 	}
+	body, err = applyPromptCaching(model, body, messages)
+	if err != nil {
+		return Turn{}, err
+	}
 	encoded, err := json.Marshal(body)
 	if err != nil {
 		return Turn{}, err
@@ -165,18 +169,38 @@ func gatewayModelUsage(reported *gatewayStreamUsage) (*ModelUsage, error) {
 	if !observed {
 		return nil, nil
 	}
+	inputKnown := reported.InputTokens.Total != nil || reported.InputTokens.NoCache != nil && reported.InputTokens.CacheRead != nil && reported.InputTokens.CacheWrite != nil
+	outputKnown := reported.OutputTokens.Total != nil || reported.OutputTokens.Text != nil && reported.OutputTokens.Reasoning != nil
+	// Gateway component counts may be null or omitted. ModelUsage requires
+	// complete input/output totals; keep partial reports unavailable instead of
+	// inventing zero totals or failing an otherwise successful generation.
+	if !inputKnown || !outputKnown {
+		return nil, nil
+	}
 	usage := &ModelUsage{}
 	if reported.InputTokens.Total != nil {
 		usage.InputTokens = *reported.InputTokens.Total
 	}
 	if reported.InputTokens.CacheRead != nil {
 		usage.CacheReadTokens = *reported.InputTokens.CacheRead
+		known := true
+		usage.CacheReadKnown = &known
+	}
+	usage.CacheWriteTokens = reported.InputTokens.CacheWrite
+	if reported.InputTokens.Total == nil && reported.InputTokens.NoCache != nil && reported.InputTokens.CacheRead != nil && reported.InputTokens.CacheWrite != nil {
+		usage.InputTokens = *reported.InputTokens.NoCache + *reported.InputTokens.CacheRead + *reported.InputTokens.CacheWrite
 	}
 	if reported.OutputTokens.Total != nil {
 		usage.OutputTokens = *reported.OutputTokens.Total
 	}
 	if reported.OutputTokens.Reasoning != nil {
 		usage.ReasoningTokens = *reported.OutputTokens.Reasoning
+	}
+	if reported.OutputTokens.Total == nil && reported.OutputTokens.Text != nil && reported.OutputTokens.Reasoning != nil {
+		usage.OutputTokens = *reported.OutputTokens.Text + *reported.OutputTokens.Reasoning
+	}
+	if !ValidModelUsage(*usage) {
+		return nil, errors.New("Vercel AI Gateway reported inconsistent token usage")
 	}
 	return usage, nil
 }

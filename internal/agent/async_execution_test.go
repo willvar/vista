@@ -141,7 +141,7 @@ func TestNewInputWakesIdleParentWithoutCancelingTwoChildren(t *testing.T) {
 			if message.Role == "user" && message.Content == "change focus" {
 				changed = true
 			}
-			if message.Role == "system" && strings.Contains(message.Content, `"kind":"agent"`) {
+			if runtimeNoticeOnWire(message.Role, message.Content) && strings.Contains(message.Content, `"kind":"agent"`) {
 				all++
 			}
 		}
@@ -341,7 +341,7 @@ func TestRuntimeContinuationDelegatesWithActualChildTask(t *testing.T) {
 			return
 		}
 		for _, message := range body.Messages {
-			if message.RuntimeData || message.Role == "system" && strings.Contains(message.Content, "Verified background report") {
+			if message.Role == "user" && strings.HasPrefix(message.Content, "Runtime completion event.") && strings.Contains(message.Content, "Verified background report") {
 				continuationAnswer(w, "Completed using the child report")
 				return
 			}

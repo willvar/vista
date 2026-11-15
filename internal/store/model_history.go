@@ -15,11 +15,11 @@ func (s *Store) RecordModelHistory(ctx context.Context, sessionID string, result
 		return nil, errors.New("invalid model history")
 	}
 	switch result.Status {
-	case "assistant", "tool", "join", "question", "runtime":
+	case "assistant", "tool", "join", "question", "runtime", "prefix":
 	default:
 		return nil, errors.New("invalid model history part")
 	}
-	if result.Status != "tool" && result.Status != "runtime" && result.History.Index != 0 {
+	if result.Status != "tool" && result.Status != "runtime" && result.Status != "prefix" && result.History.Index != 0 {
 		return nil, errors.New("invalid model history index")
 	}
 	if (result.Status == "runtime") != (result.History.EventID != "") {

@@ -39,7 +39,7 @@ func TestSharedReplyLanguageReachesProtocolRequestsWithoutChangingHistory(t *tes
 									Content json.RawMessage
 								}
 								Instructions      string
-								System            string
+								System            []struct{ Text string }
 								SystemInstruction struct{ Parts []struct{ Text string } }
 							}
 							if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
@@ -71,7 +71,12 @@ func TestSharedReplyLanguageReachesProtocolRequestsWithoutChangingHistory(t *tes
 								system = request.Instructions
 								fmt.Fprint(w, "data: {\"type\":\"response.output_text.delta\",\"item_id\":\"msg\",\"delta\":\"done\"}\n\ndata: {\"type\":\"response.completed\",\"response\":{\"status\":\"completed\",\"output\":[]}}\n\n")
 							case "anthropic":
-								system = request.System
+								for i, block := range request.System {
+									if i > 0 {
+										system += "\n"
+									}
+									system += block.Text
+								}
 								fmt.Fprint(w, "data: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"text\",\"text\":\"done\"}}\n\ndata: {\"type\":\"content_block_stop\",\"index\":0}\n\ndata: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\"}}\n\ndata: {\"type\":\"message_stop\"}\n\n")
 							case "gemini":
 								for _, part := range request.SystemInstruction.Parts {

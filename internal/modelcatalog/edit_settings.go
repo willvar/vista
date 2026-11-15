@@ -6,30 +6,33 @@ import (
 	"net/http"
 
 	"vista/internal/copilotauth"
+	modelcfg "vista/internal/model"
 )
 
 // ConnectionInput describes the editable connection fields, independent of HTTP.
 type ConnectionInput struct {
-	ProxyIDSpecified bool                 `json:"-"`
-	Revision         string               `json:"revision,omitempty"`
-	ProxyID          string               `json:"proxyId"`
-	Key              string               `json:"key"`
-	Name             string               `json:"name"`
-	Provider         string               `json:"provider"`
-	ProviderID       string               `json:"providerId"`
-	BaseURL          string               `json:"baseUrl"`
-	APIKey           string               `json:"apiKey"`
-	Headers          map[string]string    `json:"headers"`
-	CopilotAuth      *copilotauth.Options `json:"copilotAuth"`
-	IDs              []string             `json:"ids"`
-	CredentialMode   string               `json:"credentialMode"`
-	AccessToken      string               `json:"accessToken"`
-	Region           string               `json:"region"`
-	Project          string               `json:"project"`
-	Location         string               `json:"location"`
-	ResourceName     string               `json:"resourceName"`
-	DeploymentID     string               `json:"deploymentId"`
-	APIVersion       string               `json:"apiVersion"`
+	PromptCaching    *modelcfg.PromptCaching  `json:"promptCaching,omitempty"`
+	ProxyIDSpecified bool                     `json:"-"`
+	Revision         string                   `json:"revision,omitempty"`
+	ResponsesRoute   *modelcfg.ResponsesRoute `json:"responsesRoute,omitempty"`
+	ProxyID          string                   `json:"proxyId"`
+	Key              string                   `json:"key"`
+	Name             string                   `json:"name"`
+	Provider         string                   `json:"provider"`
+	ProviderID       string                   `json:"providerId"`
+	BaseURL          string                   `json:"baseUrl"`
+	APIKey           string                   `json:"apiKey"`
+	Headers          map[string]string        `json:"headers"`
+	CopilotAuth      *copilotauth.Options     `json:"copilotAuth"`
+	IDs              []string                 `json:"ids"`
+	CredentialMode   string                   `json:"credentialMode"`
+	AccessToken      string                   `json:"accessToken"`
+	Region           string                   `json:"region"`
+	Project          string                   `json:"project"`
+	Location         string                   `json:"location"`
+	ResourceName     string                   `json:"resourceName"`
+	DeploymentID     string                   `json:"deploymentId"`
+	APIVersion       string                   `json:"apiVersion"`
 }
 
 // SettingsError gives clients stable recovery actions without matching prose.

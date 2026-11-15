@@ -445,7 +445,7 @@ func TestOpenAIChatPreservesUsageAndFinishReason(t *testing.T) {
 	defer server.Close()
 	model := modelcfg.Model{Provider: "openai-chat", ProviderID: "openai", ID: "test", BaseURL: server.URL, APIKey: "key"}
 	turn, err := OpenAIChatTurn(context.Background(), model, []ChatMessage{{Role: "user", Content: "hello"}}, nil)
-	if err != nil || turn.Text != "done" || turn.FinishReason != "stop" || turn.Usage == nil || *turn.Usage != (ModelUsage{InputTokens: 37, OutputTokens: 12, CacheReadTokens: 20, ReasoningTokens: 4}) {
+	if err != nil || turn.Text != "done" || turn.FinishReason != "stop" || turn.Usage == nil || !equalUsage(turn.Usage, ModelUsage{InputTokens: 37, OutputTokens: 12, CacheReadTokens: 20, ReasoningTokens: 4, CacheReadKnown: testBool(true)}) {
 		t.Fatalf("OpenAI Chat result metadata: %+v, err=%v", turn, err)
 	}
 }
@@ -547,9 +547,9 @@ func TestChatReadsChoiceUsageAndVendorCacheFields(t *testing.T) {
 		want        ModelUsage
 		invalid     bool
 	}{
-		{"Moonshot choice usage", `{"choices":[{"delta":{"content":"done"},"finish_reason":"stop","usage":{"prompt_tokens":30,"completion_tokens":8,"prompt_cache_hit_tokens":5}}]}`, ModelUsage{InputTokens: 30, OutputTokens: 8, CacheReadTokens: 5}, false},
-		{"DeepSeek cache hit", `{"choices":[{"delta":{"content":"done"},"finish_reason":"stop"}],"usage":{"prompt_tokens":25,"completion_tokens":6,"prompt_cache_hit_tokens":4}}`, ModelUsage{InputTokens: 25, OutputTokens: 6, CacheReadTokens: 4}, false},
-		{"ZAI top-level cache", `{"choices":[{"delta":{"content":"done"},"finish_reason":"stop"}],"usage":{"prompt_tokens":40,"completion_tokens":9,"cached_tokens":7}}`, ModelUsage{InputTokens: 40, OutputTokens: 9, CacheReadTokens: 7}, false},
+		{"Moonshot choice usage", `{"choices":[{"delta":{"content":"done"},"finish_reason":"stop","usage":{"prompt_tokens":30,"completion_tokens":8,"prompt_cache_hit_tokens":5}}]}`, ModelUsage{InputTokens: 30, OutputTokens: 8, CacheReadTokens: 5, CacheReadKnown: testBool(true)}, false},
+		{"DeepSeek cache hit", `{"choices":[{"delta":{"content":"done"},"finish_reason":"stop"}],"usage":{"prompt_tokens":25,"completion_tokens":6,"prompt_cache_hit_tokens":4}}`, ModelUsage{InputTokens: 25, OutputTokens: 6, CacheReadTokens: 4, CacheReadKnown: testBool(true)}, false},
+		{"ZAI top-level cache", `{"choices":[{"delta":{"content":"done"},"finish_reason":"stop"}],"usage":{"prompt_tokens":40,"completion_tokens":9,"cached_tokens":7}}`, ModelUsage{InputTokens: 40, OutputTokens: 9, CacheReadTokens: 7, CacheReadKnown: testBool(true)}, false},
 		{"invalid choice usage", `{"choices":[{"delta":{"content":"done"},"finish_reason":"stop","usage":{"prompt_tokens":30,"completion_tokens":8,"cached_tokens":-1}}]}`, ModelUsage{}, true},
 	} {
 		t.Run(check.name, func(t *testing.T) {
@@ -566,7 +566,7 @@ func TestChatReadsChoiceUsageAndVendorCacheFields(t *testing.T) {
 				}
 				return
 			}
-			if err != nil || turn.Usage == nil || *turn.Usage != check.want {
+			if err != nil || turn.Usage == nil || !equalUsage(turn.Usage, check.want) {
 				t.Fatalf("Chat usage: %+v, err=%v", turn, err)
 			}
 		})

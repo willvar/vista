@@ -4,6 +4,7 @@ import { useI18n } from 'vue-i18n'
 import { Empty as VEmpty, Popover, Button, Select } from './ui'
 import type { ModelResultView as Result } from './client/types'
 import { useEscapeDismiss } from './composables/useEscape'
+import { cacheReadCount, cacheTotals } from './state/cacheUsage.ts'
 import { formatTime } from './ui/datetime.ts'
 const props = defineProps<{ results: Result[]; modelName?: string }>()
 const { t, te, locale } = useI18n()
@@ -61,10 +62,12 @@ const mainCalls = computed(() => displayResults.value.filter(result => !isChild(
 const reportedCalls = computed(() => displayResults.value.filter(result => result.usage).length)
 watch([sort, filter], () => { page.value = 0 })
 watch(pages, count => { page.value = Math.min(page.value, count - 1) })
+const cache = computed(() => cacheTotals(displayResults.value))
+const showCacheWrites = computed(() => displayResults.value.some(result => result.usage?.cacheWriteTokens !== undefined))
 const total = computed(() => {
-  const usage = { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, reasoningTokens: 0 }
+  const usage = { inputTokens: 0, outputTokens: 0, reasoningTokens: 0 }
   for (const result of displayResults.value) if (result.usage) for (const key of Object.keys(usage) as (keyof typeof usage)[]) usage[key] += result.usage[key] || 0
-  return usage
+  return { ...usage, cacheReadTokens: cache.value.read, cacheWriteTokens: cache.value.write }
 })
 const averageTPS = computed(() => {
   const measured = displayResults.value.filter(result => tps(result) !== null)
@@ -84,13 +87,13 @@ const averageTPS = computed(() => {
           <section class="usage-details" :aria-label="t('usageDetails')" @wheel.stop @touchmove.stop>
             <div class="usage-summary">
               <div class="usage-summary-heading"><strong>{{ t('usageSummary') }}</strong><span>{{ t('usageCalls', { count: displayResults.length }) }}</span><small>{{ t('usageMainCalls', { count: mainCalls }) }}<template v-if="displayResults.length > mainCalls"> · {{ t('usageChildCalls', { count: displayResults.length - mainCalls }) }}</template></small></div>
-              <dl><div><dt>{{ t('usageInput') }}</dt><dd :title="exact(total.inputTokens)">{{ reported(total.inputTokens) }}</dd></div><div><dt>{{ t('usageOutput') }}</dt><dd :title="exact(total.outputTokens)">{{ reported(total.outputTokens) }}</dd></div><div><dt>{{ t('usageCache') }}</dt><dd :title="exact(total.cacheReadTokens)">{{ reported(total.cacheReadTokens) }}</dd></div><div><dt>{{ t('usageReasoning') }}</dt><dd :title="exact(total.reasoningTokens)">{{ reported(total.reasoningTokens) }}</dd></div></dl>
+              <dl><div><dt>{{ t('usageInput') }}</dt><dd :title="exact(total.inputTokens)">{{ reported(total.inputTokens) }}</dd></div><div><dt>{{ t('usageOutput') }}</dt><dd :title="exact(total.outputTokens)">{{ reported(total.outputTokens) }}</dd></div><div><dt>{{ t('usageCache') }}</dt><dd :title="exact(total.cacheReadTokens)">{{ reported(total.cacheReadTokens) }}</dd></div><div v-if="showCacheWrites"><dt>{{ t('usageCacheWrite') }}</dt><dd :title="exact(total.cacheWriteTokens)">{{ reported(total.cacheWriteTokens) }}</dd></div><div><dt>{{ t('usageReasoning') }}</dt><dd :title="exact(total.reasoningTokens)">{{ reported(total.reasoningTokens) }}</dd></div></dl>
               <small>{{ t('usageReportedCalls', { count: reportedCalls, total: displayResults.length }) }}<span :title="t(averageTPS === null ? 'modelTPSUnavailableHelp' : 'modelTPSHelp')">{{ t('modelTPS', { value: averageTPS ?? '—' }) }}</span></small>
             </div>
             <div class="usage-controls"><Select v-model:value="filter" :options="filterOptions" :aria-label="t('usageFilter')" /><Select v-model:value="sort" :options="sortOptions" :aria-label="t('usageSort')" /></div>
             <div v-if="visible.length" class="usage-table-scroll" tabindex="0">
-              <table class="usage-table"><caption class="usage-visually-hidden">{{ t('usageDetails') }}</caption><thead><tr><th scope="col">{{ t('usageTime') }}</th><th scope="col">{{ t('usageStatus') }}</th><th scope="col">{{ t('usageInput') }}</th><th scope="col">{{ t('usageOutput') }}</th><th scope="col">{{ t('usageCache') }}</th><th scope="col">{{ t('usageReasoning') }}</th><th scope="col">{{ t('usageTPS') }}</th></tr></thead>
-                <tbody><tr v-for="result in visible" :key="result.sequence" :data-turn="result.turn"><td><time :datetime="result.createdAt" :title="result.createdAt || undefined">{{ timeLabel(result) }}</time></td><td :class="{ 'usage-failure': isFailure(result) }" :title="result.finishReason">{{ finishLabel(result) }}</td><td :title="exact(result.usage?.inputTokens)">{{ reported(result.usage?.inputTokens) }}</td><td :title="exact(result.usage?.outputTokens)">{{ reported(result.usage?.outputTokens) }}</td><td :title="exact(result.usage?.cacheReadTokens)">{{ reported(result.usage?.cacheReadTokens) }}</td><td :title="exact(result.usage?.reasoningTokens)">{{ reported(result.usage?.reasoningTokens) }}</td><td :title="t(tps(result) === null ? 'modelTPSUnavailableHelp' : 'modelTPSHelp')">{{ tps(result) ?? '—' }}</td></tr></tbody>
+              <table class="usage-table"><caption class="usage-visually-hidden">{{ t('usageDetails') }}</caption><thead><tr><th scope="col">{{ t('usageTime') }}</th><th scope="col">{{ t('usageStatus') }}</th><th scope="col">{{ t('usageInput') }}</th><th scope="col">{{ t('usageOutput') }}</th><th scope="col">{{ t('usageCache') }}</th><th v-if="showCacheWrites" scope="col">{{ t('usageCacheWrite') }}</th><th scope="col">{{ t('usageReasoning') }}</th><th scope="col">{{ t('usageTPS') }}</th></tr></thead>
+                <tbody><tr v-for="result in visible" :key="result.sequence" :data-turn="result.turn"><td><time :datetime="result.createdAt" :title="result.createdAt || undefined">{{ timeLabel(result) }}</time></td><td :class="{ 'usage-failure': isFailure(result) }" :title="result.finishReason">{{ finishLabel(result) }}</td><td :title="exact(result.usage?.inputTokens)">{{ reported(result.usage?.inputTokens) }}</td><td :title="exact(result.usage?.outputTokens)">{{ reported(result.usage?.outputTokens) }}</td><td :title="exact(cacheReadCount(result.usage))">{{ reported(cacheReadCount(result.usage)) }}</td><td v-if="showCacheWrites" :title="exact(result.usage?.cacheWriteTokens)">{{ reported(result.usage?.cacheWriteTokens) }}</td><td :title="exact(result.usage?.reasoningTokens)">{{ reported(result.usage?.reasoningTokens) }}</td><td :title="t(tps(result) === null ? 'modelTPSUnavailableHelp' : 'modelTPSHelp')">{{ tps(result) ?? '—' }}</td></tr></tbody>
               </table>
             </div>
             <v-empty v-else class="vista-empty-state" :description="t('usageNoMatches')" role="status" />

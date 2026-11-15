@@ -145,7 +145,7 @@ func TestMistralNativeToolAndStructuredTextRoundTrip(t *testing.T) {
 	messages = append(messages, ChatMessage{Role: "assistant", ToolCalls: first.Calls}, ChatMessage{Role: "tool", ToolCallID: first.Calls[0].ID, Content: "file data"})
 	var fragments []string
 	second, err := mistralTurn(context.Background(), model, messages, schemas, func(part string) error { fragments = append(fragments, part); return nil })
-	if err != nil || second.Text != "Read complete" || second.FinishReason != "stop" || second.Usage == nil || *second.Usage != (ModelUsage{InputTokens: 23, OutputTokens: 11, CacheReadTokens: 4, ReasoningTokens: 2}) || strings.Join(fragments, "") != second.Text || calls != 2 {
+	if err != nil || second.Text != "Read complete" || second.FinishReason != "stop" || second.Usage == nil || !equalUsage(second.Usage, ModelUsage{InputTokens: 23, OutputTokens: 11, CacheReadTokens: 4, ReasoningTokens: 2, CacheReadKnown: testBool(true)}) || strings.Join(fragments, "") != second.Text || calls != 2 {
 		t.Fatalf("Mistral native text turn: %+v, fragments=%q, calls=%d, err=%v", second, fragments, calls, err)
 	}
 }

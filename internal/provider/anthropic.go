@@ -93,6 +93,17 @@ func anthropicTurn(ctx context.Context, model modelcfg.Model, messages []ChatMes
 	if len(tools) > 0 {
 		body["tools"] = tools
 	}
+	body, err = applyPromptCaching(model, body, messages)
+	if err != nil {
+		return Turn{}, err
+	}
+	thinkingBinding := false
+	if thinking, ok := body["thinking"].(map[string]any); ok {
+		thinkingBinding = thinking["block_binding"] != nil
+	}
+	if thinking, ok := body["thinking"].(*modelcfg.ThinkingOption); ok {
+		thinkingBinding = thinking.BlockBinding != nil
+	}
 	encoded, err := json.Marshal(body)
 	if err != nil {
 		return Turn{}, err
@@ -122,7 +133,7 @@ func anthropicTurn(ctx context.Context, model modelcfg.Model, messages []ChatMes
 	aihubmixHeader(request, model)
 	request.Header.Set("anthropic-version", "2023-06-01")
 	betas := "interleaved-thinking-2025-05-14"
-	if thinking, ok := body["thinking"].(*modelcfg.ThinkingOption); ok && thinking.BlockBinding != nil {
+	if thinkingBinding {
 		betas += ",thinking-binding-controls-2026-08-01"
 	}
 	request.Header.Set("anthropic-beta", betas)
@@ -166,6 +177,48 @@ func anthropicTurn(ctx context.Context, model modelcfg.Model, messages []ChatMes
 			ThinkingTokens *int64 `json:"thinking_tokens"`
 		} `json:"output_tokens_details"`
 	}
+	var uncachedInput int64
+	mergeUsage := func(u *usageEvent) error {
+		if u == nil {
+			return nil
+		}
+		candidate := ModelUsage{}
+		if usage != nil {
+			candidate = *usage
+		}
+		for _, count := range []*int64{u.InputTokens, u.OutputTokens, u.CacheReadTokens, u.CacheCreationTokens, u.OutputTokenDetails.ThinkingTokens} {
+			if count != nil && !validReportedTokens(*count) {
+				return errors.New("Anthropic reported invalid token usage")
+			}
+		}
+		if u.InputTokens != nil {
+			uncachedInput = *u.InputTokens
+		}
+		if u.CacheReadTokens != nil {
+			candidate.CacheReadTokens = *u.CacheReadTokens
+			known := true
+			candidate.CacheReadKnown = &known
+		}
+		if u.CacheCreationTokens != nil {
+			candidate.CacheWriteTokens = u.CacheCreationTokens
+		}
+		candidate.InputTokens = uncachedInput + candidate.CacheReadTokens
+		if candidate.CacheWriteTokens != nil {
+			candidate.InputTokens += *candidate.CacheWriteTokens
+		}
+		if u.OutputTokens != nil {
+			candidate.OutputTokens = *u.OutputTokens
+		}
+		if u.OutputTokenDetails.ThinkingTokens != nil {
+			candidate.ReasoningTokens = *u.OutputTokenDetails.ThinkingTokens
+		}
+		if !ValidModelUsage(candidate) {
+			return errors.New("Anthropic reported invalid token usage")
+		}
+		usage = &candidate
+		return nil
+	}
+
 	for {
 		payload, ok, err := nextSSEData(scanner)
 		if err != nil {
@@ -208,38 +261,8 @@ func anthropicTurn(ctx context.Context, model modelcfg.Model, messages []ChatMes
 		}
 		switch event.Type {
 		case "message_start":
-			if event.Message.Usage != nil {
-				u := event.Message.Usage
-				candidate := ModelUsage{}
-				if u.InputTokens != nil {
-					if !validReportedTokens(*u.InputTokens) {
-						return Turn{}, errors.New("Anthropic reported invalid token usage")
-					}
-					candidate.InputTokens = *u.InputTokens
-				}
-				if u.CacheReadTokens != nil {
-					if !validReportedTokens(*u.CacheReadTokens) {
-						return Turn{}, errors.New("Anthropic reported invalid token usage")
-					}
-					candidate.CacheReadTokens = *u.CacheReadTokens
-					candidate.InputTokens += *u.CacheReadTokens
-				}
-				if u.CacheCreationTokens != nil {
-					if !validReportedTokens(*u.CacheCreationTokens) {
-						return Turn{}, errors.New("Anthropic reported invalid token usage")
-					}
-					candidate.InputTokens += *u.CacheCreationTokens
-				}
-				if u.OutputTokens != nil {
-					candidate.OutputTokens = *u.OutputTokens
-				}
-				if u.OutputTokenDetails.ThinkingTokens != nil {
-					candidate.ReasoningTokens = *u.OutputTokenDetails.ThinkingTokens
-				}
-				if !validModelUsage(candidate) {
-					return Turn{}, errors.New("Anthropic reported invalid token usage")
-				}
-				usage = &candidate
+			if err := mergeUsage(event.Message.Usage); err != nil {
+				return Turn{}, err
 			}
 		case "content_block_start":
 			_, active := blocks[event.Index]
@@ -378,21 +401,8 @@ func anthropicTurn(ctx context.Context, model modelcfg.Model, messages []ChatMes
 			completed[event.Index] = encoded
 			delete(blocks, event.Index)
 		case "message_delta":
-			if event.Usage != nil && (event.Usage.OutputTokens != nil || event.Usage.OutputTokenDetails.ThinkingTokens != nil) {
-				candidate := ModelUsage{}
-				if usage != nil {
-					candidate = *usage
-				}
-				if event.Usage.OutputTokens != nil {
-					candidate.OutputTokens = *event.Usage.OutputTokens
-				}
-				if event.Usage.OutputTokenDetails.ThinkingTokens != nil {
-					candidate.ReasoningTokens = *event.Usage.OutputTokenDetails.ThinkingTokens
-				}
-				if !validModelUsage(candidate) {
-					return Turn{}, errors.New("Anthropic reported invalid token usage")
-				}
-				usage = &candidate
+			if err := mergeUsage(event.Usage); err != nil {
+				return Turn{}, err
 			}
 			if event.Delta.StopReason != "" {
 				stopReason = event.Delta.StopReason

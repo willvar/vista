@@ -113,6 +113,15 @@ func retryModelTurn(ctx context.Context, model modelcfg.Model, messages []ChatMe
 			return Turn{}, err
 		}
 		attemptCtx, capture := modeltrace.Start(ctx, providerID, model.Provider, model.ID, modelSecrets(model))
+		var cache *cacheAttempt
+		if capture != nil {
+			cache = &cacheAttempt{model: model}
+			attemptCtx = context.WithValue(attemptCtx, cacheAttemptKey{}, cache)
+		} else if requests := RequestStateFromContext(ctx); requests != nil {
+			// An unobserved request starts a new diagnostic series, without
+			// changing the independent Codex routing state.
+			requests.Cache.reset()
+		}
 		streamed := false
 		wrap := func(callback func(string) error) func(string) error {
 			if callback == nil {
@@ -124,6 +133,9 @@ func retryModelTurn(ctx context.Context, model modelcfg.Model, messages []ChatMe
 			}
 		}
 		turn, err := adapter.turn(attemptCtx, model, messages, schemas, wrap(onText), wrap(onReasoning))
+		if cache != nil {
+			cache.observe(attemptCtx, turn.Usage)
+		}
 		recordUsage(attemptCtx, turn.Usage, err)
 		capture.Finish(turn.FinishReason, err)
 		err = modelErrorForDisplay(err, model)

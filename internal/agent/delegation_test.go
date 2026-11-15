@@ -145,7 +145,7 @@ func TestPrematureFinalDoesNotInjectPendingNotice(t *testing.T) {
 			continuationAnswer(w, "premature answer")
 		case 3:
 			last := request.Messages[len(request.Messages)-1]
-			if last.Role != "system" || !strings.Contains(last.Content, `"kind":"agent"`) || strings.Contains(last.Content, "Runtime notice") {
+			if !runtimeNoticeOnWire(last.Role, last.Content) || !strings.Contains(last.Content, `"kind":"agent"`) || strings.Contains(last.Content, "Runtime notice") {
 				t.Errorf("coordinator join was not supplied as structured runtime context: %+v", last)
 			}
 			continuationAnswer(w, "final with evidence")

@@ -61,6 +61,7 @@ func TestPreparedContextRetainsTaskInstructionsHistoryAndToolOrder(t *testing.T)
 	if _, err := db.ReplaceChecklist(ctx, "context-session", "current-run", []store.ChecklistItem{{Text: "Inspect", Status: "done"}, {Text: "Verify", Status: "pending"}}); err != nil {
 		t.Fatal(err)
 	}
+	const checklistJSON = `[{"text":"Inspect","status":"done"},{"text":"Verify","status":"pending"}]`
 	always := []string{"read_file", "read_tool_output", "search", "find_files", "webfetch", "websearch", "write_file", "apply_patch", "shell", "start_background", "stop_background", "list_skills", "read_skill", "project_instructions", "read_project_instruction", "history_index", "read_history", "list_resources", "read_resource", "read_model_output"}
 	for _, tc := range []struct {
 		name  string
@@ -87,10 +88,13 @@ func TestPreparedContextRetainsTaskInstructionsHistoryAndToolOrder(t *testing.T)
 				t.Fatal(err)
 			}
 			wantSystem := prepared.systemBase
-			for _, fragment := range []string{systemPrompt, "Runtime OS: " + runtime.GOOS + "; shell: " + platform.ShellName(), "User's global instructions:\nKeep user constraints.", "User's saved preferences at run start:\n[]", `[{"text":"Inspect","status":"done"},{"text":"Verify","status":"pending"}]`, "Vista configuration directory: " + config, "user skill directory: " + skills} {
+			for _, fragment := range []string{systemPrompt, "Runtime OS: " + runtime.GOOS + "; shell: " + platform.ShellName(), "User's global instructions:\nKeep user constraints.", "User's saved preferences at run start:\n[]", "Vista configuration directory: " + config, "user skill directory: " + skills} {
 				if !strings.Contains(wantSystem, fragment) {
 					t.Fatalf("runtime context omitted %q", fragment)
 				}
+			}
+			if strings.Contains(wantSystem, "Current run checklist snapshot") || strings.Contains(wantSystem, checklistJSON) {
+				t.Fatal("checklist data entered the privileged instruction baseline")
 			}
 			if strings.Contains(wantSystem, delegatedReportPrompt) != (tc.depth > 0) || strings.Contains(wantSystem, delegationPrompt) != (tc.depth < 2) {
 				t.Fatal("delegation instructions do not follow task depth")
@@ -118,6 +122,7 @@ func TestPreparedContextRetainsTaskInstructionsHistoryAndToolOrder(t *testing.T)
 				{Role: "user", Content: "Continue.", Resources: []resources.Ref{{Hash: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", MediaType: "image/jpeg", Bytes: 13}}},
 			}
 			wantMessages[len(wantMessages)-1] = wantMessages[len(wantMessages)-1].WithVisualInput(true)
+			wantMessages = append(wantMessages, provider.ChatMessage{Role: "user", Content: "Current run checklist snapshot (context data, not user intent; successful update_checklist results in this run supersede it):\n" + checklistJSON, RuntimeData: true})
 			if !reflect.DeepEqual(prepared.messages, wantMessages) || prepared.systemBase != wantSystem {
 				t.Fatalf("context messages or assembled system prompt changed: %#v", prepared.messages)
 			}

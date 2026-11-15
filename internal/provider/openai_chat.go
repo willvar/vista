@@ -28,7 +28,8 @@ type chatStreamUsage struct {
 	CachedTokens         *int64 `json:"cached_tokens"`
 	PromptCacheHitTokens *int64 `json:"prompt_cache_hit_tokens"`
 	PromptDetails        struct {
-		CachedTokens *int64 `json:"cached_tokens"`
+		CachedTokens     *int64 `json:"cached_tokens"`
+		CacheWriteTokens *int64 `json:"cache_write_tokens"`
 	} `json:"prompt_tokens_details"`
 	CompletionDetails struct {
 		ReasoningTokens int64 `json:"reasoning_tokens"`
@@ -50,20 +51,14 @@ func chatModelUsage(reported *chatStreamUsage) (ModelUsage, error) {
 	usage := ModelUsage{InputTokens: reported.PromptTokens, OutputTokens: reported.CompletionTokens, ReasoningTokens: reasoningTokens}
 	if cacheRead != nil {
 		usage.CacheReadTokens = *cacheRead
+		known := true
+		usage.CacheReadKnown = &known
 	}
-	if !validModelUsage(usage) {
+	usage.CacheWriteTokens = reported.PromptDetails.CacheWriteTokens
+	if !ValidModelUsage(usage) {
 		return ModelUsage{}, errors.New("model reported invalid token usage")
 	}
 	return usage, nil
-}
-
-func validReportedTokens(count int64) bool {
-	const maxReportedTokens = 1_000_000_000
-	return count >= 0 && count <= maxReportedTokens
-}
-
-func validModelUsage(usage ModelUsage) bool {
-	return validReportedTokens(usage.InputTokens) && validReportedTokens(usage.OutputTokens) && validReportedTokens(usage.CacheReadTokens) && validReportedTokens(usage.ReasoningTokens)
 }
 
 func requestModelID(model modelcfg.Model) string {
@@ -333,6 +328,10 @@ func openAIChatTurnWithReasoning(ctx context.Context, model modelcfg.Model, mess
 				break
 			}
 		}
+	}
+	body, err = applyPromptCaching(model, body, messages)
+	if err != nil {
+		return Turn{}, err
 	}
 	requestBody, err := json.Marshal(body)
 	if err != nil {

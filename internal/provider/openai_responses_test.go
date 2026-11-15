@@ -159,7 +159,7 @@ func TestResponsesHostedToolResultsAndValidation(t *testing.T) {
 func TestOpenAIResponsesPreservesUsageAndFinishReason(t *testing.T) {
 	stream := "data: {\"type\":\"response.output_text.delta\",\"item_id\":\"msg\",\"delta\":\"done\"}\n\ndata: {\"type\":\"response.completed\",\"response\":{\"status\":\"completed\",\"output\":[],\"usage\":{\"input_tokens\":42,\"output_tokens\":17,\"input_tokens_details\":{\"cached_tokens\":13},\"output_tokens_details\":{\"reasoning_tokens\":5}}}}\n\n"
 	turn, err := parseResponses(strings.NewReader(stream))
-	if err != nil || turn.Text != "done" || turn.FinishReason != "completed" || turn.Usage == nil || *turn.Usage != (ModelUsage{InputTokens: 42, OutputTokens: 17, CacheReadTokens: 13, ReasoningTokens: 5}) {
+	if err != nil || turn.Text != "done" || turn.FinishReason != "completed" || turn.Usage == nil || turn.Usage.CacheReadKnown == nil || !*turn.Usage.CacheReadKnown || *turn.Usage != (ModelUsage{InputTokens: 42, OutputTokens: 17, CacheReadTokens: 13, CacheReadKnown: turn.Usage.CacheReadKnown, ReasoningTokens: 5}) {
 		t.Fatalf("OpenAI Responses result metadata: %+v, err=%v", turn, err)
 	}
 }

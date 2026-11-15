@@ -49,6 +49,70 @@ func persistCheckpoint(db *store.Store, ctx context.Context, command workerproto
 	return err
 }
 
+// Executable integration check of the existing resume extension point: it
+// restores canonical tool pairs without dispatching those calls again.
+func TestResumeRestoresCompletedAndUnknownToolsWithoutReplaying(t *testing.T) {
+	db, ctx := checkpointFixture(t)
+	u, _, err := db.BeginRun(ctx, "session", "old", "original", "Finish the original task")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var inspected bool
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var request struct{ Messages []provider.ChatMessage }
+		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+			t.Error(err)
+		}
+		users, completed, unknown := 0, 0, 0
+		for _, message := range request.Messages {
+			if message.Role == "user" && message.Content == "Finish the original task" {
+				users++
+			}
+			if message.Role == "tool" && message.ToolCallID == "done" && message.Content == "saved result" {
+				completed++
+			}
+			if message.Role == "tool" && message.ToolCallID == "unknown" && strings.Contains(message.Content, "verify the state before retrying") {
+				unknown++
+			}
+		}
+		inspected = users == 1 && completed == 1 && unknown == 1
+		w.Header().Set("Content-Type", "text/event-stream")
+		fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{\"content\":\"Resumed from saved state.\"},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n")
+	}))
+	defer upstream.Close()
+	command := workerproto.Command{SessionID: "session", RunID: "old", MessageSequence: u.Sequence,
+		Model: modelcfg.Model{Provider: "openai-chat", ID: "fixture", BaseURL: upstream.URL, APIKey: "fixture"}}
+	calls := []provider.ToolCall{{ID: "done", Type: "function"}, {ID: "unknown", Type: "function"}}
+	for i := range calls {
+		calls[i].Function.Name, calls[i].Function.Arguments = "shell", `{"command":"must not replay"}`
+	}
+	for i, message := range []provider.ChatMessage{{Role: "assistant", ToolCalls: calls}, {Role: "tool", ToolCallID: "done", Content: "saved result"}} {
+		part := "assistant"
+		if i > 0 {
+			part = "tool"
+		}
+		if err := retainModelMessage(command, 1, part, i, message, 0, func(result workerproto.Result) error {
+			_, err := db.RecordModelHistory(ctx, "session", result)
+			return err
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := db.InterruptRunning(ctx, "session"); err != nil {
+		t.Fatal(err)
+	}
+	command.Action, command.RunID, command.Prompt = "resume", "resumed", "must not append this prompt"
+	answer, err := Run(ctx, command, func(result workerproto.Result) error {
+		if result.Kind == "tool" {
+			t.Error("restoration executed an old tool call")
+		}
+		return nil
+	})
+	if err != nil || answer != "Resumed from saved state." || !inspected {
+		t.Fatalf("resume extension point: inspected=%v answer=%q error=%v", inspected, answer, err)
+	}
+}
+
 func TestCheckpointRetainsOpaquePairsAndAppendsHistoryExactlyOnce(t *testing.T) {
 	db, ctx := checkpointFixture(t)
 	user, _, err := db.BeginRun(ctx, "session", "run", "user", "original task")
@@ -57,7 +121,7 @@ func TestCheckpointRetainsOpaquePairsAndAppendsHistoryExactlyOnce(t *testing.T) 
 	}
 	command := workerproto.Command{SessionID: "session", RunID: "run", MessageSequence: user.Sequence, Model: modelcfg.Model{Provider: "openai-responses", ProviderID: "relay", ID: "model"}}
 	messages := append([]provider.ChatMessage{{Role: "system", Content: "old system"}, {Role: "assistant", Content: executionSummaryPrefix + "saved facts"}, {Role: "user", Content: "original task", Resources: []resources.Ref{putResourceFixture(t, []byte("image bytes"), "image/png")}}}, opaqueCompactionGroup("last-call")...)
-	messages = append(messages, provider.ChatMessage{Role: "system", Content: "dynamic task report", RuntimeData: true})
+	messages = append(messages, provider.ChatMessage{Role: "system", Content: "current language", LanguageControl: true}, provider.ChatMessage{Role: "system", Content: "dynamic task report", RuntimeData: true})
 	cp, err := saveContextCheckpoint(ctx, command, messages)
 	if err != nil {
 		t.Fatal(err)
@@ -101,6 +165,9 @@ func TestCheckpointRetainsOpaquePairsAndAppendsHistoryExactlyOnce(t *testing.T) 
 	}
 	if !changed[len(changed)-2].RuntimeData {
 		t.Fatal("model switch turned a runtime report into permanent system rules")
+	}
+	if !changed[len(changed)-3].LanguageControl {
+		t.Fatal("model switch lost the portable language-control marker")
 	}
 	command.Model.Provider = "bedrock-mantle-chat"
 	changed, err = loadConversationContext(ctx, command, 0)
@@ -313,8 +380,10 @@ func TestSummaryOverflowShrinksBatchAndFailedCommitKeepsPriorCheckpoint(t *testi
 	defer upstream.Close()
 	command := workerproto.Command{SessionID: "session", RunID: "run", MessageSequence: u.Sequence, Prompt: "task", Model: modelcfg.Model{Provider: "openai-responses", ID: "model", BaseURL: upstream.URL, APIKey: "fixture"}}
 	messages := []provider.ChatMessage{{Role: "system", Content: "instructions"}, {Role: "user", Content: "task"}, {Role: "assistant", Content: strings.Repeat("facts ", 800)}, {Role: "assistant", Content: strings.Repeat("retained ", 400)}}
+	messages = append(messages, languageControl("old language"), languageControl("current language"))
+	original := append([]provider.ChatMessage(nil), messages...)
 	c := newExecutionCompactor(messages)
-	_, changed, err := c.compact(ctx, command, messages, nil, func(r workerproto.Result) error {
+	next, changed, err := c.compact(ctx, command, messages, nil, func(r workerproto.Result) error {
 		if r.Kind == "context_notice" {
 			return fmt.Errorf("commit rejected")
 		}
@@ -322,6 +391,9 @@ func TestSummaryOverflowShrinksBatchAndFailedCommitKeepsPriorCheckpoint(t *testi
 	}, &runScope{}, 0)
 	if err == nil || changed || overflows == 0 || requests > 32 {
 		t.Fatalf("changed=%v requests=%d overflows=%d err=%v", changed, requests, overflows, err)
+	}
+	if !reflect.DeepEqual(next, original) || !reflect.DeepEqual(messages, original) {
+		t.Fatal("failed commit discarded language controls from usable context")
 	}
 	cp, err := db.ContextCheckpoint(ctx, "session")
 	if err != nil || cp != nil || c.summary != "" {

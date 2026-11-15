@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"vista/internal/copilotauth"
+	modelcfg "vista/internal/model"
 	"vista/internal/provider"
 )
 
@@ -133,12 +134,15 @@ func SetupID(model Configured) string {
 }
 
 func (input ConnectionInput) configured() Configured {
-	model := Configured{ProxyID: input.ProxyID, Name: input.Name, Provider: input.Provider, ProviderID: input.ProviderID, BaseURL: input.BaseURL, APIKey: input.APIKey,
+	model := Configured{PromptCaching: input.PromptCaching, ProxyID: input.ProxyID, Name: input.Name, Provider: input.Provider, ProviderID: input.ProviderID, BaseURL: input.BaseURL, APIKey: input.APIKey,
 		Headers: input.Headers, CopilotAuth: input.CopilotAuth,
 		AccessToken: input.AccessToken, Region: input.Region, Project: input.Project, Location: input.Location,
 		ResourceName: input.ResourceName, DeploymentID: input.DeploymentID, APIVersion: input.APIVersion}
 	if input.ProviderID == "custom" {
 		model.Authentication = input.CredentialMode
+	}
+	if input.ResponsesRoute != nil {
+		model.ResponsesRoute = *input.ResponsesRoute
 	}
 	if input.ProviderID == "amazon-bedrock" {
 		model.BedrockAuth = "sigv4"
@@ -261,6 +265,20 @@ func prepareSetup(input *ConnectionInput, previous *Configured) (ProviderSetup, 
 		}
 	}
 	sameDestination := previous != nil && (previous.ProviderID == input.ProviderID || id == "custom") && previousBase == input.BaseURL && previous.ResourceName == input.ResourceName && previous.Region == input.Region && previous.Project == input.Project && previous.Location == input.Location
+	// Built-in connections may persist a discovered model's concrete protocol
+	// while their edit form uses catalog. Capabilities belong to that setup.
+	if input.PromptCaching == nil && sameDestination && (id != "custom" || previous.Provider == input.Provider) {
+		input.PromptCaching = previous.PromptCaching
+	}
+	if input.ResponsesRoute == nil && sameDestination && previous.Provider == input.Provider {
+		route := previous.ResponsesRoute
+		input.ResponsesRoute = &route
+	}
+	if input.ResponsesRoute != nil && *input.ResponsesRoute != modelcfg.ResponsesRouteUnknown {
+		if id != "custom" || input.Provider != "openai-responses" || *input.ResponsesRoute != modelcfg.ResponsesRouteCodexCompatible {
+			return setup, errors.New("Codex-compatible routing requires an explicitly selected custom Responses connection")
+		}
+	}
 	if sameDestination {
 		if (usesAPIKey || id == "github-copilot") && input.APIKey == "" {
 			input.APIKey = previous.APIKey

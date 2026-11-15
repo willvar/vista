@@ -89,6 +89,7 @@ func TestJoinedReportsCompactAndRemainReadable(t *testing.T) {
 			defer cancel()
 			var parentTurns, childTurns, summaries atomic.Int32
 			var summarized atomic.Uint32
+			var reportsSeen atomic.Uint32
 			var refs sync.Map
 			full := make([]string, 3)
 			for i := range full {
@@ -139,8 +140,15 @@ func TestJoinedReportsCompactAndRemainReadable(t *testing.T) {
 					var raw bool
 					for _, message := range request.Messages {
 						raw = raw || message.RuntimeData || strings.Contains(message.Content, `"kind":"agent"`)
+						for i := range full {
+							if strings.Contains(message.Content, fmt.Sprintf("REPORT_%d", i)) {
+								reportsSeen.Or(1 << i)
+							}
+						}
 					}
-					if mode == "automatic" && raw && summarized.Load() != 7 {
+					// Begin the simulated overflow after all reports reach the
+					// parent, so arrival timing cannot spend the recovery budget.
+					if mode == "automatic" && raw && reportsSeen.Load() == 7 && summarized.Load() != 7 {
 						w.WriteHeader(http.StatusBadRequest)
 						fmt.Fprint(w, `{"error":{"code":"context_length_exceeded"}}`)
 						return

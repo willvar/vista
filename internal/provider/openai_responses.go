@@ -63,7 +63,8 @@ type responseEvent struct {
 			InputTokens  int64 `json:"input_tokens"`
 			OutputTokens int64 `json:"output_tokens"`
 			InputDetails struct {
-				CachedTokens int64 `json:"cached_tokens"`
+				CachedTokens     *int64 `json:"cached_tokens"`
+				CacheWriteTokens *int64 `json:"cache_write_tokens"`
 			} `json:"input_tokens_details"`
 			OutputDetails struct {
 				ReasoningTokens int64 `json:"reasoning_tokens"`
@@ -146,9 +147,18 @@ func openAIResponsesTurnWithReasoning(ctx context.Context, model modelcfg.Model,
 	input := make([]any, 0, len(messages)*2)
 	var instructions []string
 	for _, message := range messages {
+		if message.RuntimeData {
+			message.Role = "user"
+		}
 		switch message.Role {
 		case "system":
-			instructions = append(instructions, message.Content)
+			if len(input) == 0 {
+				instructions = append(instructions, message.Content)
+			} else {
+				// Trusted changes retain their chronological position. Moving a
+				// later update into instructions would invalidate all prior input.
+				input = append(input, map[string]any{"type": "message", "role": "developer", "content": []map[string]string{{"type": "input_text", "text": message.Content}}})
+			}
 		case "user", "assistant":
 			images, err := imagePayloads(message)
 			if err != nil {
@@ -178,7 +188,7 @@ func openAIResponsesTurnWithReasoning(ctx context.Context, model modelcfg.Model,
 				// expects input_text content parts even for a plain text message.
 				// The public Responses API accepts either form, so keep the
 				// string representation for the other gateways.
-				if model.ResponsesRoute == modelcfg.ResponsesRouteCodex && message.Role == "user" {
+				if codexRouting(model) && message.Role == "user" {
 					content = []map[string]string{{"type": "input_text", "text": message.Content}}
 				}
 				input = append(input, map[string]any{"type": "message", "role": message.Role, "content": content})
@@ -252,6 +262,10 @@ func openAIResponsesTurnWithReasoning(ctx context.Context, model modelcfg.Model,
 	if len(tools) > 0 {
 		body["tools"] = tools
 	}
+	body, err = applyPromptCaching(model, body, messages)
+	if err != nil {
+		return Turn{}, err
+	}
 	encoded, err := json.Marshal(body)
 	if err != nil {
 		return Turn{}, err
@@ -270,6 +284,10 @@ func openAIResponsesTurnWithReasoning(ctx context.Context, model modelcfg.Model,
 	gatewayHeader(request, model)
 	gitlabHeaders(request, model)
 	request.Header.Set("Content-Type", "application/json")
+	observeRouting, err := prepareCodexRouting(ctx, model, request)
+	if err != nil {
+		return Turn{}, err
+	}
 	response, err := doModelRequest(request, model)
 	if err != nil {
 		return Turn{}, err
@@ -287,12 +305,17 @@ func openAIResponsesTurnWithReasoning(ctx context.Context, model modelcfg.Model,
 		}
 		setOpenAIAuth(request, model)
 		setCodexHeaders(request, model)
+		observeRouting, err = prepareCodexRouting(ctx, model, request)
+		if err != nil {
+			return Turn{}, err
+		}
 		response, err = doModelRequest(request, model)
 		if err != nil {
 			return Turn{}, err
 		}
 	}
 	defer response.Body.Close()
+	observeRouting(response)
 	if response.StatusCode != http.StatusOK {
 		if response.StatusCode == http.StatusUnauthorized && model.CodexCredentialPath != "" {
 			return Turn{}, fmt.Errorf("Codex authentication failed; reconnect OpenAI Codex in Settings: %w", modelHTTPError("OpenAI Codex", response))
@@ -441,8 +464,15 @@ func parseResponsesStreamWithReasoning(body io.Reader, onText, onReasoning func(
 		}
 		if event.Type == "response.completed" || event.Type == "response.failed" || event.Type == "response.incomplete" {
 			if event.Response.Usage != nil {
-				candidate := ModelUsage{InputTokens: event.Response.Usage.InputTokens, OutputTokens: event.Response.Usage.OutputTokens, CacheReadTokens: event.Response.Usage.InputDetails.CachedTokens, ReasoningTokens: event.Response.Usage.OutputDetails.ReasoningTokens}
-				if !validModelUsage(candidate) {
+				known := event.Response.Usage.InputDetails.CachedTokens != nil
+				candidate := ModelUsage{InputTokens: event.Response.Usage.InputTokens, OutputTokens: event.Response.Usage.OutputTokens, CacheReadKnown: &known, CacheWriteTokens: event.Response.Usage.InputDetails.CacheWriteTokens, ReasoningTokens: event.Response.Usage.OutputDetails.ReasoningTokens}
+				if known {
+					candidate.CacheReadTokens = *event.Response.Usage.InputDetails.CachedTokens
+				}
+				if candidate.CacheWriteTokens != nil && (*candidate.CacheWriteTokens < 0 || *candidate.CacheWriteTokens > candidate.InputTokens-candidate.CacheReadTokens) {
+					return errors.New("OpenAI Responses reported invalid cache-write usage")
+				}
+				if !ValidModelUsage(candidate) {
 					return errors.New("OpenAI Responses reported invalid token usage")
 				}
 				usage = &candidate

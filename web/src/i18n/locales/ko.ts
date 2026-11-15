@@ -2,6 +2,10 @@ import type en from './en.ts'
 
 
 export default {
+  "usageCacheWrite": "캐시 쓰기",
+  "promptCacheCompatibility": "프롬프트 캐시 호환성",
+  "promptCacheNoHints": "캐시 지정 생략",
+  "promptCacheCompatibilityHint": "이 서비스가 지원하는 기능만 선택하세요. 캐시 쓰기에는 요금이 부과될 수 있습니다. 서비스의 자동 캐시는 계속 적용될 수 있습니다.",
 
   "networkProfileName": "프로필 이름",
   "networkLoading": "네트워크 설정을 불러오는 중…",

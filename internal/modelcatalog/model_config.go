@@ -63,6 +63,7 @@ type Configured struct {
 	Effort              string                       `json:"effort,omitempty"`
 	SafetyIdentifier    string                       `json:"safetyIdentifier,omitempty"`
 	PromptCacheKey      string                       `json:"promptCacheKey,omitempty"`
+	PromptCaching       *modelcfg.PromptCaching      `json:"promptCaching,omitempty"`
 	Thinking            *modelcfg.ThinkingOption     `json:"thinking,omitempty"`
 	EnableThinking      *bool                        `json:"enableThinking,omitempty"`
 	ThinkingBudget      *int                         `json:"thinkingBudget,omitempty"`

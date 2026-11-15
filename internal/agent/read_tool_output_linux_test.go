@@ -38,7 +38,7 @@ func TestTimedOutShellRetainsPartialOutputForModelAndRecovery(t *testing.T) {
 		} else {
 			last := request.Messages[len(request.Messages)-1]
 			content := last.Content
-			if last.Role == "system" {
+			if runtimeNoticeOnWire(last.Role, last.Content) {
 				_, raw, _ := strings.Cut(content, "\n")
 				var event workerproto.RuntimeEvent
 				if json.Unmarshal([]byte(raw), &event) == nil {

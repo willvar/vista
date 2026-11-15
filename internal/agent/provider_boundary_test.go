@@ -62,7 +62,13 @@ func TestInterjectionKeepsFullTextAcrossAnswerPreviewBoundary(t *testing.T) {
 					return
 				}
 				last := request.Messages[len(request.Messages)-1]
-				if last["role"] != "user" || last["content"] != "Continue with the new constraint." {
+				blocks, ok := last["content"].([]any)
+				validContent := ok && len(blocks) == 1
+				if validContent {
+					text, ok := blocks[0].(map[string]any)
+					validContent = ok && text["type"] == "text" && text["text"] == "Continue with the new constraint."
+				}
+				if last["role"] != "user" || !validContent {
 					t.Error("interjection missing after the previous answer")
 				}
 				w.Header().Set("Content-Type", "text/event-stream")

@@ -46,7 +46,7 @@ func TestSubagentsShareModelAndRunConcurrently(t *testing.T) {
 		}
 		user := request.Messages[1].Content
 		var event any
-		if user == "main" && request.Messages[len(request.Messages)-1].Role == "user" {
+		if user == "main" && request.Messages[len(request.Messages)-1].Content == "main" {
 			calls := make([]any, 0, len(tasks))
 			for index, task := range tasks {
 				arguments, _ := json.Marshal(map[string]string{"task": task})
@@ -70,7 +70,7 @@ func TestSubagentsShareModelAndRunConcurrently(t *testing.T) {
 			for _, task := range tasks {
 				found := false
 				for _, message := range request.Messages {
-					found = found || message.Role == "system" && strings.Contains(message.Content, task+" done")
+					found = found || runtimeNoticeOnWire(message.Role, message.Content) && strings.Contains(message.Content, task+" done")
 				}
 				all = all && found
 			}

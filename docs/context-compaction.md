@@ -47,7 +47,7 @@ mentioning rules does not authorize filesystem work.
 Estimates partition work only after an explicit overflow, never assert model capacity.
 
 Automatically delivered child/tool completions carry a local `RuntimeData` marker. Their
-wire role remains system, but they are evidence rather than fixed instructions:
+wire role is user, but they are runtime evidence rather than new user intent or fixed instructions:
 both automatic and manual compaction can summarize them, including reports just
 appended after the latest assistant/tool group. The marker survives history,
 checkpoints and model/protocol changes; it is never serialized to provider APIs.
@@ -112,8 +112,10 @@ A compaction checkpoint replaces all model history through its event sequence
 and formal messages through its input cutoff, so older tools are not appended
 again. If a Worker dies after recording a call but before recording its result,
 restoration supplies an explicit unknown/interrupted tool outcome; it never
-executes tools. New runs and Worker restarts use this same read path. System
-instructions are rebuilt. Changing protocol, provider, endpoint or model strips
+executes tools. New runs and Worker restarts use this same read path. Within the
+same instruction series, restoration retains the original system-instruction
+baseline and appends instruction or reply-language updates. Compaction checkpoints
+preserve the corresponding metadata. Changing protocol, provider, endpoint or model strips
 provider-owned signatures while preserving portable text/resource references/tool pairs.
 Visible chat messages and tool artifacts are never rewritten by compaction.
 Only newly submitted attachments or explicit `read_resource` results load

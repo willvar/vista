@@ -176,6 +176,9 @@ func bedrockTurnWithReasoning(ctx context.Context, model modelcfg.Model, message
 		}
 		input.ToolConfig = config
 	}
+	if err := applyBedrockCache(model, input); err != nil {
+		return Turn{}, err
+	}
 	output, err := bedrockruntime.NewFromConfig(cfg).ConverseStream(ctx, input)
 	if err != nil {
 		return Turn{}, bedrockModelError(err)
@@ -286,8 +289,16 @@ func parseBedrockEventsWithReasoning(events <-chan types.ConverseStreamOutput, s
 		candidate := ModelUsage{InputTokens: int64(*wire.InputTokens), OutputTokens: int64(*wire.OutputTokens)}
 		if wire.CacheReadInputTokens != nil {
 			candidate.CacheReadTokens = int64(*wire.CacheReadInputTokens)
+			known := true
+			candidate.CacheReadKnown = &known
+			candidate.InputTokens += candidate.CacheReadTokens
 		}
-		if !validModelUsage(candidate) || wire.TotalTokens != nil && !validReportedTokens(int64(*wire.TotalTokens)) || wire.CacheWriteInputTokens != nil && !validReportedTokens(int64(*wire.CacheWriteInputTokens)) {
+		if wire.CacheWriteInputTokens != nil {
+			written := int64(*wire.CacheWriteInputTokens)
+			candidate.CacheWriteTokens = &written
+			candidate.InputTokens += written
+		}
+		if !ValidModelUsage(candidate) || wire.TotalTokens != nil && !validReportedTokens(int64(*wire.TotalTokens)) || wire.CacheWriteInputTokens != nil && !validReportedTokens(int64(*wire.CacheWriteInputTokens)) {
 			return errors.New("Bedrock reported invalid token usage")
 		}
 		usage = &candidate

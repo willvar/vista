@@ -18,7 +18,6 @@ import (
 	"unicode/utf8"
 
 	"github.com/google/uuid"
-
 	"vista/internal/appdirs"
 )
 
@@ -49,17 +48,18 @@ type Parsing struct {
 
 type Record struct {
 	Scope
-	ID           string      `json:"id"`
-	Provider     string      `json:"provider"`
-	Protocol     string      `json:"protocol"`
-	Model        string      `json:"model"`
-	StartedAt    time.Time   `json:"startedAt"`
-	DurationMS   float64     `json:"durationMs"`
-	Error        string      `json:"error,omitempty"`
-	FinishReason string      `json:"finishReason,omitempty"`
-	Parsing      *Parsing    `json:"parsing,omitempty"`
-	Exchanges    []*Exchange `json:"exchanges"`
-	Truncated    bool        `json:"truncated"`
+	ID           string            `json:"id"`
+	Provider     string            `json:"provider"`
+	Protocol     string            `json:"protocol"`
+	Model        string            `json:"model"`
+	StartedAt    time.Time         `json:"startedAt"`
+	DurationMS   float64           `json:"durationMs"`
+	Error        string            `json:"error,omitempty"`
+	FinishReason string            `json:"finishReason,omitempty"`
+	Parsing      *Parsing          `json:"parsing,omitempty"`
+	Cache        *CacheObservation `json:"cache,omitempty"`
+	Exchanges    []*Exchange       `json:"exchanges"`
+	Truncated    bool              `json:"truncated"`
 }
 
 type Body struct {
@@ -319,6 +319,9 @@ func (c *Capture) elapsed() float64 { return time.Since(c.record.StartedAt).Seco
 
 func sensitiveHeader(name string) bool {
 	name = strings.ToLower(name)
+	if name == "x-codex-turn-state" || name == "x-codex-turn-metadata" || name == "x-codex-routing-hint" {
+		return true
+	}
 	return strings.Contains(name, "auth") || strings.Contains(name, "key") || strings.Contains(name, "token") || strings.Contains(name, "secret") || strings.Contains(name, "password") || strings.Contains(name, "signature") || strings.Contains(name, "credential") || strings.Contains(name, "cookie")
 }
 

@@ -3,7 +3,7 @@ import { useI18n } from 'vue-i18n'
 import type { ControlElement, JsonSchema7, UISchemaElement } from '@jsonforms/core'
 import { VistaAPIError, type VistaClient } from '../client/vista'
 import type { createWorkspaceSync } from '../client/workspaceSync'
-import type { AgentSettings, ModelCatalog, ModelInfo, ModelSetting, ModelSettings, ProviderSetup } from '../client/types'
+import type { AgentSettings, ModelCatalog, ModelInfo, ModelSetting, ModelSettings, PromptCaching, ProviderSetup } from '../client/types'
 import { languages } from '../i18n/languages.ts'
 import { readLanguagePreference, setLanguagePreference, type LanguagePreference } from '../i18n'
 
@@ -150,7 +150,7 @@ export function useProviderSettings({ client, error, stateSync, modelCatalog }: 
     } catch (e) { if (revision === agentSettingsRevision) agentSettingsError.value = String(e) }
     finally { agentSettingsBusy.value = false }
   }
-  const emptyDraft = () => ({ proxyId: '', key: '', kind: '', apiFormat: 'openai-chat', headers: [] as { name: string; value: string }[], copilotAuth: { enterpriseUrl: '', clientId: '' }, name: '', providerId: '', baseUrl: '', apiKey: '', credentialMode: 'apiKey', accessToken: '', region: '', project: '', location: '', resourceName: '', deploymentId: '', apiVersion: '' })
+  const emptyDraft = () => ({ promptCaching: {} as PromptCaching, proxyId: '', key: '', kind: '', apiFormat: 'openai-chat', headers: [] as { name: string; value: string }[], copilotAuth: { enterpriseUrl: '', clientId: '' }, name: '', providerId: '', baseUrl: '', apiKey: '', credentialMode: 'apiKey', accessToken: '', region: '', project: '', location: '', resourceName: '', deploymentId: '', apiVersion: '' })
   const modelDraft = ref(emptyDraft())
   const providerSetups = ref<ProviderSetup[]>([])
   const modelFormOpen = ref(false)
@@ -186,6 +186,25 @@ export function useProviderSettings({ client, error, stateSync, modelCatalog }: 
   const credentialOptions = computed(() => (selectedSetup.value?.credentialModes || []).map(mode => ({ value: mode, label: mode === 'bearer' ? 'Bearer' : mode === 'x-api-key' || mode === 'x-goog-api-key' ? mode : t(mode === 'apiKey' ? 'apiKey' : mode === 'none' ? 'noAuthentication' : mode === 'accessToken' ? 'providerAccessToken' : modelDraft.value.kind === 'amazon-bedrock' ? 'awsDefaultCredentials' : modelDraft.value.kind === 'google-vertex' ? 'googleDefaultCredentials' : 'noAuthentication') })))
   const usesAPIKey = computed(() => modelDraft.value.credentialMode === 'apiKey' || modelDraft.value.kind === 'custom' && modelDraft.value.credentialMode !== 'none')
   const authenticationHeader = computed(() => modelDraft.value.credentialMode === 'none' ? '' : modelDraft.value.credentialMode === 'bearer' ? 'Authorization: Bearer API_KEY' : `${modelDraft.value.credentialMode}: API_KEY`)
+  const cacheFormatOptions = computed(() => ['none', ...(
+    modelDraft.value.apiFormat === 'openai-chat' ? ['openai', 'anthropic', 'alibaba']
+      : modelDraft.value.apiFormat === 'openai-responses' ? ['openai']
+        : modelDraft.value.apiFormat === 'anthropic' ? ['anthropic']
+          : modelDraft.value.apiFormat === 'gemini' ? ['gemini'] : [])])
+  const cacheKeyEnabled = computed(() => {
+    const form = modelDraft.value, options = form.promptCaching
+    if (options.format === 'none') return false
+    if (options.key !== undefined) return options.key
+    if (options.format === 'openai') return true
+    const saved = editingProvider.value
+    return form.apiFormat === 'openai-responses' && form.baseUrl === saved?.baseUrl && saved.provider === form.apiFormat && !!saved.responsesRoute
+  })
+  const cacheFormat = computed(() => {
+    const options = modelDraft.value.promptCaching
+    if (options.format && options.format !== 'auto') return options.format
+    if (options.cachedContent && modelDraft.value.apiFormat === 'gemini') return 'gemini'
+    return cacheKeyEnabled.value ? 'openai' : 'none'
+  })
   const modelConfigValid = ref(true)
   const modelConfigDirty = ref(false)
   const modelConfigResetKey = ref(0)
@@ -214,6 +233,9 @@ export function useProviderSettings({ client, error, stateSync, modelCatalog }: 
     if (credentialOptions.value.length && modelDraft.value.credentialMode !== 'oauth') {
       properties.credentialMode = { type: 'string', title: t('providerAuthentication'), enum: credentialOptions.value.map(option => option.value) }
     }
+    if (modelDraft.value.kind === 'custom') {
+      properties.cacheFormat = { type: 'string', title: t('promptCacheCompatibility'), description: t('promptCacheCompatibilityHint'), enum: cacheFormatOptions.value }
+    }
     if (modelDraft.value.kind === 'github-copilot') properties.copilotAuth = {
       type: 'object', title: t('advancedSettings'), additionalProperties: false, required: ['enterpriseUrl', 'clientId'],
       properties: {
@@ -237,6 +259,11 @@ export function useProviderSettings({ client, error, stateSync, modelCatalog }: 
     }))
     if (modelDraft.value.kind === 'custom') elements.push(control('apiFormat', { enumLabels: Object.fromEntries(apiFormatOptions.value.map(option => [option.value, option.label])) }))
     if (credentialOptions.value.length && modelDraft.value.credentialMode !== 'oauth') elements.push(control('credentialMode', { enumLabels: Object.fromEntries(credentialOptions.value.map(option => [option.value, option.label])) }))
+    if (modelDraft.value.kind === 'custom') elements.push({
+      type: 'Group', label: t('advancedSettings'), elements: [
+        control('cacheFormat', { enumLabels: { none: t('promptCacheNoHints'), openai: 'OpenAI', anthropic: 'Anthropic', alibaba: 'Alibaba Qwen', gemini: 'Gemini' } }),
+      ],
+    } as UISchemaElement)
     if (modelDraft.value.kind === 'github-copilot') elements.push({
       type: 'Group', label: t('advancedSettings'), elements: [
         control('copilotAuth/properties/enterpriseUrl', { placeholder: 'company.ghe.com' }),
@@ -249,18 +276,33 @@ export function useProviderSettings({ client, error, stateSync, modelCatalog }: 
     get: () => {
       const form = modelDraft.value
       const value: Record<string, unknown> = Object.fromEntries(modelConfigFields.value.map(field => [field, form[field]]))
-      if (modelDraft.value.kind === 'custom') value.apiFormat = form.apiFormat
+      if (modelDraft.value.kind === 'custom') {
+        value.apiFormat = form.apiFormat
+        value.cacheFormat = cacheFormat.value
+      }
       if (credentialOptions.value.length && form.credentialMode !== 'oauth') value.credentialMode = form.credentialMode
       if (form.kind === 'github-copilot') value.copilotAuth = { enterpriseUrl: form.copilotAuth.enterpriseUrl, clientId: form.copilotAuth.clientId }
       return value
     },
     set: value => {
+      const changedDestination = modelDraft.value.kind === 'custom' && (
+        typeof value.apiFormat === 'string' && value.apiFormat !== modelDraft.value.apiFormat
+        || typeof value.baseUrl === 'string' && value.baseUrl !== modelDraft.value.baseUrl)
+      if (changedDestination) modelDraft.value.promptCaching = {}
       if (typeof value.credentialMode === 'string' && value.credentialMode !== modelDraft.value.credentialMode) changeCredentialMode(value.credentialMode)
       if (typeof value.baseUrl === 'string' && value.baseUrl !== modelDraft.value.baseUrl) changeCustomBaseURL(value.baseUrl)
       for (const field of modelConfigFields.value) {
         if (field !== 'baseUrl' && typeof value[field] === 'string') modelDraft.value[field] = value[field]
       }
       if (modelDraft.value.kind === 'custom' && typeof value.apiFormat === 'string') modelDraft.value.apiFormat = value.apiFormat
+      if (modelDraft.value.kind === 'custom' && !changedDestination) {
+        const options = { ...modelDraft.value.promptCaching }
+        if (typeof value.cacheFormat === 'string' && value.cacheFormat !== cacheFormat.value) {
+          delete options.key; delete options.ttl; delete options.retention; delete options.cachedContent
+          options.format = value.cacheFormat as PromptCaching['format']
+        }
+        if (JSON.stringify(modelDraft.value.promptCaching) !== JSON.stringify(options)) modelDraft.value.promptCaching = options
+      }
       const auth = value.copilotAuth as Record<string, unknown> | undefined
       if (modelDraft.value.kind === 'github-copilot' && auth) {
         if (typeof auth.enterpriseUrl === 'string') modelDraft.value.copilotAuth.enterpriseUrl = auth.enterpriseUrl
@@ -268,6 +310,15 @@ export function useProviderSettings({ client, error, stateSync, modelCatalog }: 
       }
     },
   })
+  function normalizeModelConfigDraft(value: Record<string, unknown>) {
+    if (modelDraft.value.kind !== 'custom') return value
+    // Normalize before SchemaForm validates and emits. Normalizing only in the
+    // setter would leave its active editor with stale values and a conflict.
+    if (value.apiFormat !== modelDraft.value.apiFormat || value.baseUrl !== modelDraft.value.baseUrl) {
+      return { ...value, cacheFormat: 'none' }
+    }
+    return value
+  }
   function resetModelConfigEditor() {
     modelConfigDirty.value = false
     modelConfigResetKey.value++
@@ -386,7 +437,7 @@ export function useProviderSettings({ client, error, stateSync, modelCatalog }: 
   }
   function editProvider(model: ModelSetting) {
     clearCustomModels()
-    modelDraft.value = { ...emptyDraft(), proxyId: model.proxyId || '', key: model.key, kind: model.kind || '', apiFormat: model.provider, headers: (model.headerNames || []).map(name => ({ name, value: '' })), copilotAuth: { enterpriseUrl: model.copilotAuth?.enterpriseUrl || '', clientId: model.copilotAuth?.clientId || '' }, name: model.name || '', providerId: model.providerId || '', baseUrl: model.baseUrl || '', credentialMode: model.credentialMode || 'apiKey', region: model.region || '', project: model.project || '', location: model.location || '', resourceName: model.resourceName || '', deploymentId: model.deploymentId || '', apiVersion: model.apiVersion || '' }
+    modelDraft.value = { ...emptyDraft(), promptCaching: JSON.parse(JSON.stringify(model.promptCaching || {})) as PromptCaching, proxyId: model.proxyId || '', key: model.key, kind: model.kind || '', apiFormat: model.provider, headers: (model.headerNames || []).map(name => ({ name, value: '' })), copilotAuth: { enterpriseUrl: model.copilotAuth?.enterpriseUrl || '', clientId: model.copilotAuth?.clientId || '' }, name: model.name || '', providerId: model.providerId || '', baseUrl: model.baseUrl || '', credentialMode: model.credentialMode || 'apiKey', region: model.region || '', project: model.project || '', location: model.location || '', resourceName: model.resourceName || '', deploymentId: model.deploymentId || '', apiVersion: model.apiVersion || '' }
     chosenModels.value = settings.value.models.filter(item => model.connectionId ? item.connectionId === model.connectionId : item.key === model.key).map(item => item.id)
     settingsError.value = ''
     resetModelConfigEditor()
@@ -416,6 +467,7 @@ export function useProviderSettings({ client, error, stateSync, modelCatalog }: 
         provider: form.kind === 'custom' ? form.apiFormat : 'catalog',
         headers: form.kind === 'custom' ? Object.fromEntries(form.headers.map(header => [header.name.trim(), header.value])) : undefined,
         providerId: form.kind,
+        promptCaching: form.kind === 'custom' ? form.promptCaching : undefined,
         baseUrl: form.baseUrl.trim(), apiKey: usesAPIKey.value ? form.apiKey : '',
         credentialMode: form.credentialMode, accessToken: form.credentialMode === 'accessToken' ? form.accessToken : '',
         region: form.region.trim(), project: form.project.trim(), location: form.location.trim(),
@@ -487,7 +539,7 @@ export function useProviderSettings({ client, error, stateSync, modelCatalog }: 
     providerDraftVersion, providerConflict, manualModelIDs, canReuseHeader, editingProvider, providerOptions, canSaveProvider,
     providerChoice, providerChoiceSchema, providerChoiceUISchema,
     selectedSetup, deploymentModelSelection, providerModelOptions, usesAPIKey, authenticationHeader,
-    modelConfig, modelConfigSchema, modelConfigUISchema, modelConfigValid, modelConfigDirty, modelConfigResetKey,
+    modelConfig, modelConfigSchema, modelConfigUISchema, modelConfigValid, modelConfigDirty, modelConfigResetKey, normalizeModelConfigDraft,
     modelCredentials, modelCredentialsSchema, modelCredentialsUISchema, modelCredentialsValid, showModelCredentials,
     updateSelectedModels, changeProvider,
     startProviderConnection, cancelModelForm, loadModelSettings, editProvider, providerGroups,

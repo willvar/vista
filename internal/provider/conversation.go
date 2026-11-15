@@ -22,7 +22,11 @@ type ChatMessage struct {
 	ToolCalls   []ToolCall `json:"tool_calls,omitempty"`
 	// Runtime results remain compressible history even when their wire role is
 	// system. This local marker is retained in checkpoints, never sent on the API.
-	RuntimeData bool `json:"-"`
+	RuntimeData       bool `json:"-"`
+	InstructionUpdate bool `json:"-"`
+	LanguageControl   bool `json:"-"`
+	// Prefix is local instruction-series metadata, never provider input.
+	Prefix *PromptPrefix `json:"-"`
 	// Signed content blocks are needed when an Anthropic thinking turn calls tools.
 	AnthropicBlocks   []json.RawMessage `json:"-"`
 	BedrockParts      []BedrockPart     `json:"-"`
@@ -32,6 +36,15 @@ type ChatMessage struct {
 	ReasoningField    string            `json:"-"`
 	ResponseReasoning []json.RawMessage `json:"-"`
 	ResponseOutput    []json.RawMessage `json:"-"`
+}
+
+// PromptPrefix preserves the initial instructions and latest admitted snapshot.
+// It contains no transport credentials or opaque routing tokens.
+type PromptPrefix struct {
+	Profile  string
+	Base     string
+	Current  string
+	Language string
 }
 
 func (message ChatMessage) WithVisualInput(enabled bool) ChatMessage {
@@ -113,10 +126,12 @@ func (turn Turn) StoppedNormally() bool {
 }
 
 type ModelUsage struct {
-	InputTokens     int64
-	OutputTokens    int64
-	CacheReadTokens int64
-	ReasoningTokens int64
+	CacheReadKnown   *bool
+	CacheWriteTokens *int64
+	InputTokens      int64
+	OutputTokens     int64
+	CacheReadTokens  int64
+	ReasoningTokens  int64
 }
 
 // AssistantMessage preserves the provider-owned state required by the next model
@@ -151,6 +166,8 @@ func (message ChatMessage) SummaryText() string {
 	role := message.Role
 	if message.RuntimeData {
 		role = "runtime result"
+	} else if message.InstructionUpdate {
+		role = "superseded instruction snapshot (history, not current authority)"
 	}
 	fmt.Fprintf(&text, "[%s %s]\n%s\n", role, message.ToolCallID, message.Content)
 	for _, ref := range message.Resources {

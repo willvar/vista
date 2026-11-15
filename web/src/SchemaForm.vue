@@ -10,7 +10,7 @@ import ArrayControl from './schema/ArrayControl.vue'
 import ObjectControl from './schema/ObjectControl.vue'
 import LayoutRenderer from './schema/LayoutRenderer.vue'
 import { additionalErrors, validationMessage, type FormIssue } from './schema/validation'
-const props = defineProps<{ id: string; modelValue: Record<string, unknown>; schema: JsonSchema; uischema?: UISchemaElement; disabled?: boolean; resetKey?: string | number; validate?: (value: Record<string, unknown>) => FormIssue[] }>()
+const props = defineProps<{ id: string; modelValue: Record<string, unknown>; schema: JsonSchema; uischema?: UISchemaElement; disabled?: boolean; resetKey?: string | number; validate?: (value: Record<string, unknown>) => FormIssue[]; normalizeDraft?: (value: Record<string, unknown>) => Record<string, unknown> }>()
 const emit = defineEmits<{ 'update:modelValue': [value: Record<string, unknown>]; validity: [valid: boolean]; dirty: [dirty: boolean] }>()
 const { t, locale } = useI18n({ useScope: 'global' })
 provide('vista-schema-editor-id', props.id)
@@ -37,9 +37,14 @@ const renderers = Object.freeze([
   ...['VerticalLayout', 'HorizontalLayout', 'Group'].map(type => ({ renderer: LayoutRenderer, tester: rankWith(1, uiTypeIs(type)) })),
 ])
 function formChange(event: JsonFormsChangeEvent) {
-  if (!event.data || typeof event.data !== 'object' || Array.isArray(event.data) || signature(event.data) === signature(data.value)) return
-  data.value = event.data
-  if (!valid.value || props.disabled) return
+  if (!event.data || typeof event.data !== 'object' || Array.isArray(event.data)) return
+  const next = props.normalizeDraft ? props.normalizeDraft(event.data) : event.data
+  if (signature(next) === signature(data.value)) {
+    if (signature(event.data) !== signature(next)) data.value = copy(next)
+    return
+  }
+  data.value = next
+  if (props.disabled || !valid.value) return
   pendingEchoes.push(signature(data.value)!)
   emitting = true
   try { emit('update:modelValue', copy(data.value)) } finally { emitting = false }

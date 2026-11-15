@@ -12,6 +12,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/google/uuid"
+
 	"vista/internal/agentconfig"
 	modelcfg "vista/internal/model"
 	"vista/internal/modeltrace"
@@ -340,8 +341,11 @@ func storeCompletedReply(reply *workerproto.CompletedReply) []store.CompletedRep
 }
 
 func validReportedUsage(usage workerproto.ModelUsage) bool {
-	const maxTokens = 1_000_000_000
-	return usage.InputTokens >= 0 && usage.InputTokens <= maxTokens && usage.OutputTokens >= 0 && usage.OutputTokens <= maxTokens && usage.CacheReadTokens >= 0 && usage.CacheReadTokens <= maxTokens && usage.ReasoningTokens >= 0 && usage.ReasoningTokens <= maxTokens
+	return provider.ValidModelUsage(provider.ModelUsage{
+		InputTokens: usage.InputTokens, OutputTokens: usage.OutputTokens,
+		CacheReadTokens: usage.CacheReadTokens, CacheReadKnown: usage.CacheReadKnown,
+		CacheWriteTokens: usage.CacheWriteTokens, ReasoningTokens: usage.ReasoningTokens,
+	})
 }
 
 func (c *workerResultConsumer) append(result workerproto.Result, data any, ackID string) error {

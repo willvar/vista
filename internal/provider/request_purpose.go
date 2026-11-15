@@ -17,7 +17,17 @@ const (
 // nested options. Titles omit explicit reasoning controls; conversation and
 // compaction requests preserve the chosen reasoning.
 func ForPurpose(model modelcfg.Model, purpose RequestPurpose) modelcfg.Model {
+	if purpose == PurposeCompaction && model.SessionID != "" && (promptCacheCapabilities(model).key || codexRouting(model)) {
+		model.SessionID += "/summary"
+		model.PromptCacheKey = ""
+	}
+	if purpose != PurposeConversation && model.PromptCaching != nil {
+		options := *model.PromptCaching
+		options.CachedContent = nil
+		model.PromptCaching = &options
+	}
 	if purpose == PurposeTitle {
+		model.PromptCacheKey = ""
 		// A title is a small text request. Do not select a catalog effort or
 		// replay the conversation's reasoning controls; adapters use this marker
 		// to suppress protocol defaults as well as explicit fields.

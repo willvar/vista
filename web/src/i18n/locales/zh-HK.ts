@@ -2,6 +2,10 @@
 import base from './zh-TW.ts'
 
 export default { ...base, ...{
+  "usageCacheWrite": "緩存寫入",
+  "promptCacheCompatibility": "提示詞緩存兼容性",
+  "promptCacheNoHints": "不發送緩存提示",
+  "promptCacheCompatibilityHint": "僅選擇該服務支持的能力。緩存寫入可能計費，服務端仍可能自動緩存。",
   "networkLoading": "正在讀取網絡配置…",
   "networkSettings": "網絡配置",
   "networkGlobal": "全局請求",

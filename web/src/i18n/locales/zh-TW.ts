@@ -2,6 +2,10 @@
 import base from './zh-CN.ts'
 
 export default { ...base, ...{
+  "usageCacheWrite": "快取寫入",
+  "promptCacheCompatibility": "提示詞快取相容性",
+  "promptCacheNoHints": "不傳送快取提示",
+  "promptCacheCompatibilityHint": "僅選擇該服務支援的能力。快取寫入可能計費，服務端仍可能自動快取。",
   "networkProfileName": "配置名稱",
   "networkLoading": "正在讀取網路配置…",
   "networkSettings": "網路配置",

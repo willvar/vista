@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 	"unicode/utf8"
 
 	modelcfg "vista/internal/model"
@@ -35,7 +36,7 @@ func TestDelegateRetainsLongReportAndTaskIdentity(t *testing.T) {
 		finishReason := "stop"
 		if request.Messages[1].Content == "child analysis" {
 			delta = map[string]any{"content": full}
-		} else if request.Messages[len(request.Messages)-1].Role == "user" {
+		} else if request.Messages[len(request.Messages)-1].Content == "main" {
 			finishReason = "tool_calls"
 			delta = map[string]any{"content": commentary, "tool_calls": []any{map[string]any{"index": 0, "id": "delegate-1", "type": "function", "function": map[string]string{"name": "delegate", "arguments": `{"task":"child analysis"}`}}}}
 		} else {
@@ -60,7 +61,9 @@ func TestDelegateRetainsLongReportAndTaskIdentity(t *testing.T) {
 	}))
 	defer server.Close()
 	var events []workerproto.Result
-	answer, err := Run(context.Background(), workerproto.Command{RunID: "task-run", Prompt: "main", Model: modelcfg.Model{Provider: "openai-chat", ID: "fixture", BaseURL: server.URL, APIKey: "fixture"}}, func(event workerproto.Result) error { events = append(events, event); return nil })
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	answer, err := Run(ctx, workerproto.Command{RunID: "task-run", Prompt: "main", Model: modelcfg.Model{Provider: "openai-chat", ID: "fixture", BaseURL: server.URL, APIKey: "fixture"}}, func(event workerproto.Result) error { events = append(events, event); return nil })
 	if err != nil || answer != "analysis complete" || requests.Load() < 3 {
 		t.Fatalf("report flow: answer=%q, requests=%d, error=%v", answer, requests.Load(), err)
 	}

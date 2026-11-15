@@ -248,7 +248,7 @@ func parseCohereStreamWithReasoning(body io.Reader, onText, onReasoning func(str
 				reported := event.Delta.Usage.Tokens
 				if reported != nil {
 					candidate := ModelUsage{InputTokens: reported.InputTokens, OutputTokens: reported.OutputTokens}
-					if !validModelUsage(candidate) {
+					if !ValidModelUsage(candidate) {
 						return errors.New("Cohere reported invalid token usage")
 					}
 					usage = &candidate

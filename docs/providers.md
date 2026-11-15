@@ -143,3 +143,13 @@ GOWORK=off go test ./internal/provider ./internal/modelcatalog ./scripts/provide
 Protocol tests use local simulated endpoints; they do not establish every account or model's live compatibility.
 Local live-service checks have a separate [script](../scripts/live_local_chat_smoke.mjs).
 Reusable test entry points are in [verification](./testing.md).
+
+## Codex routing
+
+Built-in Codex retains its native endpoint, OAuth credentials and account headers. [codex_routing.go](../internal/provider/codex_routing.go) owns `session-id`, per-user-turn `x-client-request-id` and volatile `x-codex-turn-state`; generic cache selection and diagnostics do not own these headers.
+
+The saved configuration and `POST` / `PUT /api/provider-config` accept an explicit `responsesRoute: "codex-compatible"` for custom Responses gateways known to support Codex routing headers. This is a routing capability declaration, not a general cache-efficiency setting. `GET /api/model-config` reports the selection. It preserves the configured path and authentication, enables no OAuth login and probes no alternative endpoint. An empty string disables routing. Ordinary edits preserve it; an endpoint or format change clears it unless explicitly selected again. A model name or general client identity never enables it.
+
+Legacy `codex-compatible` configurations retain their session-derived cache key. `promptCaching.key: false` disables only that key; `promptCaching.format: "none"` omits cache hints while retaining explicitly enabled routing. Conversely, cache-key support alone adds no Codex headers.
+
+The first successful response with a valid token seeds the current user turn. Tool continuations, eligible retries and internal full-history resume retain it; delivered new user input resets it. Owner checks include session, connection, model, credentials, endpoint, headers and the effective network configuration, so editing a proxy under the same ID also resets routing. Late responses cannot seed a newer owner or turn. Titles carry no conversation identity; summary and child requests use independent routing state. A Worker restart loses the memory-only token. Static overrides of session-owned headers are rejected. A compatible gateway must preserve this lifecycle and must not carry one serving account's opaque token across account-pool failover.

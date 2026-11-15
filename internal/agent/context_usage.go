@@ -19,6 +19,7 @@ func prepareSessionContext(ctx context.Context, command workerproto.Command) (pr
 	if err != nil {
 		return preparedContext{}, err
 	}
+	ctx = replylanguage.WithDefault(ctx, command.ReplyLanguage)
 	command.Action = "compact" // Load existing context without appending an input.
 	return prepareContext(ctx, command, nil, 0, settings.DelegationDepth)
 }

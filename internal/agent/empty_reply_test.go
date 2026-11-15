@@ -260,7 +260,7 @@ func TestEmptyReplyStillJoinsRequiredChild(t *testing.T) {
 			continuationAnswer(w, "")
 		case 3:
 			last := body.Messages[len(body.Messages)-1]
-			if last.Role != "system" || !strings.Contains(last.Content, `"kind":"agent"`) || !strings.Contains(last.Content, `"status":"succeeded"`) {
+			if !runtimeNoticeOnWire(last.Role, last.Content) || !strings.Contains(last.Content, `"kind":"agent"`) || !strings.Contains(last.Content, `"status":"succeeded"`) {
 				t.Errorf("empty reply bypassed required-child collection: %+v", last)
 			}
 			continuationAnswer(w, "Child collected.")

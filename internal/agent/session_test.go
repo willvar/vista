@@ -33,7 +33,7 @@ func TestDetachedTaskSurvivesParentAndNextRun(t *testing.T) {
 				}
 				latestUser := ""
 				for _, message := range request.Messages {
-					if message.Role == "user" {
+					if message.Role == "user" && !runtimeNoticeOnWire(message.Role, message.Content) {
 						latestUser = message.Content
 					}
 				}
@@ -57,7 +57,7 @@ func TestDetachedTaskSurvivesParentAndNextRun(t *testing.T) {
 				case "collect", "replay":
 					var found bool
 					for _, message := range request.Messages {
-						found = found || message.Role == "system" && strings.Contains(message.Content, "background report")
+						found = found || runtimeNoticeOnWire(message.Role, message.Content) && strings.Contains(message.Content, "background report")
 					}
 					if found != (ending == "success") {
 						t.Errorf("report delivery after %s: found=%v", ending, found)

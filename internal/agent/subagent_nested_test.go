@@ -52,7 +52,7 @@ func TestParallelSubagentsCanDelegateNestedWork(t *testing.T) {
 		t.Helper()
 		got := map[string]bool{}
 		for _, message := range messages {
-			if message.Role != "system" {
+			if !runtimeNoticeOnWire(message.Role, message.Content) {
 				continue
 			}
 			_, raw, ok := strings.Cut(message.Content, "\n")
@@ -90,7 +90,7 @@ func TestParallelSubagentsCanDelegateNestedWork(t *testing.T) {
 			return
 		}
 		prompt := request.Messages[1].Content
-		initial := request.Messages[len(request.Messages)-1].Role == "user"
+		initial := request.Messages[len(request.Messages)-1].Content == prompt
 		var calls []map[string]any
 
 		switch {

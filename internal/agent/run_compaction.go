@@ -49,7 +49,7 @@ func completedExecutionGroups(messages []provider.ChatMessage, summaryIndex int)
 	var groups []executionGroup
 	for i := 0; i < len(messages); i++ {
 		message := messages[i]
-		if i == summaryIndex || (message.Role != "assistant" && message.Role != "user" && !message.RuntimeData) {
+		if i == summaryIndex || (message.Role != "assistant" && message.Role != "user" && !message.RuntimeData && !message.InstructionUpdate) {
 			continue
 		}
 		end := i + 1
@@ -97,13 +97,25 @@ func (c *executionCompactor) compact(ctx context.Context, command workerproto.Co
 	}
 	lastUser := -1
 	for i, m := range messages {
-		if m.Role == "user" {
+		if m.Role == "user" && !m.RuntimeData {
 			lastUser = i
 		}
 	}
 	keptRules, err := retainedProjectInstructionResults(ctx, messages)
 	if err != nil {
 		return messages, false, err
+	}
+	latestInstruction, latestLanguage := -1, -1
+	for i, message := range messages {
+		if message.InstructionUpdate {
+			latestInstruction = i
+		}
+		if isLanguageControl(message) {
+			latestLanguage = i
+		}
+	}
+	if latestInstruction >= 0 {
+		keptRules[latestInstruction] = true
 	}
 	target, remaining := estimate/2, estimate
 	selected := make([]executionGroup, 0, len(groups))
@@ -113,7 +125,7 @@ func (c *executionCompactor) compact(ctx context.Context, command workerproto.Co
 	// questions still need the latest group verbatim.
 	if !status.Manual || c.awaitingUser {
 		for i := len(groups) - 1; i >= 0; i-- {
-			if !messages[groups[i].start].RuntimeData {
+			if !messages[groups[i].start].RuntimeData && !messages[groups[i].start].InstructionUpdate {
 				protectedGroup = i
 				break
 			}
@@ -127,7 +139,7 @@ func (c *executionCompactor) compact(ctx context.Context, command workerproto.Co
 		if index == protectedGroup || keep {
 			continue
 		}
-		if group.start == lastUser || !status.Manual && messages[group.start].Role == "user" && messages[group.start].Content == command.Prompt {
+		if group.start == lastUser || !status.Manual && messages[group.start].Role == "user" && !messages[group.start].RuntimeData && messages[group.start].Content == command.Prompt {
 			continue
 		}
 		selected = append(selected, group)
@@ -202,6 +214,14 @@ func (c *executionCompactor) compact(ctx context.Context, command workerproto.Co
 		parts--
 	}
 	drop := make(map[int]bool)
+	// A full instruction snapshot includes its language default. Later language
+	// controls supersede only that default, never the snapshot's other rules.
+	// Apply this cleanup only when the replacement checkpoint succeeds.
+	for i, message := range messages {
+		if i > 0 && isLanguageControl(message) && (i != latestLanguage || i < latestInstruction) {
+			drop[i] = true
+		}
+	}
 	for _, group := range selected {
 		for i := group.start; i < group.end; i++ {
 			drop[i] = true

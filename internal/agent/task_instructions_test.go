@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"vista/internal/workerproto"
 )
@@ -42,7 +43,7 @@ func TestDelegateRetainsCompleteTaskInstructions(t *testing.T) {
 					w.WriteHeader(http.StatusBadRequest)
 					return
 				}
-				if request.Messages[len(request.Messages)-1].Role == "user" {
+				if request.Messages[len(request.Messages)-1].Content == rootPrompt {
 					arguments, _ := json.Marshal(map[string]string{"task": task})
 					continuationEvent(w, mcpToolEvent("instructions-child", "delegate", string(arguments)))
 					return
@@ -58,7 +59,9 @@ func TestDelegateRetainsCompleteTaskInstructions(t *testing.T) {
 			childStarted, childFinished, delegateFinished := false, false, false
 			command := continuationCommand(server.URL, rootPrompt)
 			command.ReplyLanguage = "zh-TW"
-			answer, err := Run(context.Background(), command, func(event workerproto.Result) error {
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			answer, err := Run(ctx, command, func(event workerproto.Result) error {
 				if event.Kind == "agent_task" && event.Task != nil {
 					if event.Task.ID == "main" {
 						if event.Task.Title != textPrefix(rootPrompt, 300) {
