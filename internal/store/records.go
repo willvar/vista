@@ -326,6 +326,15 @@ func (s *Store) FinishRunWithPending(ctx context.Context, sessionID, runID, mess
 	if changed == 0 {
 		return nil, nil
 	}
+	if status == "interrupted" {
+		staged, err := restartStaged(ctx, tx, sessionID, runID)
+		if err != nil {
+			return nil, err
+		}
+		if staged {
+			content = "Execution interrupted by service shutdown"
+		}
+	}
 	unknown, err := appendUnknownTools(ctx, tx, sessionID, runID)
 	if err != nil {
 		return nil, err
@@ -397,10 +406,7 @@ func (s *Store) FinishRunWithPending(ctx context.Context, sessionID, runID, mess
 		return nil, err
 	}
 	if status == "interrupted" || status == "failed" || unknown > 0 {
-		if err := suppressRuntimeEvents(ctx, tx, sessionID); err != nil {
-			return nil, err
-		}
-		if err := markQueuedInTx(ctx, tx, sessionID, runID, "interrupted"); err != nil {
+		if err := interruptRunInputs(ctx, tx, sessionID, runID, status == "interrupted"); err != nil {
 			return nil, err
 		}
 	}
@@ -416,7 +422,31 @@ func (s *Store) InterruptRunning(ctx context.Context, sessionID string, reason .
 		return nil, err
 	}
 	defer tx.Rollback()
+	events, err := interruptRunning(ctx, tx, sessionID, reason...)
+	if err != nil {
+		return nil, err
+	}
+	return events, tx.Commit().Error
+}
+
+func interruptRunInputs(ctx context.Context, tx *gorm.DB, sessionID, runID string, allowRestart bool) error {
+	if allowRestart {
+		staged, err := restartStaged(ctx, tx, sessionID, runID)
+		if err != nil || staged {
+			return err
+		}
+	}
 	if err := suppressRuntimeEvents(ctx, tx, sessionID); err != nil {
+		return err
+	}
+	return markQueuedInTx(ctx, tx, sessionID, runID, "interrupted")
+}
+
+func interruptRunning(ctx context.Context, tx *gorm.DB, sessionID string, reason ...string) ([]Event, error) {
+	// Staged service recovery owns its inbox and queued inputs through Worker
+	// teardown. Other interruption paths keep their existing suppression rules.
+	if _, err := execSQL(ctx, tx, `UPDATE runtime_events SET status='suppressed' WHERE status='pending' AND (?='' OR session_id=?)
+ AND NOT EXISTS(SELECT 1 FROM runtime_events staged WHERE staged.session_id=runtime_events.session_id AND staged.status='restart')`, sessionID, sessionID); err != nil {
 		return nil, err
 	}
 	query := "SELECT id,session_id FROM runs WHERE status='running'"
@@ -476,6 +506,13 @@ func (s *Store) InterruptRunning(ctx context.Context, sessionID string, reason .
 			return nil, err
 		}
 		cause := "Execution interrupted"
+		staged, err := restartStaged(ctx, tx, x.session, x.id)
+		if err != nil {
+			return nil, err
+		}
+		if staged {
+			cause = "Execution interrupted by service shutdown"
+		}
 		if len(reason) > 0 && reason[0] != "" {
 			cause = reason[0]
 		}
@@ -484,12 +521,9 @@ func (s *Store) InterruptRunning(ctx context.Context, sessionID string, reason .
 			return nil, err
 		}
 		events = append(events, e)
-		if err := markQueuedInTx(ctx, tx, x.session, x.id, "interrupted"); err != nil {
+		if err := interruptRunInputs(ctx, tx, x.session, x.id, true); err != nil {
 			return nil, err
 		}
-	}
-	if err = tx.Commit().Error; err != nil {
-		return nil, err
 	}
 	return events, nil
 }

@@ -57,6 +57,7 @@ const consumers: [RegExp, string[]][] = [
   [/^web\/src\/state\/cacheUsage/, ['conversation']],
   [/^web\/src\/(?:pages\/SessionManager|Session|InlineSessionTitle)|^web\/src\/composables\/useSessions/, ['sessions']],
   [/^internal\/store\/(?:main_outputs|model_output)/, ['conversation']],
+  [/^internal\/store\/(?:restart|runtime_events)|^internal\/server\/(?:runtime_events|worker_lifecycle|execution)/, ['conversation', 'sessions', 'about']],
   [/^internal\/store\/compaction|^internal\/server\/(?:compaction|worker_results_context)/, ['conversation']],
   [/^internal\/store\/(?:display_messages|message_results|conversation_snapshot|records)|^internal\/server\/(?:events|compaction_messages|message_results)/, ['conversation', 'sessions', 'statistics']],
   [/^internal\/provider\/(?:prompt_cache|cache_|bedrock_cache|codex_routing|request_state)|^internal\/modelcatalog\/|^internal\/server\/(?:model_settings|custom_models|local_models|model_directory)/, ['models', 'conversation']],

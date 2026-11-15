@@ -91,7 +91,7 @@ async function restart() {
 
 <template>
   <div class="restart-vista-setting general-setting">
-    <div><h4>{{ t('restartVista') }}</h4><p>{{ t('restartVistaHint') }}</p></div>
+    <h4>{{ t('restartVista') }}</h4>
     <v-button danger @click="confirm">{{ t('restartVista') }}</v-button>
   </div>
   <v-modal :open="open" centered :z-index="1200" width="min(520px, calc(100vw - 2rem))"
@@ -125,8 +125,7 @@ async function restart() {
   border-top: 0;
   border-bottom: 1px solid var(--border);
 }
-.restart-vista-setting > div { flex: 1; min-width: 0; }
-.restart-vista-setting h4 { margin: 0; font-size: var(--font-size-body); font-weight: 550; }
+.restart-vista-setting h4 { flex: 1; min-width: 0; margin: 0; font-size: var(--font-size-body); font-weight: 550; }
 .restart-vista-setting > .ui-btn { flex: none; }
 .restart-vista-confirmation { line-height: 1.7; overflow-wrap: anywhere; }
 .restart-vista-confirmation > p { margin: 0 0 12px; }

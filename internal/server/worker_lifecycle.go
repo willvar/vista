@@ -233,7 +233,10 @@ func (a *App) recoverWorker(id string) {
 		}
 		if err := a.startWorkerUsing(id, a.launchOpenWorker); err == nil {
 			log.Printf("worker %s recovered", id)
-			a.background.Go(func() { a.launchQueuedInput(id) })
+			a.background.Go(func() {
+				a.launchQueuedInput(id)
+				a.launchRuntimeContinuation(id)
+			})
 			return
 		}
 		log.Printf("worker %s restart %d failed: %v", id, attempt+1, err)

@@ -288,7 +288,7 @@ func loadApp(parent context.Context, cancel context.CancelFunc, configDir, dir s
 	if err := os.RemoveAll(filepath.Join(dir, "shell-scripts")); err != nil {
 		return nil, fmt.Errorf("discard interrupted shell scripts: %w", err)
 	}
-	if _, err := st.InterruptRunning(context.Background(), ""); err != nil {
+	if err := st.RecoverExecutions(context.Background()); err != nil {
 		return nil, fmt.Errorf("reconcile interrupted executions: %w", err)
 	}
 	if _, err := st.InterruptJobs(context.Background(), "", "Server restarted before the background job result was confirmed"); err != nil {
@@ -353,7 +353,10 @@ func (a *App) start() error {
 			if err := a.startWorker(item.ID); err != nil {
 				log.Printf("restore worker %s: %v", item.ID, err)
 			} else {
-				a.background.Go(func() { a.launchQueuedInput(item.ID) })
+				a.background.Go(func() {
+					a.launchQueuedInput(item.ID)
+					a.launchRuntimeContinuation(item.ID)
+				})
 			}
 		}
 	}
@@ -998,7 +1001,7 @@ func (a *App) session(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "could not find running execution", 500)
 			return
 		}
-		if err := a.store.MarkQueuedInputs(r.Context(), item.ID, "", "interrupted"); err != nil {
+		if err := a.store.RequestRunCancellation(r.Context(), item.ID, runID); err != nil {
 			http.Error(w, "could not pause pending inputs", 500)
 			return
 		}
@@ -1031,6 +1034,12 @@ func (a *App) session(w http.ResponseWriter, r *http.Request) {
 		}
 		a.mu.Unlock()
 		err = a.startWorker(item.ID)
+		if err == nil {
+			a.background.Go(func() {
+				a.launchQueuedInput(item.ID)
+				a.launchRuntimeContinuation(item.ID)
+			})
+		}
 	default:
 		http.NotFound(w, r)
 		return

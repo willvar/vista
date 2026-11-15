@@ -86,7 +86,13 @@ func (h *appHandler) stopApp() error {
 	if h.appClosed {
 		return nil
 	}
+	h.app.admissionMu.Lock()
+	prepareErr := h.app.store.PrepareRestart(context.Background())
 	h.app.closeContext()
+	h.app.admissionMu.Unlock()
+	if prepareErr != nil {
+		log.Printf("record restart continuations: %v", prepareErr)
+	}
 	h.app.stopAll()
 	h.requests.Wait()
 	h.app.background.Wait()
@@ -109,7 +115,7 @@ func (h *appHandler) stopApp() error {
 	_, interruptErr := h.app.store.InterruptRunning(context.Background(), "")
 	closeErr := h.app.store.Close()
 	h.appClosed = true
-	return errors.Join(interruptErr, closeErr)
+	return errors.Join(prepareErr, interruptErr, closeErr)
 }
 
 func (h *appHandler) close() {

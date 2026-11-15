@@ -13,12 +13,12 @@ import (
 	"strings"
 	"time"
 
+	"vista/internal/question"
+	"vista/internal/resources"
+
 	gosqlite "github.com/glebarez/sqlite"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
-
-	"vista/internal/question"
-	"vista/internal/resources"
 )
 
 type Session struct {
@@ -355,7 +355,7 @@ func (s *Store) SetOpen(ctx context.Context, id string, open bool) error {
 			return err
 		}
 		if !open {
-			return tx.Exec(`UPDATE runtime_events SET status='suppressed' WHERE session_id=? AND status='pending'`, id).Error
+			return tx.Exec(`UPDATE runtime_events SET status='suppressed' WHERE session_id=? AND status IN ('pending','restart')`, id).Error
 		}
 		return nil
 	})

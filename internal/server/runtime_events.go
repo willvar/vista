@@ -6,14 +6,13 @@ import (
 	"log"
 
 	"github.com/google/uuid"
-
 	"vista/internal/platform"
 	"vista/internal/store"
 )
 
-// Meaningful completions request a continuation. This is event-driven, shares
+// Meaningful completions and persisted restart notices request a continuation. This is event-driven, shares
 // normal admission/selection, and yields to pending questions and user input.
-// It is never called by startup/recovery or by output-progress notifications.
+// Startup reconsiders retained work; output-progress notifications never do.
 func (a *App) launchRuntimeContinuation(sessionID string) {
 	unlock := a.lockSessionMutation(sessionID)
 	defer unlock()
@@ -33,7 +32,7 @@ func (a *App) launchRuntimeContinuation(sessionID string) {
 		return
 	}
 	selection, err := a.store.Get(a.ctx, sessionID)
-	if err != nil || !selection.Open || selection.Pending != nil || selection.InputQueuePaused {
+	if err != nil || !selection.Open || selection.Pending != nil {
 		return
 	}
 	input, err := a.store.NextQueuedInput(a.ctx, sessionID)

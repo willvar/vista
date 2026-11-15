@@ -35,7 +35,8 @@ The current configuration directory and actual listening port are carried throug
 Browser suppression applies only to this restart command; the new Server retains the original environment so later tray actions keep their normal behavior.
 
 Conversations, resources, credentials, skills, memory, statistics and other settings remain, as do browser preferences and drafts.
-Workers for open conversations are recreated under the usual admission and health checks; unfinished executions, subtasks and managed background jobs are recorded as interrupted, not automatically resumed or replayed.
+Workers for open conversations are recreated under the usual admission and health checks. The old execution, unfinished subtasks and managed background jobs are recorded as interrupted. Eligible agent tasks continue in a new execution using the durable conversation, model history and compaction checkpoint; completed tool results are reused, while unconfirmed effects must be checked before retrying. Canceled, completed, failed and closed tasks, pending questions and manual compaction do not automatically continue. Managed background processes are not preserved, reattached or automatically recreated.
+Cancellation intent commits before Worker IPC, so a crash before the cancellation acknowledgment cannot revive a canceled task. Shutdown stages a durable restart notice; startup also captures runs left running by an abrupt Server exit, reconciles interruption and activates the notices in one transaction. Recovery reuses runtime-event admission and the Worker resume command without inventing a user message. Pending user inputs take priority, and recovery waiting for admission survives another restart. A notice is acknowledged with its retained model history, not when polled. Worker-only crashes retain their existing interrupted behavior.
 External files and services are not reverted.
 
 `POST /api/restart` requires explicit JSON confirmation, `{"confirm":"restart"}`.

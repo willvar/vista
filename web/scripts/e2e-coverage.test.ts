@@ -35,6 +35,13 @@ test('network and authorization adapters retain their application consumers', ()
     assert.deepEqual(browserScope([path], available), { full: false, files: available.filter(file => file !== 'statistics.spec.ts').sort() }, path)
   }
 })
+
+test('restart scheduling retains conversation and service-control consumers', () => {
+  const available = ['execution-flow.spec.ts', 'session-flow.spec.ts', 'reset-settings.spec.ts', 'statistics.spec.ts']
+  for (const path of ['internal/store/restart.go', 'internal/store/runtime_events.go', 'internal/server/runtime_events.go', 'internal/server/worker_lifecycle.go']) {
+    assert.deepEqual(browserScope([path], available), { full: false, files: available.slice(0, 3).sort() }, path)
+  }
+})
 test('documentation and unit-only changes keep smoke without inventing affected browser tests', () => {
   const scope = browserScope(['AGENTS.md', 'docs/testing.md', 'internal/store/display_messages_test.go', 'web/src/state/conversation.test.ts'], files)
   assert.deepEqual(scope, { full: false, files: [] })

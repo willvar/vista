@@ -59,6 +59,9 @@ func TestNativeApplication(t *testing.T) {
 	completionStarted, resumeCompletion := make(chan struct{}), make(chan struct{})
 	resume := sync.OnceFunc(func() { close(resumeCompletion) })
 	var holdCompletion sync.Once
+	restartWaiting := make(chan string, 4)
+	var heldRestarts sync.Map
+	var restartEvidence atomic.Int32
 	longTask := strings.Repeat("界", workerproto.MaxPromptBytes/3)
 	longTask += strings.Repeat("x", workerproto.MaxPromptBytes-len(longTask))
 	model := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -77,8 +80,11 @@ func TestNativeApplication(t *testing.T) {
 		// Completion notices may follow a user input at the same decision
 		// boundary. The fixture must handle that input rather than treating
 		// the trailing runtime evidence as the entire request.
+		isRuntimeNotice := func(role, content string) bool {
+			return role == "user" && (strings.HasPrefix(content, "Runtime completion event.") || strings.HasPrefix(content, "Vista service restart."))
+		}
 		last := request.Messages[len(request.Messages)-1]
-		if last.Role == "system" && strings.HasPrefix(last.Content, "Runtime completion event.") && strings.Contains(last.Content, `"kind":"job"`) {
+		if isRuntimeNotice(last.Role, last.Content) && strings.Contains(last.Content, `"kind":"job"`) {
 			// Hold the automatic continuation so the next lifecycle prompt
 			// deterministically exercises input delivery during an active run.
 			holdCompletion.Do(func() {
@@ -90,10 +96,29 @@ func TestNativeApplication(t *testing.T) {
 			})
 		}
 		for i := len(request.Messages) - 1; i >= 0; i-- {
-			if request.Messages[i].Role != "system" {
+			if request.Messages[i].Role != "system" && !isRuntimeNotice(request.Messages[i].Role, request.Messages[i].Content) {
 				last = request.Messages[i]
 				break
 			}
+		}
+		original, restarted, completed := "", false, false
+		for _, message := range request.Messages {
+			if message.Role == "user" && !isRuntimeNotice(message.Role, message.Content) {
+				original, restarted, completed = message.Content, false, false
+			}
+			if strings.HasPrefix(message.Content, "Vista service restart.") {
+				restarted = true
+			}
+			if message.Role == "tool" && strings.Contains(message.Content, "Vista 中文") {
+				completed = true
+			}
+		}
+		if strings.HasPrefix(original, "resume-") && last.Role == "tool" && !restarted {
+			if _, held := heldRestarts.LoadOrStore(original, true); !held {
+				restartWaiting <- original
+			}
+			<-r.Context().Done()
+			return
 		}
 		if last.Role == "user" && strings.HasPrefix(last.Content, "provider-error-") {
 			message := strings.Repeat("upstream failure ", 1000)
@@ -115,11 +140,20 @@ func TestNativeApplication(t *testing.T) {
 			delta = map[string]any{"tool_calls": []any{map[string]any{"index": 0, "id": id, "type": "function", "function": map[string]any{"name": name, "arguments": string(args)}}}}
 			finish = "tool_calls"
 		}
-		if last.Role == "user" && last.Content == "long-finish-reason" {
+		if strings.HasPrefix(original, "resume-") && restarted {
+			if !completed {
+				t.Error("restart lost a completed tool result")
+			}
+			restartEvidence.Add(1)
+			delta["content"] = "Restart continuation verified."
+		} else if last.Role == "user" && last.Content == "long-finish-reason" {
 			finish = strings.Repeat("upstream-reason-", 100)
 		} else if len(request.Tools) > 0 {
 			for _, message := range request.Messages {
-				if message.Role == "system" && strings.HasPrefix(message.Content, "Runtime completion event.") && strings.Contains(message.Content, `"kind":"agent"`) {
+				if message.Role == "system" && strings.HasPrefix(message.Content, "Runtime completion event.") {
+					t.Error("runtime completion acquired system authority")
+				}
+				if isRuntimeNotice(message.Role, message.Content) && strings.Contains(message.Content, `"kind":"agent"`) {
 					reportEvidence.Store(true)
 				}
 				if message.Role == "system" && strings.Contains(message.Content, "Runtime OS: "+runtime.GOOS+"; shell: "+platform.ShellName()) {
@@ -141,6 +175,14 @@ func TestNativeApplication(t *testing.T) {
 				name, script := "shell", "printf 'Vista 中文'; exit 7"
 				if runtime.GOOS == "windows" {
 					script = "Write-Output 'Vista 中文'; exit 7"
+				}
+				if strings.HasPrefix(last.Content, "resume-") {
+					path := filepath.Join(root, last.Content+".effects")
+					if runtime.GOOS == "windows" {
+						script = "Add-Content -LiteralPath '" + strings.ReplaceAll(path, "'", "''") + "' -Value 'completed'; " + script
+					} else {
+						script = "printf 'completed\\n' >> '" + strings.ReplaceAll(path, "'", "'\\''") + "'; " + script
+					}
 				}
 				if strings.HasPrefix(last.Content, "background-") || last.Content == "cancel-check" {
 					script = applicationSleepCommand(filepath.Join(root, last.Content+".pid"))
@@ -350,7 +392,7 @@ func TestNativeApplication(t *testing.T) {
 	delegatedRun := submit("delegation-check")
 	waitRun(delegatedRun, "succeeded")
 	if !delegationEvidence.Load() || !childToolEvidence.Load() || !reportEvidence.Load() || workerPID() != beforeDelegation {
-		t.Fatal("long delegation lost prompt bytes, missed its report or replaced its Worker")
+		t.Fatalf("long delegation: prompt=%v, tool=%v, report=%v, worker unchanged=%v", delegationEvidence.Load(), childToolEvidence.Load(), reportEvidence.Load(), workerPID() == beforeDelegation)
 	}
 	var after int64
 	childStates := map[string]int{}
@@ -420,9 +462,76 @@ func TestNativeApplication(t *testing.T) {
 	}
 	runID := submit("cancel-check")
 	child := waitPID("cancel-check")
+	var oldQueue struct{ Input store.QueuedInput }
+	api("POST", sessionPath+"/messages", map[string]any{"content": "keep this old input paused"}, &oldQueue)
+	if oldQueue.Input.ID == "" {
+		t.Fatal("old task input was not queued")
+	}
 	api("POST", sessionPath+"/cancel", nil, nil)
 	waitRun(runID, "interrupted")
 	waitGone(child)
+	for _, action := range []string{"restart", "crash"} {
+		prompt := "resume-" + action
+		before := restartEvidence.Load()
+		interrupted := submit(prompt)
+		select {
+		case waiting := <-restartWaiting:
+			if waiting != prompt {
+				t.Fatalf("held wrong task: %s", waiting)
+			}
+		case <-time.After(15 * time.Second):
+			t.Fatal("task did not reach the post-tool model request")
+		}
+		if action == "crash" {
+			info, err := instance.Read(filepath.Join(config, "state"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			process, err := os.FindProcess(info.PID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := process.Kill(); err != nil {
+				t.Fatal(err)
+			}
+			process.Release()
+			if output, err := cli("start"); err != nil {
+				t.Fatalf("start after crash: %v %s", err, output)
+			}
+		} else if output, err := cli("restart"); err != nil {
+			t.Fatalf("restart active task: %v %s", err, output)
+		}
+		waitRun(interrupted, "interrupted")
+		deadline := time.Now().Add(15 * time.Second)
+		var snapshot struct {
+			Session  store.Session
+			Messages []store.Message
+		}
+		for time.Now().Before(deadline) {
+			api("GET", sessionPath+"/snapshot", nil, &snapshot)
+			if !snapshot.Session.Executing && len(snapshot.Messages) > 0 && snapshot.Messages[len(snapshot.Messages)-1].Content == "Restart continuation verified." {
+				break
+			}
+			time.Sleep(25 * time.Millisecond)
+		}
+		if restartEvidence.Load() != before+1 || snapshot.Session.Executing || len(snapshot.Messages) == 0 || snapshot.Messages[len(snapshot.Messages)-1].Content != "Restart continuation verified." {
+			t.Fatalf("task did not resume exactly once: evidence=%d snapshot=%+v", restartEvidence.Load()-before, snapshot)
+		}
+		if !snapshot.Session.InputQueuePaused {
+			t.Fatal("restart resumed the old input queue")
+		}
+		inputs := 0
+		for _, message := range snapshot.Messages {
+			if message.Role == "user" && message.Content == prompt {
+				inputs++
+			}
+		}
+		effects, err := os.ReadFile(filepath.Join(root, prompt+".effects"))
+		if err != nil || strings.TrimSpace(string(effects)) != "completed" || inputs != 1 {
+			t.Fatalf("restart replayed input or tool effects: inputs=%d effects=%q error=%v", inputs, effects, err)
+		}
+	}
+	api("DELETE", sessionPath+"/inputs/"+oldQueue.Input.ID, nil, nil)
 	for _, action := range []string{"stop", "close", "restart", "crash"} {
 		t.Logf("background lifecycle: %s", action)
 		prompt := "background-" + action

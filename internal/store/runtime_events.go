@@ -6,9 +6,9 @@ import (
 	"errors"
 	"time"
 
-	"gorm.io/gorm"
-
 	"vista/internal/workerproto"
+
+	"gorm.io/gorm"
 )
 
 func (s *Store) RecordRuntimeEvent(ctx context.Context, sessionID string, notice workerproto.RuntimeEvent) (*Event, bool, error) {
@@ -188,7 +188,7 @@ func (s *Store) DeliverChildRuntimeEvent(ctx context.Context, sessionID, runID, 
 }
 
 func suppressRuntimeEvents(ctx context.Context, tx *gorm.DB, sessionID string) error {
-	_, err := execSQL(ctx, tx, `UPDATE runtime_events SET status='suppressed' WHERE status='pending' AND (?='' OR session_id=?)`, sessionID, sessionID)
+	_, err := execSQL(ctx, tx, `UPDATE runtime_events SET status='suppressed' WHERE status IN ('pending','restart') AND (?='' OR session_id=?)`, sessionID, sessionID)
 	return err
 }
 
@@ -213,7 +213,7 @@ func (s *Store) BeginRuntimeRun(ctx context.Context, sessionID, runID, modelKey 
 	}
 	defer tx.Rollback()
 	var eligible bool
-	err = tx.WithContext(ctx).Raw(`SELECT EXISTS(SELECT 1 FROM sessions s WHERE s.id=? AND s.is_open=1 AND s.pending_kind='' AND s.input_queue_paused=0
+	err = tx.WithContext(ctx).Raw(`SELECT EXISTS(SELECT 1 FROM sessions s WHERE s.id=? AND s.is_open=1 AND s.pending_kind=''
  AND NOT EXISTS(SELECT 1 FROM runs r WHERE r.session_id=s.id AND r.status='running')
  AND NOT EXISTS(SELECT 1 FROM queued_inputs q WHERE q.session_id=s.id AND q.status='queued')
  AND EXISTS(SELECT 1 FROM runtime_events e WHERE e.session_id=s.id AND e.recipient='main' AND e.status='pending'))`, sessionID).Row().Scan(&eligible)
