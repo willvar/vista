@@ -255,7 +255,6 @@ export default { ...base, ...{
   "skillsLoading": "正在加載技能…",
   "skillsEmpty": "暫無用户技能。",
   "skillsSaved": "已保存，下次發現技能時生效；已經載入會話的內容會保留。",
-  "skillEnable": "啓用 {name}",
   "skillDeleteConfirm": "刪除 {name}，包括配套腳本和參考文件？",
   "skillsDirectory": "存儲目錄",
   "skillsDirectoryHint": "將包含 SKILL.md 的技能文件夾放入此目錄，列表會自動更新。",

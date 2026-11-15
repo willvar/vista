@@ -59,7 +59,7 @@ test('external skill edits update the list, preserve drafts and stop reads when 
   expect(reads).toBe(1)
 })
 
-test('multiple system skills use their own metadata and can only be viewed', async ({ page, vista }) => {
+test('multiple system skills use their own metadata and can only be viewed @responsive', async ({ page, vista }) => {
   const catalog = await vista.api('/skills')
   const extra = { id: 'system:another-guide', name: 'Another guide', description: 'A separate built-in capability', source: 'system', path: 'skill://system/another-guide/SKILL.md' }
   await page.route('**/api/skills', route => route.fulfill({ json: { ...catalog, skills: [...catalog.skills, extra] } }))
@@ -67,7 +67,12 @@ test('multiple system skills use their own metadata and can only be viewed', asy
   await page.goto(`${vista.origin}/settings/skills`)
   for (const skill of [...catalog.skills.filter((skill: { source: string }) => skill.source === 'system'), extra]) {
     const card = page.locator(`[data-skill="${skill.id}"]`)
+    const trigger = card.getByRole('button', { name: skill.name, exact: true })
+    await expect(trigger).toHaveAttribute('aria-expanded', 'false')
+    await expect(card.locator('.skill-description')).toHaveCount(0)
+    await trigger.click()
     await expect(card).toContainText(skill.description)
+    await expect(card.locator('.skill-path')).toHaveCount(0)
     await expect(card).toContainText('System')
     await expect(card.getByRole('switch')).toHaveCount(0)
     await expect(card.getByRole('button', { name: /^Delete / })).toHaveCount(0)
@@ -84,7 +89,7 @@ test('multiple system skills use their own metadata and can only be viewed', asy
   expect(readdirSync(catalog.directory)).toEqual([])
 })
 
-test('local skills update automatically and can be edited, searched, disabled and deleted', async ({ page, vista }, testInfo) => {
+test('local skills update automatically and can be edited, searched and deleted @responsive', async ({ page, vista }, testInfo) => {
   await vista.api('/preferences', { method: 'PATCH', body: JSON.stringify({ feedbackInvitationSeen: true }) })
   await page.goto(`${vista.origin}/settings/general`)
   await openSettingsSection(page, 'skills')
@@ -99,7 +104,16 @@ test('local skills update automatically and can be edited, searched, disabled an
   await expect(page.getByRole('button', { name: 'Refresh', exact: true })).toHaveCount(0)
   const card = page.locator('[data-skill="review"]')
   await expect(card).toContainText('Code review')
-  await expect(card).toContainText('Check changes and tests')
+  const trigger = card.getByRole('button', { name: 'Code review', exact: true })
+  await expect(trigger).toHaveAttribute('aria-expanded', 'false')
+  await expect(card.locator('.skill-description')).toHaveCount(0)
+  await trigger.focus()
+  await trigger.press('Enter')
+  await expect(card.locator('.skill-description')).toHaveText('Check changes and tests')
+  await expect(card.locator('.skill-path')).toHaveText(join(directory, 'review', 'SKILL.md'))
+  await trigger.press('Space')
+  await expect(trigger).toHaveAttribute('aria-expanded', 'false')
+  await expect(card.getByRole('switch')).toHaveCount(0)
 
   await card.getByRole('button', { name: 'Edit Code review', exact: true }).click()
   const editor = page.getByRole('dialog', { name: 'Edit skill', exact: true })
@@ -116,13 +130,9 @@ test('local skills update automatically and can be edited, searched, disabled an
   await page.screenshot({ path: testInfo.outputPath('skills-no-matches.png'), animations: 'disabled' })
   await page.getByRole('textbox', { name: 'Search skills', exact: true }).fill('tests')
   await expect(card).toBeVisible()
-  await card.getByRole('switch', { name: 'Enable Review carefully', exact: true }).click()
-  await expect(card.getByRole('switch')).toHaveAttribute('aria-checked', 'false')
   await page.reload()
-  await expect(card).toContainText('Disabled')
-  expect((await vista.api('/skills')).skills.find((skill: { id: string }) => skill.id === 'review').disabled).toBe(true)
-  await card.getByRole('switch').click()
-  await expect(card.getByRole('switch')).toHaveAttribute('aria-checked', 'true')
+  await expect(card.getByRole('switch')).toHaveCount(0)
+  expect((await vista.api('/skills')).skills.find((skill: { id: string }) => skill.id === 'review')).not.toHaveProperty('disabled')
 
   for (const theme of ['light', 'dark']) {
     await page.evaluate(value => localStorage.setItem('vista-appearance', value), theme)

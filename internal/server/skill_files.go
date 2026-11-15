@@ -28,7 +28,7 @@ func skillFileEntries(filesystem fs.FS) ([]skillFileEntry, error) {
 		if err != nil || name == "." {
 			return err
 		}
-		if name == tools.SkillDisabledFile || strings.HasPrefix(entry.Name(), ".vista-edit-") {
+		if strings.HasPrefix(entry.Name(), ".vista-edit-") {
 			return nil
 		}
 		info, err := entry.Info()

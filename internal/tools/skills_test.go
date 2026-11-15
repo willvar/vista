@@ -92,18 +92,13 @@ func TestSkillDiscoveryDoesNotFailWhenDirectoryExceeds100Entries(t *testing.T) {
 		if err := os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte(content), 0600); err != nil {
 			t.Fatal(err)
 		}
-		if i < 2 {
-			if err := os.WriteFile(filepath.Join(dir, SkillDisabledFile), nil, 0600); err != nil {
-				t.Fatal(err)
-			}
-		}
 	}
-	if skills, err := DiscoverSkills(root); err != nil || len(skills) != 103 {
+	if skills, err := DiscoverSkills(root); err != nil || len(skills) != 105 {
 		t.Fatalf("large skill directory is unavailable: count=%d error=%v", len(skills), err)
 	}
 }
 
-func TestSkillDiscoveryDisabledInvalidAndYAMLMetadata(t *testing.T) {
+func TestSkillDiscoveryInvalidAndYAMLMetadata(t *testing.T) {
 	root := t.TempDir()
 	write := func(name, content string) string {
 		t.Helper()
@@ -116,7 +111,7 @@ func TestSkillDiscoveryDisabledInvalidAndYAMLMetadata(t *testing.T) {
 		}
 		return dir
 	}
-	dir := write("review", "---\r\nname: 'Code review'\r\ndescription: >-\r\n  Check changes\r\n  and run relevant tests.\r\nmetadata:\r\n  author: example\r\n---\r\n"+strings.Repeat("中文正文", 500))
+	write("review", "---\r\nname: 'Code review'\r\ndescription: >-\r\n  Check changes\r\n  and run relevant tests.\r\nmetadata:\r\n  author: example\r\n---\r\n"+strings.Repeat("中文正文", 500))
 	write("invalid", "---\nname: [broken\n---\n")
 	write(".staging", "Hidden")
 	list, err := DiscoverSkills(root)
@@ -126,21 +121,5 @@ func TestSkillDiscoveryDisabledInvalidAndYAMLMetadata(t *testing.T) {
 	all, err := ListSkills(root)
 	if err != nil || len(all) != 2 || all[0].Error == "" || all[1].Error != "" {
 		t.Fatalf("settings should include invalid skills: %+v %v", all, err)
-	}
-	if err := os.WriteFile(filepath.Join(dir, SkillDisabledFile), nil, 0600); err != nil {
-		t.Fatal(err)
-	}
-	if list, err := DiscoverSkills(root); err != nil || len(list) != 0 {
-		t.Fatalf("disabled skill remains discoverable: %+v %v", list, err)
-	}
-	all, err = ListSkills(root)
-	if err != nil || !all[1].Disabled {
-		t.Fatalf("disabled skill missing from settings: %+v %v", all, err)
-	}
-	if err := os.Remove(filepath.Join(dir, SkillDisabledFile)); err != nil {
-		t.Fatal(err)
-	}
-	if list, err := DiscoverSkills(root); err != nil || len(list) != 1 {
-		t.Fatalf("reenabled skill not discovered: %+v %v", list, err)
 	}
 }

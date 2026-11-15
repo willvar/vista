@@ -185,7 +185,7 @@ func TestAgentSendsLongGlobalInstructionsAndDiscoversSkillsBeforeActivation(t *t
 	root := t.TempDir()
 	t.Setenv("XDG_CONFIG_HOME", root)
 	config := filepath.Join(root, "vista")
-	for _, id := range []string{"review", "disabled", "invalid"} {
+	for _, id := range []string{"review", "another", "invalid"} {
 		if err := os.MkdirAll(filepath.Join(config, "skills", id), 0700); err != nil {
 			t.Fatal(err)
 		}
@@ -196,13 +196,10 @@ func TestAgentSendsLongGlobalInstructionsAndDiscoversSkillsBeforeActivation(t *t
 	}
 	skill := "---\nname: review\ndescription: Review requested changes\n---\nRead the evidence before reviewing."
 	path := filepath.Join(config, "skills", "review", "SKILL.md")
-	for id, content := range map[string]string{"review": skill, "disabled": "---\nname: disabled\ndescription: DISABLED_SKILL\n---\n", "invalid": "no frontmatter"} {
+	for id, content := range map[string]string{"review": skill, "another": "---\nname: another\ndescription: Another available skill\n---\n", "invalid": "no frontmatter"} {
 		if err := os.WriteFile(filepath.Join(config, "skills", id, "SKILL.md"), []byte(content), 0600); err != nil {
 			t.Fatal(err)
 		}
-	}
-	if err := os.WriteFile(filepath.Join(config, "skills", "disabled", ".vista-disabled"), nil, 0600); err != nil {
-		t.Fatal(err)
 	}
 	requests := 0
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -216,10 +213,10 @@ func TestAgentSendsLongGlobalInstructionsAndDiscoversSkillsBeforeActivation(t *t
 			return
 		}
 		system := body.Messages[0].Content
-		if !strings.Contains(system, global) || !strings.Contains(system, "Review requested changes") || !strings.Contains(system, path) {
+		if !strings.Contains(system, global) || !strings.Contains(system, "Review requested changes") || !strings.Contains(system, "Another available skill") || !strings.Contains(system, path) {
 			t.Error("full global instructions or available skill metadata did not reach the model")
 		}
-		if strings.Contains(system, "Read the evidence before reviewing.") || strings.Contains(system, "DISABLED_SKILL") || strings.Contains(system, "no frontmatter") {
+		if strings.Contains(system, "Read the evidence before reviewing.") || strings.Contains(system, "no frontmatter") {
 			t.Error("inactive skill bodies or unavailable skills leaked into the initial context")
 		}
 		if requests == 1 {

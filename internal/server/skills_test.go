@@ -26,7 +26,7 @@ func seedSkillFiles(t *testing.T, a *App, id string, files [][2]string) {
 	}
 }
 
-func TestSkillsSettingsDiscoverEditToggleAndDelete(t *testing.T) {
+func TestSkillsSettingsDiscoverEditAndDelete(t *testing.T) {
 	a := &App{configDir: t.TempDir()}
 	for _, path := range []string{"/settings/skills", "/settings/mcp", "/settings/about"} {
 		w := httptest.NewRecorder()
@@ -75,23 +75,11 @@ func TestSkillsSettingsDiscoverEditToggleAndDelete(t *testing.T) {
 			t.Fatalf("editing destroyed supporting file: %s %q %v", file[0], got, err)
 		}
 	}
-	mcpAPI(t, a, "PATCH", "/skills/review", map[string]bool{"disabled": true}, 204)
-	mcpAPI(t, a, "PATCH", "/skills/review", map[string]bool{"disabled": true}, 204)
-	all, err := tools.ListSkills(root)
-	if err != nil || len(all) != 1 || !all[0].Disabled || all[0].Name != "Updated review" {
-		t.Fatalf("disabled metadata: %+v %v", all, err)
-	}
-	if list, err := tools.DiscoverSkills(root); err != nil || len(list) != 0 {
-		t.Fatalf("disabled skill available to Agent: %+v %v", list, err)
-	}
-	// No in-memory registration is needed after restart.
+	mcpAPI(t, a, "PATCH", "/skills/review", map[string]bool{"disabled": true}, 405)
+	// Skills remain discoverable from disk after restart; there is no enable state.
 	a = &App{configDir: a.configDir}
-	if body := mcpAPI(t, a, "GET", "/skills", nil, 200).Body.String(); !strings.Contains(body, `"disabled":true`) {
-		t.Fatalf("disabled state lost: %s", body)
-	}
-	mcpAPI(t, a, "PATCH", "/skills/review", map[string]bool{"disabled": false}, 204)
 	if list, err := tools.DiscoverSkills(root); err != nil || len(list) != 1 || list[0].Name != "Updated review" {
-		t.Fatalf("reenabled skill unavailable: %+v %v", list, err)
+		t.Fatalf("saved skill unavailable: %+v %v", list, err)
 	}
 	mcpAPI(t, a, "DELETE", "/skills/review", nil, 204)
 	mcpAPI(t, a, "GET", "/skills/review", nil, 404)
@@ -137,7 +125,7 @@ func TestSkillsSettingsRejectInvalidChanges(t *testing.T) {
 		mcpAPI(t, a, "GET", path, nil, 400)
 	}
 	seedSkillFiles(t, a, "valid", [][2]string{{"SKILL.md", "Keep me"}})
-	mcpAPI(t, a, "PATCH", "/skills/valid", map[string]string{}, 400)
+	mcpAPI(t, a, "PATCH", "/skills/valid", map[string]string{}, 405)
 	mcpAPI(t, a, "PUT", "/skills/valid", map[string]string{"content": "---\nname: valid\ndescription: Example\n---\n"}, 409)
 	got, err := os.ReadFile(filepath.Join(a.configDir, "skills", "valid", "SKILL.md"))
 	if err != nil || string(got) != "Keep me" {
@@ -166,9 +154,10 @@ func TestSkillsSettingsDoNotFollowExternalSymlinks(t *testing.T) {
 	if err := os.Symlink(outside, filepath.Join(root, "linked")); err != nil {
 		t.Fatal(err)
 	}
-	for _, method := range []string{"GET", "PUT", "PATCH", "DELETE"} {
+	for _, method := range []string{"GET", "PUT", "DELETE"} {
 		mcpAPI(t, a, method, "/skills/linked", nil, 400)
 	}
+	mcpAPI(t, a, "PATCH", "/skills/linked", nil, 405)
 	if err := os.Mkdir(filepath.Join(root, "skill"), 0700); err != nil {
 		t.Fatal(err)
 	}

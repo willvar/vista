@@ -16,7 +16,6 @@ import (
 
 // Agent Skills limits descriptions by Unicode characters, not UTF-8 bytes.
 const MaxSkillDescriptionChars = 1024
-const SkillDisabledFile = ".vista-disabled"
 
 type SkillInfo struct {
 	Name        string `json:"name"`
@@ -32,13 +31,12 @@ type SkillPage struct {
 	Truncated  bool   `json:"truncated"`
 }
 
-// SkillEntry also includes disabled and invalid skills so settings can repair or
-// remove them. DiscoverSkills exposes only usable, enabled entries to the Agent.
+// SkillEntry also includes invalid skills so settings can repair or remove them.
+// DiscoverSkills exposes only usable entries to the Agent.
 type SkillEntry struct {
 	SkillInfo
-	ID       string `json:"id"`
-	Disabled bool   `json:"disabled"`
-	Error    string `json:"error,omitempty"`
+	ID    string `json:"id"`
+	Error string `json:"error,omitempty"`
 }
 
 func ListSkills(directory string) ([]SkillEntry, error) {
@@ -62,8 +60,6 @@ func ListSkills(directory string) ([]SkillEntry, error) {
 		}
 		path := filepath.Join(directory, entry.Name(), "SKILL.md")
 		item := SkillEntry{ID: entry.Name(), SkillInfo: SkillInfo{Name: entry.Name(), Path: path, Source: "user"}}
-		_, markerErr := root.Lstat(filepath.Join(entry.Name(), SkillDisabledFile))
-		item.Disabled = !errors.Is(markerErr, os.ErrNotExist)
 		func() {
 			info, err := root.Lstat(filepath.Join(entry.Name(), "SKILL.md"))
 			if err != nil {
@@ -107,7 +103,7 @@ func DiscoverSkills(directory string) ([]SkillInfo, error) {
 	}
 	result := []SkillInfo{}
 	for _, item := range entries {
-		if !item.Disabled && item.Error == "" {
+		if item.Error == "" {
 			result = append(result, item.SkillInfo)
 		}
 	}

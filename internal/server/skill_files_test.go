@@ -10,8 +10,6 @@ import (
 	"runtime"
 	"strings"
 	"testing"
-
-	"vista/internal/tools"
 )
 
 func TestSkillSupportingFilesReadEditAndPreservePermissions(t *testing.T) {
@@ -74,7 +72,7 @@ func TestSkillBinaryReadsAreMetadataOnlyAndImagePreviewsSupportRanges(t *testing
 func TestSkillFileScopeAndSystemReadOnly(t *testing.T) {
 	a := &App{configDir: t.TempDir()}
 	seedSkillFiles(t, a, "example", [][2]string{{"SKILL.md", "---\nname: Example\ndescription: Example\n---\n"}, {"inside.txt", "retained"}})
-	for _, name := range []string{"../outside.txt", "/outside.txt", "scripts/../../outside", tools.SkillDisabledFile, "a\\b", ""} {
+	for _, name := range []string{"../outside.txt", "/outside.txt", "scripts/../../outside", "a\\b", ""} {
 		mcpAPI(t, a, "GET", "/skills/example?file="+url.QueryEscape(name), nil, 400)
 	}
 	for _, method := range []string{"DELETE", "PATCH", "POST"} {

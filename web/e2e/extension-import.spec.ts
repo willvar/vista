@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { test, expect, type VistaFixture } from './fixtures'
+import { expectHeaderRow } from './layout-ready'
 
 function seedOpenCode(vista: VistaFixture, config: object) {
   const root = join(dirname(vista.workspacePath), 'opencode')
@@ -50,7 +51,7 @@ test('MCP import reads only on request and keeps disabled commands stopped', asy
   await expect(page).toHaveURL(/\/settings\/mcp$/)
 })
 
-test('legacy OpenCode MCP entries retain custom headers through import and editing', async ({ page, vista }) => {
+test('legacy OpenCode MCP entries retain custom headers through import and editing @responsive', async ({ page, vista }) => {
   seedOpenCode(vista, { provider: {}, mcp: {
     context7: { type: 'remote', url: 'https://example.invalid/mcp', headers: { CONTEXT7_API_KEY: 'source-secret' }, enabled: true },
   } })
@@ -95,6 +96,7 @@ test('legacy OpenCode MCP entries retain custom headers through import and editi
   const editor = page.getByRole('dialog', { name: 'Edit MCP server', exact: true })
   await expect(editor.getByLabel('Header name', { exact: true })).toHaveValue('CONTEXT7_API_KEY')
   const value = editor.getByLabel('Header value', { exact: true })
+  await expectHeaderRow(page, editor.getByRole('group', { name: 'Request headers', exact: true }).locator('.schema-array-row'))
   await expect(value).toHaveValue('')
   await editor.getByLabel('Name', { exact: true }).fill('Renamed Context7')
   await editor.getByRole('button', { name: 'Save changes', exact: true }).click()

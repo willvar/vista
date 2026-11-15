@@ -34,7 +34,7 @@ func validSkillPath(path string) bool {
 			return false
 		}
 	}
-	return strings.Split(path, "/")[0] != tools.SkillDisabledFile
+	return true
 }
 
 func (a *App) openSkillsRoot() (*os.Root, error) {
@@ -120,7 +120,7 @@ func (a *App) skillSetting(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusMethodNotAllowed)
 		return
 	}
-	if r.Method != http.MethodGet && r.Method != http.MethodPut && r.Method != http.MethodPatch && r.Method != http.MethodDelete {
+	if r.Method != http.MethodGet && r.Method != http.MethodPut && r.Method != http.MethodDelete {
 		w.WriteHeader(http.StatusMethodNotAllowed)
 		return
 	}
@@ -221,29 +221,6 @@ func (a *App) skillSetting(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if err := skill.Rename(tmp, "SKILL.md"); err != nil {
-			skillHTTPError(w, err)
-			return
-		}
-		w.WriteHeader(http.StatusNoContent)
-	case http.MethodPatch:
-		r.Body = http.MaxBytesReader(w, r.Body, 1024)
-		var input struct {
-			Disabled *bool `json:"disabled"`
-		}
-		if err := decodeSettingsRequest(r.Body, &input); err != nil || input.Disabled == nil {
-			http.Error(w, "disabled is required", http.StatusBadRequest)
-			return
-		}
-		if *input.Disabled {
-			file, err := skill.OpenFile(tools.SkillDisabledFile, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)
-			if err == nil {
-				err = file.Close()
-			}
-			if err != nil && !errors.Is(err, os.ErrExist) {
-				skillHTTPError(w, err)
-				return
-			}
-		} else if err := skill.Remove(tools.SkillDisabledFile); err != nil && !errors.Is(err, os.ErrNotExist) {
 			skillHTTPError(w, err)
 			return
 		}

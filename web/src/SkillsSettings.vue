@@ -1,14 +1,15 @@
 <script setup lang="ts">
 import { computed, onUnmounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { Empty as VEmpty, Alert as VAlert, Button as VButton, Input as VInput, Switch as VSwitch } from './ui'
-import { IconTrash, IconPencil, IconEye, IconMarkdown, IconSearch } from '@tabler/icons-vue'
+import { CollapsibleContent, CollapsibleRoot, CollapsibleTrigger } from '@ark-ui/vue/collapsible'
+import { Empty as VEmpty, Alert as VAlert, Button as VButton, Input as VInput } from './ui'
+import { IconTrash, IconPencil, IconEye, IconMarkdown, IconSearch, IconChevronRight } from '@tabler/icons-vue'
 import ConfirmPopover from './ConfirmPopover.vue'
 import SkillEditor from './SkillEditor.vue'
 import { useWorkspace } from './composables/useWorkspace'
 import { useStateQuery } from './composables/useStateQuery'
 
-type Skill = { id: string; name: string; description: string; path: string; source: 'system' | 'user'; disabled: boolean; error?: string }
+type Skill = { id: string; name: string; description: string; path: string; source: 'system' | 'user'; error?: string }
 const emit = defineEmits<{ 'modal-open': [open: boolean] }>()
 const { t } = useI18n({ useScope: 'global' })
 const { client, stateSync } = useWorkspace()
@@ -30,19 +31,6 @@ const skillURL = (id: string) => `/skills/${encodeURIComponent(id)}`
 
 
 function edit(skill: Skill) { if (!busy.value) { editing.value = skill; editorOpen.value = true } }
-async function toggle(skill: Skill, enabled: boolean) {
-  if (busy.value || skill.source === 'system') return
-  busy.value = true
-  error.value = ''
-  saved.value = false
-  try {
-    await client.request(skillURL(skill.id), { method: 'PATCH', body: JSON.stringify({ disabled: !enabled }), signal: lifetime.signal })
-    if (lifetime.signal.aborted) return
-    skill.disabled = !enabled
-    saved.value = true
-  } catch (cause) { if (!lifetime.signal.aborted) error.value = String(cause) }
-  finally { busy.value = false }
-}
 async function remove(skill: Skill) {
   if (busy.value || skill.source === 'system') return
   busy.value = true
@@ -75,13 +63,15 @@ defineExpose({ imported: () => { saved.value = true } })
     <v-empty v-else-if="!hasUserSkills && !query && !error" class="vista-empty-state skills-empty" :description="t('skillsEmpty')" role="status" />
     <v-empty v-else-if="!visibleSkills.length && !error" class="vista-empty-state skills-empty" :description="t('skillsNoMatch')" role="status" />
     <p v-if="saved" class="skills-saved" role="status">{{ t('skillsSaved') }}</p>
-    <article v-for="skill in visibleSkills" :key="skill.id" class="skill-card" :data-skill="skill.id">
-      <div class="skill-heading"><div class="skill-name"><IconMarkdown aria-hidden="true" /><strong>{{ skill.name }}</strong><span class="skill-badge">{{ t(skill.source === 'system' ? 'skillSystem' : 'skillUser') }}</span><span v-if="skill.disabled" class="skill-badge">{{ t('skillDisabled') }}</span></div><v-switch v-if="skill.source !== 'system'" :checked="!skill.disabled" :disabled="busy || !!skill.error" :aria-label="t('skillEnable', { name: skill.name })" @update:checked="toggle(skill, !!$event)" /></div>
-      <p v-if="skill.description" class="skill-description">{{ skill.description }}</p>
-      <small class="skill-path">{{ skill.source === 'system' ? t('skillSystemHint') : `${skill.id}/SKILL.md` }}</small>
+    <CollapsibleRoot v-for="skill in visibleSkills" :key="skill.id" as-child lazy-mount unmount-on-exit>
+    <article class="skill-card" :data-skill="skill.id">
+      <div class="skill-heading"><div class="skill-name"><IconMarkdown aria-hidden="true" /><CollapsibleTrigger class="skill-trigger" :disabled="!skill.description"><strong>{{ skill.name }}</strong><IconChevronRight v-if="skill.description" class="skill-chevron" aria-hidden="true" /></CollapsibleTrigger><span class="skill-badge">{{ t(skill.source === 'system' ? 'skillSystem' : 'skillUser') }}</span></div></div>
+      <CollapsibleContent class="skill-description"><p>{{ skill.description }}</p></CollapsibleContent>
+      <small v-if="skill.source !== 'system'" class="skill-path">{{ skill.path }}</small>
       <p v-if="skill.error" class="skill-error" role="alert">{{ skill.error }}</p>
       <div class="skill-actions"><v-button :disabled="busy" :aria-label="t(skill.source === 'system' ? 'skillViewName' : 'skillEditName', { name: skill.name })" @click="edit(skill)"><component :is="skill.source === 'system' ? IconEye : IconPencil" aria-hidden="true" />{{ t(skill.source === 'system' ? 'skillView' : 'edit') }}</v-button><ConfirmPopover v-if="skill.source !== 'system'" :show="deleting === skill.id" :message="t('skillDeleteConfirm', { name: skill.name })" :cancel-text="t('cancel')" :confirm-text="t('delete')" :busy="busy" :error="deleteError" popover-class="skill-delete-popover" @update:show="deleting = $event ? skill.id : ''; deleteError = ''" @confirm="remove(skill)"><template #trigger><v-button class="icon-button" variant="text" danger :disabled="busy" :aria-label="t('skillDeleteName', { name: skill.name })"><IconTrash /></v-button></template></ConfirmPopover></div>
     </article>
+    </CollapsibleRoot>
   </div>
 
   <SkillEditor v-if="editing" :key="editing.id" v-model:open="editorOpen" :skill="editing" :revision="resource.data.value?.version" @saved="saved = true" />
@@ -97,8 +87,15 @@ defineExpose({ imported: () => { saved.value = true } })
 .skill-heading { justify-content: space-between; }
 .skill-heading > button { flex: none; }
 .skill-name { min-width: 0; flex-wrap: wrap; overflow-wrap: anywhere; }
+.skill-trigger { display: inline-flex; align-items: center; gap: .35rem; min-width: 0; padding: 0; border: 0; border-radius: 4px; background: none; color: inherit; font: inherit; text-align: start; cursor: pointer; }
+.skill-trigger strong { min-width: 0; overflow-wrap: anywhere; }
+.skill-trigger:not(:disabled):hover { color: var(--accent); }
+.skill-trigger:focus-visible { outline: var(--focus-outline, 2px solid var(--accent)); outline-offset: 3px; }
+.skill-trigger:disabled { cursor: default; }
+.skill-trigger[data-state="open"] .skill-chevron { transform: rotate(90deg); }
 .skill-badge { color: var(--muted); font-size: var(--font-size-small); padding: .1rem .4rem; background: var(--surface-subtle); border-radius: 5px; }
-.skill-description { color: var(--muted); margin: .6rem 0; font-size: var(--font-size-body); line-height: 1.6; white-space: pre-wrap; overflow-wrap: anywhere; }
+.skill-description { color: var(--muted); margin: .6rem 0; font-size: var(--font-size-body); line-height: 1.6; overflow-wrap: anywhere; }
+.skill-description > p { margin: .4rem 0 0; white-space: pre-wrap; }
 .skill-path, .skills-directory code { display: block; color: var(--muted); font: var(--font-size-small)/1.5 var(--font-mono, monospace); overflow-wrap: anywhere; }
 .skills-directory { display: flex; flex-direction: column; gap: .35rem; }
 .skill-error { color: var(--danger, #dc4446); overflow-wrap: anywhere; }

@@ -95,8 +95,6 @@ func readOpenCodeSkills(ctx context.Context, input extensionImportInput) (extens
 				if err != nil {
 					entry.Reason = "files"
 				}
-				_, markerErr := os.Lstat(filepath.Join(resolved, tools.SkillDisabledFile))
-				entry.Disabled = markerErr == nil
 			}
 			result.Entries = append(result.Entries, entry)
 			return ctx.Err()
