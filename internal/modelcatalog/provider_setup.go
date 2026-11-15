@@ -1,7 +1,6 @@
 package modelcatalog
 
 import (
-	"context"
 	"errors"
 	"net/http"
 	"net/url"
@@ -133,12 +132,8 @@ func SetupID(model Configured) string {
 	return ""
 }
 
-func DiscoverConfiguredLocalModels(ctx context.Context, model Configured) ([]Configured, error) {
-	return DiscoverLocalModels(ctx, LocalSource{kind: model.ProviderID, baseURL: model.BaseURL, apiKey: model.APIKey})
-}
-
 func (input ConnectionInput) configured() Configured {
-	model := Configured{Name: input.Name, Provider: input.Provider, ProviderID: input.ProviderID, BaseURL: input.BaseURL, APIKey: input.APIKey,
+	model := Configured{ProxyID: input.ProxyID, Name: input.Name, Provider: input.Provider, ProviderID: input.ProviderID, BaseURL: input.BaseURL, APIKey: input.APIKey,
 		Headers: input.Headers, CopilotAuth: input.CopilotAuth,
 		AccessToken: input.AccessToken, Region: input.Region, Project: input.Project, Location: input.Location,
 		ResourceName: input.ResourceName, DeploymentID: input.DeploymentID, APIVersion: input.APIVersion}

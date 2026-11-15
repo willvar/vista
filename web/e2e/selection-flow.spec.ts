@@ -87,6 +87,11 @@ test.describe('explicit reasoning budgets and toggles', () => {
       await expect(page.locator('article.assistant').last()).toContainText(`Mock reply: Use ${choice}`)
       await expect(page.getByRole('button', { name: 'Send', exact: true })).toBeVisible()
       expect(vista.modelRequests.at(-1)?.reasoning).toEqual(wire)
+      expect(vista.modelRequests.at(-1)?.messages).toEqual(expect.arrayContaining([
+        expect.objectContaining({ role: 'user', content: expect.arrayContaining([
+          expect.objectContaining({ type: 'text', text: `Use ${choice}` }),
+        ]) }),
+      ]))
       await expect.poll(async () => {
         const messages = await vista.api(`/sessions/${session.id}/messages`)
         return messages.filter((message: { role: string }) => message.role === 'assistant').at(-1)?.modelResults?.at(-1)?.reasoningEffort

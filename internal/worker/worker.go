@@ -17,10 +17,12 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+
 	"vista/internal/agent"
 	"vista/internal/appdirs"
 	"vista/internal/mcphost"
 	modelcfg "vista/internal/model"
+	"vista/internal/network"
 	"vista/internal/platform"
 	"vista/internal/provider"
 	"vista/internal/resources"
@@ -38,6 +40,7 @@ func Run() error {
 	if err != nil {
 		return err
 	}
+	network.SetConfigDir(configDir)
 	defer func() {
 		if err := platform.KillSessionDescendants(os.Getpid()); err != nil && !errors.Is(err, platform.ErrUnsupported) {
 			log.Printf("Worker descendant cleanup: %v", err)
@@ -110,7 +113,7 @@ func Run() error {
 		return ack.MCPHost, err
 	})
 	sessionCtx = provider.WithCredentialResolver(sessionCtx, func(ctx context.Context, model modelcfg.Model) (modelcfg.Model, error) {
-		request := &workerproto.CredentialRequest{Key: model.Key, Ref: model.CredentialRef}
+		request := &workerproto.CredentialRequest{Key: model.Key, Ref: model.CredentialRef, Network: model.Network}
 		if deadline, ok := ctx.Deadline(); ok {
 			request.Deadline = deadline.UnixMilli()
 		}

@@ -15,6 +15,7 @@ func TestCommandModelWireRoundTrip(t *testing.T) {
 		{
 			name: "signed thinking and explicit zero values",
 			fixture: `{
+				"network":{},
 				"runId":"run-fixture","prompt":"Hello",
 				"model":{
 					"provider":"anthropic","providerId":"connection-fixture",
@@ -28,6 +29,9 @@ func TestCommandModelWireRoundTrip(t *testing.T) {
 			}`,
 			check: func(t *testing.T, command Command) {
 				m := command.Model
+				if command.Network.Profile != nil || m.Network != nil {
+					t.Fatal("direct network policy acquired a proxy snapshot")
+				}
 				if m.Provider != "anthropic" || m.ProviderID != "connection-fixture" || m.ResponsesRoute != "codex" || m.Key != "connection-fixture/model-fixture" || m.ID != "model-fixture" || m.WireID != "wire-fixture" {
 					t.Fatal("model identity changed during decoding")
 				}
@@ -48,9 +52,21 @@ func TestCommandModelWireRoundTrip(t *testing.T) {
 		{
 			name: "routing reasoning and plugins",
 			fixture: `{
+				"network":{"profile":{
+					"id":"proxy-fixture","name":"Fixture proxy","protocol":"https",
+					"server":"proxy.example.test","port":8443,"connectIp":"192.0.2.1",
+					"insecureSkipVerify":true,"authentication":"password",
+					"username":"fixture-user","password":"fake-fixture-password"
+				}},
 				"runId":"run-fixture","prompt":"Hello",
 				"model":{
 					"provider":"openai-chat","providerId":"openrouter","id":"model-fixture",
+					"proxyId":"proxy-fixture","network":{"profile":{
+						"id":"proxy-fixture","name":"Fixture proxy","protocol":"https",
+						"server":"proxy.example.test","port":8443,"connectIp":"192.0.2.1",
+						"insecureSkipVerify":true,"authentication":"password",
+						"username":"fixture-user","password":"fake-fixture-password"
+					}},
 					"openRouter":{
 						"api_keys":{"example":"fake-fixture-key"},"usage":false,
 						"provider":{"order":["example"],"allow_fallbacks":false,
@@ -61,6 +77,16 @@ func TestCommandModelWireRoundTrip(t *testing.T) {
 				}
 			}`,
 			check: func(t *testing.T, command Command) {
+				profile := command.Network.Profile
+				if profile == nil || profile.ID != "proxy-fixture" || profile.Name != "Fixture proxy" || profile.Protocol != "https" || profile.Server != "proxy.example.test" || profile.Port != 8443 || profile.ConnectIP != "192.0.2.1" || !profile.InsecureSkipVerify || profile.Authentication != "password" || profile.Username != "fixture-user" || profile.Password != "fake-fixture-password" {
+					t.Fatal("Worker transport lost the complete proxy snapshot")
+				}
+				if err := profile.Validate(); err != nil {
+					t.Fatal(err)
+				}
+				if command.Model.ProxyID != profile.ID || command.Model.Network == nil || !reflect.DeepEqual(command.Network, *command.Model.Network) {
+					t.Fatal("model connection lost its execution network snapshot")
+				}
 				o := command.Model.OpenRouter
 				if o == nil || o.Provider == nil || o.Reasoning == nil {
 					t.Fatal("nested routing or reasoning configuration disappeared")

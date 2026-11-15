@@ -13,6 +13,7 @@ import (
 	"vista/internal/instance"
 	"vista/internal/mcphost"
 	"vista/internal/modeltrace"
+	"vista/internal/network"
 	"vista/internal/platform"
 	"vista/internal/provider"
 	"vista/internal/replylanguage"
@@ -71,6 +72,7 @@ func runWithScope(ctx context.Context, command workerproto.Command, emit func(wo
 }
 
 func run(ctx context.Context, command workerproto.Command, emit func(workerproto.Result) error, scope *runScope, depth int, inputs <-chan workerproto.Command, nextInput func(*workerproto.CompletedReply) (*workerproto.Command, error), jobs *tools.BackgroundManager, taskStarted bool) (answer string, runErr error) {
+	ctx = network.WithPolicy(ctx, command.Network)
 	if scope.mcp != nil {
 		ctx = scope.mcp.Context(ctx)
 	}

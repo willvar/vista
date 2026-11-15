@@ -199,12 +199,12 @@ func TestCopilotSetupUsesAccountInventory(t *testing.T) {
 	if CopilotSourceID(model) == CopilotSourceID(other) {
 		t.Fatal("Copilot sources merged separate connections")
 	}
-	models, err := DiscoverCopilotModels(context.Background(), model)
+	models, err := DiscoverModels(context.Background(), model)
 	if err != nil || models[0].ConnectionID != model.ConnectionID || models[0].Name != model.Name {
 		t.Fatalf("discovery lost connection identity: %v", err)
 	}
 	model.Name = "Renamed Copilot"
-	renamed, err := DiscoverCopilotModels(context.Background(), model)
+	renamed, err := DiscoverModels(context.Background(), model)
 	if err != nil || renamed[0].Key != models[0].Key {
 		t.Fatalf("rename changed a session's selected model key: %v", err)
 	}

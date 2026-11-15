@@ -103,6 +103,11 @@ func openAIResponsesTurn(ctx context.Context, model modelcfg.Model, messages []C
 }
 
 func openAIResponsesTurnWithReasoning(ctx context.Context, model modelcfg.Model, messages []ChatMessage, schemas []map[string]any, onText, onReasoning func(string) error) (Turn, error) {
+	ctx, model, err := model.BindNetwork(ctx)
+	if err != nil {
+		return Turn{}, err
+	}
+
 	if model.CodexCredentialPath != "" {
 		if model.ProviderID != "openai-codex" || model.ResponsesRoute != modelcfg.ResponsesRouteCodex || model.BaseURL != "" && model.BaseURL != codexBaseURL {
 			return Turn{}, errors.New("Codex account credentials require the official Codex endpoint")

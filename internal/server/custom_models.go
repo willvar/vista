@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log"
 	"time"
+
 	"vista/internal/modelcatalog"
 )
 
@@ -14,8 +15,8 @@ import (
 // The connection stays in config.json models; discovered IDs stay in memory so a
 // provider with a large catalog does not rewrite the user's configuration.
 type customSource struct {
-	connectionID, name, provider, providerID, baseURL, apiKey, authentication string
-	headers                                                                   map[string]string
+	proxyID, connectionID, name, provider, providerID, baseURL, apiKey, authentication string
+	headers                                                                            map[string]string
 }
 
 func (source customSource) identity() string {
@@ -33,7 +34,7 @@ func customSourceFor(model configuredModel) (customSource, bool) {
 	if !local && !custom && !(zen && model.APIKey != "") {
 		return customSource{}, false
 	}
-	source := customSource{connectionID: model.ConnectionID, name: model.Name, provider: model.Provider, providerID: model.ProviderID, baseURL: model.BaseURL, apiKey: model.APIKey, authentication: model.Authentication, headers: model.Headers}
+	source := customSource{proxyID: model.ProxyID, connectionID: model.ConnectionID, name: model.Name, provider: model.Provider, providerID: model.ProviderID, baseURL: model.BaseURL, apiKey: model.APIKey, authentication: model.Authentication, headers: model.Headers}
 	if zen {
 		source.provider, source.baseURL = "catalog", ""
 	}
@@ -82,25 +83,12 @@ func (a *App) refreshCustomModels(ctx context.Context) {
 			return
 		}
 		requestCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
-		var ids []string
-		var err error
+		modelsFound, err := modelcatalog.DiscoverModels(requestCtx, configuredModel{ProxyID: source.proxyID, ConnectionID: source.connectionID, Name: source.name, Provider: source.provider, ProviderID: source.providerID, BaseURL: source.baseURL, APIKey: source.apiKey, Authentication: source.authentication, Headers: source.headers})
+		ids := make([]string, 0, len(modelsFound))
 		local := map[string]configuredModel{}
-		if modelcatalog.LocalProvider(source.providerID) {
-			var models []configuredModel
-			models, err = modelcatalog.DiscoverConfiguredLocalModels(requestCtx, configuredModel{ProviderID: source.providerID, BaseURL: source.baseURL, APIKey: source.apiKey})
-			for _, model := range models {
-				ids = append(ids, model.ID)
-				local[model.ID] = model
-			}
-		} else if modelcatalog.ZenProvider(source.providerID) {
-			ids, err = modelcatalog.FetchZenModelIDs(requestCtx, source.providerID, source.apiKey)
-		} else {
-			var models []configuredModel
-			models, err = modelcatalog.DiscoverCustomModels(requestCtx, configuredModel{ConnectionID: source.connectionID, Name: source.name, Provider: source.provider, ProviderID: source.providerID, BaseURL: source.baseURL, APIKey: source.apiKey, Authentication: source.authentication, Headers: source.headers})
-			for _, model := range models {
-				ids = append(ids, model.ID)
-				local[model.ID] = model
-			}
+		for _, model := range modelsFound {
+			ids = append(ids, model.ID)
+			local[model.ID] = model
 		}
 		cancel()
 		if err != nil {

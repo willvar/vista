@@ -9,6 +9,7 @@ import (
 
 	"vista/internal/codexauth"
 	"vista/internal/modelcatalog"
+	"vista/internal/network"
 )
 
 // A settings edit reads a detached snapshot, performs network work without the
@@ -71,6 +72,15 @@ func (a *App) commitModelSettingsLocked(ctx context.Context, snapshot modelSetti
 		a.publishBaseModelsLocked(fallback)
 		return a.removeDisconnectedCodex(snapshot.raw, raw)
 	}
+	networkSettings, err := network.Load(a.configDir)
+	if err != nil {
+		return err
+	}
+	for _, model := range raw.Models {
+		if _, err := networkSettings.Select(model.ProxyID); err != nil {
+			return err
+		}
+	}
 	resolved, err := modelcatalog.Save(a.configDir, raw)
 	if err != nil {
 		return err
@@ -131,6 +141,9 @@ func (a *App) changeProviderSettings(ctx context.Context, method string, input p
 	snapshot, err := a.modelSettingsSnapshot()
 	if err != nil {
 		return err
+	}
+	if input.Revision != "" && input.Revision != a.modelSettingsVersion(snapshot.revision) {
+		return modelcatalog.NewSettingsError("settings_conflict", "Model settings changed; reload before saving.", nil)
 	}
 	raw, err := modelcatalog.ChangeConnection(ctx, snapshot.raw, snapshot.exists, method, input)
 	if err != nil {

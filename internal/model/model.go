@@ -5,6 +5,8 @@ package model
 import (
 	"encoding/json"
 	"time"
+
+	"vista/internal/network"
 )
 
 // ResponsesRoute is retained only as a transport hint for the Codex
@@ -29,6 +31,8 @@ func (b ResponsesRoute) Valid() bool {
 // the wire protocol; ProviderID identifies the service using that protocol.
 // JSON tags are shared by the worker transport, including optional zero values.
 type Model struct {
+	ProxyID string          `json:"proxyId,omitempty"`
+	Network *network.Policy `json:"network,omitempty"`
 	// CredentialRef binds a Worker request to its server-owned credential source.
 	CredentialRef       string    `json:"credentialRef,omitempty"`
 	CredentialExpiresAt time.Time `json:"credentialExpiresAt,omitzero"`

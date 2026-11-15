@@ -2,19 +2,149 @@ package mcphost
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/json"
 	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+	"vista/internal/network"
 	"vista/internal/workerproto"
 )
+
+func TestHostedConnectionsKeepNetworkSnapshotAcrossReconnect(t *testing.T) {
+	for _, search := range []bool{false, true} {
+		name := "ordinary"
+		if search {
+			name = "search"
+		}
+		t.Run(name, func(t *testing.T) {
+			var initialized, calls, direct, proxied atomic.Int32
+			var expired atomic.Bool
+			var oldSession atomic.Value
+			oldSession.Store("")
+			server := mcp.NewServer(&mcp.Implementation{Name: "snapshot-fixture", Version: "1"}, nil)
+			server.AddTool(&mcp.Tool{Name: "echo", InputSchema: json.RawMessage(`{"type":"object"}`)}, func(context.Context, *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+				return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: "fixture"}}}, nil
+			})
+			handler := mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return server }, &mcp.StreamableHTTPOptions{JSONResponse: true, DisableLocalhostProtection: true})
+			upstream := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				body, _ := io.ReadAll(r.Body)
+				var call struct{ Method string }
+				_ = json.Unmarshal(body, &call)
+				if call.Method == "initialize" {
+					initialized.Add(1)
+				} else if call.Method == "tools/call" {
+					calls.Add(1)
+					if oldSession.Load().(string) == "" {
+						oldSession.Store(r.Header.Get("Mcp-Session-Id"))
+					}
+				}
+				if expired.Load() && r.Header.Get("Mcp-Session-Id") == oldSession.Load().(string) {
+					http.Error(w, "session expired", http.StatusNotFound)
+					return
+				}
+				r.Body = io.NopCloser(strings.NewReader(string(body)))
+				handler.ServeHTTP(w, r)
+			}))
+			defer upstream.Close()
+			target, _ := url.Parse(upstream.URL)
+			hostname := upstream.Certificate().DNSNames[0]
+			target.Host = net.JoinHostPort(hostname, target.Port())
+			base := http.DefaultTransport.(*http.Transport).Clone()
+			roots := x509.NewCertPool()
+			roots.AddCert(upstream.Certificate())
+			base.TLSClientConfig = &tls.Config{RootCAs: roots}
+			base.DialContext = func(ctx context.Context, kind, address string) (net.Conn, error) {
+				host, _, _ := net.SplitHostPort(address)
+				if host == hostname {
+					direct.Add(1)
+					address = upstream.Listener.Addr().String()
+				}
+				return new(net.Dialer).DialContext(ctx, kind, address)
+			}
+			previous := http.DefaultTransport
+			http.DefaultTransport = base
+			defer func() { base.CloseIdleConnections(); http.DefaultTransport = previous }()
+			proxy := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.Method != http.MethodConnect || r.Host != target.Host {
+					http.Error(w, "unexpected proxy target", http.StatusBadGateway)
+					return
+				}
+				proxied.Add(1)
+				remote, err := net.Dial("tcp", upstream.Listener.Addr().String())
+				if err != nil {
+					http.Error(w, err.Error(), http.StatusBadGateway)
+					return
+				}
+				defer remote.Close()
+				local, _, err := w.(http.Hijacker).Hijack()
+				if err != nil {
+					return
+				}
+				defer local.Close()
+				io.WriteString(local, "HTTP/1.1 200 Connection Established\r\n\r\n")
+				go func() { io.Copy(remote, local); remote.Close() }()
+				io.Copy(local, remote)
+			}))
+			defer proxy.Close()
+			proxyURL, _ := url.Parse(proxy.URL)
+			port, _ := strconv.Atoi(proxyURL.Port())
+			policy := network.Policy{Profile: &network.Profile{ID: "snapshot", Name: "Snapshot", Protocol: "http", Authentication: "none", Server: proxyURL.Hostname(), Port: port}}
+			pool, ctx, host, stateDir := testPool(t)
+			defer pool.Close()
+			// The host's current global policy differs from the retained execution.
+			pool.ctx = network.WithPolicy(pool.ctx, network.Policy{})
+			def := definition("snapshot")
+			def.Search, def.Config.Endpoint, def.Config.Network = search, target.String(), &policy
+			if err := pool.Sync(1, []Definition{def}); err != nil {
+				t.Fatal(err)
+			}
+			lease, err := Acquire(ctx, host, stateDir, []Definition{def})
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer lease.Close()
+			connection, err := lease.Connect(ctx, def.Config, search)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := connection.CallTool(ctx, "echo", json.RawMessage(`{}`)); err != nil {
+				t.Fatal(err)
+			}
+			expired.Store(true)
+			if _, err := connection.CallTool(ctx, "echo", json.RawMessage(`{}`)); err == nil {
+				t.Fatal("expired session succeeded")
+			}
+			eventually(t, func() bool {
+				pool.mu.Lock()
+				defer pool.mu.Unlock()
+				for _, entry := range pool.entries {
+					if entry.baseKey == Key(def) && entry.server != nil && !entry.connecting && initialized.Load() == 2 {
+						return true
+					}
+				}
+				return false
+			})
+			if _, err := connection.CallTool(ctx, "echo", json.RawMessage(`{}`)); err != nil {
+				t.Fatal(err)
+			}
+			pool.Close()
+			if direct.Load() != 0 || proxied.Load() == 0 || initialized.Load() != 2 || calls.Load() != 3 {
+				t.Fatalf("snapshot/reconnect contract: direct=%d proxy=%d initialize=%d calls=%d", direct.Load(), proxied.Load(), initialized.Load(), calls.Load())
+			}
+		})
+	}
+}
 
 func TestHostedHTTPToolsAndSearchReuseHandshakesAndTCP(t *testing.T) {
 	var connections atomic.Int32

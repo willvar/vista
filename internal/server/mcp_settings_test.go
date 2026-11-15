@@ -121,6 +121,7 @@ func TestMCPSettingsRenamePreservesIDCredentialsChecksAndRunSnapshot(t *testing.
 	checked := mcpCheck{Status: "available", ToolCount: 2, CheckedAt: time.Now().UTC()}
 	a.mcpChecks = map[string]mcpCheck{config.ID: checked}
 	config.Name, config.Token = "工作区工具", ""
+	config.Network = nil // Public settings never receive private execution policies.
 	mcpAPI(t, a, "PUT", "/mcp-config", config, 204)
 	got := a.currentMCPServers()[0]
 	if got.ID != config.ID || got.Name != config.Name || got.Token != "private-token" || a.mcpChecks[config.ID] != checked {

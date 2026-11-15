@@ -1,4 +1,15 @@
 import type { ErrorObject } from 'ajv'
+import type { ControlProps } from '@jsonforms/core'
+import { computed, ref, type Ref } from 'vue'
+
+export function useControlErrors(control: Ref<Pick<ControlProps, 'errors' | 'uischema'>>) {
+  const blurred = ref(false)
+  const errors = computed(() => control.value.uischema.options?.showErrorsOnBlur && !blurred.value ? '' : control.value.errors)
+  function onFocusout(event: FocusEvent) {
+    if (!(event.relatedTarget instanceof Node) || !(event.currentTarget as HTMLElement).contains(event.relatedTarget)) blurred.value = true
+  }
+  return { errors, onFocusout }
+}
 
 export type FormIssue = { path: string; message: string }
 export function additionalErrors(issues: FormIssue[]): ErrorObject[] {

@@ -16,9 +16,9 @@ import (
 	"vista/internal/useragent"
 )
 
-// DiscoverCustomModels uses the explicitly selected API format and the same
+// discoverCustomModels uses the explicitly selected API format and the same
 // authentication and headers as inference. Inventory hints never change routing.
-func DiscoverCustomModels(parent context.Context, source Configured) ([]Configured, error) {
+func discoverCustomModels(parent context.Context, source Configured) ([]Configured, error) {
 	if !provider.IsCustomProtocol(source.Provider) || !ValidCustomProviderBaseURL(source.BaseURL) {
 		return nil, errors.New("choose a conversation API format and enter an HTTP or HTTPS service address")
 	}

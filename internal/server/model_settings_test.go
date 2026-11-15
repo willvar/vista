@@ -4,20 +4,163 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"vista/internal/configstore"
 	"vista/internal/modelcatalog"
+	"vista/internal/network"
 
 	modelcfg "vista/internal/model"
 	"vista/internal/provider"
 )
+
+func TestCustomDiscoveryUsesSavedConnectionProxy(t *testing.T) {
+	var proxyRequests, directAttempts atomic.Int32
+	proxy := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		proxyRequests.Add(1)
+		if r.URL.Hostname() != "discovery.invalid" || r.Header.Get("Authorization") != "Bearer saved-key" || r.Header.Get("X-Account") != "saved-account" {
+			t.Error("discovery did not use the selected saved connection")
+		}
+		io.WriteString(w, `{"data":[{"id":"fixture"}]}`)
+	}))
+	defer proxy.Close()
+	u, _ := url.Parse(proxy.URL)
+	port, _ := strconv.Atoi(u.Port())
+	profile := network.Profile{ID: "saved-proxy", Name: "Saved proxy", Protocol: "http", Server: u.Hostname(), Port: port, Authentication: "none"}
+	previous := http.DefaultTransport
+	base := previous.(*http.Transport).Clone()
+	base.DialContext = func(ctx context.Context, kind, address string) (net.Conn, error) {
+		if host, _, _ := net.SplitHostPort(address); host == "discovery.invalid" {
+			directAttempts.Add(1)
+			return nil, errors.New("direct connection rejected by fixture")
+		}
+		return new(net.Dialer).DialContext(ctx, kind, address)
+	}
+	http.DefaultTransport = base
+	t.Cleanup(func() {
+		(network.Transport{Base: base}).CloseIdleConnections()
+		http.DefaultTransport = previous
+	})
+	saved := configuredModel{Key: "saved", ConnectionID: "connection", Name: "Saved", Provider: "openai-responses", ProviderID: "custom", BaseURL: "http://discovery.invalid/v1", Authentication: "bearer", APIKey: "saved-key", Headers: map[string]string{"X-Account": "saved-account"}, ProxyID: profile.ID, ID: "fixture"}
+	raw := modelCatalog{Default: saved.Key, Models: []configuredModel{saved}}
+	app := &App{configDir: t.TempDir(), baseModels: raw, models: raw}
+	settings := network.Settings{Profiles: []network.Profile{profile}}
+	body := `{"provider":"openai-responses","baseUrl":"http://discovery.invalid/v1","connectionId":"connection","credentialMode":"bearer"}`
+	call := func(settings network.Settings, body string) *httptest.ResponseRecorder {
+		t.Helper()
+		request := httptest.NewRequest(http.MethodPost, "/api/model-discovery", strings.NewReader(body)).WithContext(network.WithSettings(context.Background(), settings))
+		response := httptest.NewRecorder()
+		app.discoverCustomModels(response, request)
+		return response
+	}
+	if response := call(settings, body); response.Code != http.StatusOK || !strings.Contains(response.Body.String(), "fixture") || proxyRequests.Load() != 1 || directAttempts.Load() != 0 {
+		t.Fatalf("saved proxy lost: status=%d proxy=%d direct=%d body=%s", response.Code, proxyRequests.Load(), directAttempts.Load(), response.Body.String())
+	}
+	if response := call(network.Defaults(), body); response.Code != http.StatusBadRequest || proxyRequests.Load() != 1 || directAttempts.Load() != 0 {
+		t.Fatalf("unavailable saved proxy did not stop discovery: status=%d proxy=%d direct=%d", response.Code, proxyRequests.Load(), directAttempts.Load())
+	}
+	if response := call(settings, strings.Replace(body, `"connection"`, `"missing"`, 1)); response.Code != http.StatusNotFound || directAttempts.Load() != 0 {
+		t.Fatalf("missing connection silently used another route: status=%d direct=%d", response.Code, directAttempts.Load())
+	}
+}
+
+func TestZenDiscoveryUsesSavedConnectionProxy(t *testing.T) {
+	for _, providerID := range []string{"opencode", "opencode-go"} {
+		t.Run(providerID, func(t *testing.T) {
+			var proxyRequests, upstreamRequests, directAttempts atomic.Int32
+			upstream := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				upstreamRequests.Add(1)
+				if key := r.Header.Get("Authorization"); key != "Bearer saved-key" && key != "Bearer supplied-key" {
+					t.Error("Zen discovery lost its credential")
+				}
+				io.WriteString(w, `{"data":[{"id":"fixture"}]}`)
+			}))
+			defer upstream.Close()
+			proxy := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				proxyRequests.Add(1)
+				if r.Method != http.MethodConnect || r.Host != "opencode.ai:443" {
+					t.Error("Zen discovery did not tunnel to its endpoint")
+				}
+				remote, err := net.Dial("tcp", upstream.Listener.Addr().String())
+				if err != nil {
+					http.Error(w, "fixture connection failed", http.StatusBadGateway)
+					return
+				}
+				defer remote.Close()
+				client, _, err := w.(http.Hijacker).Hijack()
+				if err != nil {
+					return
+				}
+				defer client.Close()
+				io.WriteString(client, "HTTP/1.1 200 Connection Established\r\n\r\n")
+				go io.Copy(remote, client)
+				io.Copy(client, remote)
+			}))
+			defer proxy.Close()
+			u, _ := url.Parse(proxy.URL)
+			port, _ := strconv.Atoi(u.Port())
+			profile := network.Profile{ID: "zen-proxy", Name: "Zen proxy", Protocol: "http", Server: u.Hostname(), Port: port, Authentication: "none"}
+			previous := http.DefaultTransport
+			base := previous.(*http.Transport).Clone()
+			base.TLSClientConfig = upstream.Client().Transport.(*http.Transport).TLSClientConfig.Clone()
+			base.TLSClientConfig.ServerName = "127.0.0.1"
+			base.DialContext = func(ctx context.Context, kind, address string) (net.Conn, error) {
+				if address != proxy.Listener.Addr().String() {
+					directAttempts.Add(1)
+					return nil, errors.New("direct Zen connection rejected by fixture")
+				}
+				return new(net.Dialer).DialContext(ctx, kind, address)
+			}
+			http.DefaultTransport = base
+			t.Cleanup(func() {
+				(network.Transport{Base: base}).CloseIdleConnections()
+				http.DefaultTransport = previous
+			})
+			saved := configuredModel{Key: "zen", ConnectionID: "zen-connection", Provider: "catalog", ProviderID: providerID, APIKey: "saved-key", ProxyID: profile.ID, ID: "fixture"}
+			raw := modelCatalog{Default: saved.Key, Models: []configuredModel{saved}}
+			app := &App{configDir: t.TempDir(), baseModels: raw, models: raw}
+			settings := network.Settings{Profiles: []network.Profile{profile}}
+			call := func(settings network.Settings, connectionID, key string, want int) {
+				t.Helper()
+				body, _ := json.Marshal(map[string]string{"providerId": providerID, "connectionId": connectionID, "apiKey": key})
+				request := httptest.NewRequest(http.MethodPost, "/api/zen-model-discovery", bytes.NewReader(body)).WithContext(network.WithSettings(context.Background(), settings))
+				response := httptest.NewRecorder()
+				before := upstreamRequests.Load()
+				app.discoverZenModels(response, request)
+				if response.Code != want || directAttempts.Load() != 0 {
+					t.Fatalf("Zen discovery status=%d want=%d direct=%d body=%s", response.Code, want, directAttempts.Load(), response.Body.String())
+				}
+				if want == http.StatusOK && upstreamRequests.Load() != before+1 || want != http.StatusOK && upstreamRequests.Load() != before {
+					t.Fatal("Zen discovery did not stop at its connection validation boundary")
+				}
+			}
+			call(settings, saved.ConnectionID, "", http.StatusOK)
+			call(settings, saved.ConnectionID, "supplied-key", http.StatusOK)
+			call(settings, "", "", http.StatusOK)
+			call(network.Defaults(), saved.ConnectionID, "", http.StatusBadRequest)
+			call(settings, "missing", "", http.StatusNotFound)
+			call(settings, "missing", "supplied-key", http.StatusNotFound)
+			other := saved
+			other.Key, other.ConnectionID = "other", "other-connection"
+			app.baseModels.Models = append(app.baseModels.Models, other)
+			call(settings, "", "", http.StatusBadRequest)
+			if proxyRequests.Load() != 1 || upstreamRequests.Load() != 3 {
+				t.Fatalf("unexpected tunnel/reuse counts: proxy=%d upstream=%d", proxyRequests.Load(), upstreamRequests.Load())
+			}
+		})
+	}
+}
 
 func TestNamedCustomResponsesDiscoveryAndReply(t *testing.T) {
 	useExplicitReasoningCatalog(t)

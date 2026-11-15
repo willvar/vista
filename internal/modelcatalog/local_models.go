@@ -17,13 +17,14 @@ import (
 	"sync/atomic"
 	"time"
 
+	"vista/internal/network"
 	"vista/internal/useragent"
 )
 
-var discoveryClient = &http.Client{
+var discoveryClient = network.NewClient(http.Client{
 	Timeout:       time.Second,
 	CheckRedirect: func(*http.Request, []*http.Request) error { return errors.New("local model endpoint redirected") },
-}
+}, network.ConnectionScope)
 
 type LocalSource struct {
 	kind, baseURL, apiKey string
@@ -59,7 +60,13 @@ func Identity(model Configured) string {
 	return identity
 }
 
-func DiscoverLocalModels(parent context.Context, source LocalSource) ([]Configured, error) {
+// DiscoverLocalModels discovers an environment/default local service using an
+// explicit Direct connection. Saved local connections use DiscoverModels.
+func DiscoverLocalModels(ctx context.Context, source LocalSource) ([]Configured, error) {
+	return DiscoverModels(ctx, Configured{ProviderID: source.kind, BaseURL: source.baseURL, APIKey: source.apiKey})
+}
+
+func discoverLocalModels(parent context.Context, source LocalSource) ([]Configured, error) {
 	ctx, cancel := context.WithTimeout(parent, 4*time.Second)
 	defer cancel()
 	base, endpoint, err := localEndpoint(source)

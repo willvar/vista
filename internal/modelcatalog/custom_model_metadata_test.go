@@ -36,7 +36,7 @@ func TestCustomInventoryMetadataPrecedenceAndIsolation(t *testing.T) {
 		}
 	}))
 	defer upstream.Close()
-	models, err := DiscoverCustomModels(context.Background(), Configured{Provider: "openai-chat", ProviderID: "custom", Authentication: "none", BaseURL: upstream.URL})
+	models, err := DiscoverModels(context.Background(), Configured{Provider: "openai-chat", ProviderID: "custom", Authentication: "none", BaseURL: upstream.URL})
 	if err != nil || len(models) != 9 {
 		t.Fatalf("discovery: count=%d error=%v", len(models), err)
 	}
@@ -131,7 +131,7 @@ func TestDiscoveredCapabilitiesReachCustomRequests(t *testing.T) {
 			}))
 			defer upstream.Close()
 			source := Configured{Provider: protocol, ProviderID: "custom", Authentication: "x-api-key", APIKey: "saved-key", BaseURL: upstream.URL + "/prefix", Headers: map[string]string{"X-Access": "saved-header"}}
-			models, err := DiscoverCustomModels(context.Background(), source)
+			models, err := DiscoverModels(context.Background(), source)
 			if err != nil || len(models) != 1 {
 				t.Fatalf("discovery: %v", err)
 			}

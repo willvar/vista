@@ -302,7 +302,7 @@ func TestHostSearchAndConfiguredToolsUseTheSameConnector(t *testing.T) {
 		for _, def := range definitions {
 			var server *mcpclient.Server
 			if def.Search {
-				server, err = mcpclient.OpenSearch(lease.Context(ctx), def.Config.Endpoint, def.Config.Token)
+				server, err = mcpclient.OpenSearch(lease.Context(ctx), def.Config)
 			} else {
 				server, err = mcpclient.Open(lease.Context(ctx), def.Config)
 			}

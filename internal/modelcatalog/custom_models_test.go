@@ -69,7 +69,7 @@ func TestCustomDiscoveryUsesExplicitFormatAndAuthentication(t *testing.T) {
 				if authentication == "none" {
 					key = ""
 				}
-				models, err := DiscoverCustomModels(context.Background(), Configured{Provider: protocol, ProviderID: "custom", Authentication: authentication, BaseURL: upstream.URL + "/prefix", APIKey: key, Headers: map[string]string{"X-Workspace": "saved-workspace", "User-Agent": "DiscoveryOverride/1"}})
+				models, err := DiscoverModels(context.Background(), Configured{Provider: protocol, ProviderID: "custom", Authentication: authentication, BaseURL: upstream.URL + "/prefix", APIKey: key, Headers: map[string]string{"X-Workspace": "saved-workspace", "User-Agent": "DiscoveryOverride/1"}})
 				if err != nil || len(models) != 2 {
 					t.Fatalf("models=%d err=%v", len(models), err)
 				}
@@ -177,7 +177,7 @@ func TestModelListErrorPreservesExpiredKeyReasonWithoutCredentials(t *testing.T)
 		_, _ = w.Write([]byte(`{"error":{"type":"authentication_error","code":"api_key_expired","message":"Create a new API key. Rejected: expired-secret"}}`))
 	}))
 	defer upstream.Close()
-	_, err := FetchCustomModelIDs(context.Background(), upstream.URL+"/models", "expired-secret")
+	_, err := DiscoverModels(context.Background(), Configured{ProviderID: "custom", Provider: "openai-chat", BaseURL: upstream.URL, Authentication: "bearer", APIKey: "expired-secret"})
 	if err == nil || !strings.Contains(err.Error(), "api_key_expired") || !strings.Contains(err.Error(), "Create a new API key") || strings.Contains(err.Error(), "expired-secret") {
 		t.Fatalf("incorrect discovery diagnostic: %v", err)
 	}
@@ -188,7 +188,7 @@ func TestCustomDiscoveryRejectsRepeatedPagination(t *testing.T) {
 		_, _ = w.Write([]byte(`{"models":[{"name":"models/gemini-test"}],"nextPageToken":"repeat"}`))
 	}))
 	defer upstream.Close()
-	_, err := DiscoverCustomModels(context.Background(), Configured{Provider: "gemini", ProviderID: "custom", Authentication: "none", BaseURL: upstream.URL + "/v1beta"})
+	_, err := DiscoverModels(context.Background(), Configured{Provider: "gemini", ProviderID: "custom", Authentication: "none", BaseURL: upstream.URL + "/v1beta"})
 	if err == nil || !strings.Contains(err.Error(), "repeated") {
 		t.Fatalf("unbounded pagination: %v", err)
 	}
@@ -208,7 +208,7 @@ func TestCohereDiscoveryVersionsAndCustomPrefixes(t *testing.T) {
 				_, _ = w.Write([]byte(`{"models":[{"name":"command","endpoints":["chat"]}]}`))
 			}))
 			defer upstream.Close()
-			models, err := DiscoverCustomModels(context.Background(), Configured{Provider: "cohere", ProviderID: "custom", Authentication: "bearer", APIKey: "original-key", Headers: map[string]string{"Authorization": "Overridden token"}, BaseURL: upstream.URL + tc.base})
+			models, err := DiscoverModels(context.Background(), Configured{Provider: "cohere", ProviderID: "custom", Authentication: "bearer", APIKey: "original-key", Headers: map[string]string{"Authorization": "Overridden token"}, BaseURL: upstream.URL + tc.base})
 			if err != nil || len(models) != 1 || models[0].ID != "command" {
 				t.Fatalf("Cohere models=%d error=%v", len(models), err)
 			}

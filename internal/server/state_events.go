@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+
 	"vista/internal/modeltrace"
 	"vista/internal/store"
 )
@@ -27,13 +28,16 @@ type stateHub struct {
 
 const maxStateEventStreams = maxEventStreams
 
-// Leave framing headroom within the shared client's 128,000-byte SSE limit.
-// Oversized lists retain revision-driven HTTP snapshot recovery.
-const maxStateSnapshotBytes = 120_000
+// Budget application state on the server, including encoded JSON and framing.
+// Oversized snapshots retain revision-driven HTTP recovery. This does not limit
+// complete conversation records or canonical model output.
+const maxStateFrameBytes = 512 << 10
+const maxStateSnapshotBytes = maxStateFrameBytes - len("event: state\ndata: \n\n")
 
-var stateTopics = []string{"sessions", "status", "models", "catalog", "provider-login", "mcp", "storage", "memories", "diagnostics", "statistics", "skills", "selection-stats", "server-config"}
+var stateTopics = []string{"sessions", "status", "models", "catalog", "provider-login", "mcp", "storage", "memories", "diagnostics", "statistics", "skills", "selection-stats", "server-config", "network"}
 
 type stateCheckpoint struct {
+	Network        *networkConfigView         `json:"network,omitempty"`
 	SubscriptionID string                     `json:"subscriptionId,omitempty"`
 	Epoch          string                     `json:"epoch"`
 	Revisions      map[string]uint64          `json:"revisions"`
@@ -170,7 +174,7 @@ func (a *App) stateEvents(w http.ResponseWriter, r *http.Request) {
 	controller := http.NewResponseController(w)
 	write := func(kind string, value any) bool {
 		data, err := json.Marshal(value)
-		if err != nil {
+		if err != nil || kind == "state" && len(data) > maxStateSnapshotBytes {
 			return false
 		}
 		_ = controller.SetWriteDeadline(time.Now().Add(5 * time.Second))

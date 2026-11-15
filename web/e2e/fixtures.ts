@@ -30,6 +30,20 @@ type ModelRequest = { model?: string; reasoning?: { effort?: string; summary?: s
 type ProviderOutput = 'perplexity' | 'openrouter' | 'responses'
 type ModelFailure = { status: number; body: object; stream?: boolean; attempts?: number; skipAttempts?: number; retryAfterMs?: number }
 
+function messageText(content: unknown): string {
+  if (typeof content === 'string') return content
+  if (!Array.isArray(content)) return ''
+  return content.filter(part => part && typeof part === 'object' && part.type === 'text' && typeof part.text === 'string')
+    .map(part => part.text).join('')
+}
+
+function isUserInput(message: { role: string; content: unknown }) {
+  return message.role === 'user' && !String(message.content).startsWith('Runtime completion event.')
+    && !String(message.content).startsWith('Runtime attachments from ')
+    && !String(message.content).startsWith('Vista service restart.')
+    && !String(message.content).startsWith('Current run checklist snapshot (context data,')
+}
+
 const execute = promisify(execFile)
 let catalogFixture: string | undefined
 function modelCatalogFixture() {
@@ -120,14 +134,18 @@ export const nativeFixture = {
       let input: ModelRequest
       try { input = JSON.parse(body) } catch { response.writeHead(400).end(); return }
       const titleRequest = providerOutput === 'responses' ? body.includes('Write a short, specific title')
-        : String(input.messages?.[0]?.content || '').startsWith('Write a short, specific title')
+        : messageText(input.messages?.[0]?.content).startsWith('Write a short, specific title')
       if (!titleRequest && !providerOutput && fileChanges
         && readRules(input, response)) return
+      // Strip fixture-only rule bootstrap entries before capturing business
+      // requests. Decode a separate copy so cache and image blocks stay intact.
+      const wireInput = input
+      input = { ...input, messages: input.messages?.map(message => ({ ...message, content: messageText(message.content) })) }
       const summaryRequest = String(input.messages?.[0]?.content || '').startsWith('Compress the completed execution transcript')
       const gate = titleRequest || pauseOnlySummary && !summaryRequest ? undefined : replyGate
       const streamBeforeGate = pauseAfterText
       if (!titleRequest) {
-        modelRequests.push(input)
+        modelRequests.push(wireInput)
         modelUserAgents.push(request.headers['user-agent'] || '')
         if (gate && !streamBeforeGate) await gate
       }
@@ -146,7 +164,7 @@ export const nativeFixture = {
         }
         return
       }
-      if (progressCalls && !titleRequest && input.messages?.filter(message => message.role === 'user').at(-1)?.content === 'Fail progress'
+      if (progressCalls && !titleRequest && input.messages?.filter(isUserInput).at(-1)?.content === 'Fail progress'
         && input.messages.some(message => message.role === 'tool')) {
         // This fixture exercises retained progress, not short transient recovery.
         response.writeHead(500, { 'Content-Type': 'application/json', 'Retry-After': '3600' }).end(JSON.stringify({ error: { message: 'Synthetic failure after saved progress' } }))
@@ -193,12 +211,41 @@ export const nativeFixture = {
         return
       }
       const lastMessage = input.messages?.at(-1)
+      const lastUser = input.messages?.map(isUserInput).lastIndexOf(true) ?? -1
       const prompt = replyWithPrompt ? lastMessage?.role === 'tool' && lastMessage.tool_call_id === 'setup-question'
-        ? lastMessage.content : input.messages?.filter(message => message.role === 'user').at(-1)?.content : 'Hi'
-      const lastUser = input.messages?.map(message => message.role).lastIndexOf('user') ?? -1
+        ? lastMessage.content : input.messages?.[lastUser]?.content : 'Hi'
+      const currentMessages = input.messages?.slice(lastUser + 1) || []
+      const runtimeEvents = currentMessages
+        .filter(message => message.role === 'user' && String(message.content).startsWith('Runtime completion event.'))
+        .map(message => JSON.parse(String(message.content).slice(String(message.content).indexOf('\n') + 1)))
+      let waitingForTools = false
+      const toolResults = currentMessages.filter(message => message.role === 'tool').map(message => {
+        let result
+        try { result = JSON.parse(String(message.content)) } catch { return message }
+        if (result?.status !== 'running' || typeof result.executionId !== 'string') return message
+        const completion = runtimeEvents.find(event => event.id === result.executionId && event.kind === 'tool'
+          && event.sourceId === message.tool_call_id && ['succeeded', 'failed'].includes(event.status))
+        if (completion) return { ...message, content: completion.content }
+        waitingForTools = true
+        return message
+      })
+      if (!titleRequest && waitingForTools) {
+        response.end('data: {"choices":[{"delta":{},"finish_reason":"stop"}]}\n\ndata: [DONE]\n\n')
+        return
+      }
+      const retainedImage = imageModel && !titleRequest && /^Display retained image ([a-f0-9]{64})$/.exec(String(input.messages?.[lastUser]?.content))
+      if (retainedImage) {
+        const read = toolResults.find(message => message.tool_call_id === 'read-retained-image')
+        const delta = read ? { content: `![Original image](${JSON.parse(String(read.content).split('\n[Resource ')[0]!).resource.url})` }
+          : { tool_calls: [{ index: 0, id: 'read-retained-image', type: 'function', function: {
+            name: 'read_resource', arguments: JSON.stringify({ hash: retainedImage[1] }),
+          } }] }
+        response.end(`data: ${JSON.stringify({ choices: [{ delta, finish_reason: read ? 'stop' : 'tool_calls' }] })}\n\ndata: [DONE]\n\n`)
+        return
+      }
       if (memoryTool && !titleRequest) {
         const currentPrompt = input.messages?.[lastUser]?.content
-        const tools = input.messages?.slice(lastUser + 1).filter(message => message.role === 'tool') || []
+        const tools = toolResults
         let args: object | undefined
         if (currentPrompt === 'Remember concise answers' && !tools.length) args = { action: 'add', text: 'Keep answers concise.' }
         if (currentPrompt === 'Forget my preference') {
@@ -215,7 +262,7 @@ export const nativeFixture = {
         }
       }
       if (fileChanges && !titleRequest && String(input.messages?.[lastUser]?.content).startsWith('Edit files')
-        && !input.messages?.slice(lastUser + 1).some(message => message.role === 'tool')) {
+        && !toolResults.length) {
         const version = String(input.messages?.[lastUser]?.content).includes('v2') ? 'agent version 2' : 'agent version 1'
         const tool_calls = [{ index: 0, id: 'edit-files', type: 'function', function: { name: 'shell', arguments: JSON.stringify({
           directory: workspacePath, command: `printf '${version}' > source.txt; rm -f deleted.txt; printf 'created' > added.txt`,
@@ -225,7 +272,7 @@ export const nativeFixture = {
       }
       if (backgroundProcess && !titleRequest) {
         const currentPrompt = input.messages?.[lastUser]?.content
-        const results = input.messages?.slice(lastUser + 1).filter(message => message.role === 'tool') || []
+        const results = toolResults
         if (!results.length && ['Start process', 'Start timed process', 'Fail command'].includes(String(currentPrompt))) {
           const start = currentPrompt !== 'Fail command'
           const functionName = start ? 'start_background' : 'shell'
@@ -241,11 +288,8 @@ export const nativeFixture = {
       }
       if (detachedTask && !titleRequest) {
         const currentPrompt = input.messages?.[lastUser]?.content
-        const hasTools = input.messages?.slice(lastUser + 1).some(message => message.role === 'tool')
-        const completion = input.messages?.slice(lastUser + 1)
-          .filter(message => message.role === 'system' && String(message.content).startsWith('Runtime completion event.'))
-          .map(message => JSON.parse(String(message.content).slice(String(message.content).indexOf('\n') + 1)))
-          .find(event => event.kind === 'agent' && event.sourceId === 'main/background')
+        const hasTools = toolResults.length > 0
+        const completion = runtimeEvents.find(event => event.kind === 'agent' && event.sourceId === 'main/background' && event.recipient === 'main')
         if (completion) {
           const content = `Background completion received: ${completion.status}.`
           response.end(`data: ${JSON.stringify({ choices: [{ delta: { content }, finish_reason: 'stop' }] })}\n\ndata: [DONE]\n\n`)
@@ -261,7 +305,7 @@ export const nativeFixture = {
             response.write('data: {"choices":[{"delta":{"reasoning_content":"Background inspection in progress."}}]}\n\n')
             await Promise.race([backgroundGate, new Promise<void>(resolve => response.once('close', resolve))])
             if (response.destroyed) return
-            const tool_calls = [{ index: 0, id: 'background-shell', type: 'function', function: { name: 'shell', arguments: JSON.stringify({ directory: outputDirectory, command: "printf 'background evidence'" }) } }]
+            const tool_calls = [{ index: 0, id: 'background-shell', type: 'function', function: { name: 'shell', arguments: JSON.stringify({ directory: outputDirectory, command: "sleep 1.1; printf 'background evidence'" }) } }]
             response.end(`data: ${JSON.stringify({ choices: [{ delta: { tool_calls }, finish_reason: 'tool_calls' }] })}\n\ndata: [DONE]\n\n`)
           } else {
             response.end('data: {"choices":[{"delta":{"content":"Background report complete."},"finish_reason":"stop"}]}\n\ndata: [DONE]\n\n')
@@ -270,7 +314,7 @@ export const nativeFixture = {
         }
       }
       if (progressCalls && !titleRequest) {
-        const turn = (input.messages?.slice(lastUser + 1).filter(message => message.role === 'tool').length || 0) + 1
+        const turn = toolResults.length + 1
         const content = turn <= progressCalls ? `Progress ${turn}.\n\n${longProgress && turn === 1 ? '完整正文 café 🙂。\n\n'.repeat(800) + 'Long progress ending.' : 'Saved progress text.'}` : 'Final progress answer.'
         const reasoning = longProgress && turn === 1 ? '完整推理 café 🙂。\n\n'.repeat(800) + 'Long reasoning ending.' : 'Private progress reasoning.'
         response.write(`data: ${JSON.stringify({ choices: [{ delta: { reasoning_content: reasoning }, finish_reason: null }] })}\n\n`)
@@ -285,7 +329,7 @@ export const nativeFixture = {
         return
       }
       if (questionTool && !titleRequest && input.messages?.[lastUser]?.content === 'Ask me about the setup'
-        && !input.messages.slice(lastUser + 1).some(message => message.role === 'tool' && message.tool_call_id === 'setup-question')) {
+        && !toolResults.some(message => message.tool_call_id === 'setup-question')) {
         const toolCalls = [{ index: 0, id: 'setup-question', type: 'function', function: {
           name: 'question', arguments: JSON.stringify({ questions: [
             { header: 'Deployment', question: 'Where should the service run?', custom: false, options: [
@@ -308,7 +352,7 @@ export const nativeFixture = {
         return
       }
       const needsFollowUpTool = followUpTool && !titleRequest && input.messages?.[lastUser]?.content === 'Follow-up question'
-        && !input.messages.slice(lastUser + 1).some(message => message.role === 'tool')
+        && !toolResults.length
       if (needsFollowUpTool) {
         const toolCalls = [{ index: 0, id: 'follow-up-price', type: 'function', function: {
           name: 'shell', arguments: JSON.stringify({ directory: outputDirectory, command: "printf 'price lookup result'" }),

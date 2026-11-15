@@ -18,6 +18,7 @@ import (
 
 	modelcfg "vista/internal/model"
 	"vista/internal/modeltrace"
+	"vista/internal/network"
 	"vista/internal/useragent"
 )
 
@@ -240,11 +241,11 @@ var modelHTTPTransport = func() *http.Transport {
 	return transport
 }()
 
-var tracedModelHTTPTransport = modeltrace.Transport{Base: modelHTTPTransport}
+var tracedModelHTTPTransport = modeltrace.Transport{Base: network.Transport{Base: modelHTTPTransport, Scope: network.ConnectionScope}}
 
-var client = &http.Client{Transport: tracedModelHTTPTransport, CheckRedirect: func(*http.Request, []*http.Request) error {
+var client = network.NewClient(http.Client{Transport: tracedModelHTTPTransport, CheckRedirect: func(*http.Request, []*http.Request) error {
 	return errors.New("model endpoint redirected")
-}}
+}}, network.ConnectionScope)
 
 // A healthy stream may take longer than two minutes in total. Bound each
 // blocking read instead of setting http.Client.Timeout on the whole turn.

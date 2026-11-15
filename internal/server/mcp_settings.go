@@ -13,9 +13,11 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+
 	"vista/internal/configstore"
 	"vista/internal/mcpclient"
 	"vista/internal/mcphost"
+	"vista/internal/network"
 	"vista/internal/workerproto"
 )
 
@@ -63,11 +65,16 @@ func (a *App) mcpConfigSnapshotLocked() mcpConfigSnapshot {
 func (a *App) currentMCPServers() []workerproto.MCPServer {
 	a.mcpMu.Lock()
 	defer a.mcpMu.Unlock()
+	policy, policyErr := a.globalNetworkPolicy()
 	configs := make([]workerproto.MCPServer, 0, len(a.mcpServers))
 	for _, config := range a.mcpServers {
 		if !config.Disabled {
 			config.Args = append([]string(nil), config.Args...)
 			config.Headers = maps.Clone(config.Headers)
+			if policyErr == nil && config.Transport == "http" {
+				p := policy
+				config.Network = &p
+			}
 			configs = append(configs, config)
 		}
 	}
@@ -86,6 +93,7 @@ func (a *App) mcpIndexLocked(id string) int {
 // Names are display labels; changing one does not change the connection or its
 // authorization, nor invalidate a check or login already in progress.
 func sameMCPConnection(a, b workerproto.MCPServer) bool {
+	a.Network, b.Network = nil, nil
 	a.Name, b.Name = "", ""
 	argsEqual := slices.Equal(a.Args, b.Args)
 	a.Args, b.Args = nil, nil
@@ -112,6 +120,10 @@ func (a *App) mcpSettings(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := decodeSettingsRequest(r.Body, &input); err != nil {
 		http.Error(w, "invalid MCP settings", http.StatusBadRequest)
+		return
+	}
+	if input.Network != nil {
+		http.Error(w, "MCP network policy is configured in network settings", http.StatusBadRequest)
 		return
 	}
 	a.mcpMu.Lock()
@@ -274,6 +286,14 @@ func (a *App) mcpServerAction(w http.ResponseWriter, r *http.Request) {
 	a.mcpMu.Unlock()
 	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
 	defer cancel()
+	if config.Transport == "http" {
+		policy, err := network.FromContext(network.WithConfigDir(ctx, a.configDir))
+		if err != nil {
+			http.Error(w, "network configuration unavailable", 503)
+			return
+		}
+		ctx = network.WithPolicy(ctx, policy)
+	}
 	tools, err := a.checkMCP(ctx, config)
 	check := mcpCheck{Status: "available", CheckedAt: time.Now().UTC(), ToolCount: len(tools)}
 	if err != nil {
@@ -282,10 +302,21 @@ func (a *App) mcpServerAction(w http.ResponseWriter, r *http.Request) {
 			check.Status = "authorization_required"
 		}
 	}
+	a.modelMu.RLock()
+	if config.Transport == "http" {
+		observed, firstErr := network.FromContext(ctx)
+		current, currentErr := a.globalNetworkPolicy()
+		if firstErr != nil || currentErr != nil || network.Fingerprint(observed) != network.Fingerprint(current) {
+			a.modelMu.RUnlock()
+			http.Error(w, "network configuration changed during the check; retry", http.StatusConflict)
+			return
+		}
+	}
 	a.mcpMu.Lock()
 	index = a.mcpIndexLocked(config.ID)
 	if index < 0 || !sameMCPConnection(a.mcpServers[index], config) {
 		a.mcpMu.Unlock()
+		a.modelMu.RUnlock()
 		http.Error(w, "MCP configuration changed during the check; retry", http.StatusConflict)
 		return
 	}
@@ -296,6 +327,7 @@ func (a *App) mcpServerAction(w http.ResponseWriter, r *http.Request) {
 		a.mcpChecks[config.ID] = check
 	}
 	a.mcpMu.Unlock()
+	a.modelMu.RUnlock()
 	jsonOut(w, struct {
 		Check mcpCheck         `json:"check"`
 		Tools []mcpclient.Tool `json:"tools"`
@@ -303,6 +335,13 @@ func (a *App) mcpServerAction(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) checkMCP(ctx context.Context, config workerproto.MCPServer) ([]mcpclient.Tool, error) {
+	if config.Transport == "http" {
+		policy, err := network.FromContext(network.WithConfigDir(ctx, a.configDir))
+		if err != nil {
+			return nil, err
+		}
+		config.Network = &policy
+	}
 	if a.mcpHost == nil {
 		return nil, errors.New("MCP host is unavailable")
 	}

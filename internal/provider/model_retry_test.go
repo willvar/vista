@@ -2,22 +2,30 @@ package provider
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
 	"path/filepath"
 	"reflect"
+	"strconv"
 	"strings"
+	"sync/atomic"
+	"syscall"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
 	modelcfg "vista/internal/model"
 	"vista/internal/modeltrace"
+	"vista/internal/network"
 )
 
 func fastModelRetryContext() context.Context {
@@ -88,7 +96,7 @@ func TestModelRetryClassificationAndProviderWaits(t *testing.T) {
 		{"stream error", &ModelHTTPError{Code: "server_error"}, false},
 		{"cancel", context.Canceled, false},
 		{"protocol", errors.New("invalid SSE"), false},
-		{"connection", &url.Error{Op: "Post", URL: "http://fixture", Err: &net.OpError{Op: "dial", Net: "tcp", Err: errors.New("refused")}}, true},
+		{"connection", &url.Error{Op: "Post", URL: "http://fixture", Err: &net.OpError{Op: "dial", Net: "tcp", Err: &os.SyscallError{Syscall: "connect", Err: syscall.ECONNREFUSED}}}, true},
 		{"pre-header EOF", &url.Error{Op: "Post", URL: "http://fixture", Err: io.EOF}, true},
 		{"redirect", &url.Error{Op: "Post", URL: "http://fixture", Err: errors.New("model endpoint redirected")}, false},
 	} {
@@ -109,6 +117,305 @@ func TestModelRetryClassificationAndProviderWaits(t *testing.T) {
 		if delay, ok := modelRetryDelay(context.Background(), &ModelHTTPError{StatusCode: 503}, attempt); !ok || delay < want*8/10 || delay > want*12/10 {
 			t.Fatalf("retry %d backoff: %s, eligible=%v", attempt, delay, ok)
 		}
+	}
+}
+
+func TestModelRetryTransportCausesSurviveProxySanitizing(t *testing.T) {
+	certificate := &x509.Certificate{DNSNames: []string{"valid.test"}}
+	hostname := x509.HostnameError{Certificate: certificate, Host: "wrong.test"}
+	policy := network.Policy{Profile: &network.Profile{ID: "proxy", Name: "Proxy", Protocol: "http", Server: "entry.test", Port: 8080, Authentication: "none"}}
+	for _, check := range []struct {
+		name string
+		err  error
+		want bool
+	}{
+		{"hostname", hostname, false},
+		{"untrusted", x509.UnknownAuthorityError{Cert: certificate}, false},
+		{"expired", x509.CertificateInvalidError{Cert: certificate, Reason: x509.Expired}, false},
+		{"system roots", x509.SystemRootsError{Err: errors.New("roots unavailable")}, false},
+		{"TLS certificate wrapper", &tls.CertificateVerificationError{Err: hostname}, false},
+		{"certificate inside connection", &net.OpError{Op: "dial", Net: "tcp", Err: hostname}, false},
+		{"wrong TLS endpoint", tls.RecordHeaderError{Msg: "HTTP response to HTTPS client"}, false},
+		{"opaque permanent", errors.New("endpoint redirected"), false},
+		{"invalid address", &net.AddrError{Err: "invalid address", Addr: "invalid"}, false},
+		{"permanent DNS", &net.DNSError{Err: "no such host", IsNotFound: true}, false},
+		{"opaque connection failure", &net.OpError{Op: "dial", Net: "tcp", Err: errors.New("permanent handshake failure")}, false},
+		{"connection with invalid address", &net.OpError{Op: "dial", Net: "tcp", Err: &net.AddrError{Err: "invalid address", Addr: "invalid"}}, false},
+		{"connection with permanent DNS", &net.OpError{Op: "dial", Net: "tcp", Err: &net.DNSError{Err: "no such host", IsNotFound: true}}, false},
+		{"connection with wrong TLS endpoint", &net.OpError{Op: "dial", Net: "tcp", Err: tls.RecordHeaderError{Msg: "HTTP response to HTTPS client"}}, false},
+		{"connection permission denied", &net.OpError{Op: "dial", Net: "tcp", Err: &os.SyscallError{Syscall: "connect", Err: syscall.EACCES}}, false},
+		{"timeout", context.DeadlineExceeded, true},
+		{"temporary DNS", &net.DNSError{Err: "temporary failure", IsTemporary: true}, true},
+		{"connection refused", &net.OpError{Op: "dial", Net: "tcp", Err: syscall.ECONNREFUSED}, true},
+		{"connection reset", &net.OpError{Op: "read", Net: "tcp", Err: syscall.ECONNRESET}, true},
+		{"connection aborted", &net.OpError{Op: "read", Net: "tcp", Err: syscall.ECONNABORTED}, true},
+		{"broken pipe", &net.OpError{Op: "write", Net: "tcp", Err: syscall.EPIPE}, true},
+		{"closed connection", &net.OpError{Op: "read", Net: "tcp", Err: net.ErrClosed}, true},
+		{"pre-header EOF", io.EOF, true},
+		{"pre-header unexpected EOF", io.ErrUnexpectedEOF, true},
+		{"cancelled", context.Canceled, false},
+	} {
+		for _, proxied := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s/proxy=%v", check.name, proxied), func(t *testing.T) {
+				cause := fmt.Errorf("request failed: %w", check.err)
+				if proxied {
+					cause = network.Sanitize(cause, policy)
+				}
+				err := modelErrorForDisplay(&url.Error{Op: "Post", URL: "https://model.test", Err: cause}, modelcfg.Model{})
+				if _, got := modelRetryDelay(context.Background(), err, 1); got != check.want {
+					t.Fatalf("retry=%v want=%v: %v", got, check.want, err)
+				}
+			})
+		}
+	}
+}
+
+func TestModelRetrySOCKSAuthenticationRejectionIsPermanent(t *testing.T) {
+	for _, pinned := range []bool{false, true} {
+		for _, rejectMethod := range []bool{false, true} {
+			t.Run(fmt.Sprintf("pinned=%v/method-rejection=%v", pinned, rejectMethod), func(t *testing.T) {
+				listener, err := net.Listen("tcp", "127.0.0.1:0")
+				if err != nil {
+					t.Fatal(err)
+				}
+				var connections, rejections atomic.Int32
+				done := make(chan struct{})
+				go func() {
+					defer close(done)
+					for {
+						conn, err := listener.Accept()
+						if err != nil {
+							return
+						}
+						connections.Add(1)
+						func() {
+							defer conn.Close()
+							conn.SetDeadline(time.Now().Add(2 * time.Second))
+							var header [2]byte
+							if _, err := io.ReadFull(conn, header[:]); err != nil || header[0] != 5 {
+								return
+							}
+							if _, err := io.CopyN(io.Discard, conn, int64(header[1])); err != nil {
+								return
+							}
+							if rejectMethod {
+								rejections.Add(1)
+								conn.Write([]byte{5, 0xff})
+								return
+							}
+							if _, err := conn.Write([]byte{5, 2}); err != nil {
+								return
+							}
+							if _, err := io.ReadFull(conn, header[:]); err != nil || header[0] != 1 {
+								return
+							}
+							if _, err := io.CopyN(io.Discard, conn, int64(header[1])); err != nil {
+								return
+							}
+							if _, err := io.ReadFull(conn, header[:1]); err != nil {
+								return
+							}
+							if _, err := io.CopyN(io.Discard, conn, int64(header[0])); err != nil {
+								return
+							}
+							rejections.Add(1)
+							conn.Write([]byte{1, 1})
+						}()
+					}
+				}()
+				t.Cleanup(func() {
+					listener.Close()
+					select {
+					case <-done:
+					case <-time.After(3 * time.Second):
+						t.Error("SOCKS fixture did not close")
+					}
+				})
+				profile := network.Profile{ID: "proxy", Name: "Proxy", Protocol: "socks5", Server: "127.0.0.1", Port: listener.Addr().(*net.TCPAddr).Port, Authentication: "password", Username: "fixture-user", Password: "fixture-password"}
+				policy := network.Policy{Profile: &profile}
+				ctx, cancel := context.WithTimeout(fastModelRetryContext(), 3*time.Second)
+				defer cancel()
+				if pinned {
+					ctx, err = network.WithAddresses(ctx, "model.fixture.invalid", []net.IP{net.ParseIP("192.0.2.1")})
+					if err != nil {
+						t.Fatal(err)
+					}
+				}
+				var states []ModelRetry
+				ctx = WithModelRetryObserver(ctx, func(state ModelRetry) error { states = append(states, state); return nil })
+				model := modelcfg.Model{Provider: "openai-chat", ID: "fixture", BaseURL: "https://model.fixture.invalid", APIKey: "fixture-key", Network: &policy}
+				_, err = ModelTurn(ctx, model, []ChatMessage{{Role: "user", Content: "hello"}}, nil)
+				var requestError *url.Error
+				if !errors.As(err, &requestError) || connections.Load() != 1 || rejections.Load() != 1 || len(states) != 0 || ctx.Err() != nil {
+					t.Fatalf("SOCKS refusal retried: connections=%d rejections=%d states=%d err=%v context=%v", connections.Load(), rejections.Load(), len(states), err, ctx.Err())
+				}
+			})
+		}
+	}
+}
+
+func TestModelRetryCertificateFailuresStopBeforeAnotherConnection(t *testing.T) {
+	for _, trusted := range []bool{false, true} {
+		for _, proxied := range []bool{false, true} {
+			t.Run(fmt.Sprintf("trusted=%v/proxy=%v", trusted, proxied), func(t *testing.T) {
+				var connections, requests, tunnels atomic.Int32
+				endpoint := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					requests.Add(1)
+					http.Error(w, "certificate failure reached HTTP", http.StatusInternalServerError)
+				}))
+				endpoint.Config.ErrorLog = log.New(io.Discard, "", 0)
+				endpoint.Config.ConnState = func(_ net.Conn, state http.ConnState) {
+					if state == http.StateNew {
+						connections.Add(1)
+					}
+				}
+				endpoint.StartTLS()
+				defer endpoint.Close()
+				proxy := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					tunnels.Add(1)
+					if r.Method != http.MethodConnect {
+						t.Error("expected CONNECT")
+						http.Error(w, "expected CONNECT", http.StatusBadRequest)
+						return
+					}
+					upstream, err := net.DialTimeout("tcp", endpoint.Listener.Addr().String(), time.Second)
+					if err != nil {
+						t.Error(err)
+						return
+					}
+					downstream, buffer, err := w.(http.Hijacker).Hijack()
+					if err != nil {
+						upstream.Close()
+						t.Error(err)
+						return
+					}
+					defer downstream.Close()
+					defer upstream.Close()
+					buffer.WriteString("HTTP/1.1 200 Connection Established\r\n\r\n")
+					buffer.Flush()
+					go func() { io.Copy(upstream, buffer); upstream.Close() }()
+					io.Copy(downstream, upstream)
+				}))
+				defer proxy.Close()
+				roots := x509.NewCertPool()
+				serverName := "127.0.0.1"
+				if trusted {
+					roots.AddCert(endpoint.Certificate())
+					serverName = "wrong.test"
+				}
+				base := &http.Transport{TLSClientConfig: &tls.Config{RootCAs: roots, ServerName: serverName}}
+				previous := client
+				client = network.NewClient(http.Client{Transport: base, Timeout: 2 * time.Second}, network.ConnectionScope)
+				defer func() { client.CloseIdleConnections(); client = previous }()
+				policy := network.Policy{}
+				baseURL := endpoint.URL
+				if proxied {
+					u, _ := url.Parse(proxy.URL)
+					port, _ := strconv.Atoi(u.Port())
+					policy.Profile = &network.Profile{ID: "proxy", Name: "Proxy", Protocol: "http", Server: u.Hostname(), Port: port, Authentication: "none"}
+					// Loopback destinations intentionally bypass proxies.
+					baseURL = "https://model.fixture.invalid"
+				}
+				var states []ModelRetry
+				ctx := WithModelRetryObserver(fastModelRetryContext(), func(state ModelRetry) error { states = append(states, state); return nil })
+				model := modelcfg.Model{Provider: "openai-chat", ID: "fixture", BaseURL: baseURL, APIKey: "fixture", Network: &policy}
+				_, err := ModelTurn(ctx, model, []ChatMessage{{Role: "user", Content: "hello"}}, nil)
+				var verification *tls.CertificateVerificationError
+				if !errors.As(err, &verification) || connections.Load() != 1 || requests.Load() != 0 || len(states) != 0 || proxied && tunnels.Load() != 1 {
+					t.Fatalf("permanent TLS error retried: connections=%d requests=%d tunnels=%d states=%d err=%v", connections.Load(), requests.Load(), tunnels.Load(), len(states), err)
+				}
+			})
+		}
+	}
+}
+
+func TestModelRetryProxiedTransientFailuresStillRecover(t *testing.T) {
+	for _, failure := range []string{"close", "reset", "header-timeout"} {
+		t.Run(failure, func(t *testing.T) {
+			var attempts atomic.Int32
+			stop := make(chan struct{})
+			proxy := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				io.Copy(io.Discard, r.Body)
+				if attempts.Add(1) == 1 {
+					if failure == "header-timeout" {
+						select {
+						case <-r.Context().Done():
+						case <-stop:
+						}
+					} else {
+						conn, _, err := w.(http.Hijacker).Hijack()
+						if err != nil {
+							t.Error(err)
+							return
+						}
+						if failure == "reset" {
+							if err := conn.(*net.TCPConn).SetLinger(0); err != nil {
+								t.Error(err)
+							}
+						}
+						conn.Close()
+					}
+					return
+				}
+				w.Header().Set("Content-Type", "text/event-stream")
+				fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{\"content\":\"recovered\"},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n")
+			}))
+			defer func() { close(stop); proxy.Close() }()
+			u, _ := url.Parse(proxy.URL)
+			port, _ := strconv.Atoi(u.Port())
+			policy := network.Policy{Profile: &network.Profile{ID: "proxy", Name: "Proxy", Protocol: "http", Server: u.Hostname(), Port: port, Authentication: "none"}}
+			base := &http.Transport{ResponseHeaderTimeout: 100 * time.Millisecond}
+			previous := client
+			client = network.NewClient(http.Client{Transport: base, Timeout: 2 * time.Second}, network.ConnectionScope)
+			defer func() { client.CloseIdleConnections(); client = previous }()
+			ctx, cancel := context.WithTimeout(fastModelRetryContext(), 3*time.Second)
+			defer cancel()
+			model := modelcfg.Model{Provider: "openai-chat", ID: "fixture", BaseURL: "http://model.fixture.invalid", APIKey: "fixture", Network: &policy}
+			turn, err := ModelTurn(ctx, model, []ChatMessage{{Role: "user", Content: "hello"}}, nil)
+			if err != nil || turn.Text != "recovered" || attempts.Load() != 2 {
+				t.Fatalf("transient recovery lost: attempts=%d text=%q err=%v", attempts.Load(), turn.Text, err)
+			}
+		})
+	}
+}
+
+func TestModelRetryNativeConnectionRefusalStillRecovers(t *testing.T) {
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	address := listener.Addr().String()
+	listener.Close()
+	dialer := &net.Dialer{Timeout: time.Second}
+	conn, refused := dialer.DialContext(context.Background(), "tcp", address)
+	if conn != nil {
+		conn.Close()
+	}
+	var errno syscall.Errno
+	if !errors.As(refused, &errno) {
+		t.Fatalf("native connection-refusal fixture failed: %v", refused)
+	}
+	endpoint := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{\"content\":\"recovered\"},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n")
+	}))
+	defer endpoint.Close()
+	var attempts atomic.Int32
+	base := &http.Transport{DialContext: func(ctx context.Context, protocol, address string) (net.Conn, error) {
+		if attempts.Add(1) == 1 {
+			return nil, refused
+		}
+		return dialer.DialContext(ctx, protocol, address)
+	}}
+	previous := client
+	client = network.NewClient(http.Client{Transport: base, Timeout: 2 * time.Second}, network.ConnectionScope)
+	defer func() { client.CloseIdleConnections(); client = previous }()
+	ctx, cancel := context.WithTimeout(fastModelRetryContext(), 3*time.Second)
+	defer cancel()
+	model := modelcfg.Model{Provider: "openai-chat", ID: "fixture", BaseURL: endpoint.URL, APIKey: "fixture"}
+	turn, err := ModelTurn(ctx, model, []ChatMessage{{Role: "user", Content: "hello"}}, nil)
+	if err != nil || turn.Text != "recovered" || attempts.Load() != 2 {
+		t.Fatalf("native connection refusal did not recover: attempts=%d errno=%v text=%q err=%v", attempts.Load(), errno, turn.Text, err)
 	}
 }
 

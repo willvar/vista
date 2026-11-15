@@ -122,7 +122,7 @@ func resolvedSection(root *os.Root, key string, doc *document, mainData []byte, 
 		if doc.Version != Version {
 			return nil, ErrNeedsMigration
 		}
-		if len(value) == 0 || section != Models && section != MCP && section != Search {
+		if len(value) == 0 || section != Models && section != MCP && section != Search && section != Network {
 			return bytes.Clone(value), nil
 		}
 		only := &document{Version: Version}

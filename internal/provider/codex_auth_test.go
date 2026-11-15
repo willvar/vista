@@ -14,6 +14,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"vista/internal/network"
 
 	"github.com/google/uuid"
 	"vista/internal/codexauth"
@@ -21,9 +22,13 @@ import (
 	"vista/internal/useragent"
 )
 
-type codexTestTransport func(*http.Request) (*http.Response, error)
+type codexTestTransportFunc func(*http.Request) (*http.Response, error)
 
-func (f codexTestTransport) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
+func (f codexTestTransportFunc) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
+
+func codexTestTransport(f func(*http.Request) (*http.Response, error)) http.RoundTripper {
+	return network.Transport{Base: codexTestTransportFunc(f), Scope: network.ConnectionScope}
+}
 
 func TestCodexAccountRefreshAndToolContinuation(t *testing.T) {
 	if runtime.GOOS == "linux" || runtime.GOOS == "windows" {

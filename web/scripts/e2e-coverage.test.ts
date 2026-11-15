@@ -21,6 +21,12 @@ test('shared or unknown source changes conservatively select the whole browser s
   }
   assert.equal(browserSelection(files, true), undefined)
 })
+test('network and authorization adapters retain their application consumers', () => {
+  const available = ['codex-login.spec.ts', 'provider-setup.spec.ts', 'search-settings.spec.ts', 'mcp-settings.spec.ts', 'provider-output.spec.ts', 'modal-header.spec.ts', 'statistics.spec.ts']
+  for (const path of ['internal/network/client.go', 'internal/codexauth/auth.go', 'internal/copilotauth/auth.go', 'internal/useragent/useragent.go']) {
+    assert.deepEqual(browserScope([path], available), { full: false, files: available.filter(file => file !== 'statistics.spec.ts').sort() }, path)
+  }
+})
 test('documentation and unit-only changes keep smoke without inventing affected browser tests', () => {
   const scope = browserScope(['AGENTS.md', 'docs/testing.md', 'internal/store/display_messages_test.go', 'web/src/state/conversation.test.ts'], files)
   assert.deepEqual(scope, { full: false, files: [] })

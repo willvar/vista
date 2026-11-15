@@ -7,8 +7,10 @@ import Button from '../ui/Button.vue'
 import Input from '../ui/Input.vue'
 import TextArea from '../ui/TextArea.vue'
 import Select from '../ui/Select.vue'
+import { useControlErrors } from './validation'
 const props = defineProps(rendererProps<ControlElement>())
 const { control, handleChange } = useJsonFormsControl(props)
+const { errors, onFocusout } = useControlErrors(control)
 const { t } = useI18n({ useScope: 'global' })
 const prefix = inject('vista-schema-editor-id', 'configuration')
 const values = computed<unknown[]>(() => Array.isArray(control.value.data) ? control.value.data : [])
@@ -25,7 +27,7 @@ function move(index: number, offset: number) { const next = [...values.value]; c
 function label(index: number) { return t('configEditorItem', { name: control.value.label, index: index + 1 }) }
 </script>
 <template>
-  <fieldset v-if="control.visible" class="schema-array" :class="{ 'schema-array-invalid': !!control.errors }" :data-field-path="control.path">
+  <fieldset v-if="control.visible" class="schema-array" :class="{ 'schema-array-invalid': !!errors }" :data-field-path="control.path" @focusout="onFocusout">
     <legend>{{ control.label }}</legend>
     <small v-if="control.uischema.options?.description" class="schema-array-description">{{ control.uischema.options.description }}</small>
     <div v-for="(value, index) in values" :key="index" class="schema-array-row">
@@ -41,7 +43,7 @@ function label(index: number) { return t('configEditorItem', { name: control.val
       </div>
     </div>
     <Button v-if="!reorderOnly" type="button" :disabled="!canAdd" @click="add">{{ t('configEditorAdd') }}</Button>
-    <small v-if="control.errors" class="schema-error" role="status">{{ control.errors }}</small>
+    <small v-if="errors" class="schema-error" role="status">{{ errors }}</small>
   </fieldset>
 </template>
 <style scoped>

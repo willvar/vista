@@ -10,6 +10,10 @@ import (
 // credential cache calls it on initial use and renewal. Provider authentication takes precedence
 // over the protocol's default authentication.
 func ResolveRunCredentials(ctx context.Context, model modelcfg.Model, selected string) (modelcfg.Model, string, error) {
+	ctx, model, err := model.BindNetwork(ctx)
+	if err != nil {
+		return modelcfg.Model{}, selected, err
+	}
 	if prepare := catalogAdapterFor(model.ProviderID).prepareRun; prepare != nil {
 		return prepare(ctx, model, selected)
 	}

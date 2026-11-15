@@ -206,12 +206,17 @@ func updateSearchSettings(dir string, edit func(*searchSettingsConfig)) (searchS
 func (a *App) currentSearchProviders() []workerproto.SearchProvider {
 	a.searchMu.RLock()
 	defer a.searchMu.RUnlock()
+	policy, policyErr := a.globalNetworkPolicy()
 	providers := make([]workerproto.SearchProvider, 0, len(a.searchConfig.Order))
 	for _, name := range a.searchConfig.Order {
 		for _, provider := range a.searchProviders {
 			if provider.Name == name {
 				if key := a.searchConfig.APIKeys[name]; key != "" {
 					provider.APIKey = key
+				}
+				if policyErr == nil {
+					p := policy
+					provider.Network = &p
 				}
 				providers = append(providers, provider)
 				break

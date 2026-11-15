@@ -2,12 +2,15 @@ package provider
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"errors"
 	"io"
 	"math/rand/v2"
 	"net"
 	"net/url"
 	"strings"
+	"syscall"
 	"time"
 
 	modelcfg "vista/internal/model"
@@ -65,8 +68,7 @@ func modelRetryDelay(ctx context.Context, err error, attempt int) (time.Duration
 		if !errors.As(err, &requestError) {
 			return 0, false
 		}
-		var networkError net.Error
-		if !errors.As(requestError.Err, &networkError) && !errors.Is(requestError.Err, io.EOF) && !errors.Is(requestError.Err, io.ErrUnexpectedEOF) {
+		if !retryableModelTransportError(requestError.Err) {
 			return 0, false
 		}
 	}
@@ -79,6 +81,25 @@ func modelRetryDelay(ctx context.Context, err error, attempt int) (time.Duration
 	delay = time.Duration(float64(delay) * (0.8 + rand.Float64()*0.4))
 	delay = max(delay, hint)
 	return delay, delay <= maxModelRetryWait
+}
+
+func retryableModelTransportError(err error) bool {
+	// Certificate failures remain permanent even inside connection wrappers.
+	var verification *tls.CertificateVerificationError
+	var hostname x509.HostnameError
+	var authority x509.UnknownAuthorityError
+	var invalid x509.CertificateInvalidError
+	var roots x509.SystemRootsError
+	if errors.As(err, &verification) || errors.As(err, &hostname) || errors.As(err, &authority) || errors.As(err, &invalid) || errors.As(err, &roots) {
+		return false
+	}
+	// Neither net.Error nor net.OpError implies a transient failure: SOCKS
+	// authentication and protocol errors use the same connection wrappers.
+	var networkError net.Error
+	var errno syscall.Errno
+	return errors.As(err, &networkError) && (networkError.Timeout() || networkError.Temporary()) ||
+		errors.As(err, &errno) && retryableModelConnectionError(errno) ||
+		errors.Is(err, net.ErrClosed) || errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF)
 }
 
 func retryModelTurn(ctx context.Context, model modelcfg.Model, messages []ChatMessage, schemas []map[string]any, adapter protocolAdapter, onText, onReasoning func(string) error) (Turn, error) {

@@ -15,6 +15,7 @@ import (
 	"testing"
 
 	modelcfg "vista/internal/model"
+	"vista/internal/network"
 	"vista/internal/useragent"
 )
 
@@ -23,6 +24,7 @@ func TestCredentialExchangesKeepNativeHTTPIdentity(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, useragent.Filename), []byte(`{"preset":`), 0600); err != nil {
 		t.Fatal(err)
 	}
+	ctx := network.WithConnectionPolicy(context.Background(), network.Policy{})
 	for _, name := range []string{"gitlab", "sap", "watsonx", "vertex"} {
 		t.Run(name, func(t *testing.T) {
 			agents := make(chan string, 1)
@@ -35,15 +37,15 @@ func TestCredentialExchangesKeepNativeHTTPIdentity(t *testing.T) {
 			var err error
 			switch name {
 			case "gitlab":
-				_, _, err = resolveGitLabForRun(context.Background(), modelcfg.Model{APIKey: "test-pat", GitLabInstanceURL: endpoint.URL}, "fixture")
+				_, _, err = ResolveRunCredentials(ctx, modelcfg.Model{ProviderID: "gitlab", APIKey: "test-pat", GitLabInstanceURL: endpoint.URL}, "fixture")
 			case "sap":
 				key, _ := json.Marshal(map[string]string{"url": endpoint.URL, "clientid": "test-client", "clientsecret": "test-secret"})
-				_, _, err = resolveSAPAIForRun(context.Background(), modelcfg.Model{APIKey: string(key), BaseURL: endpoint.URL}, "fixture")
+				_, _, err = ResolveRunCredentials(ctx, modelcfg.Model{ProviderID: "sap-ai-core", APIKey: string(key), BaseURL: endpoint.URL}, "fixture")
 			case "watsonx":
 				original := watsonxIAMEndpoint
 				watsonxIAMEndpoint = endpoint.URL
 				t.Cleanup(func() { watsonxIAMEndpoint = original })
-				_, _, err = resolveWatsonxForRun(context.Background(), modelcfg.Model{APIKey: "test-key", ProjectID: "test-project"}, "fixture")
+				_, _, err = ResolveRunCredentials(ctx, modelcfg.Model{ProviderID: "watsonx", APIKey: "test-key", ProjectID: "test-project"}, "fixture")
 			case "vertex":
 				key, keyErr := rsa.GenerateKey(rand.Reader, 2048)
 				if keyErr != nil {
@@ -59,7 +61,7 @@ func TestCredentialExchangesKeepNativeHTTPIdentity(t *testing.T) {
 					t.Fatal(err)
 				}
 				t.Setenv("GOOGLE_APPLICATION_CREDENTIALS", path)
-				_, _, err = resolveVertexForRun(context.Background(), modelcfg.Model{}, "fixture")
+				_, _, err = ResolveRunCredentials(ctx, modelcfg.Model{ProviderID: "google-vertex"}, "fixture")
 			}
 			if err == nil {
 				t.Fatal("expected capture endpoint's HTTP 400")

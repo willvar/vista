@@ -42,6 +42,9 @@ func validateMCPConfig(configs []workerproto.MCPServer) error {
 	}
 	ids, names := map[string]bool{}, map[string]bool{}
 	for _, config := range configs {
+		if config.Network != nil {
+			return errors.New("MCP network policy is runtime-owned; configure the Vista global policy instead")
+		}
 		if ids[config.ID] || names[config.Name] {
 			return fmt.Errorf("duplicate MCP server ID or name: %q", config.Name)
 		}

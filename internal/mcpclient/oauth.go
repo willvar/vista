@@ -19,6 +19,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/oauthex"
 	"golang.org/x/oauth2"
 
+	"vista/internal/network"
 	"vista/internal/platform"
 )
 
@@ -149,6 +150,7 @@ func writeOAuthContext(ctx context.Context, path string, value oauthCredential) 
 }
 
 type storedTokenSource struct {
+	policy   *network.Policy
 	path     string
 	endpoint string
 }
@@ -212,7 +214,7 @@ func (s *storedTokenSource) Token() (*oauth2.Token, error) {
 			}
 		}
 	}
-	httpClient := &http.Client{Timeout: 20 * time.Second}
+	httpClient := network.NewClient(http.Client{Timeout: 20 * time.Second, Transport: network.Transport{Policy: s.policy}}, network.ApplicationScope)
 	ctx := context.WithValue(context.Background(), oauth2.HTTPClient, httpClient)
 	token, err := credential.Config.TokenSource(ctx, &credential.Token).Token()
 	if err != nil {
@@ -302,12 +304,19 @@ func Login(ctx context.Context, config Config, configDir string, fetchCallback f
 	if !config.OAuth || config.Transport != "http" {
 		return errors.New("MCP server is not configured for OAuth")
 	}
+	if config.Network == nil {
+		p, err := network.FromContext(ctx)
+		if err != nil {
+			return err
+		}
+		config.Network = &p
+	}
 	loginCtx, cancel := context.WithTimeout(ctx, 5*time.Minute)
 	defer cancel()
 	path := oauthPath(configDir, config.ID)
 	handlerConfig := &auth.AuthorizationCodeHandlerConfig{
 		RedirectURL: oauthRedirectURL,
-		Client:      &http.Client{Timeout: 20 * time.Second},
+		Client:      network.NewClient(http.Client{Timeout: 20 * time.Second, Transport: network.Transport{Policy: config.Network}}, network.ApplicationScope),
 		AuthorizationCodeFetcher: func(ctx context.Context, args *auth.AuthorizationArgs) (*auth.AuthorizationResult, error) {
 			raw, err := fetchCallback(ctx, args.URL)
 			if err != nil {
@@ -329,7 +338,7 @@ func Login(ctx context.Context, config Config, configDir string, fetchCallback f
 			if err := writeOAuth(path, value); err != nil {
 				return nil, err
 			}
-			return &storedTokenSource{path: path, endpoint: config.Endpoint}, nil
+			return &storedTokenSource{path: path, endpoint: config.Endpoint, policy: config.Network}, nil
 		},
 	}
 	if config.ClientID != "" {

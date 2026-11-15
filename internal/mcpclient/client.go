@@ -22,6 +22,7 @@ import (
 
 	"vista/internal/appdirs"
 	"vista/internal/buildinfo"
+	"vista/internal/network"
 	"vista/internal/useragent"
 	"vista/internal/workerproto"
 )
@@ -50,7 +51,7 @@ type Server struct {
 	session     *mcp.ClientSession
 	command     *exec.Cmd
 	outputLimit int
-	transport   *http.Transport
+	transport   *network.Transport
 }
 
 type Connection interface {
@@ -69,6 +70,13 @@ func WithConnector(ctx context.Context, connect Connector) context.Context {
 }
 
 func Open(ctx context.Context, config Config) (*Server, error) {
+	if config.Transport == "http" && config.Network == nil {
+		p, err := network.FromContext(ctx)
+		if err != nil {
+			return nil, err
+		}
+		config.Network = &p
+	}
 	if connect, ok := ctx.Value(connectorKey{}).(Connector); ok {
 		remote, err := connect(ctx, config, false)
 		return &Server{remote: remote}, err
@@ -99,15 +107,24 @@ func OpenWithConfigDir(ctx context.Context, config Config, dir string) (*Server,
 		if config.ClientID != "" && credential.Config.ClientID != config.ClientID {
 			return nil, fmt.Errorf("MCP %s OAuth client changed; reauthorize it in WebUI Settings > MCP", config.Name)
 		}
-		handler = &storedOAuthHandler{name: config.Name, source: &storedTokenSource{path: path, endpoint: config.Endpoint}}
+		handler = &storedOAuthHandler{name: config.Name, source: &storedTokenSource{path: path, endpoint: config.Endpoint, policy: config.Network}}
 	}
 	return openWithHandler(ctx, config, handler, 10*time.Second, maxHTTPResponse)
 }
 
 // OpenSearch leaves result sizing to the user's websearch byte setting.
 // Ordinary MCP connections retain their separate transport bound.
-func OpenSearch(ctx context.Context, endpoint, token string) (*Server, error) {
-	config := Config{ID: "search", Name: "search", Transport: "http", Endpoint: endpoint, Token: token}
+func OpenSearch(ctx context.Context, config Config) (*Server, error) {
+	if config.Network == nil {
+		policy, err := network.FromContext(ctx)
+		if err != nil {
+			return nil, err
+		}
+		config.Network = &policy
+	}
+	if config.Transport != "http" || config.OAuth {
+		return nil, errors.New("MCP search requires static HTTP configuration")
+	}
 	if err := ValidateConfig(config); err != nil {
 		return nil, err
 	}
@@ -123,7 +140,7 @@ func openWithHandler(ctx context.Context, config Config, handler auth.OAuthHandl
 	var transport mcp.Transport
 	var command *exec.Cmd
 	var local *commandTransport
-	var base *http.Transport
+	var owned *network.Transport
 	switch config.Transport {
 	case "stdio":
 		command = exec.Command(config.Command, config.Args...)
@@ -132,16 +149,16 @@ func openWithHandler(ctx context.Context, config Config, handler auth.OAuthHandl
 		local = &commandTransport{command: command}
 		transport = local
 	case "http":
-		base = http.DefaultTransport.(*http.Transport).Clone()
-		httpClient := &http.Client{Transport: &boundedTransport{base: base, token: config.Token, headers: config.Headers, limit: outputLimit}, Timeout: max(30*time.Second, connectTimeout), CheckRedirect: func(*http.Request, []*http.Request) error { return errors.New("MCP endpoint redirected") }}
+		owned = &network.Transport{Base: http.DefaultTransport.(*http.Transport).Clone(), Policy: config.Network}
+		httpClient := network.NewClient(http.Client{Transport: &boundedTransport{base: owned, token: config.Token, headers: config.Headers, limit: outputLimit}, Timeout: max(30*time.Second, connectTimeout), CheckRedirect: func(*http.Request, []*http.Request) error { return errors.New("MCP endpoint redirected") }}, network.ApplicationScope)
 		transport = &mcp.StreamableClientTransport{Endpoint: config.Endpoint, HTTPClient: httpClient, MaxRetries: -1, MaxEventSize: outputLimit, DisableStandaloneSSE: true, OAuthHandler: handler}
 	}
 	connectCtx, cancel := context.WithTimeout(ctx, connectTimeout)
 	defer cancel()
 	session, err := client.Connect(connectCtx, transport, &mcp.ClientSessionOptions{ProtocolVersion: ProtocolVersion})
 	if err != nil {
-		if base != nil {
-			base.CloseIdleConnections()
+		if owned != nil {
+			owned.CloseIdleConnections()
 		}
 		if local != nil && local.conn != nil {
 			_ = local.conn.Close()
@@ -150,12 +167,12 @@ func openWithHandler(ctx context.Context, config Config, handler auth.OAuthHandl
 	}
 	if initialized := session.InitializeResult(); initialized == nil || initialized.ProtocolVersion != ProtocolVersion {
 		_ = session.Close()
-		if base != nil {
-			base.CloseIdleConnections()
+		if owned != nil {
+			owned.CloseIdleConnections()
 		}
 		return nil, fmt.Errorf("MCP %s did not negotiate protocol %s", config.Name, ProtocolVersion)
 	}
-	return &Server{session: session, command: command, outputLimit: outputLimit, transport: base}, nil
+	return &Server{session: session, command: command, outputLimit: outputLimit, transport: owned}, nil
 }
 
 func ValidateConfig(config Config) error {
@@ -337,6 +354,8 @@ type boundedTransport struct {
 	headers map[string]string
 	limit   int
 }
+
+func (t *boundedTransport) Unwrap() http.RoundTripper { return t.base }
 
 func (t *boundedTransport) RoundTrip(request *http.Request) (*http.Response, error) {
 	r := request.Clone(request.Context())

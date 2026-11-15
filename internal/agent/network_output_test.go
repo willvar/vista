@@ -67,7 +67,7 @@ func TestNetworkInitialOutputReachesModelWithoutFixedTruncation(t *testing.T) {
 							continuationAnswer(w, "Waiting for the network result")
 							return
 						}
-						if slow && last.Role == "system" {
+						if slow && runtimeNoticeOnWire(last.Role, last.Content) {
 							_, raw, _ := strings.Cut(last.Content, "\n")
 							var notice workerproto.RuntimeEvent
 							if err := json.Unmarshal([]byte(raw), &notice); err != nil || notice.ContentOutput != nil {

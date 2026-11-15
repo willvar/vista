@@ -144,7 +144,9 @@ const credentialUISchema = computed<VerticalLayout>(() => {
     elements.push({ type: 'Control', scope: '#/properties/clientSecret', options: { placeholder: editing.value?.hasClientSecret ? t('reuseSavedKey') : '' } })
     if (editing.value?.hasClientSecret) elements.push({ type: 'Control', scope: '#/properties/clearClientSecret' })
   }
-  elements.push({ type: 'Control', scope: '#/properties/headers' })
+  elements.push({ type: 'Control', scope: '#/properties/headers', options: { showErrorsOnBlur: true, detail: {
+    type: 'HorizontalLayout', elements: ['name', 'value'].map(name => ({ type: 'Control', scope: `#/properties/${name}`, options: { showErrorsOnBlur: true, hideLabel: true, placeholder: name === 'name' ? `${t('headerName')} *` : t('headerValue') } })),
+  } } })
   return { type: 'VerticalLayout', elements }
 })
 const canSave = computed(() => {

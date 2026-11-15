@@ -16,7 +16,7 @@ test(`${account.providerName} sign-in uses a device code and connects without a 
   await context.route(account.verify, route => route.fulfill({ contentType: 'text/html', body: '<h1>Isolated authorization page</h1>' }))
   await page.route(`**/api/provider-auth/${account.kind}**`, async route => {
     if (route.request().method() === 'POST') {
-      expect(route.request().postDataJSON()).toEqual({ key: '', name: 'My Codex', ...(account.kind === 'copilot' ? { copilotAuth: { enterpriseUrl: '', clientId: '' } } : {}) })
+      expect(route.request().postDataJSON()).toEqual({ key: '', name: 'My Codex', proxyId: '', revision: '', ...(account.kind === 'copilot' ? { copilotAuth: { enterpriseUrl: '', clientId: '' } } : {}) })
       await route.fulfill({ json: pending })
     } else if (route.request().method() === 'DELETE') {
       canceled++
@@ -66,6 +66,7 @@ test(`${account.providerName} sign-in uses a device code and connects without a 
   await form.getByRole('button', { name: `Sign in with ${account.service}`, exact: true }).click()
   await expect(form.locator('.provider-device-code')).toBeVisible()
   await form.getByRole('button', { name: 'Cancel', exact: true }).click()
+  await page.getByRole('dialog', { name: 'Discard unsaved changes', exact: true }).getByRole('button', { name: 'Discard unsaved changes', exact: true }).click()
   await expect(form).toHaveCount(0)
   await expect(modal).toBeVisible()
   await expect.poll(() => canceled).toBe(2)
@@ -99,13 +100,14 @@ test('Copilot advanced login settings round-trip through connect, reload and rec
   await installMockStateStream(page)
   let authorized = false
   let connected = false
+  let expectedModelRevision = ''
   let expectedOptions = { enterpriseUrl: 'company.ghe.com', clientId: 'enterprise-app' }
   const savedOptions = { enterpriseUrl: 'https://company.ghe.com', clientId: 'enterprise-app' }
   const model = { key: 'enterprise-copilot', connectionId: 'enterprise-account', kind: 'github-copilot', name: 'Enterprise Copilot', provider: 'openai-responses', providerId: 'github-copilot', id: 'gpt-6-sol', baseUrl: 'https://copilot-api.company.ghe.com', editable: true, hasApiKey: true, credentialMode: 'oauth', copilotAuth: savedOptions }
   await page.route('**/api/provider-auth/copilot**', async route => {
     const pending = { id: 'enterprise-login', userCode: 'ENTERPRISE', verificationUrl: 'https://company.ghe.com/login/device', status: 'pending' }
     if (route.request().method() === 'POST') {
-      expect(route.request().postDataJSON()).toEqual({ key: connected ? model.key : '', name: model.name, copilotAuth: expectedOptions })
+      expect(route.request().postDataJSON()).toEqual({ key: connected ? model.key : '', name: model.name, proxyId: '', revision: connected ? expectedModelRevision : '', copilotAuth: expectedOptions })
       await route.fulfill({ json: pending })
     } else {
       const status = route.request().method() === 'DELETE' ? 'canceled' : authorized ? 'connected' : 'pending'
@@ -117,6 +119,7 @@ test('Copilot advanced login settings round-trip through connect, reload and rec
     const response = await route.fetch()
     const json = await response.json()
     if (connected) json.models.push(model)
+    expectedModelRevision = json.settingsRevision || ''
     await route.fulfill({ response, json })
   })
   await page.goto(vista.origin + '/settings/models')

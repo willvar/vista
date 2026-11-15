@@ -113,6 +113,8 @@ func credentialFields(section string) []string {
 		return []string{"token", "clientSecret", "headers"}
 	case Search:
 		return []string{"apiKeys", "jinaApiKey", "deepseekFetchApiKey"}
+	case Network:
+		return []string{"username", "password"}
 	}
 	return nil
 }
@@ -241,7 +243,7 @@ func inspectCredentialObject(section string, object credentialObject) (credentia
 	switch section {
 	case Models:
 		names = append(names, "connectionId", "key")
-	case MCP:
+	case MCP, Network:
 		names = append(names, "id")
 	}
 	indexes, err := credentialIndexes(object, names...)
@@ -282,7 +284,7 @@ func inspectCredentialObject(section string, object credentialObject) (credentia
 				location.owner = "key:" + value
 			}
 		}
-	case MCP:
+	case MCP, Network:
 		value, identityErr := identity("id")
 		err = identityErr
 		if value != "" {
@@ -367,6 +369,26 @@ func transformCredentialDocument(source *document, change func(string, credentia
 	}
 	if cloned.Search, err = transformObject(Search, cloned.Search); err != nil {
 		return nil, err
+	}
+	if !absent(cloned.Network) {
+		object, err := decodeCredentialObject(cloned.Network)
+		if err != nil {
+			return nil, err
+		}
+		indexes, err := credentialIndexes(object, "profiles")
+		if err != nil {
+			return nil, err
+		}
+		if index, present := indexes["profiles"]; present {
+			object[index].value, err = transformArray(Network, object[index].value)
+			if err != nil {
+				return nil, err
+			}
+		}
+		cloned.Network, err = marshalConfiguration(object, false)
+		if err != nil {
+			return nil, err
+		}
 	}
 	return &cloned, nil
 }

@@ -13,16 +13,17 @@ import (
 	"time"
 
 	"vista/internal/copilotauth"
+	"vista/internal/network"
 )
 
 const maxLocalModels = 64
 
-var copilotDiscoveryClient = &http.Client{
+var copilotDiscoveryClient = network.NewClient(http.Client{
 	Timeout: 5 * time.Second,
 	CheckRedirect: func(*http.Request, []*http.Request) error {
 		return errors.New("Copilot model endpoint redirected")
 	},
-}
+}, network.ConnectionScope)
 
 func CopilotRoot(base string) string {
 	base = strings.TrimRight(base, "/")
@@ -34,7 +35,7 @@ func CopilotSourceID(model Configured) string {
 	return fmt.Sprintf("%x", sum)
 }
 
-func DiscoverCopilotModels(parent context.Context, source Configured) ([]Configured, error) {
+func discoverCopilotModels(parent context.Context, source Configured) ([]Configured, error) {
 	base := CopilotRoot(source.BaseURL)
 	if !ValidProviderBaseURL(base) {
 		return nil, errors.New("Copilot model discovery requires HTTPS or loopback HTTP")
@@ -49,7 +50,7 @@ func DiscoverCopilotModels(parent context.Context, source Configured) ([]Configu
 	req.Header.Set("Authorization", "Bearer "+source.APIKey)
 	req.Header.Set("X-GitHub-Api-Version", "2026-08-01")
 	copilotauth.SetAPIHeaders(req.Header)
-	response, err := copilotDiscoveryClient.Do(req)
+	response, err := network.Do(copilotDiscoveryClient, req)
 	if err != nil {
 		return nil, err
 	}
@@ -144,7 +145,7 @@ func DiscoverCopilotModels(parent context.Context, source Configured) ([]Configu
 		if protocol == "anthropic" {
 			modelBase += "/v1"
 		}
-		models = append(models, Configured{
+		models = append(models, Configured{ProxyID: source.ProxyID,
 			Key: fmt.Sprintf("copilot-%x", hash[:6]), ConnectionID: source.ConnectionID, Name: source.Name, Provider: protocol,
 			ProviderID: "github-copilot", ID: item.ID, BaseURL: modelBase,
 			APIKey: source.APIKey, Tools: item.Capabilities.Supports.Tools,

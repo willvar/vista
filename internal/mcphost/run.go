@@ -20,6 +20,7 @@ import (
 	"syscall"
 	"time"
 
+	"vista/internal/network"
 	"vista/internal/platform"
 	"vista/internal/workerproto"
 )
@@ -60,6 +61,7 @@ func Run() error {
 	if len(boot.Token) != 64 || !filepath.IsAbs(boot.ConfigDir) || !filepath.IsAbs(boot.StateDir) {
 		return errors.New("invalid MCP host startup")
 	}
+	network.SetConfigDir(boot.ConfigDir)
 	address := "127.0.0.1:0"
 	if boot.Endpoint != "" {
 		address = strings.TrimPrefix(boot.Endpoint, "http://")

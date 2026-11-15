@@ -50,6 +50,9 @@ try {
   let providerError
   let longCallIssued = false
   let timeoutCallIssued = false
+  let timeoutCallID
+  let timeoutYielded = false
+  let timeoutCompletionReceived = false
   let crashCallIssued = false
   provider = createServer((request, response) => {
     try {
@@ -69,7 +72,23 @@ try {
             if (name === 'everything-cancel' && longCallIssued) throw new Error('cancelled MCP call was replayed or the Agent continued')
             if (name === 'everything-crash' && crashCallIssued) throw new Error('crashed MCP call was replayed or the Agent continued')
             if (name === 'everything-timeout' && timeoutCallIssued) {
-              const result = JSON.parse(results.at(-1).content)
+              const replies = results.filter(message => message.tool_call_id === timeoutCallID)
+              if (replies.length !== 1) throw new Error('MCP timeout call must have exactly one protocol reply')
+              let result = JSON.parse(replies[0].content)
+              const completions = body.messages
+                .filter(message => message.role === 'user' && message.content.startsWith('Runtime completion event.'))
+                .map(message => JSON.parse(message.content.slice(message.content.indexOf('\n') + 1)))
+                .filter(event => event.kind === 'tool' && event.sourceId === timeoutCallID)
+              if (completions.length > 1) throw new Error('MCP timeout completion was delivered more than once')
+              if (result.status === 'running' && completions.length === 0) {
+                timeoutYielded = true
+                return send({ delta: { content: 'Waiting for the MCP timeout result.' }, finish_reason: 'stop' })
+              }
+              if (completions.length === 1) {
+                if (result.status !== 'running' || completions[0].status !== 'failed' || timeoutCompletionReceived) throw new Error('MCP timeout completion did not settle the pending call once')
+                timeoutCompletionReceived = true
+                result = JSON.parse(completions[0].content)
+              }
               if (!/(deadline|timeout)/i.test(result?.error || '')) throw new Error(`MCP timeout was not reported: ${results.at(-1).content}`)
               return send({ delta: { content: `${name} upstream MCP complete` }, finish_reason: 'stop' })
             }
@@ -78,7 +97,10 @@ try {
             if (page.tools?.some(item => item.name === target)) {
               if (name === 'everything-cancel') longCallIssued = true
               else if (name === 'everything-crash') crashCallIssued = true
-              else timeoutCallIssued = true
+              else {
+                timeoutCallIssued = true
+                timeoutCallID = `call_${counts[name]}`
+              }
               return tool('mcp_call_tool', { server: 'everything', name: target, arguments: { duration: name === 'everything-timeout' ? 35 : 5, steps: 1 } })
             }
             if (!page.pageComplete || page.nextCursor) return tool('mcp_list_tools', { server: 'everything', cursor: page.nextCursor, offset: page.pageComplete ? 0 : page.nextOffset })
@@ -176,14 +198,20 @@ try {
   const timeoutRun = await api(`/sessions/${timeoutSession.id}/messages`, { method: 'POST', body: JSON.stringify({ content: 'Use the everything timeout MCP tool' }) })
   let timeoutFinish
   let timeoutToolFailed = false
+  let timeoutEvents = []
   for (let i = 0; i < 1600; i++) {
     const events = await api(`/sessions/${timeoutSession.id}/event-page?after=${timeoutRun.event.sequence}`)
+    timeoutEvents = events
     if (events.some(event => event.kind === 'tool' && event.data.status === 'failed' && event.data.tool?.name === 'mcp_call_tool')) timeoutToolFailed = true
     timeoutFinish = events.find(event => event.kind === 'run_finished' && event.data.runId === timeoutRun.runId)
     if (timeoutFinish) break
     await new Promise(resolve => setTimeout(resolve, 25))
   }
   if (!timeoutCallIssued || !timeoutToolFailed || timeoutFinish?.data.status !== 'succeeded' || timeoutFinish.data.message?.content !== 'everything-timeout upstream MCP complete' || providerError) throw new Error(`upstream MCP timeout was not handled: ${JSON.stringify(timeoutFinish?.data)}, model calls=${counts['everything-timeout']}, provider error=${providerError}`)
+  const timeoutStarts = timeoutEvents.filter(event => event.kind === 'tool' && event.data.tool?.callId === timeoutCallID && event.data.status === 'started')
+  const timeoutFailures = timeoutEvents.filter(event => event.kind === 'tool' && event.data.tool?.callId === timeoutCallID && event.data.status === 'failed')
+  const timeoutCompletions = timeoutEvents.filter(event => event.kind === 'runtime_event' && event.data.sourceId === timeoutCallID && event.data.status === 'failed')
+  if (!timeoutYielded || !timeoutCompletionReceived || timeoutStarts.length !== 1 || timeoutFailures.length !== 1 || timeoutCompletions.length !== 1) throw new Error('upstream MCP timeout did not yield and settle exactly once')
   const callsAtTimeout = counts['everything-timeout']
   await new Promise(resolve => setTimeout(resolve, 5300))
   if (counts['everything-timeout'] !== callsAtTimeout) throw new Error('upstream MCP completion replayed a timed-out tool call')

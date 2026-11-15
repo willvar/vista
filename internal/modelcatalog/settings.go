@@ -15,14 +15,15 @@ import (
 	"unicode"
 
 	"vista/internal/configstore"
+	"vista/internal/network"
 	"vista/internal/provider"
 	"vista/internal/useragent"
 )
 
-var customModelDiscoveryClient = &http.Client{
+var customModelDiscoveryClient = network.NewClient(http.Client{
 	Timeout:       5 * time.Second,
 	CheckRedirect: func(*http.Request, []*http.Request) error { return errors.New("model endpoint redirected") },
-}
+}, network.ConnectionScope)
 
 func SelectableZenTextModel(providerID, id string) bool {
 	if providerID != "opencode" && providerID != "opencode-go" {
@@ -51,7 +52,7 @@ func Editable(model Configured) bool {
 	_ = json.Unmarshal(data, &fields)
 	for name := range fields {
 		switch name {
-		case "key", "connectionId", "name", "provider", "providerId", "id", "baseUrl", "apiKey", "authentication", "headers", "accessToken", "auth", "resourceName", "deploymentId", "apiVersion", "region", "project", "location":
+		case "proxyId", "key", "connectionId", "name", "provider", "providerId", "id", "baseUrl", "apiKey", "authentication", "headers", "accessToken", "auth", "resourceName", "deploymentId", "apiVersion", "region", "project", "location":
 		case "tools", "context":
 			if model.ConnectionID == "" || !LocalProvider(model.ProviderID) && model.ProviderID != "github-copilot" {
 				return false
@@ -67,7 +68,7 @@ func Editable(model Configured) bool {
 	return true
 }
 
-func FetchCustomModelIDs(ctx context.Context, endpoint, key string) ([]string, error) {
+func fetchModelIDs(ctx context.Context, endpoint, key string) ([]string, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
 	if err != nil {
 		return nil, errors.New("could not request model list")
@@ -117,42 +118,40 @@ func ZenProvider(providerID string) bool {
 	return providerID == "opencode" || providerID == "opencode-go"
 }
 
-func SavedProviderKey(catalog Catalog, matches func(Configured) bool) (string, error) {
+// SavedProviderConnection keeps credentials and network selection together.
+func SavedProviderConnection(catalog Catalog, matches func(Configured) bool) (*Configured, error) {
 	var selected *Configured
 	for _, model := range catalog.Models {
-		if !matches(model) || model.APIKey == "" {
+		if !matches(model) {
 			continue
 		}
 		if selected != nil && !SameConnection(*selected, model) {
-			return "", errors.New("multiple provider connections match; select a connection or provide an API key")
+			return nil, errors.New("multiple provider connections match; select a connection")
 		}
 		copy := model
 		selected = &copy
 	}
-	if selected == nil {
-		return "", nil
-	}
-	return selected.APIKey, nil
+	return selected, nil
 }
 
-func FetchZenModelIDs(ctx context.Context, providerID, key string) ([]string, error) {
-	if !ZenProvider(providerID) || key == "" {
+func fetchZenModelIDs(ctx context.Context, source Configured) ([]string, error) {
+	if !ZenProvider(source.ProviderID) || source.APIKey == "" {
 		return nil, errors.New("enter your OpenCode API key to load available models")
 	}
-	entry, err := provider.LookupCatalogProvider(providerID)
+	entry, err := provider.LookupCatalogProvider(source.ProviderID)
 	if err != nil {
 		return nil, errors.New("OpenCode model endpoint is unavailable")
 	}
-	return FetchCustomModelIDs(ctx, strings.TrimRight(entry.BaseURL, "/")+"/models", key)
+	return fetchModelIDs(ctx, strings.TrimRight(entry.BaseURL, "/")+"/models", source.APIKey)
 }
 
-func ValidateZenModels(ctx context.Context, providerID, key string, ids []string) error {
-	available, err := FetchZenModelIDs(ctx, providerID, key)
+func validateZenModels(ctx context.Context, source Configured, ids []string) error {
+	models, err := DiscoverModels(ctx, source)
 	if err != nil {
 		return err
 	}
 	for _, id := range ids {
-		if !slices.Contains(available, id) {
+		if !slices.ContainsFunc(models, func(m Configured) bool { return m.ID == id }) {
 			return errors.New("model is absent from the current OpenCode /models list; refresh the list")
 		}
 	}
@@ -217,7 +216,7 @@ func SameConnection(first, second Configured) bool {
 	if first.ConnectionID != "" || second.ConnectionID != "" {
 		return first.ConnectionID != "" && first.ConnectionID == second.ConnectionID
 	}
-	if first.APIKey != second.APIKey || first.Authentication != second.Authentication || first.Name != second.Name || !maps.Equal(first.Headers, second.Headers) {
+	if first.ProxyID != second.ProxyID || first.APIKey != second.APIKey || first.Authentication != second.Authentication || first.Name != second.Name || !maps.Equal(first.Headers, second.Headers) {
 		return false
 	}
 	if ZenProvider(first.ProviderID) {

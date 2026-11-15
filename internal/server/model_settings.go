@@ -6,12 +6,15 @@ import (
 	"io"
 	"net/http"
 	"sort"
+
 	"vista/internal/copilotauth"
 	"vista/internal/modelcatalog"
+	"vista/internal/network"
 	"vista/internal/provider"
 )
 
 type modelSetting struct {
+	ProxyID        string               `json:"proxyId,omitempty"`
 	Kind           string               `json:"kind,omitempty"`
 	Key            string               `json:"key"`
 	ConnectionID   string               `json:"connectionId,omitempty"`
@@ -62,7 +65,7 @@ func (a *App) modelSettings(w http.ResponseWriter, r *http.Request) {
 			} else if model.APIKey == "" && (modelcatalog.LocalProvider(model.ProviderID) || model.ProviderID == "amazon-bedrock" || model.ProviderID == "google-vertex") || model.BedrockAuth == "sigv4" {
 				mode = "default"
 			}
-			items = append(items, modelSetting{Kind: modelcatalog.SetupID(model), Key: model.Key, ConnectionID: model.ConnectionID, Name: model.Name, Provider: model.Provider, ProviderID: model.ProviderID, ID: model.ID, BaseURL: model.BaseURL, HasAPIKey: model.APIKey != "", Editable: exists && modelcatalog.Editable(model),
+			items = append(items, modelSetting{ProxyID: model.ProxyID, Kind: modelcatalog.SetupID(model), Key: model.Key, ConnectionID: model.ConnectionID, Name: model.Name, Provider: model.Provider, ProviderID: model.ProviderID, ID: model.ID, BaseURL: model.BaseURL, HasAPIKey: model.APIKey != "", Editable: exists && modelcatalog.Editable(model),
 				HeaderNames: headerNames, CopilotAuth: model.CopilotAuth, HasAccessToken: model.AccessToken != "", CredentialMode: mode, Region: model.Region, Project: model.Project, Location: model.Location, ResourceName: model.ResourceName, DeploymentID: model.DeploymentID, APIVersion: model.APIVersion})
 		}
 		jsonOut(w, map[string]any{"default": catalog.Default, "models": items, "settingsRevision": a.modelSettingsVersion(snapshot.revision)})
@@ -128,32 +131,36 @@ func (a *App) discoverCustomModels(w http.ResponseWriter, r *http.Request) {
 			settingsHTTPError(w, err, 500)
 			return
 		}
-		var saved *configuredModel
-		for _, model := range snapshot.raw.Models {
-			if modelcatalog.SetupID(model) != "custom" || model.BaseURL != input.BaseURL || input.ConnectionID != "" && model.ConnectionID != input.ConnectionID {
-				continue
-			}
-			if saved != nil && !modelcatalog.SameConnection(*saved, model) {
-				settingsHTTPError(w, errors.New("multiple provider connections match; select a connection"), 400)
-				return
-			}
-			copy := model
-			saved = &copy
+		saved, err := modelcatalog.SavedProviderConnection(snapshot.raw, func(model configuredModel) bool {
+			return modelcatalog.SetupID(model) == "custom" && model.BaseURL == input.BaseURL && (input.ConnectionID == "" || model.ConnectionID == input.ConnectionID)
+		})
+		if err != nil {
+			settingsHTTPError(w, err, http.StatusBadRequest)
+			return
 		}
 		if saved != nil {
+			source.ProxyID = saved.ProxyID
 			if source.APIKey == "" && input.CredentialMode != "none" {
 				source.APIKey = saved.APIKey
 			}
 			if input.Headers == nil && input.ConnectionID != "" {
 				source.Headers = saved.Headers
 			}
+		} else if input.ConnectionID != "" {
+			settingsHTTPError(w, errors.New("provider connection is no longer available"), http.StatusNotFound)
+			return
 		}
 	}
 	if err := provider.ValidateCustomAuthentication(source.Authentication, source.APIKey); err != nil {
 		settingsHTTPError(w, err, 400)
 		return
 	}
-	models, err := modelcatalog.DiscoverCustomModels(r.Context(), source)
+	ctx, err := source.ConnectionContext(network.WithConfigDir(r.Context(), a.configDir))
+	if err != nil {
+		settingsHTTPError(w, err, http.StatusBadRequest)
+		return
+	}
+	models, err := modelcatalog.DiscoverModels(ctx, source)
 	if err != nil {
 		settingsHTTPError(w, err, 502)
 		return
@@ -181,34 +188,48 @@ func (a *App) discoverZenModels(w http.ResponseWriter, r *http.Request) {
 		settingsHTTPError(w, errors.New("choose OpenCode Zen or Zen Go"), 400)
 		return
 	}
-	key := input.APIKey
-	if key == "" {
+	source := configuredModel{ProviderID: input.ProviderID, APIKey: input.APIKey}
+	if source.APIKey == "" || input.ConnectionID != "" {
 		snapshot, err := a.modelSettingsSnapshot()
-		catalog := snapshot.raw
 		if err != nil {
 			settingsHTTPError(w, err, 500)
 			return
 		}
-		key, err = modelcatalog.SavedProviderKey(catalog, func(model configuredModel) bool {
+		saved, err := modelcatalog.SavedProviderConnection(snapshot.raw, func(model configuredModel) bool {
 			return modelcatalog.ZenProvider(model.ProviderID) && model.ProviderID == input.ProviderID && (input.ConnectionID == "" || model.ConnectionID == input.ConnectionID)
 		})
 		if err != nil {
 			settingsHTTPError(w, err, http.StatusBadRequest)
 			return
 		}
+		if saved != nil {
+			source = *saved
+			if input.APIKey != "" {
+				source.APIKey = input.APIKey
+			}
+		} else if input.ConnectionID != "" {
+			settingsHTTPError(w, errors.New("provider connection is no longer available"), http.StatusNotFound)
+			return
+		}
 	}
-	if key == "" {
+	if source.APIKey == "" {
 		settingsHTTPError(w, errors.New("enter your OpenCode API key to load available models"), 400)
 		return
 	}
-	ids, err := modelcatalog.FetchZenModelIDs(r.Context(), input.ProviderID, key)
+	ctx, err := source.ConnectionContext(network.WithConfigDir(r.Context(), a.configDir))
+	if err != nil {
+		settingsHTTPError(w, err, http.StatusBadRequest)
+		return
+	}
+	models, err := modelcatalog.DiscoverModels(ctx, source)
 	if err != nil {
 		settingsHTTPError(w, err, 502)
 		return
 	}
-	supported := make([]string, 0, len(ids))
+	supported := make([]string, 0, len(models))
 	unsupported := make([]string, 0)
-	for _, id := range ids {
+	for _, model := range models {
+		id := model.ID
 		if modelcatalog.SelectableZenTextModel(input.ProviderID, id) {
 			supported = append(supported, id)
 		} else {

@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"vista/internal/mcpclient"
+	"vista/internal/network"
 	"vista/internal/workerproto"
 )
 
@@ -24,10 +25,18 @@ type Definition struct {
 // Display names and enable switches do not identify a transport connection.
 func Key(def Definition) string {
 	def.Config.Name, def.Config.Disabled = "", false
+	routing := ""
+	if policy := def.Config.Network; policy != nil && policy.Profile != nil {
+		routing = network.Fingerprint(*policy)
+	}
+	def.Config.Network = nil
 	if def.Search {
 		def.Config.ID = "search"
 	}
 	data, _ := json.Marshal(def)
+	if routing != "" {
+		data = append(append(data, 0), []byte(routing)...)
+	}
 	hash := sha256.Sum256(data)
 	return hex.EncodeToString(hash[:])
 }
@@ -41,6 +50,7 @@ func Definitions(servers []workerproto.MCPServer, searches []workerproto.SearchP
 	}
 	for _, search := range searches {
 		if config, ok := mcpclient.SearchConfig(search.Name, search.Endpoint, search.APIKey); ok {
+			config.Network = search.Network
 			definitions = append(definitions, Definition{Config: config, Search: true})
 		}
 	}

@@ -1,6 +1,185 @@
 import { closeSettings } from './settings-navigation'
 import { createServer } from 'node:http'
-import { test, expect } from './fixtures'
+import type { Page } from '@playwright/test'
+import { test, expect, type VistaFixture } from './fixtures'
+import { expectHeaderRow } from './layout-ready'
+
+async function azureConnection(page: Page, vista: VistaFixture) {
+  const input = { name: 'Draft Azure', provider: 'catalog', providerId: 'azure', credentialMode: 'apiKey', apiKey: 'azure-fixture', resourceName: 'fixture-resource', deploymentId: 'fixture-deployment', ids: ['gpt-4.1'] }
+  await vista.api('/provider-config', { method: 'POST', body: JSON.stringify(input) })
+  const saved = (await vista.api('/model-config')).models.find((model: { name: string }) => model.name === input.name)
+  const setup = (await vista.api('/provider-config')).find((provider: { id: string }) => provider.id === 'azure')
+  const dialog = page.locator('.provider-connection-modal')
+  const form = dialog.locator('.model-form')
+  const picker = form.locator('.catalog-model-field .ui-select')
+  const discard = page.getByRole('dialog', { name: 'Discard unsaved changes', exact: true })
+  const label = (id: string) => setup.models.find((model: { id: string }) => model.id === id).name || id
+  return {
+    input, saved, dialog, form, picker, discard, label,
+    open: () => page.locator('.configured-provider').filter({ hasText: input.name }).getByRole('button', { name: 'Edit', exact: true }).click(),
+    select: async (id: string) => {
+      await picker.click()
+      await picker.locator('input').fill(id)
+      await page.getByRole('option', { name: label(id), exact: true }).click()
+      await expect(picker.locator('.ui-select-selection-item')).toHaveText(label(id))
+    },
+  }
+}
+
+test('model-only drafts require confirmation and reset after reverting, discarding or saving', async ({ page, vista }) => {
+  const connection = await azureConnection(page, vista)
+  const { dialog, form, picker, discard, label } = connection
+  await page.goto(vista.origin + '/settings/models')
+  const writes: string[] = []
+  page.on('request', request => { if (new URL(request.url()).pathname === '/api/provider-config' && request.method() === 'PUT') writes.push(request.method()) })
+  await connection.open()
+  await connection.select('gpt-4.1-mini')
+  await dialog.getByRole('button', { name: 'Close', exact: true }).click()
+  await expect(discard).toBeVisible()
+  await discard.getByRole('button', { name: 'Cancel', exact: true }).click()
+  await expect(picker.locator('.ui-select-selection-item')).toHaveText(label('gpt-4.1-mini'))
+  await connection.select('gpt-4.1')
+  await dialog.getByRole('button', { name: 'Close', exact: true }).click()
+  await expect(form).toHaveCount(0)
+  await expect(discard).toHaveCount(0)
+  await connection.open()
+  await connection.select('gpt-4.1-mini')
+  await form.getByRole('button', { name: 'Cancel', exact: true }).click()
+  await expect(discard).toBeVisible()
+  await discard.getByRole('button', { name: 'Discard unsaved changes', exact: true }).click()
+  await expect(form).toHaveCount(0)
+  await connection.open()
+  await expect(picker.locator('.ui-select-selection-item')).toHaveText(label('gpt-4.1'))
+  expect(writes).toEqual([])
+  await connection.select('gpt-4.1-mini')
+  await form.getByRole('button', { name: 'Save changes', exact: true }).click()
+  await expect(form).toHaveCount(0)
+  await expect.poll(async () => (await vista.api('/model-config')).models.find((model: { name: string }) => model.name === connection.input.name)?.id).toBe('gpt-4.1-mini')
+  expect(writes).toEqual(['PUT'])
+  await connection.open()
+  await expect(picker.locator('.ui-select-selection-item')).toHaveText(label('gpt-4.1-mini'))
+  await dialog.getByRole('button', { name: 'Close', exact: true }).click()
+  await expect(form).toHaveCount(0)
+  await expect(discard).toHaveCount(0)
+})
+
+test('model-only drafts survive navigation cancellation and reload from the accepted connection', async ({ page, vista }) => {
+  const connection = await azureConnection(page, vista)
+  const { dialog, form, picker, discard, label } = connection
+  await page.goto(vista.origin + '/settings/general')
+  await page.locator('.settings-nav').getByRole('link', { name: 'Service connections', exact: true }).click()
+  await connection.open()
+  await connection.select('gpt-4.1-mini')
+  const cancelledBack = page.goBack()
+  await expect(discard).toBeVisible()
+  await discard.getByRole('button', { name: 'Cancel', exact: true }).click()
+  await cancelledBack
+  await expect(page).toHaveURL(url => url.pathname === '/settings/models')
+  await expect(picker.locator('.ui-select-selection-item')).toHaveText(label('gpt-4.1-mini'))
+  const discardedBack = page.goBack()
+  await expect(discard).toBeVisible()
+  await discard.getByRole('button', { name: 'Discard unsaved changes', exact: true }).click()
+  await discardedBack
+  await expect(page).toHaveURL(url => url.pathname === '/settings/general')
+  await expect(form).toHaveCount(0)
+  await page.locator('.settings-nav').getByRole('link', { name: 'Service connections', exact: true }).click()
+  await connection.open()
+  await connection.select('gpt-4.1-mini')
+  const settings = await vista.api('/model-config')
+  await vista.api('/provider-config', { method: 'PUT', body: JSON.stringify({ ...connection.input, key: connection.saved.key, apiKey: '', name: 'Draft Azure updated', revision: settings.settingsRevision }) })
+  const reload = form.getByRole('button', { name: 'Reload current settings', exact: true })
+  await expect(reload).toBeVisible()
+  await reload.click()
+  await expect(discard).toBeVisible()
+  await discard.getByRole('button', { name: 'Cancel', exact: true }).click()
+  await expect(picker.locator('.ui-select-selection-item')).toHaveText(label('gpt-4.1-mini'))
+  await reload.click()
+  await discard.getByRole('button', { name: 'Discard unsaved changes', exact: true }).click()
+  await expect(form.getByLabel(/^Provider name/)).toHaveValue('Draft Azure updated')
+  await expect(picker.locator('.ui-select-selection-item')).toHaveText(label('gpt-4.1'))
+  await expect(reload).toHaveCount(0)
+  await dialog.getByRole('button', { name: 'Close', exact: true }).click()
+  await expect(form).toHaveCount(0)
+  await expect(discard).toHaveCount(0)
+})
+
+test('custom cache format controls its defaults without a separate cache-key option @responsive', async ({ page, vista }) => {
+  await vista.api('/provider-config', { method: 'POST', body: JSON.stringify({
+    name: 'Cache gateway', provider: 'openai-responses', providerId: 'custom',
+    baseUrl: 'http://127.0.0.1:1/v1', credentialMode: 'none', ids: ['opaque-cache-model'],
+    promptCaching: { format: 'openai', key: false, retention: '24h' }, responsesRoute: 'codex-compatible',
+  }) })
+  await page.goto(vista.origin + '/settings/models')
+  const connection = page.locator('.configured-provider').filter({ hasText: 'Cache gateway' })
+  await connection.getByRole('button', { name: 'Edit', exact: true }).click()
+  const form = page.locator('.provider-connection-modal .model-form')
+  const format = form.getByRole('combobox', { name: 'Prompt caching compatibility', exact: true })
+  const key = form.locator('[data-field-path=cacheKey]')
+  await expect(format).toHaveValue('OpenAI')
+  await expect(key).toHaveCount(0)
+  await expect(form.locator('[data-field-path=responsesRoute]')).toHaveCount(0)
+  const misplacedMarkers = await form.locator('.schema-control > label:has(.schema-required)').evaluateAll(labels => labels.flatMap(label => {
+    const marker = label.querySelector('.schema-required')!.getBoundingClientRect()
+    const text = document.createRange()
+    text.selectNodeContents(label.firstChild!)
+    const lastLine = Array.from(text.getClientRects()).at(-1)!
+    return Math.abs(marker.top - lastLine.top) > 2 ? [label.textContent] : []
+  }))
+  expect(misplacedMarkers, 'Required markers stay on the last line of their label').toEqual([])
+  await form.getByLabel(/^Provider name/).fill('Cache gateway saved')
+  await form.getByRole('button', { name: 'Save changes', exact: true }).click()
+  await expect(form).toHaveCount(0)
+  await expect(connection).toContainText('Cache gateway saved')
+  const options = async () => (await vista.api('/model-config')).models.find((model: { name: string }) => model.name === 'Cache gateway saved').promptCaching
+  // Ordinary edits preserve existing advanced API overrides.
+  await expect.poll(options).toEqual({ format: 'openai', key: false, retention: '24h' })
+  await connection.getByRole('button', { name: 'Edit', exact: true }).click()
+  await format.scrollIntoViewIfNeeded()
+  await format.click()
+  await expect(page.getByRole('option')).toHaveText(['Omit cache hints', 'OpenAI'])
+  await page.getByRole('option', { name: 'Omit cache hints', exact: true }).click()
+  await expect(key).toHaveCount(0)
+  await format.click()
+  await page.getByRole('option', { name: 'OpenAI', exact: true }).click()
+  await expect(key).toHaveCount(0)
+  await form.getByRole('button', { name: 'Save changes', exact: true }).click()
+  await expect(form).toHaveCount(0)
+  // An explicit strategy selection clears the old independent override and
+  // lifetime, so the chosen OpenAI strategy uses its default cache key.
+  await expect.poll(options).toEqual({ format: 'openai' })
+  await connection.getByRole('button', { name: 'Edit', exact: true }).click()
+  await form.getByLabel(/^Base URL/).fill('http://127.0.0.1:2/v1')
+  await expect(format).toHaveValue('Omit cache hints')
+  await expect(key).toHaveCount(0)
+})
+
+for (const legacy of [
+  { name: 'Default cache policy', promptCaching: { format: 'auto' }, format: 'Omit cache hints', route: '' },
+  { name: 'Legacy routing key', promptCaching: { format: 'auto' }, format: 'OpenAI', route: 'codex-compatible' },
+  { name: 'Explicit cache key', promptCaching: { format: 'auto', key: true }, format: 'OpenAI', route: '' },
+  { name: 'Disabled legacy key', promptCaching: { format: 'auto', key: false }, format: 'Omit cache hints', route: 'codex-compatible' },
+  { name: 'Existing Gemini resource', promptCaching: { format: 'auto', cachedContent: { name: 'cachedContents/existing', sha256: '0'.repeat(64), messages: 0 } }, format: 'Gemini', route: '', provider: 'gemini' },
+]) {
+  test(`legacy cache settings retain their behavior when editing: ${legacy.name}`, async ({ page, vista }) => {
+    await vista.api('/provider-config', { method: 'POST', body: JSON.stringify({
+      name: legacy.name, provider: legacy.provider || 'openai-responses', providerId: 'custom',
+      baseUrl: 'http://127.0.0.1:1/v1', credentialMode: 'none', ids: ['opaque-cache-model'],
+      promptCaching: legacy.promptCaching, responsesRoute: legacy.route,
+    }) })
+    await page.goto(vista.origin + '/settings/models')
+    const connection = page.locator('.configured-provider').filter({ hasText: legacy.name })
+    await connection.getByRole('button', { name: 'Edit', exact: true }).click()
+    const form = page.locator('.provider-connection-modal .model-form')
+    await expect(form.locator('[data-field-path=cacheFormat] .ui-select')).toContainText(legacy.format)
+    await expect(form.locator('[data-field-path=cacheKey]')).toHaveCount(0)
+    await form.getByLabel(/^Provider name/).fill(legacy.name + ' renamed')
+    await form.getByRole('button', { name: 'Save changes', exact: true }).click()
+    await expect(form).toHaveCount(0)
+    const saved = (await vista.api('/model-config')).models.find((model: { name: string }) => model.name === legacy.name + ' renamed')
+    expect(saved.promptCaching).toEqual(legacy.promptCaching)
+    expect(saved.responsesRoute || '').toBe(legacy.route)
+  })
+}
 
 test.describe('custom provider dialogs', () => {
   test.use({ providerOutput: 'perplexity' })
@@ -24,6 +203,9 @@ test.describe('custom provider dialogs', () => {
     const name = form.getByLabel(/^Provider name/)
     await name.fill('Discarded draft')
     await page.keyboard.press('Escape')
+    const discard = page.getByRole('dialog', { name: 'Discard unsaved changes', exact: true })
+    await expect(discard).toBeVisible()
+    await discard.getByRole('button', { name: 'Discard unsaved changes', exact: true }).click()
     await expect(form).toHaveCount(0)
     await expect(settings).toBeVisible()
     await connect.click()
@@ -55,6 +237,8 @@ test.describe('custom provider dialogs', () => {
     await name.fill('Unsaved rename')
     await page.screenshot({ path: testInfo.outputPath('provider-edit-dialog.png'), animations: 'disabled' })
     await backdrop.click({ position: { x: 4, y: 4 } })
+    await expect(discard).toBeVisible()
+    await discard.getByRole('button', { name: 'Discard unsaved changes', exact: true }).click()
     await expect(form).toHaveCount(0)
     await expect(connection).toBeVisible()
     expect((await vista.api('/model-config')).models[0].name).toBe('Modal provider')
@@ -370,7 +554,7 @@ test('custom API format and authentication stay independent through edit, reload
   }
 })
 
-test('custom connection supports anonymous access and advanced headers through save, edit and a real reply', async ({ page, vista }, testInfo) => {
+test('custom connection supports anonymous access and advanced headers through save, edit and a real reply @responsive', async ({ page, vista }, testInfo) => {
   const received: { path: string; auth?: string; access?: string }[] = []
   const upstream = createServer(async (request, response) => {
     const path = new URL(request.url || '/', 'http://localhost').pathname
@@ -411,6 +595,8 @@ test('custom connection supports anonymous access and advanced headers through s
     await expect(form.locator('[data-field-path=apiFormat] .ui-select')).toContainText('OpenAI Chat Completions')
     const headers = form.getByRole('group', { name: 'Request headers', exact: true })
     await headers.getByRole('button', { name: 'Add item', exact: true }).click()
+    await expect(headers.locator('.schema-error')).toHaveCount(0)
+    await expectHeaderRow(page, headers.locator('.schema-array-row'))
     await headers.getByLabel('Header name', { exact: true }).fill('X-Access')
     await headers.getByLabel('Header value', { exact: true }).fill('private-header-value')
     await headers.scrollIntoViewIfNeeded()

@@ -18,6 +18,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/google/uuid"
+
 	"vista/internal/appdirs"
 )
 
@@ -183,6 +184,8 @@ func (c *Capture) Finish(finishReason string, err error) {
 // Transport observes the final authenticated/signed request without reading
 // ahead or changing stream completion, cancellation, or error handling.
 type Transport struct{ Base http.RoundTripper }
+
+func (t Transport) Unwrap() http.RoundTripper { return t.Base }
 
 func (t Transport) RoundTrip(request *http.Request) (*http.Response, error) {
 	base := t.Base

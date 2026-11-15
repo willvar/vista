@@ -9,13 +9,18 @@ import (
 	"strings"
 	"testing"
 
+	"vista/internal/network"
 	"vista/internal/useragent"
 	"vista/internal/workerproto"
 )
 
-type webfetchTransport func(*http.Request) (*http.Response, error)
+type webfetchTransportFunc func(*http.Request) (*http.Response, error)
 
-func (f webfetchTransport) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
+func (f webfetchTransportFunc) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
+
+func webfetchTransport(f func(*http.Request) (*http.Response, error)) http.RoundTripper {
+	return network.Transport{Base: webfetchTransportFunc(f), Scope: network.ApplicationScope}
+}
 func webfetchResponseFixture(r *http.Request, status int, contentType, body string) *http.Response {
 	return &http.Response{StatusCode: status, Header: http.Header{"Content-Type": {contentType}}, Body: io.NopCloser(strings.NewReader(body)), Request: r}
 }
@@ -73,7 +78,12 @@ func TestWebfetchAcceptsShortUsefulDocuments(t *testing.T) {
 }
 func TestWebfetchPrivateTargetsNeverReachExternalReaders(t *testing.T) {
 	for _, target := range []string{"http://127.0.0.1/private", "http://10.0.0.1/", "http://192.168.1.2/", "http://host.docker.internal/", "https://93.184.216.34/a?token=secret", "https://user:pass@93.184.216.34/"} {
-		client := &http.Client{Transport: webfetchTransport(func(*http.Request) (*http.Response, error) { t.Fatal("private target leaked"); return nil, nil })}
+		client := &http.Client{Transport: webfetchTransport(func(r *http.Request) (*http.Response, error) {
+			if r.URL.Hostname() == "r.jina.ai" || r.URL.Hostname() == "api.deepseek.com" {
+				t.Fatal("private target leaked")
+			}
+			return webfetchResponseFixture(r, http.StatusNotFound, "text/plain", "Missing"), nil
+		})}
 		if _, err := webfetchWithClient(context.Background(), target, "", io.Discard, client, workerproto.WebfetchConfig{DeepSeekAPIKey: "key"}); err == nil {
 			t.Fatalf("accepted private target %s", target)
 		}

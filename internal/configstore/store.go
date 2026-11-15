@@ -17,6 +17,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/google/uuid"
+
 	"vista/internal/platform"
 )
 
@@ -30,6 +31,7 @@ const Search = "search"
 const UserAgent = "userAgent"
 const Models = "models"
 const MCP = "mcp"
+const Network = "network"
 const maxDocumentBytes = 1 << 20
 
 var ErrConflict = errors.New("configuration changed; read it again before saving")
@@ -44,6 +46,7 @@ var bindings = []binding{
 	{Server, "server.json", 4 << 10}, {Capacity, "capacity.json", 4 << 10},
 	{Agent, "agent-settings.json", 4 << 10}, {Search, "search.json", 256 << 10},
 	{UserAgent, "user-agent.json", 4 << 10}, {Models, "models.json", 32 << 10}, {MCP, "mcp.json", 8 << 10},
+	{Network, "", 128 << 10},
 }
 
 type document struct {
@@ -55,6 +58,7 @@ type document struct {
 	UserAgent json.RawMessage `json:"userAgent,omitempty"`
 	Models    json.RawMessage `json:"models,omitempty"`
 	MCP       json.RawMessage `json:"mcp,omitempty"`
+	Network   json.RawMessage `json:"network,omitempty"`
 }
 
 func (d *document) field(section string) *json.RawMessage {
@@ -73,6 +77,8 @@ func (d *document) field(section string) *json.RawMessage {
 		return &d.Models
 	case MCP:
 		return &d.MCP
+	case Network:
+		return &d.Network
 	}
 	return nil
 }

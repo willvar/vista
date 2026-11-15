@@ -11,12 +11,13 @@ import (
 	"time"
 
 	modelcfg "vista/internal/model"
+	"vista/internal/network"
 	"vista/internal/useragent"
 )
 
-var sapAIAuthClient = &http.Client{Timeout: 15 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error {
+var sapAIAuthClient = network.NewClient(http.Client{Timeout: 15 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error {
 	return errors.New("SAP AI Core endpoint redirected")
-}}
+}}, network.ConnectionScope)
 
 type sapAIServiceKey struct {
 	URL          string `json:"url"`
@@ -68,7 +69,7 @@ func resolveSAPAIForRun(ctx context.Context, model modelcfg.Model, selected stri
 	}
 	request.SetBasicAuth(clientID, clientSecret)
 	request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	response, err := sapAIAuthClient.Do(request)
+	response, err := network.Do(sapAIAuthClient, request)
 	if err != nil {
 		return modelcfg.Model{}, "", errors.New("SAP AI Core token request failed")
 	}

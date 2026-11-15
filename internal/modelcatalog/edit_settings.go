@@ -10,23 +10,26 @@ import (
 
 // ConnectionInput describes the editable connection fields, independent of HTTP.
 type ConnectionInput struct {
-	Key            string               `json:"key"`
-	Name           string               `json:"name"`
-	Provider       string               `json:"provider"`
-	ProviderID     string               `json:"providerId"`
-	BaseURL        string               `json:"baseUrl"`
-	APIKey         string               `json:"apiKey"`
-	Headers        map[string]string    `json:"headers"`
-	CopilotAuth    *copilotauth.Options `json:"copilotAuth"`
-	IDs            []string             `json:"ids"`
-	CredentialMode string               `json:"credentialMode"`
-	AccessToken    string               `json:"accessToken"`
-	Region         string               `json:"region"`
-	Project        string               `json:"project"`
-	Location       string               `json:"location"`
-	ResourceName   string               `json:"resourceName"`
-	DeploymentID   string               `json:"deploymentId"`
-	APIVersion     string               `json:"apiVersion"`
+	ProxyIDSpecified bool                 `json:"-"`
+	Revision         string               `json:"revision,omitempty"`
+	ProxyID          string               `json:"proxyId"`
+	Key              string               `json:"key"`
+	Name             string               `json:"name"`
+	Provider         string               `json:"provider"`
+	ProviderID       string               `json:"providerId"`
+	BaseURL          string               `json:"baseUrl"`
+	APIKey           string               `json:"apiKey"`
+	Headers          map[string]string    `json:"headers"`
+	CopilotAuth      *copilotauth.Options `json:"copilotAuth"`
+	IDs              []string             `json:"ids"`
+	CredentialMode   string               `json:"credentialMode"`
+	AccessToken      string               `json:"accessToken"`
+	Region           string               `json:"region"`
+	Project          string               `json:"project"`
+	Location         string               `json:"location"`
+	ResourceName     string               `json:"resourceName"`
+	DeploymentID     string               `json:"deploymentId"`
+	APIVersion       string               `json:"apiVersion"`
 }
 
 // SettingsError gives clients stable recovery actions without matching prose.
@@ -105,7 +108,14 @@ func ChangeConnection(ctx context.Context, raw Catalog, exists bool, method stri
 		return raw, nil
 	}
 
+	if previous != nil && !input.ProxyIDSpecified && input.ProxyID == "" {
+		input.ProxyID = previous.ProxyID
+	}
 	setup, err := prepareSetup(&input, previous)
+	if err != nil {
+		return Catalog{}, err
+	}
+	ctx, err = input.configured().ConnectionContext(ctx)
 	if err != nil {
 		return Catalog{}, err
 	}

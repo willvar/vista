@@ -320,7 +320,7 @@ func TestZenAccountsStayIndependent(t *testing.T) {
 		t.Fatal(err)
 	}
 	if models := app.modelsSnapshot().Models; len(models) != 2 || models[0].Name != "Personal" || models[1].Name != "Personal" {
-		t.Fatal("disconnecting one Zen account affected the other")
+		t.Fatalf("disconnecting one Zen account affected the other: %+v", app.modelsSnapshot().Public())
 	}
 }
 

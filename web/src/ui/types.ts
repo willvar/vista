@@ -30,6 +30,7 @@ export interface ModalProps {
   styles?: Partial<Record<'container' | 'body' | 'mask' | 'root', CSSProperties>>
 }
 
-export interface SelectOption { value: string | number; label: string; searchText?: string; fullLabel?: string; disabled?: boolean }
+export interface SelectOption { value: string | number; label: string; searchText?: string; fullLabel?: string; disabled?: boolean; action?: () => void }
+export interface TabItem { value: string; label: string; disabled?: boolean }
 export interface SelectGroup { key?: string; label: string; options: SelectOption[] }
 export interface TreeNode { value: string; label: string; children?: TreeNode[]; modified?: boolean }

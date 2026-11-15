@@ -14,6 +14,7 @@ import (
 
 	"golang.org/x/oauth2"
 
+	"vista/internal/network"
 	"vista/internal/useragent"
 )
 
@@ -64,9 +65,9 @@ type Device struct {
 type Credential struct{ Token, APIEndpoint string }
 
 func NewClient() *Client {
-	return &Client{Issuer: "https://github.com", HTTP: &http.Client{Transport: useragent.Transport{UserAgent: oauthUserAgent}, Timeout: 15 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error {
+	return &Client{Issuer: "https://github.com", HTTP: network.NewClient(http.Client{Transport: useragent.Transport{Base: network.Transport{Scope: network.ConnectionScope}, UserAgent: oauthUserAgent}, Timeout: 15 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error {
 		return errors.New("Copilot authorization endpoint redirected")
-	}}}
+	}}, network.ConnectionScope)}
 }
 
 func (c *Client) config() (oauth2.Config, error) {
@@ -90,7 +91,11 @@ func (c *Client) Begin(ctx context.Context) (Device, error) {
 	if err != nil {
 		return Device{}, err
 	}
-	challenge, err := config.DeviceAuth(context.WithValue(ctx, oauth2.HTTPClient, c.HTTP))
+	httpClient, err := network.ClientFor(ctx, *c.HTTP, network.ConnectionScope)
+	if err != nil {
+		return Device{}, err
+	}
+	challenge, err := config.DeviceAuth(context.WithValue(ctx, oauth2.HTTPClient, httpClient))
 	if err != nil {
 		return Device{}, errors.New("could not start GitHub sign-in")
 	}
@@ -114,7 +119,7 @@ func (c *Client) Complete(ctx context.Context, device Device) (Credential, error
 	if challenge.Interval > 0 {
 		challenge.Interval += 3
 	}
-	token, err := config.DeviceAccessToken(context.WithValue(ctx, oauth2.HTTPClient, c.HTTP), &challenge)
+	token, err := config.DeviceAccessToken(context.WithValue(ctx, oauth2.HTTPClient, network.NewClient(*c.HTTP, network.ConnectionScope)), &challenge)
 	if err != nil {
 		if ctx.Err() != nil {
 			return Credential{}, ctx.Err()
@@ -146,7 +151,7 @@ func (c *Client) account(ctx context.Context, token string) (Credential, error) 
 	req.Header.Set("Accept", "application/json")
 	req.Header.Set("X-GitHub-Api-Version", "2025-04-01")
 	SetAPIHeaders(req.Header)
-	response, err := c.HTTP.Do(req)
+	response, err := network.NewClient(*c.HTTP, network.ConnectionScope).Do(req)
 	if err != nil {
 		return Credential{}, errors.New("could not check Copilot account")
 	}

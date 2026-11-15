@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"strconv"
 
 	"vista/internal/store"
@@ -75,6 +76,12 @@ func (a *App) addStateSnapshots(ctx context.Context, host string, point *stateCh
 			point.ServerConfig = &config
 		}
 	}
+	if changed("network") {
+		version := point.Epoch + ":" + strconv.FormatUint(point.Revisions["network"], 10)
+		if config, err := a.networkConfigSnapshot(version); err == nil {
+			point.Network = &config
+		}
+	}
 	if changed("diagnostics") {
 		point.Diagnostics = a.updates.diagnosticChanges(previous.Revisions["diagnostics"], point.Revisions["diagnostics"])
 	}
@@ -97,7 +104,8 @@ func (point *stateCheckpoint) limitPayload() error {
 		"sessions": func() { point.Sessions = nil }, "memories": func() { point.Memories = nil },
 		"mcp": func() { point.MCP = nil }, "catalog": func() { point.Catalog = nil },
 		"providerLogins": func() { point.ProviderLogins = nil }, "storage": func() { point.Storage = nil },
-		"status": func() { point.Status = nil }, "serverConfig": func() { point.ServerConfig = nil },
+		"network": func() { point.Network = nil },
+		"status":  func() { point.Status = nil }, "serverConfig": func() { point.ServerConfig = nil },
 	}
 	for len(data) > maxStateSnapshotBytes {
 		largest := ""
@@ -107,7 +115,7 @@ func (point *stateCheckpoint) limitPayload() error {
 			}
 		}
 		if largest == "" {
-			break
+			return errors.New("state metadata exceeds SSE frame budget")
 		}
 		omit[largest]()
 		delete(omit, largest)

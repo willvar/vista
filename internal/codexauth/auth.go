@@ -15,6 +15,7 @@ import (
 	"strings"
 	"time"
 
+	"vista/internal/network"
 	"vista/internal/useragent"
 )
 
@@ -28,12 +29,12 @@ type Client struct {
 }
 
 func NewClient() *Client {
-	return &Client{Issuer: "https://auth.openai.com", HTTP: &http.Client{
+	return &Client{Issuer: "https://auth.openai.com", HTTP: network.NewClient(http.Client{
 		Timeout: 20 * time.Second,
 		CheckRedirect: func(*http.Request, []*http.Request) error {
 			return errors.New("Codex authorization endpoint redirected")
 		},
-	}}
+	}, network.ConnectionScope)}
 }
 
 type Device struct {
@@ -127,7 +128,7 @@ func (c *Client) request(ctx context.Context, path, contentType string, body io.
 	req.Header.Set("Accept", "application/json")
 	req.Header.Set("User-Agent", useragent.Codex())
 	req.Header.Set("originator", useragent.CodexOriginator)
-	res, err := c.HTTP.Do(req)
+	res, err := network.NewClient(*c.HTTP, network.ConnectionScope).Do(req)
 	if err != nil {
 		if ctx.Err() != nil {
 			return 0, ctx.Err()

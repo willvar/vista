@@ -1,13 +1,15 @@
 import { streamSSE } from './sse.ts'
+import type { NetworkConfiguration } from './network.ts'
 import type { ServerStatus, SessionListSnapshot, ModelCatalog, OMPCatalogInfo, LoginUpdate, MCPState, ResourceStorageStatus, MemorySummary, ServerConfig } from './types.ts'
 import type { ModelDiagnosticSummary } from './modelDiagnostics.ts'
 
-export const stateTopics = ['sessions', 'status', 'models', 'catalog', 'provider-login', 'mcp', 'storage', 'memories', 'diagnostics', 'statistics', 'skills', 'selection-stats', 'server-config'] as const
+export const stateTopics = ['sessions', 'status', 'models', 'catalog', 'provider-login', 'mcp', 'storage', 'memories', 'diagnostics', 'statistics', 'skills', 'selection-stats', 'server-config', 'network'] as const
 export type StateTopic = typeof stateTopics[number]
 export type StateConnection = { phase: 'connecting' | 'ready' | 'error' | 'stopped'; error?: string }
 export type WorkspaceSnapshots = {
   sessions?: SessionListSnapshot; status?: ServerStatus; models?: ModelCatalog; catalog?: OMPCatalogInfo
   providerLogins?: LoginUpdate[]; mcp?: MCPState; storage?: ResourceStorageStatus; memories?: MemorySummary
+  network?: NetworkConfiguration
   serverConfig?: ServerConfig
   diagnostics?: { after: number; through: number; records: ModelDiagnosticSummary[] }
 }
@@ -18,7 +20,7 @@ type Listener = {
   active: boolean; lifetime: AbortController; seen: Partial<Record<StateTopic, number>>; epoch: string; attempt: number; pending?: Promise<void>
 }
 const snapshotKeys = { sessions: 'sessions', status: 'status', models: 'models', catalog: 'catalog',
-  'provider-login': 'providerLogins', mcp: 'mcp', storage: 'storage', memories: 'memories', diagnostics: 'diagnostics', statistics: undefined, skills: undefined, 'selection-stats': undefined, 'server-config': 'serverConfig' } as const
+  'provider-login': 'providerLogins', mcp: 'mcp', storage: 'storage', memories: 'memories', diagnostics: 'diagnostics', statistics: undefined, skills: undefined, 'selection-stats': undefined, 'server-config': 'serverConfig', network: 'network' } as const
 type Options = {
   open: (metrics: boolean, signal: AbortSignal) => Promise<Response>
   status: (status: StateConnection) => void
@@ -137,6 +139,7 @@ export function createWorkspaceSync(options: Options) {
           || typeof point.serverConfig.version !== 'string' || !point.serverConfig.schema || !point.serverConfig.config
           || !Number.isSafeInteger(point.serverConfig.config.port) || point.serverConfig.config.port < 1 || point.serverConfig.config.port > 65535
           || !Number.isSafeInteger(point.serverConfig.runningPort) || !['file', 'default'].includes(point.serverConfig.source))) throw new Error('Invalid server configuration snapshot')
+        if (point.network !== undefined && (!point.network || typeof point.network.revision !== 'string' || typeof point.network.version !== 'string' || !point.network.config || !Array.isArray(point.network.config.profiles))) throw new Error('Invalid network configuration snapshot')
         if (point.diagnostics !== undefined && (!point.diagnostics || !Array.isArray(point.diagnostics.records)
           || !Number.isSafeInteger(point.diagnostics.after) || point.diagnostics.after < 0
           || point.diagnostics.through !== point.revisions.diagnostics || point.diagnostics.after > point.diagnostics.through

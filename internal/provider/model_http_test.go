@@ -15,6 +15,7 @@ import (
 	"unicode/utf8"
 
 	modelcfg "vista/internal/model"
+	"vista/internal/network"
 )
 
 func TestModelStreamCanOutlastItsReadIdleLimit(t *testing.T) {
@@ -26,7 +27,7 @@ func TestModelStreamCanOutlastItsReadIdleLimit(t *testing.T) {
 		}
 	}))
 	defer server.Close()
-	request, err := http.NewRequest(http.MethodPost, server.URL, strings.NewReader("{}"))
+	request, err := http.NewRequestWithContext(network.WithConnectionPolicy(context.Background(), network.Policy{}), http.MethodPost, server.URL, strings.NewReader("{}"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -60,7 +61,7 @@ func TestModelStreamIdleTimeoutAndCallerCancellation(t *testing.T) {
 		{name: "caller", idle: time.Second, cancel: true, want: context.Canceled},
 	} {
 		t.Run(check.name, func(t *testing.T) {
-			ctx, cancel := context.WithCancel(context.Background())
+			ctx, cancel := context.WithCancel(network.WithConnectionPolicy(context.Background(), network.Policy{}))
 			defer cancel()
 			request, err := http.NewRequestWithContext(ctx, http.MethodPost, server.URL, strings.NewReader("{}"))
 			if err != nil {

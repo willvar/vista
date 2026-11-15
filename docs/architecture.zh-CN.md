@@ -46,12 +46,12 @@ SQLite 继续作为单主机的持久化存储。普通 CRUD 与参数化的复�
 
 ### 文档与凭据边界
 
-`config.json` 根对象必须是单个 JSON 对象，包含必需的整数 `version: 2`，以及可选的原始 JSON 分区 `server`、`capacity`、`agent`、`search`、`userAgent`、`models`、`mcp`。
+`config.json` 根对象必须是单个 JSON 对象，包含必需的整数 `version: 2`，以及可选的原始 JSON 分区 `server`、`capacity`、`agent`、`search`、`userAgent`、`models`、`mcp`、`network`。
 例如，仅保存端口的完整主文档为 `{"version":2,"server":{"port":6186}}`；服务编辑器接收的则只有 `{"port":6186}`。
 缺失分区保留原有默认值／环境变量回退；存储及凭据拆分保留显式 `null`、空对象／数组、空值与缺失之间的区别，仍由对应分区的类型化校验判定。
 
 `key.json` 是包含必需整数 `version: 1` 和 `entries` 对象的 JSON 对象，`entries` 将不透明引用映射到 `{section, owner, values}` 凭据包。
-主文件中的受管模型记录、MCP 记录或 `search` 对象通过 `credentialRef` 引用私密凭据包。
+主文件中的受管模型记录、MCP 记录、代理 Profile 或 `search` 对象通过 `credentialRef` 引用私密凭据包。
 解析时校验凭据包的分区和稳定身份归属；显示名称与数组下标不能作为归属。
 引用和归属的编码是内部存储细节，不是供用户编辑的名称。
 
@@ -60,6 +60,7 @@ SQLite 继续作为单主机的持久化存储。普通 CRUD 与参数化的复�
 | `models` | `apiKey`、`accessToken`、`authToken`、`appCode`、`headers` |
 | `mcp` | `token`、`clientSecret`、`headers` |
 | `search` | `apiKeys`、`jinaApiKey`、`deepseekFetchApiKey` |
+| `network` 中的 Profile | `username`、`password` |
 
 整个自定义 `headers` 对象保守地迁出，包括未被识别为认证请求头的值；不存在根据请求头名称将值留在主文件的白名单。
 公开的 `clientId`、路由和身份设置保留在 `config.json`。
@@ -317,7 +318,7 @@ Vista 不为上游 SSE 事件、完整模型正文和原生续传状态设置字
 
 OMP 和 models.dev 提供模型资料，Vista 负责路由与认证，自定义连接明确指定 API 格式。两个目录来源整体暂存、安装，失败保留旧目录。已有执行使用自己的配置快照。见[服务商路由](./providers.zh-CN.md)。
 
-`websearch` 按保存顺序尝试外部服务；`webfetch` 按独立保存的顺序尝试 Jina Reader／DeepSeek，默认 Jina 优先。首次搜索顺序只随机一次；各读取器完整解码并暂存后才可选为成功结果，正文为空、明确的错误／验证页、仅提示启用 JS 或返回格式不受支持时，继续尝试下一已配置读取器，正常短内容可成功。没有内置原站抓取／转换器；本地或私有内容通过 `shell` 下载。DeepSeek 搜索和读取密钥分别配置。首次输出默认一次搜索全部结果合计 50 KiB、每页正文 50 KiB，按 UTF-8 字节计算，0 取消首次截短。搜索来源信息和摘要共用一份结果预算，产物／补读元数据另计。旧字符配置的默认值升级为新默认值，不限制保持不变，自定义值按 UTF-8 最大容量换算并向上取整为 KiB。网络结果没有第二层固定工具结果截断，显式补读仍按字节分页。公开设置保存在 `config.json` · `search`，静态密钥从 `key.json` 解析；通过类型化设置 API 保存后，从下一次执行生效，手动编辑文件仍遵循前述重新加载／启动边界。
+`websearch` 按保存顺序尝试外部服务；`webfetch` 按独立保存的顺序尝试 Jina Reader／DeepSeek，默认 Jina 优先。首次搜索顺序只随机一次；各读取器完整解码并暂存后才可选为成功结果，正文为空、明确的错误／验证页、仅提示启用 JS 或返回格式不受支持时，继续尝试下一已配置读取器，正常短内容可成功。本地／私网 HTTP(S) 文本页面由 Vista 自行抓取及转换 HTML，不回退外部阅读器；二进制下载使用其他工具。显式本地读取用于已明确的内部域名或已授权敏感 URL，目标分类、重定向及连接地址共同校验，见[网络配置](./network.zh-CN.md)。DeepSeek 搜索和读取密钥分别配置。首次输出默认一次搜索全部结果合计 50 KiB、每页正文 50 KiB，按 UTF-8 字节计算，0 取消首次截短。搜索来源信息和摘要共用一份结果预算，产物／补读元数据另计。旧字符配置的默认值升级为新默认值，不限制保持不变，自定义值按 UTF-8 最大容量换算并向上取整为 KiB。网络结果没有第二层固定工具结果截断，显式补读仍按字节分页。公开设置保存在 `config.json` · `search`，静态密钥从 `key.json` 解析；通过类型化设置 API 保存后，从下一次执行生效，手动编辑文件仍遵循前述重新加载／启动边界。
 
 文件搜索在进入被忽略目录前应用祖先和嵌套 `.gitignore` 及例外规则；明确读取不受此限制。`read_file` 使用从 1 开始的 `startLine`、`lineCount`（默认 200），返回原行号及 `nextLine`，流式扫描完整原文件以计算哈希和总行数，选中行暂存到磁盘。过大的单行流式保存为产物，不整行载入内存。`find_files` 按路径 glob 查找（支持 `**`），不读取文件正文；`search` 匹配正文，支持包含／排除 glob、字面或正则匹配、忽略大小写、前后文及正文／文件／计数模式。
 搜索工具结果使用一个绝对 `root` 和相对路径；正文命中在 `files` 下按文件分组，保留全部已返回行、行号、前后文标记和计数。

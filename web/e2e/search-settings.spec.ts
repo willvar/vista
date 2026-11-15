@@ -50,6 +50,7 @@ async function mockSearchSettings(page: Page, origin: string) {
       }
     }
     if (method === 'GET') {
+      if (path === '/network-config') return reply({ config: { globalProxy: '', profiles: [] }, revision: 'network-fixture', version: 'mock-state:0' })
       if (path === '/preferences') return reply({ userId: 'settings-user', lastMode: 'manual', lastTier: 'speed', manualModelKey: '', reasoningByModelId: {}, feedbackInvitationSeen: true })
       if (path === '/models') return reply({ default: '', models: [] })
       if (path === '/agent-settings') return reply({ instructions: '', instructionsPath: '/home/test/.config/vista/AGENTS.md', delegationDepth: 1, maxDelegationDepth: 3 })
@@ -62,6 +63,7 @@ async function mockSearchSettings(page: Page, origin: string) {
   await page.goto(`${origin}/settings/general`)
   await openSettingsSection(page, 'search')
   await expect(page.getByRole('button', { name: 'Edit Exa API key', exact: true })).toBeEnabled()
+  await expect(page.locator('.network-policy-summary')).toHaveCount(0)
   return fixture
 }
 
@@ -162,7 +164,7 @@ for (const setting of [
     const input = form.getByRole('spinbutton', { name: setting.label, exact: true })
     const otherInput = form.getByRole('spinbutton', { name: setting.otherLabel, exact: true })
     const save = form.getByRole('button', { name: 'Save changes', exact: true })
-    await expect(page.locator('.search-settings-content > p').first()).toHaveText('Configure web search and page reading services for the agent.')
+    await expect(page.locator('.search-settings-content > .search-settings-hint').first()).toHaveText('Configure web search and page reading services for the agent.')
     await expect(page.locator('.search-settings-content')).toContainText('skipping methods without required keys')
     await expect(page.getByRole('img', { name: 'A higher initial content limit can reduce errors and omissions caused by incomplete information, but uses more context and input tokens.', exact: true })).toHaveCount(1)
     await expect(form).toContainText('Preview sizes are UTF-8 byte counts; 0 means unlimited.')
@@ -217,7 +219,7 @@ test('search and reader keys save, survive reload without readback, and can be r
   test.slow()
   const fixture = await mockSearchSettings(page, mockOrigin)
   const settings = page.locator('.settings-page:visible')
-  await expect(settings.locator('.settings-nav a[aria-current="page"]')).toHaveText('Web queries')
+  await expect(settings.locator('.settings-nav a[aria-current="page"]')).toHaveText('Model web access')
   await expect(settings.locator('input[type=password]')).toHaveCount(0)
   await expect(settings.locator('[data-provider="vista"]')).toHaveCount(0)
   const names = ['Firecrawl', 'Parallel', 'Tavily', 'Exa', 'Jina Reader']
@@ -421,7 +423,7 @@ test('search settings remain readable and reachable in English and Chinese', asy
     await page.evaluate(value => localStorage.setItem('vista-language', value), language)
     await page.reload()
     const settings = page.locator('.settings-page:visible')
-    await expect(settings.locator('.settings-nav a[aria-current="page"]')).toHaveText(language === 'en' ? 'Web queries' : '网络查询')
+    await expect(settings.locator('.settings-nav a[aria-current="page"]')).toHaveText(language === 'en' ? 'Model web access' : '模型联网')
     const overview = settings.getByRole('figure', { name: language === 'en' ? 'What web search and page reading do' : '网络搜索与网页读取的作用', exact: true })
     await overview.scrollIntoViewIfNeeded()
     const overviewLayout = await overview.evaluate(element => {

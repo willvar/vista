@@ -2,6 +2,7 @@ package server
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http/httptest"
 	"strings"
 	"testing"
@@ -88,6 +89,54 @@ func TestStateBudgetDropsOnlyOversizedPayloads(t *testing.T) {
 	data, _ := json.Marshal(point)
 	if len(data) > maxStateSnapshotBytes || point.Models != nil || point.Storage != storage || point.Revisions["models"] != 1 {
 		t.Fatalf("large model list discarded unrelated state: %d %+v", len(data), point)
+	}
+}
+
+func TestStateBudgetCountsEncodedFrameBytes(t *testing.T) {
+	const frameBudget = 512 << 10
+	for _, unit := range []string{"x", "<", "你"} {
+		for _, extra := range []int{0, 1} {
+			t.Run(fmt.Sprintf("%s/extra=%d", unit, extra), func(t *testing.T) {
+				storage := &resourceStorageStatus{Phase: "idle"}
+				point := stateCheckpoint{Epoch: "test", Revisions: map[string]uint64{"status": 1, "storage": 1},
+					Status: map[string]any{"detail": ""}, Storage: storage}
+				frame := func() string {
+					t.Helper()
+					data, err := json.Marshal(point)
+					if err != nil {
+						t.Fatal(err)
+					}
+					return fmt.Sprintf("event: state\ndata: %s\n\n", data)
+				}
+				encodedUnit, err := json.Marshal(unit)
+				if err != nil {
+					t.Fatal(err)
+				}
+				remaining := frameBudget + extra - len(frame())
+				unitBytes := len(encodedUnit) - 2
+				detail := strings.Repeat(unit, remaining/unitBytes) + strings.Repeat("x", remaining%unitBytes)
+				point.Status["detail"] = detail
+				if size := len(frame()); size != frameBudget+extra {
+					t.Fatalf("fixture frame bytes = %d", size)
+				}
+				if err := point.limitPayload(); err != nil {
+					t.Fatal(err)
+				}
+				if extra == 0 && (point.Status == nil || point.Status["detail"] != detail) {
+					t.Fatal("snapshot fitting the frame budget was omitted or truncated")
+				}
+				if extra == 1 && point.Status != nil {
+					t.Fatal("snapshot exceeding the encoded frame budget was retained")
+				}
+				if size := len(frame()); size > frameBudget || point.Storage != storage || point.Revisions["status"] != 1 {
+					t.Fatalf("invalid recovery frame: bytes=%d point=%+v", size, point)
+				}
+			})
+		}
+	}
+	point := stateCheckpoint{Epoch: strings.Repeat("x", frameBudget)}
+	if err := point.limitPayload(); err == nil {
+		t.Fatal("oversized mandatory metadata silently exceeded the frame budget")
 	}
 }
 

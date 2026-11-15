@@ -16,6 +16,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"vista/internal/network"
 	"vista/internal/useragent"
 )
 
@@ -65,7 +66,7 @@ func TestDeviceLoginAndPrivateCredential(t *testing.T) {
 			}))
 			defer upstream.Close()
 			c := &Client{Issuer: upstream.URL, HTTP: upstream.Client()}
-			ctx, cancel := context.WithTimeout(context.Background(), 4*time.Second)
+			ctx, cancel := context.WithTimeout(network.WithConnectionPolicy(context.Background(), network.Policy{}), 4*time.Second)
 			defer cancel()
 			device, err := c.Begin(ctx)
 			if err != nil {
@@ -111,7 +112,7 @@ func TestConcurrentRefreshAndRejectedToken(t *testing.T) {
 	}))
 	defer upstream.Close()
 	c := &Client{Issuer: upstream.URL, HTTP: upstream.Client()}
-	ctx := context.Background()
+	ctx := network.WithConnectionPolicy(context.Background(), network.Policy{})
 	path := Path(t.TempDir(), uuid.NewString())
 	if err := Save(ctx, path, Credential{AccessToken: testToken("account", "0"), RefreshToken: "refresh-0", AccountID: "account", ExpiresAt: time.Now().Add(-time.Hour)}); err != nil {
 		t.Fatal(err)
@@ -145,7 +146,7 @@ func TestConcurrentRefreshAndRejectedToken(t *testing.T) {
 }
 
 func TestRefreshFailureAndCancellation(t *testing.T) {
-	ctx := context.Background()
+	ctx := network.WithConnectionPolicy(context.Background(), network.Policy{})
 	path := Path(t.TempDir(), uuid.NewString())
 	credential := Credential{AccessToken: testToken("account", "0"), RefreshToken: "refresh-secret", AccountID: "account", ExpiresAt: time.Now().Add(-time.Hour)}
 	if err := Save(ctx, path, credential); err != nil {

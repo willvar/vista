@@ -10,8 +10,10 @@ import InputNumber from '../ui/InputNumber.vue'
 import Select from '../ui/Select.vue'
 import Switch from '../ui/Switch.vue'
 import TextArea from '../ui/TextArea.vue'
+import { useControlErrors } from './validation'
 const props = defineProps(rendererProps<ControlElement>())
 const { control, handleChange } = useJsonFormsControl(props)
+const { errors, onFocusout } = useControlErrors(control)
 const { t } = useI18n({ useScope: 'global' })
 const prefix = inject('vista-schema-editor-id', 'configuration')
 const fieldSlots = inject<Slots>('vista-schema-form-slots', {})
@@ -19,15 +21,17 @@ const before = computed(() => fieldSlots[`${control.value.path}-before`])
 const after = computed(() => fieldSlots[`${control.value.path}-after`])
 const id = computed(() => `${prefix}-${control.value.path || 'value'}-input`)
 const options = computed(() => control.value.uischema.options ?? {})
+const clearToEmpty = computed(() => options.value.allowClear && control.value.schema.enum?.includes(''))
 const choices = computed<(SelectOption | SelectGroup)[]>(() => {
-  const values: SelectOption[] = (control.value.schema.enum ?? []).map(value => ({ value: String(value), label: String(options.value.enumLabels?.[String(value)] ?? value), fullLabel: options.value.enumFullLabels?.[String(value)], searchText: String(options.value.enumSearchText?.[String(value)] ?? options.value.enumLabels?.[String(value)] ?? value) }))
+  const values: SelectOption[] = (control.value.schema.enum ?? []).filter(value => !clearToEmpty.value || value !== '').map(value => ({ value: String(value), label: String(options.value.enumLabels?.[String(value)] ?? value), fullLabel: options.value.enumFullLabels?.[String(value)], searchText: String(options.value.enumSearchText?.[String(value)] ?? options.value.enumLabels?.[String(value)] ?? value) }))
   const groups = options.value.enumGroups as { key: string; label: string; values: string[] }[] | undefined
-  if (!groups?.length) return values
+  const actions = options.value.actions as SelectOption[] | undefined
+  if (!groups?.length) return [...values, ...(actions ?? [])]
   const grouped = new Set(groups.flatMap(group => group.values.map(String)))
-  return [...groups.map(group => ({ key: group.key, label: group.label, options: group.values.flatMap(value => values.filter(option => String(option.value) === String(value))) })), ...values.filter(option => !grouped.has(String(option.value)))]
+  return [...groups.map(group => ({ key: group.key, label: group.label, options: group.values.flatMap(value => values.filter(option => String(option.value) === String(value))) })), ...values.filter(option => !grouped.has(String(option.value))), ...(actions ?? [])]
 })
 const secret = computed(() => 'writeOnly' in control.value.schema && control.value.schema.writeOnly === true || options.value.secret === true)
-const describedBy = computed(() => [options.value.descriptionIds, control.value.description ? id.value + '-description' : '', control.value.errors ? id.value + '-error' : ''].filter(Boolean).join(' ') || undefined)
+const describedBy = computed(() => [options.value.descriptionIds, control.value.description ? id.value + '-description' : '', errors.value ? id.value + '-error' : ''].filter(Boolean).join(' ') || undefined)
 // Object-level `required` means the property must exist, not that its value
 // must be nonempty. Empty text and false switches are valid settings values.
 const requiresValue = computed(() => {
@@ -39,31 +43,32 @@ const requiresValue = computed(() => {
 })
 const numeric = computed(() => control.value.schema.type === 'integer' || control.value.schema.type === 'number')
 function update(value: unknown) { handleChange(control.value.path, value) }
-function select(value: unknown) { update(control.value.schema.enum?.find(option => String(option) === value)) }
+function select(value: unknown) { update(value === undefined && clearToEmpty.value ? '' : control.value.schema.enum?.find(option => String(option) === value)) }
 </script>
 <template>
-  <div v-if="control.visible" class="schema-control" :class="{ 'schema-control-invalid': !!control.errors, 'schema-control-switch': control.schema.type === 'boolean' && !choices.length }" :data-field-path="control.path">
+  <div v-if="control.visible" class="schema-control" :class="{ 'schema-control-invalid': !!errors, 'schema-control-switch': control.schema.type === 'boolean' && !choices.length }" :data-field-path="control.path" @focusout="onFocusout">
     <component v-if="before" :is="before" />
-    <label :for="id">{{ control.label }}<span v-if="requiresValue" class="schema-required" aria-hidden="true"> *</span></label>
-    <Select v-if="choices.length" :id="id" :value="control.data == null ? null : String(control.data)" :options="choices" :disabled="!control.enabled" :show-search="!!options.showSearch" :option-filter-prop="options.enumSearchText ? 'searchText' : 'label'" :option-label-prop="options.enumFullLabels ? 'fullLabel' : undefined" :placeholder="options.placeholder"
-      :class="{ 'ui-input-error': !!control.errors }" :aria-label="control.label" :aria-invalid="!!control.errors" :aria-required="requiresValue || undefined" :aria-describedby="describedBy" @update:value="select" />
-    <Switch v-else-if="control.schema.type === 'boolean'" :id="id" :checked="control.data === true" :disabled="!control.enabled" :aria-label="control.label" :aria-invalid="!!control.errors" :aria-describedby="describedBy" @update:checked="update" />
+    <label :for="id" :class="{ 'visually-hidden': options.hideLabel }">{{ control.label }}<span v-if="requiresValue" class="schema-required" aria-hidden="true">&#160;*</span></label>
+    <Select v-if="control.schema.enum" :id="id" :value="control.data == null || clearToEmpty && control.data === '' ? null : String(control.data)" :options="choices" :disabled="!control.enabled" :show-search="!!options.showSearch" :allow-clear="!!options.allowClear" :option-filter-prop="options.enumSearchText ? 'searchText' : 'label'" :option-label-prop="options.enumFullLabels ? 'fullLabel' : undefined" :placeholder="options.placeholder"
+      :class="{ 'ui-input-error': !!errors }" :aria-label="control.label" :aria-invalid="!!errors" :aria-required="requiresValue || undefined" :aria-describedby="describedBy" @update:value="select" />
+    <Switch v-else-if="control.schema.type === 'boolean'" :id="id" :checked="control.data === true" :disabled="!control.enabled" :aria-label="control.label" :aria-invalid="!!errors" :aria-describedby="describedBy" @update:checked="update" />
     <InputNumber v-else-if="numeric" :id="id" :value="typeof control.data === 'number' ? control.data : null" :min="control.schema.minimum" :max="control.schema.maximum"
       :step="control.schema.type === 'integer' ? 1 : undefined" :clamp-value-on-blur="false" :disabled="!control.enabled"
-      :class="{ 'ui-input-error': !!control.errors }" :aria-label="control.label" :aria-invalid="!!control.errors" :aria-required="requiresValue || undefined" :aria-describedby="describedBy" @update:value="update($event === null ? undefined : $event)" />
+      :class="{ 'ui-input-error': !!errors }" :aria-label="control.label" :aria-invalid="!!errors" :aria-required="requiresValue || undefined" :aria-describedby="describedBy" @update:value="update($event === null ? undefined : $event)" />
     <InputPassword v-else-if="secret" :id="id" :value="typeof control.data === 'string' ? control.data : ''" :disabled="!control.enabled"
-      :maxlength="control.schema.maxLength" :placeholder="options.placeholder" :class="{ 'ui-input-error': !!control.errors }" :aria-label="control.label" :aria-invalid="!!control.errors" :aria-required="requiresValue || undefined" :aria-describedby="describedBy" autocomplete="new-password" @update:value="update" />
+      :maxlength="control.schema.maxLength" :placeholder="options.placeholder" :class="{ 'ui-input-error': !!errors }" :aria-label="control.label" :aria-invalid="!!errors" :aria-required="requiresValue || undefined" :aria-describedby="describedBy" autocomplete="new-password" @update:value="update" />
     <TextArea v-else-if="options.multi" :id="id" :value="typeof control.data === 'string' ? control.data : ''" :rows="options.rows ?? 6" :disabled="!control.enabled"
-      :maxlength="control.schema.maxLength" :placeholder="options.placeholder" :class="{ 'ui-input-error': !!control.errors }" :aria-label="control.label" :aria-invalid="!!control.errors" :aria-required="requiresValue || undefined" :aria-describedby="describedBy" @update:value="update" />
+      :maxlength="control.schema.maxLength" :placeholder="options.placeholder" :class="{ 'ui-input-error': !!errors }" :aria-label="control.label" :aria-invalid="!!errors" :aria-required="requiresValue || undefined" :aria-describedby="describedBy" @update:value="update" />
     <Input v-else :id="id" :value="typeof control.data === 'string' ? control.data : ''" :disabled="!control.enabled" :maxlength="control.schema.maxLength" :placeholder="options.placeholder"
-      :class="{ 'ui-input-error': !!control.errors }" :aria-label="control.label" :aria-invalid="!!control.errors" :aria-required="requiresValue || undefined" :aria-describedby="describedBy" autocomplete="off" spellcheck="false" @update:value="update" />
+      :class="{ 'ui-input-error': !!errors }" :aria-label="control.label" :aria-invalid="!!errors" :aria-required="requiresValue || undefined" :aria-describedby="describedBy" autocomplete="off" spellcheck="false" @update:value="update" />
     <small v-if="control.description" :id="id + '-description'">{{ control.description }}</small>
-    <small v-if="control.errors" :id="id + '-error'" class="schema-error" role="status">{{ control.errors }}</small>
+    <small v-if="errors" :id="id + '-error'" class="schema-error" role="status">{{ errors }}</small>
     <component v-if="after" :is="after" />
   </div>
 </template>
 <style scoped>
 .schema-control { display: flex; flex-direction: column; gap: .5rem; min-width: 0; }
+.schema-control > label { display: block; }
 .schema-control-switch { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; column-gap: 1rem; }
 .schema-control-switch > label { grid-column: 1; grid-row: 1; }
 .schema-control-switch > :deep(.ui-switch) { grid-column: 2; grid-row: 1; }

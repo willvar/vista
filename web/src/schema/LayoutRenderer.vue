@@ -7,7 +7,7 @@ const { layout } = useJsonFormsLayout(props)
 const label = computed(() => 'label' in layout.value.uischema ? String(layout.value.uischema.label ?? '') : '')
 </script>
 <template>
-  <div v-if="layout.visible" class="schema-layout" :class="{ 'schema-group': !!label }">
+  <div v-if="layout.visible" class="schema-layout" :class="{ 'schema-group': !!label, 'schema-horizontal': layout.uischema.type === 'HorizontalLayout' }">
     <strong v-if="label">{{ label }}</strong>
     <DispatchRenderer v-for="(element, index) in layout.uischema.elements" :key="index" :schema="layout.schema" :uischema="element"
       :path="layout.path" :enabled="layout.enabled" :renderers="layout.renderers" :cells="layout.cells" />
@@ -15,5 +15,7 @@ const label = computed(() => 'label' in layout.value.uischema ? String(layout.va
 </template>
 <style scoped>
 .schema-layout { display: flex; flex-direction: column; gap: .85rem; min-width: 0; }
+.schema-horizontal { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); align-items: start; }
 .schema-group { padding: .75rem; border: 1px solid var(--border); border-radius: .5rem; }
+@media (max-width: 600px) { .schema-horizontal { grid-auto-flow: row; grid-template-columns: minmax(0, 1fr); } }
 </style>

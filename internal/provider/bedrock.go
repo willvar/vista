@@ -22,6 +22,11 @@ import (
 )
 
 func bedrockTurnWithReasoning(ctx context.Context, model modelcfg.Model, messages []ChatMessage, schemas []map[string]any, onText, onReasoning func(string) error) (Turn, error) {
+	ctx, model, err := model.BindNetwork(ctx)
+	if err != nil {
+		return Turn{}, err
+	}
+
 	if err := validateImageMessages(messages); err != nil {
 		return Turn{}, err
 	}

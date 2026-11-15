@@ -6,6 +6,7 @@ import (
 	"time"
 
 	modelcfg "vista/internal/model"
+	"vista/internal/network"
 	"vista/internal/provider"
 	"vista/internal/workerproto"
 )
@@ -15,6 +16,7 @@ func (a *App) resolveForRun(ctx context.Context, key string) (modelcfg.Model, st
 	if err != nil {
 		return source, selected, err
 	}
+	ctx = network.WithConfigDir(ctx, a.configDir)
 	return a.credentialCache.Resolve(ctx, source, selected)
 }
 
@@ -24,6 +26,7 @@ func (a *App) refreshModelCredentials(ctx context.Context, request modelcfg.Mode
 		return modelcfg.Model{}, errors.New("model connection is no longer available")
 	}
 	source.Key = key
+	source.Network = request.Network
 	if key != request.Key || request.CredentialRef != provider.CredentialReference(source) {
 		return modelcfg.Model{}, errors.New("model connection changed; start a new request")
 	}
@@ -72,7 +75,7 @@ func (c *workerResultConsumer) credentials(result workerproto.Result) error {
 		if c.refreshCredentials == nil {
 			err = errors.New("credential resolver unavailable")
 		} else {
-			ack.Model, err = c.refreshCredentials(ctx, modelcfg.Model{Key: request.Key, CredentialRef: request.Ref})
+			ack.Model, err = c.refreshCredentials(ctx, modelcfg.Model{Key: request.Key, CredentialRef: request.Ref, Network: request.Network})
 		}
 		if err != nil {
 			ack.Error = err.Error()

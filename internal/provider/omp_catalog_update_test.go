@@ -9,11 +9,17 @@ import (
 	"strings"
 	"sync"
 	"testing"
+
+	"vista/internal/network"
 )
 
-type ompTestTransport func(*http.Request) (*http.Response, error)
+type ompTestTransportFunc func(*http.Request) (*http.Response, error)
 
-func (f ompTestTransport) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
+func (f ompTestTransportFunc) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
+
+func ompTestTransport(f func(*http.Request) (*http.Response, error)) http.RoundTripper {
+	return network.Transport{Base: ompTestTransportFunc(f), Scope: network.ApplicationScope}
+}
 
 const ompTestSource = `{
  "version":1,

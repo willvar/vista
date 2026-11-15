@@ -11,11 +11,12 @@ import (
 	"time"
 
 	modelcfg "vista/internal/model"
+	"vista/internal/network"
 )
 
-var gitlabAuthClient = &http.Client{Timeout: 15 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error {
+var gitlabAuthClient = network.NewClient(http.Client{Timeout: 15 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error {
 	return errors.New("GitLab authorization endpoint redirected")
-}}
+}}, network.ConnectionScope)
 
 // GitLab's PAT is exchanged for a short-lived AI Gateway token.
 // Only the returned gateway material is sent to the Worker.
@@ -30,7 +31,7 @@ func resolveGitLabForRun(ctx context.Context, model modelcfg.Model, selected str
 	}
 	request.Header.Set("Authorization", "Bearer "+model.APIKey)
 	request.Header.Set("Content-Type", "application/json")
-	response, err := gitlabAuthClient.Do(request)
+	response, err := network.Do(gitlabAuthClient, request)
 	if err != nil {
 		return modelcfg.Model{}, "", errors.New("GitLab direct access token request failed")
 	}

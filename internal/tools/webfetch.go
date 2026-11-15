@@ -11,8 +11,10 @@ import (
 	"os"
 	"strings"
 	"time"
+	"vista/internal/network"
 
 	"golang.org/x/net/html/charset"
+
 	"vista/internal/workerproto"
 )
 
@@ -25,16 +27,17 @@ type WebPage struct {
 	Reader      string `json:"reader,omitempty"`
 }
 
-// Webfetch uses external reading services. Each candidate is decoded and fully
+// Webfetch selects local origin reading or external reading services.
+// Each external candidate is decoded and fully
 // staged on disk before it can become the selected artifact. Failed attempts
 // cannot contaminate the saved document, and no full page is buffered in RAM.
 func Webfetch(ctx context.Context, rawURL, format string, output io.Writer, settings workerproto.WebfetchConfig) (WebPage, error) {
-	client := &http.Client{Timeout: 30 * time.Second, CheckRedirect: func(req *http.Request, via []*http.Request) error {
+	client := network.NewClient(http.Client{Timeout: 30 * time.Second, CheckRedirect: func(req *http.Request, via []*http.Request) error {
 		if len(via) >= 5 || !webURLAllowed(req.URL.String()) {
 			return errors.New("webfetch invalid redirect or more than five hops")
 		}
 		return nil
-	}}
+	}}, network.ApplicationScope)
 	return webfetchWithClient(ctx, rawURL, format, output, client, settings)
 }
 
@@ -47,7 +50,7 @@ func webfetchWithClient(ctx context.Context, rawURL, format string, output io.Wr
 	}
 	ctx, cancel := context.WithTimeout(ctx, time.Minute)
 	defer cancel()
-	return webfetchResponse(ctx, client, rawURL, output, settings)
+	return webfetchResponse(ctx, client, rawURL, format, output, settings)
 }
 
 func stageReader(ctx context.Context, response *http.Response) (*os.File, error) {
@@ -71,7 +74,7 @@ func stageReader(ctx context.Context, response *http.Response) (*os.File, error)
 	if err != nil {
 		return nil, fmt.Errorf("cannot decode charset: %w", err)
 	}
-	file, err := os.CreateTemp("", "vista-reader-*")
+	file, err := webStageFile()
 	if err != nil {
 		return nil, err
 	}

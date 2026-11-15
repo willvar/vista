@@ -17,6 +17,7 @@ import (
 	modelcfg "vista/internal/model"
 	"vista/internal/modelcatalog"
 	"vista/internal/modeltrace"
+	"vista/internal/network"
 	"vista/internal/platform"
 	"vista/internal/provider"
 	"vista/internal/question"
@@ -335,35 +336,48 @@ func (a *App) submitMessage(w http.ResponseWriter, r *http.Request, sessionID st
 	jsonOut(w, map[string]any{"runId": runID, "message": message, "event": event})
 }
 
-func (a *App) dispatchRun(ctx context.Context, sessionID, runID string, message store.Message, model modelcfg.Model, debug ...bool) error {
+func (a *App) dispatchRun(ctx context.Context, sessionID, runID string, message store.Message, model modelcfg.Model, debug ...bool) (dispatchErr error) {
+	failureReason := ""
+	defer func() {
+		if dispatchErr == nil {
+			return
+		}
+		completed, err := a.store.FinishRun(context.Background(), sessionID, runID, "", "interrupted", failureReason)
+		if err != nil {
+			log.Printf("session %s dispatch interruption: %v", sessionID, err)
+		}
+		if completed != nil {
+			a.notifySession(sessionID)
+		}
+	}()
 	model.SessionID = sessionID
 	if err := a.store.RecordRunSelection(ctx, runID, model.ID, provider.ModelSelectionEffort(model), provider.ModelEndpointID(model)); err != nil {
-		_, _ = a.store.FinishRun(context.Background(), sessionID, runID, "", "interrupted", "Could not record selected model")
-		a.notifySession(sessionID)
+		failureReason = "Could not record selected model"
 		return err
 	}
 	language, err := a.store.ReplyLanguage(ctx, sessionID)
 	if err != nil {
-		_, _ = a.store.FinishRun(context.Background(), sessionID, runID, "", "interrupted", "Could not load reply language")
-		a.notifySession(sessionID)
+		failureReason = "Could not load reply language"
 		return err
 	}
 	currentImages, err := a.store.MessageResources(ctx, sessionID, message.ID)
 	if err != nil {
-		_, _ = a.store.FinishRun(context.Background(), sessionID, runID, "", "interrupted", "Could not load image input")
-		a.notifySession(sessionID)
+		failureReason = "Could not load image input"
 		return errors.New("could not load image input")
 	}
 	command := workerproto.Command{SessionID: sessionID, MessageSequence: message.Sequence, RunID: runID, Prompt: message.Content, ReplyLanguage: language, QuestionCallID: message.QuestionCallID, Images: currentImages, Model: model, MCPServers: a.currentMCPServers(), SearchProviders: a.currentSearchProviders(), SearchPreviewBytes: a.currentSearchPreviewBytes(), Webfetch: a.currentWebfetchSettings()}
+	policy, err := network.FromContext(network.WithConfigDir(ctx, a.configDir))
+	if err != nil {
+		failureReason = "Could not load network configuration"
+		return err
+	}
+	command.Network = policy
+	pinMCPNetwork(policy, command.MCPServers, command.SearchProviders)
 	if message.Role == "runtime" {
 		command.Action = "resume"
 	}
 	command.Debug = len(debug) > 0 && debug[0]
 	if err := a.dispatchWorker(ctx, sessionID, command); err != nil {
-		completed, _ := a.store.FinishRun(context.Background(), sessionID, runID, "", "interrupted", "")
-		if completed != nil {
-			a.notifySession(sessionID)
-		}
 		return errors.New("Worker is unavailable; message was saved and execution interrupted")
 	}
 	return nil

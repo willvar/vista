@@ -11,13 +11,14 @@ import (
 	"time"
 
 	modelcfg "vista/internal/model"
+	"vista/internal/network"
 )
 
 var watsonxIAMEndpoint = "https://iam.cloud.ibm.com/identity/token"
 
-var watsonxIAMClient = &http.Client{Timeout: 15 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error {
+var watsonxIAMClient = network.NewClient(http.Client{Timeout: 15 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error {
 	return errors.New("IBM IAM endpoint redirected")
-}}
+}}, network.ConnectionScope)
 
 // Exchange the long-lived API key in the Server. Workers receive only the
 // access token; the credential cache renews it before expiry.
@@ -31,7 +32,7 @@ func resolveWatsonxForRun(ctx context.Context, model modelcfg.Model, selected st
 		return modelcfg.Model{}, "", errors.New("invalid IBM IAM endpoint")
 	}
 	request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	response, err := watsonxIAMClient.Do(request)
+	response, err := network.Do(watsonxIAMClient, request)
 	if err != nil {
 		return modelcfg.Model{}, "", errors.New("IBM IAM token request failed")
 	}

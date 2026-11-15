@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 	"unicode/utf8"
+	"vista/internal/network"
 
 	"vista/internal/mcpclient"
 	"vista/internal/useragent"
@@ -59,7 +60,7 @@ func searchDeepSeek(ctx context.Context, config workerproto.SearchProvider, quer
 	if utf8.RuneCountInString(query) > 128 {
 		return nil, errors.New("DeepSeek search query must contain 1–128 Unicode characters; shorten the query")
 	}
-	response, err := deepSeekRequest(ctx, &http.Client{Timeout: 25 * time.Second}, config.Endpoint, config.APIKey, map[string]any{
+	response, err := deepSeekRequest(ctx, network.NewClient(http.Client{Timeout: 25 * time.Second}, network.ApplicationScope), config.Endpoint, config.APIKey, map[string]any{
 		"query": query, "count": 8, "need_content": false,
 	})
 	if err != nil {

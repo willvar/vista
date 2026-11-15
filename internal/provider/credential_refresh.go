@@ -58,6 +58,8 @@ func renewableCredentials(model modelcfg.Model) bool {
 // CredentialReference identifies the saved credential source, before exchange
 // and session reasoning overrides. An edit/disconnect invalidates old references.
 func CredentialReference(source modelcfg.Model) string {
+	source.Network = nil // Routing snapshots do not change credential identity.
+	source.ProxyID = ""
 	data, _ := json.Marshal(source)
 	return fmt.Sprintf("%x", sha256.Sum256(data))
 }
@@ -77,6 +79,10 @@ type CredentialCache struct {
 }
 
 func (c *CredentialCache) Resolve(ctx context.Context, source modelcfg.Model, key string) (modelcfg.Model, string, error) {
+	ctx, source, err := source.BindNetwork(ctx)
+	if err != nil {
+		return modelcfg.Model{}, key, err
+	}
 	if !renewableCredentials(source) {
 		return ResolveRunCredentials(ctx, source, key)
 	}
@@ -103,7 +109,9 @@ func (c *CredentialCache) Resolve(ctx context.Context, source modelcfg.Model, ke
 		return modelcfg.Model{}, "", err
 	}
 	if time.Now().Before(entry.refreshAt) {
-		return entry.model, key, nil
+		cached := entry.model
+		cached.Network, cached.ProxyID = source.Network, source.ProxyID
+		return cached, key, nil
 	}
 	// Token endpoints and ambient credential chains must not hold a request
 	// indefinitely. Providers may impose a shorter timeout themselves.

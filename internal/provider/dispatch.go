@@ -72,6 +72,10 @@ func ModelTurnStream(ctx context.Context, model modelcfg.Model, messages []ChatM
 }
 
 func ModelTurnStreamWithReasoning(ctx context.Context, model modelcfg.Model, messages []ChatMessage, schemas []map[string]any, onText, onReasoning func(string) error) (Turn, error) {
+	ctx, model, err := model.BindNetwork(ctx)
+	if err != nil {
+		return Turn{}, err
+	}
 	messages = prepareRequestMessages(ctx, messages)
 	messages = projectToolImages(messages)
 	if err := validateImageMessages(messages); err != nil {
@@ -98,7 +102,7 @@ func ModelTurnStreamWithReasoning(ctx context.Context, model modelcfg.Model, mes
 	if !ok {
 		return Turn{}, fmt.Errorf("unsupported model provider %q", model.Provider)
 	}
-	model, err := refreshRequestCredentials(ctx, model)
+	model, err = refreshRequestCredentials(ctx, model)
 	if err != nil {
 		return Turn{}, err
 	}

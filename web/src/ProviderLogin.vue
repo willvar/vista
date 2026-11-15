@@ -8,7 +8,7 @@ import { useWorkspace } from './composables/useWorkspace'
 import type { CopilotAuthOptions, LoginUpdate } from './client/types'
 
 type Login = { id: string; verificationUrl: string; userCode: string; status: 'pending' | 'connected' | 'failed' | 'expired' | 'canceled'; error?: string }
-const props = defineProps<{ kind: 'codex' | 'copilot'; client: VistaClient; name: string; connectionKey?: string; copilotAuth?: CopilotAuthOptions }>()
+const props = defineProps<{ kind: 'codex' | 'copilot'; client: VistaClient; name: string; connectionKey?: string; proxyId?: string; revision?: string; copilotAuth?: CopilotAuthOptions }>()
 const emit = defineEmits<{ connected: []; busy: [value: boolean] }>()
 const { stateSync } = useWorkspace()
 const lifetime = new AbortController()
@@ -64,7 +64,7 @@ async function start() {
   error.value = ''
   copied.value = false
   try {
-    const result = await props.client.request<Login>(`/provider-auth/${props.kind}`, { method: 'POST', body: JSON.stringify({ name: props.name.trim(), key: props.connectionKey || '',
+    const result = await props.client.request<Login>(`/provider-auth/${props.kind}`, { method: 'POST', body: JSON.stringify({ name: props.name.trim(), key: props.connectionKey || '', proxyId: props.proxyId || '', revision: props.revision || '',
       copilotAuth: props.kind === 'copilot' ? { enterpriseUrl: props.copilotAuth?.enterpriseUrl?.trim() || '', clientId: props.copilotAuth?.clientId?.trim() || '' } : undefined,
     }) })
     if (disposed || ticket !== generation) {

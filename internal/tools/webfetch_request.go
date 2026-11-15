@@ -5,19 +5,16 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"net"
 	"net/http"
 	"net/netip"
-	"net/url"
 	"os"
-	"strings"
 
 	"vista/internal/useragent"
 	"vista/internal/workerproto"
 )
 
 // Each reader must finish decoding and content validation before selection.
-func webfetchResponse(ctx context.Context, client *http.Client, rawURL string, output io.Writer, settings workerproto.WebfetchConfig) (WebPage, error) {
+func webfetchResponse(ctx context.Context, client *http.Client, rawURL, format string, output io.Writer, settings workerproto.WebfetchConfig) (WebPage, error) {
 	order := settings.Order
 	if order == nil {
 		order = []string{"jina", "deepseek"}
@@ -30,8 +27,12 @@ func webfetchResponse(ctx context.Context, client *http.Client, rawURL string, o
 			return WebPage{}, errors.New("webfetch order must contain jina and deepseek exactly once")
 		}
 	}
-	if !publicWebReaderURL(ctx, rawURL) {
-		return WebPage{}, errors.New("external readers require a public URL without credentials; use shell for local or private content")
+	target, err := classifyWebTarget(ctx, rawURL, settings.Local)
+	if err != nil {
+		return WebPage{}, err
+	}
+	if target.local {
+		return fetchLocalWeb(ctx, client, rawURL, format, target, output)
 	}
 	var failures []error
 	for _, method := range order {
@@ -89,33 +90,8 @@ func webfetchResponseError(response *http.Response) error {
 }
 
 func publicWebReaderURL(ctx context.Context, rawURL string) bool {
-	u, err := url.Parse(rawURL)
-	if err != nil || !webURLAllowed(rawURL) || u.Hostname() == "r.jina.ai" {
-		return false
-	}
-	for key := range u.Query() {
-		key = strings.ToLower(key)
-		if strings.Contains(key, "token") || strings.Contains(key, "secret") || strings.Contains(key, "password") || strings.Contains(key, "signature") || key == "key" || key == "api_key" || key == "apikey" || key == "auth" || strings.HasPrefix(key, "x-amz-") || strings.HasPrefix(key, "x-goog-") {
-			return false
-		}
-	}
-	if ip, err := netip.ParseAddr(u.Hostname()); err == nil {
-		return publicWebReaderIP(ip)
-	}
-	host := strings.TrimSuffix(strings.ToLower(u.Hostname()), ".")
-	if !strings.Contains(host, ".") || strings.HasSuffix(host, ".localhost") || strings.HasSuffix(host, ".local") || strings.HasSuffix(host, ".internal") || strings.HasSuffix(host, ".test") {
-		return false
-	}
-	addresses, err := net.DefaultResolver.LookupNetIP(ctx, "ip", host)
-	if err != nil || len(addresses) == 0 {
-		return false
-	}
-	for _, ip := range addresses {
-		if !publicWebReaderIP(ip) {
-			return false
-		}
-	}
-	return true
+	target, err := classifyWebTarget(ctx, rawURL, false)
+	return err == nil && !target.local
 }
 
 func publicWebReaderIP(ip netip.Addr) bool {

@@ -4,9 +4,8 @@ import (
 	"context"
 	"errors"
 
-	"github.com/aws/aws-sdk-go-v2/config"
-
 	modelcfg "vista/internal/model"
+	"vista/internal/network"
 )
 
 // Resolve refreshable AWS credentials before handing the selected model to a Worker.
@@ -14,8 +13,12 @@ func resolveBedrockForRun(ctx context.Context, model modelcfg.Model, selected st
 	if model.APIKey != "" { // Explicit Bedrock bearer token takes precedence.
 		return model, selected, nil
 	}
-	cfg, err := config.LoadDefaultConfig(ctx, config.WithRegion(model.AWSRegion))
+	cfg, release, err := bedrockAWSConfig(ctx, model.AWSRegion)
+	defer release()
 	if err != nil {
+		if ctx.Err() != nil {
+			return modelcfg.Model{}, "", ctx.Err()
+		}
 		return modelcfg.Model{}, "", errors.New("Bedrock AWS configuration unavailable")
 	}
 	if model.BedrockAuth != "sigv4" && cfg.BearerAuthTokenProvider != nil {
@@ -33,6 +36,12 @@ func resolveBedrockForRun(ctx context.Context, model modelcfg.Model, selected st
 		return modelcfg.Model{}, "", errors.New("Bedrock AWS credentials unavailable")
 	}
 	credentials, err := cfg.Credentials.Retrieve(ctx)
+	if ctx.Err() != nil {
+		return modelcfg.Model{}, "", ctx.Err()
+	}
+	if errors.Is(err, network.ErrRuntimeIdentityProxy) {
+		return modelcfg.Model{}, "", network.ErrRuntimeIdentityProxy
+	}
 	if err != nil || !credentials.HasKeys() {
 		return modelcfg.Model{}, "", errors.New("Bedrock AWS credentials unavailable")
 	}

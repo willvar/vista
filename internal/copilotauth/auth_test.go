@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"vista/internal/appdirs"
+	"vista/internal/network"
 	"vista/internal/useragent"
 )
 
@@ -35,11 +36,11 @@ func TestDeviceLoginUsesBuiltInClientAndCanBeCanceled(t *testing.T) {
 	defer server.Close()
 	client := NewClient()
 	client.Issuer = server.URL
-	device, err := client.Begin(context.Background())
+	device, err := client.Begin(network.WithConnectionPolicy(context.Background(), network.Policy{}))
 	if err != nil {
 		t.Fatal(err)
 	}
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(network.WithConnectionPolicy(context.Background(), network.Policy{}))
 	cancel()
 	if _, err := client.Complete(ctx, device); err != context.Canceled {
 		t.Fatalf("canceled device login: %v", err)
@@ -56,7 +57,7 @@ func TestDeniedOrMalformedCopilotAccountDoesNotReturnCredential(t *testing.T) {
 	for _, body := range []string{`{"chat_enabled":false}`, `{"endpoints":{"api":"http://external.example"}}`, `{"token":"secret"`, strings.Repeat("x", (16<<10)+1)} {
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { fmt.Fprint(w, body) }))
 		client := &Client{Issuer: server.URL, HTTP: server.Client()}
-		credential, err := client.account(context.Background(), "private-token")
+		credential, err := client.account(network.WithConnectionPolicy(context.Background(), network.Policy{}), "private-token")
 		server.Close()
 		if err == nil || credential.Token != "" || strings.Contains(err.Error(), "private-token") {
 			t.Fatal("invalid account accepted or exposed credential")
@@ -64,7 +65,7 @@ func TestDeniedOrMalformedCopilotAccountDoesNotReturnCredential(t *testing.T) {
 	}
 	client := NewClient()
 	client.Issuer = "http://remote.example"
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	ctx, cancel := context.WithTimeout(network.WithConnectionPolicy(context.Background(), network.Policy{}), time.Second)
 	defer cancel()
 	if _, err := client.Begin(ctx); err == nil {
 		t.Fatal("invalid issuer accepted")
@@ -116,14 +117,14 @@ func TestCompleteLoginKeepsNativeIdentityWhenGlobalSettingsChange(t *testing.T) 
 	defer server.Close()
 	client := NewClient()
 	client.Issuer = server.URL
-	device, err := client.Begin(context.Background())
+	device, err := client.Begin(network.WithConnectionPolicy(context.Background(), network.Policy{}))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(dir, useragent.Filename), []byte(`{"preset":`), 0600); err != nil {
 		t.Fatal(err)
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+	ctx, cancel := context.WithTimeout(network.WithConnectionPolicy(context.Background(), network.Policy{}), 8*time.Second)
 	defer cancel()
 	credential, err := client.Complete(ctx, device)
 	if err != nil || credential.Token != "test-token" {

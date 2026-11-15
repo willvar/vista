@@ -21,6 +21,7 @@ import (
 )
 
 type Configured struct {
+	ProxyID             string                  `json:"proxyId,omitempty"`
 	Key                 string                  `json:"key"`
 	ConnectionID        string                  `json:"connectionId,omitempty"`
 	Name                string                  `json:"name,omitempty"`
@@ -102,6 +103,7 @@ type Catalog struct {
 }
 
 type Info struct {
+	ProxyID          string   `json:"proxyId,omitempty"`
 	Key              string   `json:"key"`
 	ConnectionID     string   `json:"connectionId,omitempty"`
 	Name             string   `json:"name,omitempty"`
@@ -335,6 +337,7 @@ func (c Catalog) Resolve(key string) (modelcfg.Model, string, error) {
 			}
 			model := provider.CatalogModelRequest(item.providerConfig(), item.providerMetadata())
 			model.CodexCredentialPath = item.codexCredentialPath
+			model.ProxyID = item.ProxyID
 			imageInput := slices.Contains(item.EffectiveInputModalities(), "image") && provider.SupportsImageInput(model.Provider)
 			model.ImageInput = &imageInput
 			return model, key, nil
@@ -371,7 +374,7 @@ func (item Configured) Info() Info {
 	if item.ProviderID == "custom" || (item.Provider == "openai-chat" || item.Provider == "openai-responses") && (item.ProviderID == "" || item.ProviderID == "openai") {
 		baseURL = item.BaseURL
 	}
-	return Info{Key: item.Key, ConnectionID: item.ConnectionID, Name: item.Name, ModelName: modelName, Recognized: item.Recognized(), Provider: item.Provider, ProviderID: item.ProviderID, ID: item.ID, BaseURL: baseURL, Tools: item.Tools, Context: item.Context, InputLimit: item.inputLimit, OutputLimit: item.outputLimit, CatalogReasoning: item.catalogReasoning, Status: item.status, InputModalities: provider.SupportedInputModalities(item.Provider, item.EffectiveInputModalities()), OutputModalities: item.outputModalities, DiscoverySource: item.discoverySource, ReasoningOptions: options}
+	return Info{ProxyID: item.ProxyID, Key: item.Key, ConnectionID: item.ConnectionID, Name: item.Name, ModelName: modelName, Recognized: item.Recognized(), Provider: item.Provider, ProviderID: item.ProviderID, ID: item.ID, BaseURL: baseURL, Tools: item.Tools, Context: item.Context, InputLimit: item.inputLimit, OutputLimit: item.outputLimit, CatalogReasoning: item.catalogReasoning, Status: item.status, InputModalities: provider.SupportedInputModalities(item.Provider, item.EffectiveInputModalities()), OutputModalities: item.outputModalities, DiscoverySource: item.discoverySource, ReasoningOptions: options}
 }
 
 // Recognized reports available catalog or explicit capability metadata, including

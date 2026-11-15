@@ -129,8 +129,8 @@ func TestStateStreamInitialCatchupAndDisconnect(t *testing.T) {
 
 func TestStateUpdateKeepsOversizedListsWithinFrameLimit(t *testing.T) {
 	consumer, _ := newResultConsumerTest(t)
-	for index := range 300 {
-		if _, err := consumer.store.Create(consumer.ctx, fmt.Sprint(index), strings.Repeat("x", 200)); err != nil {
+	for index := range 400 {
+		if _, err := consumer.store.Create(consumer.ctx, fmt.Sprint(index), strings.Repeat("<", 200)); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -142,8 +142,9 @@ func TestStateUpdateKeepsOversizedListsWithinFrameLimit(t *testing.T) {
 		t.Fatal(err)
 	}
 	encoded, err := json.Marshal(point)
-	if err != nil || len(encoded) > maxStateSnapshotBytes || point.Sessions != nil || point.Status == nil || point.Revisions["sessions"] != 1 {
-		t.Fatalf("oversized update cannot use HTTP recovery: bytes=%d point=%+v err=%v", len(encoded), point, err)
+	frame := fmt.Sprintf("event: state\ndata: %s\n\n", encoded)
+	if err != nil || len(frame) > 512<<10 || point.Sessions != nil || point.Status == nil || point.Revisions["sessions"] != 1 {
+		t.Fatalf("oversized update cannot use HTTP recovery: bytes=%d point=%+v err=%v", len(frame), point, err)
 	}
 }
 

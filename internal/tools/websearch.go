@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 	"unicode/utf8"
+	"vista/internal/network"
 
 	"vista/internal/mcpclient"
 	"vista/internal/useragent"
@@ -97,7 +98,8 @@ func searchOne(ctx context.Context, config workerproto.SearchProvider, query str
 		return nil, errors.New("unknown websearch provider")
 	}
 	connection, _ := mcpclient.SearchConfig(config.Name, config.Endpoint, config.APIKey)
-	server, err := mcpclient.OpenSearch(ctx, connection.Endpoint, connection.Token)
+	connection.Network = config.Network
+	server, err := mcpclient.OpenSearch(ctx, connection)
 	if err != nil {
 		return nil, err
 	}
@@ -185,7 +187,7 @@ func searchTavily(ctx context.Context, config workerproto.SearchProvider, query 
 	} else {
 		request.Header.Set("Authorization", "Bearer "+config.APIKey)
 	}
-	client := &http.Client{Timeout: 25 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return errors.New("websearch endpoint redirected") }}
+	client := network.NewClient(http.Client{Timeout: 25 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return errors.New("websearch endpoint redirected") }}, network.ApplicationScope)
 	response, err := useragent.Do(client, request)
 	if err != nil {
 		return nil, err

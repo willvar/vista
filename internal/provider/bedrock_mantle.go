@@ -13,6 +13,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws/signer/v4"
 
 	modelcfg "vista/internal/model"
+	"vista/internal/network"
 )
 
 func isBedrockMantle(model modelcfg.Model) bool {
@@ -38,6 +39,11 @@ func bedrockMantleTurn(ctx context.Context, model modelcfg.Model, messages []Cha
 }
 
 func doModelRequest(request *http.Request, model modelcfg.Model) (*http.Response, error) {
+	ctx, model, err := model.BindNetwork(request.Context())
+	if err != nil {
+		return nil, err
+	}
+	request = request.Clone(ctx)
 	if model.Custom {
 		ApplyCustomRequestHeaders(request.Header, model.Authentication, model.APIKey, model.Headers)
 	} else {
@@ -51,12 +57,12 @@ func doModelRequest(request *http.Request, model modelcfg.Model) (*http.Response
 	if !isBedrockMantle(model) || model.APIKey != "" {
 		return doStreamingRequest(request, client, modelReadIdleTimeout)
 	}
-	custom := &http.Client{
+	custom := network.NewClient(http.Client{
 		Transport: mantleTransport{base: tracedModelHTTPTransport, model: model},
 		CheckRedirect: func(*http.Request, []*http.Request) error {
 			return errors.New("Bedrock Mantle endpoint redirected")
 		},
-	}
+	}, network.ConnectionScope)
 	return doStreamingRequest(request, custom, modelReadIdleTimeout)
 }
 
@@ -64,6 +70,8 @@ type mantleTransport struct {
 	base  http.RoundTripper
 	model modelcfg.Model
 }
+
+func (t mantleTransport) Unwrap() http.RoundTripper { return t.base }
 
 func (t mantleTransport) RoundTrip(request *http.Request) (*http.Response, error) {
 	hash := sha256.New()

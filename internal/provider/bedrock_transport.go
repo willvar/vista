@@ -4,16 +4,20 @@ import (
 	"context"
 	"errors"
 	"net/http"
+
+	"vista/internal/network"
 )
 
-var bedrockHTTPClient = &http.Client{
+var bedrockHTTPClient = network.NewClient(http.Client{
 	Transport: bedrockTransport{base: tracedModelHTTPTransport},
 	CheckRedirect: func(*http.Request, []*http.Request) error {
 		return errors.New("Bedrock endpoint redirected")
 	},
-}
+}, network.ConnectionScope)
 
 type bedrockTransport struct{ base http.RoundTripper }
+
+func (t bedrockTransport) Unwrap() http.RoundTripper { return t.base }
 
 func (t bedrockTransport) RoundTrip(request *http.Request) (*http.Response, error) {
 	ctx, cancel := context.WithCancel(request.Context())

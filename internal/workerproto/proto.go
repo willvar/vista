@@ -2,6 +2,7 @@ package workerproto
 
 import (
 	modelcfg "vista/internal/model"
+	"vista/internal/network"
 	"vista/internal/question"
 	"vista/internal/resources"
 )
@@ -11,6 +12,7 @@ const DefaultNetworkPreviewBytes = 50 << 10
 // Frames are newline-delimited JSON on a dedicated Worker stdin/stdout pipe.
 // Result frames have a byte limit; command fields are validated after decoding.
 type Command struct {
+	Network            network.Policy   `json:"network"`
 	RuntimeEvents      []RuntimeEvent   `json:"runtimeEvents,omitempty"`
 	ProjectRules       []ProjectRule    `json:"projectRules,omitempty"`
 	MCPHost            MCPHost          `json:"mcpHost,omitzero"`
@@ -51,17 +53,20 @@ type MCPHost struct {
 	Token    string `json:"token"`
 }
 type WebfetchConfig struct {
+	Local          bool     `json:"local,omitempty"`
 	Order          []string `json:"order"`
 	JinaAPIKey     string   `json:"jinaApiKey,omitempty"`
 	DeepSeekAPIKey string   `json:"deepseekApiKey,omitempty"`
 	PreviewBytes   int      `json:"previewBytes"`
 }
 type SearchProvider struct {
-	Name     string `json:"name"`
-	Endpoint string `json:"endpoint"`
-	APIKey   string `json:"apiKey,omitempty"`
+	Network  *network.Policy `json:"network,omitempty"`
+	Name     string          `json:"name"`
+	Endpoint string          `json:"endpoint"`
+	APIKey   string          `json:"apiKey,omitempty"`
 }
 type MCPServer struct {
+	Network      *network.Policy   `json:"network,omitempty"`
 	ID           string            `json:"id"`
 	Disabled     bool              `json:"disabled,omitempty"`
 	Name         string            `json:"name"`
@@ -86,9 +91,10 @@ type Message struct {
 type Image = resources.Ref
 
 type CredentialRequest struct {
-	Key      string `json:"key"`
-	Ref      string `json:"ref"`
-	Deadline int64  `json:"deadline,omitempty"`
+	Network  *network.Policy `json:"network,omitempty"`
+	Key      string          `json:"key"`
+	Ref      string          `json:"ref"`
+	Deadline int64           `json:"deadline,omitempty"`
 }
 
 type Result struct {

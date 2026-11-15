@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, useAttrs } from 'vue'
-import { ComboboxItemGroupLabel, ComboboxItemIndicator, ComboboxPositioner, ComboboxItemGroup, ComboboxItemText, ComboboxControl, ComboboxTrigger, ComboboxContent, ComboboxInput, ComboboxEmpty, ComboboxRoot, ComboboxItem, createListCollection } from '@ark-ui/vue/combobox'
+import { ComboboxClearTrigger, ComboboxItemGroupLabel, ComboboxItemIndicator, ComboboxPositioner, ComboboxItemGroup, ComboboxItemText, ComboboxControl, ComboboxTrigger, ComboboxContent, ComboboxInput, ComboboxEmpty, ComboboxRoot, ComboboxItem, createListCollection } from '@ark-ui/vue/combobox'
 import { useVirtualizer } from '@tanstack/vue-virtual'
 import { IconChevronDown, IconX, IconCheck } from '@tabler/icons-vue'
 import { useI18n } from 'vue-i18n'
@@ -36,7 +36,7 @@ function label(value: string) {
 const selectedLabel = computed(() => selected.value.map(label).join(', '))
 const filtered = computed(() => {
   const query = editable.value ? search.value.trim().toLocaleLowerCase() : ''
-  return allOptions.value.filter(option => !query || String(option[props.optionFilterProp] || option.label).toLocaleLowerCase().includes(query))
+  return allOptions.value.filter(option => option.action || !query || String(option[props.optionFilterProp] || option.label).toLocaleLowerCase().includes(query))
 })
 const collection = computed(() => createListCollection({ items: filtered.value, itemToValue: item => String(item.value), itemToString: item => item.label, isItemDisabled: item => !!item.disabled }))
 const virtualized = computed(() => filtered.value.length > 80 && props.virtual !== false)
@@ -64,6 +64,8 @@ const groups = computed(() => {
   return result.map(group => ({ ...group, heading: group.rows.find(row => row.heading) }))
 })
 function update(values: string[]) {
+  const action = values.length === 1 ? allOptions.value.find(item => String(item.value) === values[0])?.action : undefined
+  if (action) { openChange(false); action(); return }
   const originals = values.map(value => allOptions.value.find(item => String(item.value) === value)?.value ?? value)
   const value = multiple.value ? originals : originals[0]
   emit('update:value', value); emit('change', value)
@@ -103,10 +105,10 @@ function addTag(event: KeyboardEvent) {
     @open-change="openChange($event.open)" @input-value-change="inputChange" @update:model-value="update">
     <ComboboxControl ref="control" class="ui-select-selector">
       <template v-if="multiple"><span v-for="value in selected" :key="value" class="ui-select-tag">{{ label(value) }}<button type="button" :aria-label="`${t('remove')} ${label(value)}`" :disabled="disabled" @pointerdown.prevent @click.stop="update(selected.filter(item => item !== value))">×</button></span></template>
-      <span v-else class="ui-select-selection-item" :style="[{ visibility: open && editable ? 'hidden' : undefined }, styles?.content]">{{ selectedLabel || placeholder }}</span>
+      <span v-else class="ui-select-selection-item" :class="{ 'ui-select-placeholder': !selected.length }" :style="[{ visibility: open && editable ? 'hidden' : undefined }, styles?.content]">{{ selectedLabel || placeholder }}</span>
       <ComboboxInput v-bind="{ ...attrs, class: undefined, style: undefined }" class="ui-select-input" :style="!multiple && (!open || !editable) ? { color: 'transparent', caretColor: 'transparent' } : undefined"
         :readonly="!editable" :aria-autocomplete="editable ? 'list' : 'none'" :placeholder="multiple ? placeholder : open && editable ? selectedLabel || placeholder : undefined" @keydown.capture="addTag" />
-      <button v-if="allowClear && selected.length" type="button" class="ui-select-clear" :aria-label="t('uiClear')" :disabled="disabled" @pointerdown.prevent @click.stop="update([])"><IconX /></button>
+      <ComboboxClearTrigger v-if="allowClear && selected.length" class="ui-select-clear"><IconX /></ComboboxClearTrigger>
       <ComboboxTrigger class="ui-select-arrow" tabindex="-1"><IconChevronDown /></ComboboxTrigger>
     </ComboboxControl>
     <Teleport to="body"><ComboboxPositioner style="z-index: 1500"><ComboboxContent :ref="setScrolling" class="ui-select-dropdown" :data-virtualized="virtualized || undefined" @layer:request-dismiss="requestDismiss">

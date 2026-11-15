@@ -102,7 +102,7 @@ func TestCopilotDiscoveryRequiresConfiguredModel(t *testing.T) {
 	if calls.Load() != 0 || len(app.modelsSnapshot().Models) != 0 {
 		t.Fatal("ambient token triggered Copilot discovery")
 	}
-	if _, err := modelcatalog.DiscoverCopilotModels(context.Background(), configuredModel{BaseURL: "http://example.com", APIKey: "token"}); err == nil {
+	if _, err := modelcatalog.DiscoverModels(context.Background(), configuredModel{BaseURL: "http://example.com", APIKey: "token"}); err == nil {
 		t.Fatal("external HTTP Copilot discovery accepted")
 	}
 }
@@ -117,13 +117,13 @@ func TestCopilotDiscoveryPrefersMessagesAndRejectsIncompleteInventory(t *testing
 		fmt.Fprint(w, `{"data":[{"id":"claude-new","model_picker_enabled":true,"supported_endpoints":["/chat/completions","/responses","/v1/messages"],"capabilities":{"limits":{"max_prompt_tokens":8000,"max_output_tokens":1000},"supports":{"tool_calls":true}}}]}`)
 	}))
 	defer endpoint.Close()
-	source := configuredModel{BaseURL: endpoint.URL + "/v1", APIKey: "token"}
-	models, err := modelcatalog.DiscoverCopilotModels(context.Background(), source)
+	source := configuredModel{ProviderID: "github-copilot", BaseURL: endpoint.URL + "/v1", APIKey: "token"}
+	models, err := modelcatalog.DiscoverModels(context.Background(), source)
 	if err != nil || len(models) != 1 || models[0].Provider != "anthropic" || models[0].BaseURL != endpoint.URL+"/v1" {
 		t.Fatalf("Copilot Messages route: %+v, err=%v", models, err)
 	}
 	incomplete.Store(true)
-	if _, err := modelcatalog.DiscoverCopilotModels(context.Background(), source); err == nil {
+	if _, err := modelcatalog.DiscoverModels(context.Background(), source); err == nil {
 		t.Fatal("incomplete Copilot inventory accepted")
 	}
 }

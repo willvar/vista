@@ -57,7 +57,7 @@ func NewPool(ctx context.Context, configDir, directory string, notify func(Event
 	p := &Pool{ctx: ctx, cancel: cancel, configDir: configDir, directory: directory, entries: map[string]*entry{}, slots: make(chan struct{}, 3), notify: notify}
 	p.connect = func(ctx context.Context, def Definition, authDir string) (mcpclient.Connection, error) {
 		if def.Search {
-			return mcpclient.OpenSearch(ctx, def.Config.Endpoint, def.Config.Token)
+			return mcpclient.OpenSearch(ctx, def.Config)
 		}
 		return mcpclient.OpenWithConfigDir(ctx, def.Config, authDir)
 	}

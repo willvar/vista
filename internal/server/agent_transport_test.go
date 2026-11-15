@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"vista/internal/agent"
 	"vista/internal/agentconfig"
@@ -58,7 +59,7 @@ func TestNestedAgentProgressPassesWorkerBoundary(t *testing.T) {
 		last := request.Messages[len(request.Messages)-1]
 		delta, finish := map[string]any{"content": "nested work complete"}, "stop"
 		name, id, input := "", strings.Repeat("d", 256), map[string]any{}
-		if last.Role == "user" {
+		if last.Role == "user" && strings.HasPrefix(last.Content, "level-") {
 			level, _ := strconv.Atoi(strings.TrimPrefix(last.Content, "level-"))
 			if level < 3 {
 				name, input = "delegate", map[string]any{"task": fmt.Sprintf("level-%d", level+1)}
@@ -78,7 +79,9 @@ func TestNestedAgentProgressPassesWorkerBoundary(t *testing.T) {
 	deepTool := false
 	var rejected error
 	command := workerproto.Command{RunID: "run", Prompt: "level-0", Model: modelcfg.Model{Provider: "openai-chat", ID: "fixture", APIKey: "fixture", BaseURL: model.URL}}
-	answer, err := agent.Run(context.Background(), command, func(result workerproto.Result) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	answer, err := agent.Run(ctx, command, func(result workerproto.Result) error {
 		if result.Kind == "model_complete" {
 			return nil // The Worker retains this locally until finalization.
 		}

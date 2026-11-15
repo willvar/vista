@@ -5,6 +5,7 @@ import (
 	"errors"
 	"log"
 	"time"
+	"vista/internal/store"
 
 	"vista/internal/agentconfig"
 	modelcfg "vista/internal/model"
@@ -12,7 +13,6 @@ import (
 	"vista/internal/provider"
 	"vista/internal/replylanguage"
 	"vista/internal/sessiontitle"
-	"vista/internal/store"
 	"vista/internal/workerproto"
 )
 

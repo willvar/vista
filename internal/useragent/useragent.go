@@ -16,6 +16,7 @@ import (
 	"vista/internal/appdirs"
 	"vista/internal/buildinfo"
 	"vista/internal/configstore"
+	"vista/internal/network"
 )
 
 // Filename is the shared settings document; this package owns its userAgent section.
@@ -186,7 +187,7 @@ func Do(client *http.Client, request *http.Request) (*http.Response, error) {
 	if err != nil {
 		return nil, err
 	}
-	return client.Do(request)
+	return network.Do(client, request)
 }
 
 // Transport supplies a default without replacing explicit SDK headers.
@@ -196,14 +197,14 @@ type Transport struct {
 	UserAgent string
 }
 
+func (t Transport) Unwrap() http.RoundTripper {
+	return network.HTTPTransport(t.Base, network.ApplicationScope)
+}
+
 func (t Transport) RoundTrip(request *http.Request) (*http.Response, error) {
 	request, err := requestWithAgent(request, t.UserAgent)
 	if err != nil {
 		return nil, err
 	}
-	base := t.Base
-	if base == nil {
-		base = http.DefaultTransport
-	}
-	return base.RoundTrip(request)
+	return t.Unwrap().RoundTrip(request)
 }

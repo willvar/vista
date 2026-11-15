@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, defineAsyncComponent, h, nextTick, reactive, onMounted, onUnmounted, ref, watch } from 'vue'
-import { useRoute } from 'vue-router'
+import { onBeforeRouteLeave, onBeforeRouteUpdate, useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { IconChevronRight, IconPalette, IconUser, IconPlugConnected, IconInfoCircle, IconSearch, IconLink, IconBook2, IconSun, IconMoon, IconDeviceDesktop, IconDatabase, IconAlertCircle, IconMaximize, IconMinimize, IconPlus, IconFileImport, IconRefresh, IconRobot, IconRobotFace, IconUsers, IconCompass, IconTool, IconMessage, IconFolderOpen, IconFolder, IconFileText } from '@tabler/icons-vue'
 import { Empty as VEmpty, Alert as VAlert, Button as VButton, Input as VInput, Modal as VModal, Select as VSelect, Switch as VSwitch, Tooltip as VTooltip } from '../ui'
@@ -21,8 +21,12 @@ import ResetVistaSettings from '../ResetVistaSettings.vue'
 import RestartVistaSettings from '../RestartVistaSettings.vue'
 import ServerConfigSettings from '../ServerConfigSettings.vue'
 import SchemaForm from '../SchemaForm.vue'
+import NetworkSettings from '../NetworkSettings.vue'
+import ProxySelection from '../ProxySelection.vue'
+import { useNetworkConfig } from '../composables/useNetworkConfig'
+import type { ModelSetting } from '../client/types'
 import VistaMark from '../VistaMark.vue'
-import { IconChartBar, IconClearAll } from '@tabler/icons-vue'
+import { IconChartBar, IconReload } from '@tabler/icons-vue'
 import { useWorkspace } from '../composables/useWorkspace'
 import { useProviderSettings } from '../composables/useProviderSettings'
 import { useAppearance } from '../ui/appearance'
@@ -61,6 +65,7 @@ const sections = [
   { name: 'settings-search', label: 'searchSettings', icon: IconSearch },
   { name: 'settings-mcp', label: 'mcpSettings', icon: IconLink },
   { name: 'settings-skills', label: 'skillsSettings', icon: IconBook2 },
+  { name: 'settings-network', label: 'networkSettings', icon: IconCompass },
   { name: 'settings-statistics', label: 'statisticsSettings', icon: IconChartBar },
   { name: 'settings-storage', label: 'storageSettings', icon: IconDatabase },
   { name: 'settings-about', label: 'aboutSettings', icon: IconInfoCircle },
@@ -91,6 +96,7 @@ const mcpModalOpen = ref(false)
 const skillModalOpen = ref(false)
 const memoryModalOpen = ref(false)
 const searchModalOpen = ref(false)
+const networkModalOpen = ref(false)
 const storageModalOpen = ref(false)
 const resetModalOpen = ref(false)
 const restartModalOpen = ref(false)
@@ -114,7 +120,7 @@ const {
   agentSettingsResetKeys, canSaveAgentField,
   agentSettingsBusy, agentSettingsLoading, agentSettingsError, agentSettingsSaved,
   loadAgentSettings, saveAgentSettings, modelDraft, modelFormOpen, chosenModels,
-  manualModelIDs, canReuseHeader, editingProvider, providerOptions, canSaveProvider,
+  providerDraftVersion, providerConflict, manualModelIDs, canReuseHeader, editingProvider, providerOptions, canSaveProvider,
   providerChoice, providerChoiceSchema, providerChoiceUISchema,
   deploymentModelSelection, providerModelOptions, usesAPIKey, authenticationHeader,
   modelConfig, modelConfigSchema, modelConfigUISchema, modelConfigValid, modelConfigDirty, modelConfigResetKey,
@@ -123,6 +129,43 @@ const {
   startProviderConnection, cancelModelForm, loadModelSettings, editProvider, providerGroups,
   saveProvider, retryModelDiscovery, providerConnected, setDefaultModel, confirmDisconnectProvider, updateProviderDisconnect,
 } = useProviderSettings(workspace)
+const networkConfigData = useNetworkConfig(workspace, () => route.name === 'settings')
+const proxyProfiles = computed(() => networkConfigData.value.value?.config.profiles || [])
+const providerProxyValid = ref(true), providerCredentialDirty = ref(false), providerBaseline = ref('')
+const providerSnapshot = computed(() => JSON.stringify({ draft: modelDraft.value, models: chosenModels.value, manual: manualModelIDs.value }))
+const providerDiscardOpen = ref(false)
+const proxyBindingTarget = ref<ModelSetting>(), proxyBindingValue = ref(''), proxyBindingBase = ref(''), proxyBindingRevision = ref(''), proxyBindingValid = ref(true), proxyBindingError = ref('')
+const proxyBindingDirty = computed(() => !!proxyBindingTarget.value && proxyBindingValue.value !== proxyBindingBase.value)
+const proxyBindingConflict = computed(() => !!proxyBindingTarget.value && proxyBindingRevision.value !== settings.value.settingsRevision)
+function editProxyBinding(model: ModelSetting) { proxyBindingTarget.value = model; proxyBindingValue.value = model.proxyId || ''; proxyBindingBase.value = proxyBindingValue.value; proxyBindingRevision.value = settings.value.settingsRevision || ''; proxyBindingError.value = '' }
+async function closeProxyBinding() { if (settingsBusy.value || proxyBindingDirty.value && !await askProviderDiscard()) return; proxyBindingTarget.value = undefined }
+async function saveProxyBinding() {
+  const target = proxyBindingTarget.value; if (!target || !proxyBindingValid.value || proxyBindingConflict.value) return
+  settingsBusy.value = true; proxyBindingError.value = ''
+  try { await workspace.client.request('/provider-config', { method: 'PATCH', body: JSON.stringify({ key: target.key, proxyId: proxyBindingValue.value, revision: proxyBindingRevision.value }) }); proxyBindingTarget.value = undefined }
+  catch (cause) { proxyBindingError.value = cause instanceof Error ? cause.message : String(cause) }
+  finally { settingsBusy.value = false }
+}
+async function reloadProviderDraft() { if (providerDirty.value && !await askProviderDiscard()) return; const latest = settings.value.models.find(model => model.key === modelDraft.value.key); if (latest) { editProvider(latest); providerBaseline.value = providerSnapshot.value; providerCredentialDirty.value = false } }
+async function reloadProxyBinding() { if (proxyBindingDirty.value && !await askProviderDiscard()) return; const latest = settings.value.models.find(model => model.key === proxyBindingTarget.value?.key); if (latest) editProxyBinding(latest) }
+
+let providerDiscardResolve: ((value: boolean) => void) | undefined, providerDiscardPending: Promise<boolean> | undefined
+const providerDirty = computed(() => providerCredentialDirty.value || modelConfigDirty.value || providerSnapshot.value !== providerBaseline.value)
+watch(modelFormOpen, open => { providerBaseline.value = open ? providerSnapshot.value : ''; providerCredentialDirty.value = false; if (!open) finishProviderDiscard(false) }, { flush: 'sync' })
+function askProviderDiscard() { if (providerDiscardPending) return providerDiscardPending; providerDiscardOpen.value = true; return providerDiscardPending = new Promise<boolean>(resolve => { providerDiscardResolve = resolve }) }
+function finishProviderDiscard(value: boolean) { providerDiscardOpen.value = false; providerDiscardResolve?.(value); providerDiscardResolve = undefined; providerDiscardPending = undefined }
+async function leaveProvider() { if (settingsBusy.value) return false; return (!(modelFormOpen.value && providerDirty.value) && !proxyBindingDirty.value) || await askProviderDiscard() }
+onBeforeRouteLeave(leaveProvider); onBeforeRouteUpdate(leaveProvider)
+let openedConnection = ''
+watch([() => route.name, () => route.query.connection, () => settings.value.models, () => providerOptions.value.length], async () => {
+  await nextTick()
+  if (route.name !== 'settings') { openedConnection = ''; return }
+  const key = typeof route.query.connection === 'string' ? route.query.connection : ''
+  if (!key || openedConnection === key || modelFormOpen.value || !providerOptions.value.length) return
+  const model = settings.value.models.find(model => model.key === key)
+  if (model) { openedConnection = key; if (model.editable) editProvider(model); else editProxyBinding(model) }
+}, { immediate: true, flush: 'post' })
+onUnmounted(() => finishProviderDiscard(false))
 const agentFieldValidity = reactive({ instructions: true, delegationDepth: true, automaticTitles: true })
 const agentFieldSchemas = computed(() => Object.fromEntries(['instructions', 'delegationDepth', 'automaticTitles'].map(field => [field, {
   type: 'object', additionalProperties: false, required: [field], properties: { [field]: agentSettingsSchema.value.properties![field] },
@@ -144,24 +187,24 @@ function onImported(count: number) {
 }
 const headerAction = computed<HeaderAction | undefined>(() => route.name === 'settings'
   ? { label: 'connectProvider', run: startProviderConnection, disabled: settingsBusy.value, loading: false }
-  : ['settings-mcp', 'settings-about', 'settings-statistics'].includes(String(route.name)) ? sectionActions.value?.headerAction : undefined)
-// Full-screen editing is an explicit context change; synchronize the shared draft on exit.
-watch(instructionsEditorOpen, () => { agentSettingsResetKeys.instructions++ })
+  : ['settings-mcp', 'settings-network', 'settings-about', 'settings-statistics'].includes(String(route.name)) ? sectionActions.value?.headerAction : undefined)
 const loginBusy = ref(false)
 watch(() => modelDraft.value.kind, () => { loginBusy.value = false })
 function providerTypeLabel(kind: string, protocol: string) {
   return providerOptions.value.find(option => option.value === kind)?.label || protocol
 }
-function closeProviderForm() {
-  if (!settingsBusy.value) cancelModelForm()
+async function closeProviderForm() {
+  if (settingsBusy.value || providerDirty.value && !await askProviderDiscard()) return
+  cancelModelForm()
 }
 
 watch(() => route.fullPath, () => {
   importedCount.value = 0
   instructionsEditorOpen.value = false
   providerDisconnectTarget.value = null
+  proxyBindingTarget.value = undefined
   cancelModelForm()
-  if (route.name === 'settings-personalization') void loadAgentSettings()
+  if (route.name === 'settings-personalization' || route.name === 'settings-general') void loadAgentSettings()
   else if (route.name === 'settings') void loadModelSettings()
 }, { immediate: true })
 </script>
@@ -169,17 +212,18 @@ watch(() => route.fullPath, () => {
 <template>
 <WorkspaceModal ref="modal" :open="true" width="max-content" :title="settingsTitle" :page-class="settingsIndex ? 'settings-page settings-index' : 'settings-page'"
   :close-label="t('closeSettings')" :back-label="t(settingsIndex ? 'backToConversation' : 'backToSettings')"
-  :keyboard="!providerDisconnectTarget && !modelFormOpen && !providerImportOpen && !mcpModalOpen && !skillModalOpen && !memoryModalOpen && !searchModalOpen && !storageModalOpen && !resetModalOpen && !restartModalOpen && !portChangeModalOpen && !statisticsModalOpen && !instructionsEditorOpen" @cancel="backToWorkspace" @back="back">
+  :keyboard="!providerDisconnectTarget && !modelFormOpen && !providerImportOpen && !mcpModalOpen && !skillModalOpen && !memoryModalOpen && !searchModalOpen && !networkModalOpen && !providerDiscardOpen && !proxyBindingTarget && !storageModalOpen && !resetModalOpen && !restartModalOpen && !portChangeModalOpen && !statisticsModalOpen && !instructionsEditorOpen" @cancel="backToWorkspace" @back="back">
         <template #header-actions>
             <v-button v-if="canImport" variant="text" class="icon-button" :aria-label="t(importTitleKey)" :title="t(importTitleKey)" :disabled="importKind === 'providers' ? settingsBusy : headerAction?.disabled" @click="importedCount = 0; providerImport?.show()"><template #icon><IconFileImport aria-hidden="true" /></template></v-button>
             <v-button v-if="headerAction" variant="text" class="icon-button" :aria-label="t(headerAction.label)" :title="t(headerAction.label)" :disabled="headerAction.disabled" :loading="headerAction.loading" @click="headerAction.run()">
-              <template #icon><IconPlus v-if="route.name === 'settings' || route.name === 'settings-mcp'" aria-hidden="true" /><IconClearAll v-else-if="route.name === 'settings-statistics'" aria-hidden="true" /><IconRefresh v-else aria-hidden="true" /></template>
+              <template #icon><IconPlus v-if="route.name === 'settings' || route.name === 'settings-mcp' || route.name === 'settings-network'" aria-hidden="true" /><IconReload v-else-if="route.name === 'settings-statistics'" aria-hidden="true" /><IconRefresh v-else aria-hidden="true" /></template>
             </v-button>
         </template>
         <div class="settings-body">
         <nav class="settings-nav" :aria-label="t('settings')">
           <router-link v-for="section in sections" :key="section.name" :to="{ name: section.name, query: route.query }" :class="{ active: route.name === section.name }" :aria-current="route.name === section.name ? 'page' : undefined"><component :is="section.icon" aria-hidden="true" /><span>{{ t(section.label) }}</span><IconChevronRight class="settings-nav-chevron" aria-hidden="true" /></router-link>
         </nav>
+        <NetworkSettings ref="sectionActions" v-if="route.name === 'settings-network'" @modal-open="networkModalOpen = $event" />
         <SearchSettings v-if="route.name === 'settings-search'" @modal-open="searchModalOpen = $event" />
         <StatisticsSettings ref="sectionActions" v-if="route.name === 'settings-statistics'" @modal-open="statisticsModalOpen = $event" />
         <MCPSettings ref="sectionActions" v-if="route.name === 'settings-mcp'" @modal-open="mcpModalOpen = $event" />
@@ -277,7 +321,7 @@ watch(() => route.fullPath, () => {
           <div class="model-visibility-setting general-setting"><div><label for="show-unrecognized-models">{{ t('showUnrecognizedModels') }}</label><p id="model-visibility-hint">{{ t('showUnrecognizedModelsHint') }}</p></div><v-switch id="show-unrecognized-models" :checked="showUnrecognizedModels" :loading="visibilityBusy" :aria-label="t('showUnrecognizedModels')" aria-describedby="model-visibility-hint" @update:checked="setShowUnrecognizedModels($event === true)" /></div>
           <div v-if="providerGroups.length" class="configured-providers"><h3>{{ t('connectedProviders') }}</h3>
             <div v-for="group in providerGroups" :key="group.key" class="configured-provider">
-              <div class="provider-heading"><div><strong>{{ group.name }}</strong><small class="provider-type">{{ providerTypeLabel(group.kind, group.protocol) }}</small><small v-if="group.baseUrl">{{ group.baseUrl }}</small></div><div v-if="group.models.every(model => model.editable)" class="actions"><v-button :disabled="settingsBusy" @click="editProvider(group.models[0]!)">{{ t('edit') }}</v-button><confirm-popover :show="providerDisconnectTarget?.key === group.models[0]!.key" :message="t('disconnectProviderConfirm', { name: group.name })" :cancel-text="t('cancel')" :confirm-text="t('disconnectProvider')" :busy="settingsBusy" :error="providerDisconnectError" popover-class="provider-disconnect-popover" @update:show="updateProviderDisconnect($event, group.models[0]!.key, group.name)" @confirm="confirmDisconnectProvider"><template #trigger><v-button danger :disabled="settingsBusy">{{ t('disconnectProvider') }}</v-button></template></confirm-popover></div></div>
+              <div class="provider-heading"><div><strong>{{ group.name }}</strong><small class="provider-type">{{ providerTypeLabel(group.kind, group.protocol) }}</small><small v-if="group.baseUrl">{{ group.baseUrl }}</small></div><div class="actions"><template v-if="group.models.every(model => model.editable)"><v-button :disabled="settingsBusy" @click="editProvider(group.models[0]!)">{{ t('edit') }}</v-button><confirm-popover :show="providerDisconnectTarget?.key === group.models[0]!.key" :message="t('disconnectProviderConfirm', { name: group.name })" :cancel-text="t('cancel')" :confirm-text="t('disconnectProvider')" :busy="settingsBusy" :error="providerDisconnectError" popover-class="provider-disconnect-popover" @update:show="updateProviderDisconnect($event, group.models[0]!.key, group.name)" @confirm="confirmDisconnectProvider"><template #trigger><v-button danger :disabled="settingsBusy">{{ t('disconnectProvider') }}</v-button></template></confirm-popover></template><v-button v-else :disabled="settingsBusy" @click="editProxyBinding(group.models[0]!)">{{ t('networkProxy') }}</v-button></div></div>
             </div>
           </div>
         </div>
@@ -320,11 +364,12 @@ watch(() => route.fullPath, () => {
   </v-modal>
   <v-modal :open="modelFormOpen" centered :z-index="1200" width="min(640px, calc(100vw - 2rem))"
     class="provider-connection-modal" :title="editingProvider ? t('editProviderConnection') : t('connectProvider')"
-    :footer="null" :closable="!settingsBusy" :keyboard="!settingsBusy" :mask-closable="!settingsBusy" destroy-on-hidden
+    :footer="null" :close-disabled="settingsBusy" :keyboard="!settingsBusy && !providerDiscardOpen" :mask-closable="!settingsBusy && !providerDiscardOpen" destroy-on-hidden
     :styles="{ body: { maxHeight: 'calc(100dvh - 10rem)', overflowY: 'auto', overscrollBehavior: 'contain' } }"
     @cancel="closeProviderForm">
     <form v-if="modelFormOpen" class="model-form" @submit.prevent="!loginBusy && saveProvider()">
       <v-alert v-if="settingsError" type="error" role="alert" :message="settingsError" />
+      <template v-if="providerConflict"><v-alert type="warning" role="alert" :message="t('networkConflict')" /><v-button type="button" @click="reloadProviderDraft">{{ t('networkReload') }}</v-button></template>
       <div v-if="editingProvider" class="provider-kind-field"><span>{{ t('provider') }}</span><span class="provider-kind-value">{{ providerTypeLabel(modelDraft.kind, editingProvider.provider) }}</span></div>
       <SchemaForm v-else id="provider-choice" class="provider-kind-select" v-model="providerChoice" :schema="providerChoiceSchema" :uischema="providerChoiceUISchema" :disabled="settingsBusy" />
       <p v-if="modelDraft.kind && modelDraft.credentialMode !== 'oauth' && !manualModelIDs" class="provider-help">{{ t(deploymentModelSelection ? 'azureModelHint' : 'providerModelsAutomatic') }}</p>
@@ -332,9 +377,13 @@ watch(() => route.fullPath, () => {
         :schema="modelConfigSchema" :uischema="modelConfigUISchema" :disabled="settingsBusy || loginBusy" :reset-key="modelConfigResetKey"
         @validity="modelConfigValid = $event" @dirty="modelConfigDirty = $event" />
       <p v-if="modelDraft.kind" class="provider-help">{{ t('configEditorPrivateHint') }}</p>
+      <div v-if="modelDraft.kind" class="provider-proxy-field">
+        <v-alert v-if="networkConfigData.error.value" type="error" role="alert" :message="networkConfigData.error.value" />
+        <ProxySelection id="provider-proxy" v-model="modelDraft.proxyId" :profiles="proxyProfiles" :disabled="settingsBusy || loginBusy || !networkConfigData.value.value" @validity="providerProxyValid = $event" />
+      </div>
       <p v-if="modelDraft.kind === 'github-copilot'" class="provider-help">{{ t('copilotAdvancedHint') }}</p>
-      <fieldset v-if="modelDraft.credentialMode === 'oauth'" class="provider-login-workflow" :disabled="!modelConfigValid || settingsBusy">
-        <ProviderLogin :key="`${modelDraft.kind}:${modelDraft.key}`" :kind="modelDraft.kind === 'github-copilot' ? 'copilot' : 'codex'" :client="workspace.client" :name="modelDraft.name" :connection-key="modelDraft.key" :copilot-auth="modelDraft.copilotAuth" @busy="loginBusy = $event" @connected="providerConnected" />
+      <fieldset v-if="modelDraft.credentialMode === 'oauth'" class="provider-login-workflow" :disabled="providerConflict || !modelConfigValid || !providerProxyValid || !networkConfigData.value.value || settingsBusy">
+        <ProviderLogin :key="`${modelDraft.kind}:${modelDraft.key}`" :kind="modelDraft.kind === 'github-copilot' ? 'copilot' : 'codex'" :client="workspace.client" :name="modelDraft.name" :connection-key="modelDraft.key" :proxy-id="modelDraft.proxyId" :revision="editingProvider ? providerDraftVersion : undefined" :copilot-auth="modelDraft.copilotAuth" @busy="loginBusy = $event" @connected="providerConnected" />
       </fieldset>
       <div v-if="modelDraft.kind === 'custom'" class="provider-auth-heading provider-auth-info">
         <span>{{ t('providerAuthentication') }}</span>
@@ -349,18 +398,27 @@ watch(() => route.fullPath, () => {
       </div>
       <p v-if="modelDraft.credentialMode === 'default' && (modelDraft.kind === 'amazon-bedrock' || modelDraft.kind === 'google-vertex')" class="provider-help">{{ t(modelDraft.kind === 'amazon-bedrock' ? 'awsCredentialsHint' : 'googleCredentialsHint') }}</p>
       <SchemaForm v-if="showModelCredentials" id="model-credentials" class="provider-public-config" v-model="modelCredentials" :schema="modelCredentialsSchema" :uischema="modelCredentialsUISchema"
-        :disabled="settingsBusy || loginBusy" :reset-key="`${modelConfigResetKey}:${modelDraft.credentialMode}`" @validity="modelCredentialsValid = $event" />
+        :disabled="settingsBusy || loginBusy" :reset-key="`${modelConfigResetKey}:${modelDraft.credentialMode}`" @validity="modelCredentialsValid = $event" @dirty="providerCredentialDirty = $event" />
       <label v-if="deploymentModelSelection" class="catalog-model-field">{{ t('model') }}<v-select :value="chosenModels[0]" :options="providerModelOptions" show-search option-filter-prop="searchText" allow-clear :placeholder="t('chooseModel')" @update:value="updateSelectedModels($event ? [String($event)] : [])" /></label>
       <div v-if="manualModelIDs && modelDraft.kind === 'custom'" class="model-discovery-fallback">
         <p class="provider-help">{{ t('providerModelsUnavailable') }}<v-button variant="link" :disabled="settingsBusy || !modelConfigValid" @click="retryModelDiscovery">{{ t('retryModelDiscovery') }}</v-button></p>
         <label class="model-list-field">{{ t('manualModelIds') }}<v-select :value="chosenModels" :options="chosenModels.map(id => ({ label: modelNameById(id), searchText: `${id} ${modelNameById(id)}`, value: id }))" mode="tags" show-search option-filter-prop="searchText" allow-clear :placeholder="t('selectOrTypeModel')" :disabled="settingsBusy" @update:value="updateSelectedModels(Array.isArray($event) ? $event.map(String) : [])" /><small>{{ t('manualModelIdsHint') }}</small></label>
       </div>
       <small v-if="editingProvider && modelDraft.kind === 'custom'">{{ t('changeAddressHint') }}</small>
-      <div class="actions"><v-button type="button" :disabled="settingsBusy" @click="closeProviderForm">{{ t('cancel') }}</v-button><v-button v-if="modelDraft.kind && (modelDraft.credentialMode !== 'oauth' || editingProvider)" type="submit" variant="primary" :loading="settingsBusy" :disabled="settingsBusy || loginBusy || !canSaveProvider">{{ editingProvider ? t('saveChanges') : t('connectProvider') }}</v-button></div>
+      <div class="actions"><v-button type="button" :disabled="settingsBusy" @click="closeProviderForm">{{ t('cancel') }}</v-button><v-button v-if="modelDraft.kind && (modelDraft.credentialMode !== 'oauth' || editingProvider)" type="submit" variant="primary" :loading="settingsBusy" :disabled="settingsBusy || loginBusy || !canSaveProvider || !providerProxyValid || !networkConfigData.value.value">{{ editingProvider ? t('saveChanges') : t('connectProvider') }}</v-button></div>
     </form>
   </v-modal>
+  <v-modal :open="!!proxyBindingTarget" :title="t('networkProxy')" :footer="null" :z-index="1200" :close-disabled="settingsBusy" :keyboard="!settingsBusy && !providerDiscardOpen" :mask-closable="!settingsBusy && !providerDiscardOpen" @cancel="closeProxyBinding">
+    <p>{{ proxyBindingTarget?.name }}</p><router-link :to="{ name: 'settings-network', query: route.query }">{{ t('networkSettings') }}</router-link>
+    <ProxySelection id="advanced-provider-proxy" v-model="proxyBindingValue" :profiles="proxyProfiles" :disabled="settingsBusy || !networkConfigData.value.value" @validity="proxyBindingValid = $event" />
+    <v-alert v-if="proxyBindingConflict" type="warning" role="alert" :message="t('networkConflict')" /><v-button v-if="proxyBindingConflict" @click="reloadProxyBinding">{{ t('networkReload') }}</v-button>
+    <v-alert v-if="proxyBindingError" type="error" role="alert" :message="proxyBindingError" />
+    <div class="actions"><v-button :disabled="settingsBusy" @click="closeProxyBinding">{{ t('cancel') }}</v-button><v-button variant="primary" :loading="settingsBusy" :disabled="!proxyBindingDirty || !proxyBindingValid || proxyBindingConflict" @click="saveProxyBinding">{{ t('saveChanges') }}</v-button></div>
+  </v-modal>
+  <v-modal :open="providerDiscardOpen" :title="t('networkDiscard')" :footer="null" :z-index="1400" @cancel="finishProviderDiscard(false)"><p>{{ t('configEditorDiscard') }}</p><div class="actions"><v-button @click="finishProviderDiscard(false)">{{ t('cancel') }}</v-button><v-button danger @click="finishProviderDiscard(true)">{{ t('networkDiscard') }}</v-button></div></v-modal>
 </template>
 <style scoped>
 .provider-kind-select,.provider-kind-field,.provider-public-config,.provider-auth-info,.provider-login-workflow { grid-column: 1 / -1; min-width: 0; }
+.provider-proxy-field { grid-column: 1 / -1; min-width: 0; }
 .provider-login-workflow { margin: 0; padding: 0; border: 0; }
 </style>

@@ -6,6 +6,7 @@ import (
 	"log"
 	"sync"
 	"time"
+
 	"vista/internal/modelcatalog"
 )
 
@@ -64,7 +65,7 @@ func (a *App) refreshCopilotModels(ctx context.Context) {
 				return
 			}
 			defer func() { <-parallel }()
-			models, err := modelcatalog.DiscoverCopilotModels(ctx, source)
+			models, err := modelcatalog.DiscoverModels(ctx, source)
 			results <- result{source: source, models: models, err: err}
 		}()
 	}

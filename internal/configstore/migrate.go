@@ -22,6 +22,9 @@ func collectLegacy(root *os.Root) (*document, []legacyFile, error) {
 	doc := &document{Version: LegacyVersion}
 	var files []legacyFile
 	for _, b := range bindings {
+		if b.legacy == "" {
+			continue
+		}
 		data, _, err := readFile(root, b.legacy, b.limit, b.section == Models || b.section == MCP)
 		if errors.Is(err, os.ErrNotExist) {
 			files = append(files, legacyFile{binding: b})
@@ -241,6 +244,9 @@ func PreviewServer(dir string) ([]byte, bool, error) {
 // values. They prevent accidental initialization over an unmigrated profile.
 func unmigratedInputs(root *os.Root) (bool, error) {
 	for _, b := range bindings {
+		if b.legacy == "" {
+			continue
+		}
 		if _, err := root.Lstat(b.legacy); err == nil {
 			return true, nil
 		} else if !errors.Is(err, os.ErrNotExist) {

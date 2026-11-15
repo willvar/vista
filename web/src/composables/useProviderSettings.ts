@@ -150,17 +150,19 @@ export function useProviderSettings({ client, error, stateSync, modelCatalog }: 
     } catch (e) { if (revision === agentSettingsRevision) agentSettingsError.value = String(e) }
     finally { agentSettingsBusy.value = false }
   }
-  const emptyDraft = () => ({ key: '', kind: '', apiFormat: 'openai-chat', headers: [] as { name: string; value: string }[], copilotAuth: { enterpriseUrl: '', clientId: '' }, name: '', providerId: '', baseUrl: '', apiKey: '', credentialMode: 'apiKey', accessToken: '', region: '', project: '', location: '', resourceName: '', deploymentId: '', apiVersion: '' })
+  const emptyDraft = () => ({ proxyId: '', key: '', kind: '', apiFormat: 'openai-chat', headers: [] as { name: string; value: string }[], copilotAuth: { enterpriseUrl: '', clientId: '' }, name: '', providerId: '', baseUrl: '', apiKey: '', credentialMode: 'apiKey', accessToken: '', region: '', project: '', location: '', resourceName: '', deploymentId: '', apiVersion: '' })
   const modelDraft = ref(emptyDraft())
   const providerSetups = ref<ProviderSetup[]>([])
   const modelFormOpen = ref(false)
+  const providerDraftVersion = ref('')
+  const providerConflict = computed(() => !!modelDraft.value.key && !!providerDraftVersion.value && settings.value.settingsRevision !== providerDraftVersion.value)
   const chosenModels = ref<string[]>([])
   const manualModelIDs = ref(false)
   let draftRevision = 0
   let connectionRequest: AbortController | undefined
   onScopeDispose(() => { draftRevision++; connectionRequest?.abort() })
   watch(modelDraft, () => { draftRevision++ }, { deep: true, flush: 'sync' })
-  watch(() => [modelDraft.value.baseUrl, modelDraft.value.apiFormat, modelDraft.value.apiKey, modelDraft.value.credentialMode, JSON.stringify(modelDraft.value.headers)], () => {
+  watch(() => [modelDraft.value.proxyId, modelDraft.value.baseUrl, modelDraft.value.apiFormat, modelDraft.value.apiKey, modelDraft.value.credentialMode, JSON.stringify(modelDraft.value.headers)], () => {
     if (modelDraft.value.kind !== 'custom') return
     manualModelIDs.value = false
     chosenModels.value = []
@@ -208,7 +210,7 @@ export function useProviderSettings({ client, error, stateSync, modelCatalog }: 
       properties[field] = { type: 'string', title: t(publicModelFields[field].label), maxLength: publicModelFields[field].maxLength }
       if (field === 'baseUrl' || field === 'resourceName' || field === 'deploymentId') properties[field]!.pattern = '\\S'
     }
-    if (modelDraft.value.kind === 'custom') properties.apiFormat = { type: 'string', title: t('conversationAPIFormat'), enum: apiFormatOptions.value.map(option => option.value) }
+    if (modelDraft.value.kind === 'custom') properties.apiFormat = { type: 'string', title: t('conversationAPIFormat'), enum: apiFormatOptions.value.length ? apiFormatOptions.value.map(option => option.value) : [modelDraft.value.apiFormat] }
     if (credentialOptions.value.length && modelDraft.value.credentialMode !== 'oauth') {
       properties.credentialMode = { type: 'string', title: t('providerAuthentication'), enum: credentialOptions.value.map(option => option.value) }
     }
@@ -298,10 +300,13 @@ export function useProviderSettings({ client, error, stateSync, modelCatalog }: 
     const elements: ControlElement[] = []
     if (usesAPIKey.value) elements.push({ type: 'Control', scope: '#/properties/apiKey', options: { placeholder: editingProvider.value?.hasApiKey ? t('reuseSavedKey') : t('enterApiKey') } })
     if (modelDraft.value.credentialMode === 'accessToken') elements.push({ type: 'Control', scope: '#/properties/accessToken', options: { placeholder: editingProvider.value?.hasAccessToken ? t('reuseSavedKey') : t('enterAccessToken') } })
-    if (modelDraft.value.kind === 'custom') elements.push({ type: 'Control', scope: '#/properties/headers' })
+    if (modelDraft.value.kind === 'custom') elements.push({ type: 'Control', scope: '#/properties/headers', options: { showErrorsOnBlur: true, detail: {
+      type: 'HorizontalLayout', elements: ['name', 'value'].map(name => ({ type: 'Control', scope: `#/properties/${name}`, options: { showErrorsOnBlur: true, hideLabel: true, placeholder: name === 'name' ? `${t('headerName')} *` : t('headerValue') } })),
+    } } })
     return { type: 'VerticalLayout', elements }
   })
   const canSaveProvider = computed(() => {
+    if (providerConflict.value) return false
     const form = modelDraft.value
     if (!modelConfigValid.value || !selectedSetup.value || showModelCredentials.value && !modelCredentialsValid.value) return false
     const headerNames = form.headers.map(header => header.name.trim().toLowerCase())
@@ -337,6 +342,7 @@ export function useProviderSettings({ client, error, stateSync, modelCatalog }: 
     clearCustomModels()
   }
   function showModelForm() {
+    providerDraftVersion.value = settings.value.settingsRevision || ''
     modelFormOpen.value = true
   }
   function startProviderConnection() { resetModelDraft(); showModelForm() }
@@ -380,7 +386,7 @@ export function useProviderSettings({ client, error, stateSync, modelCatalog }: 
   }
   function editProvider(model: ModelSetting) {
     clearCustomModels()
-    modelDraft.value = { ...emptyDraft(), key: model.key, kind: model.kind || '', apiFormat: model.provider, headers: (model.headerNames || []).map(name => ({ name, value: '' })), copilotAuth: { enterpriseUrl: model.copilotAuth?.enterpriseUrl || '', clientId: model.copilotAuth?.clientId || '' }, name: model.name || '', providerId: model.providerId || '', baseUrl: model.baseUrl || '', credentialMode: model.credentialMode || 'apiKey', region: model.region || '', project: model.project || '', location: model.location || '', resourceName: model.resourceName || '', deploymentId: model.deploymentId || '', apiVersion: model.apiVersion || '' }
+    modelDraft.value = { ...emptyDraft(), proxyId: model.proxyId || '', key: model.key, kind: model.kind || '', apiFormat: model.provider, headers: (model.headerNames || []).map(name => ({ name, value: '' })), copilotAuth: { enterpriseUrl: model.copilotAuth?.enterpriseUrl || '', clientId: model.copilotAuth?.clientId || '' }, name: model.name || '', providerId: model.providerId || '', baseUrl: model.baseUrl || '', credentialMode: model.credentialMode || 'apiKey', region: model.region || '', project: model.project || '', location: model.location || '', resourceName: model.resourceName || '', deploymentId: model.deploymentId || '', apiVersion: model.apiVersion || '' }
     chosenModels.value = settings.value.models.filter(item => model.connectionId ? item.connectionId === model.connectionId : item.key === model.key).map(item => item.id)
     settingsError.value = ''
     resetModelConfigEditor()
@@ -406,7 +412,7 @@ export function useProviderSettings({ client, error, stateSync, modelCatalog }: 
     settingsError.value = ''
     try {
       await api('/provider-config', { method: editingProvider.value ? 'PUT' : 'POST', signal: request.signal, body: JSON.stringify({
-        key: form.key, name: form.name.trim(),
+        key: form.key, name: form.name.trim(), proxyId: form.proxyId, revision: editingProvider.value ? providerDraftVersion.value : undefined,
         provider: form.kind === 'custom' ? form.apiFormat : 'catalog',
         headers: form.kind === 'custom' ? Object.fromEntries(form.headers.map(header => [header.name.trim(), header.value])) : undefined,
         providerId: form.kind,
@@ -478,7 +484,7 @@ export function useProviderSettings({ client, error, stateSync, modelCatalog }: 
     agentSettingsResetKeys, canSaveAgentField,
     agentSettingsBusy, agentSettingsLoading, agentSettingsError, agentSettingsSaved,
     loadAgentSettings, saveAgentSettings, modelDraft, modelFormOpen, chosenModels,
-    manualModelIDs, canReuseHeader, editingProvider, providerOptions, canSaveProvider,
+    providerDraftVersion, providerConflict, manualModelIDs, canReuseHeader, editingProvider, providerOptions, canSaveProvider,
     providerChoice, providerChoiceSchema, providerChoiceUISchema,
     selectedSetup, deploymentModelSelection, providerModelOptions, usesAPIKey, authenticationHeader,
     modelConfig, modelConfigSchema, modelConfigUISchema, modelConfigValid, modelConfigDirty, modelConfigResetKey,

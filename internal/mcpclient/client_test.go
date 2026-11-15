@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -12,14 +13,133 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+	"vista/internal/network"
 	"vista/internal/platform"
 
 	"vista/internal/useragent"
 )
+
+func TestSearchPreservesExplicitNetworkIncludingDirect(t *testing.T) {
+	current := network.Policy{Profile: &network.Profile{ID: "current", Name: "Current", Protocol: "http", Authentication: "none", Server: "proxy.invalid", Port: 8080}}
+	for _, explicit := range []bool{false, true} {
+		config := Config{ID: "search", Name: "search", Transport: "http", Endpoint: "https://search.invalid/mcp"}
+		want := current
+		if explicit {
+			want = network.Policy{}
+			config.Network = &want
+		}
+		called := false
+		ctx := WithConnector(network.WithPolicy(context.Background(), current), func(_ context.Context, got Config, search bool) (Connection, error) {
+			called = true
+			if !search || got.Network == nil || network.Fingerprint(*got.Network) != network.Fingerprint(want) {
+				t.Fatalf("explicit Direct=%v: search lost its network policy", explicit)
+			}
+			return nil, nil
+		})
+		if _, err := OpenSearch(ctx, config); err != nil || !called {
+			t.Fatalf("explicit Direct=%v: %v", explicit, err)
+		}
+	}
+}
+
+type poolTrackedConn struct {
+	net.Conn
+	closed *atomic.Int32
+	notify chan<- struct{}
+	once   sync.Once
+}
+
+func (c *poolTrackedConn) Close() error {
+	err := c.Conn.Close()
+	c.once.Do(func() {
+		c.closed.Add(1)
+		select {
+		case c.notify <- struct{}{}:
+		default:
+		}
+	})
+	return err
+}
+
+func TestStreamableHTTPOwnedPoolClosesOnSuccessAndFailure(t *testing.T) {
+	for _, mode := range []string{"success", "http-error", "protocol-mismatch"} {
+		t.Run(mode, func(t *testing.T) {
+			var opened, closed atomic.Int32
+			closedNotify := make(chan struct{}, 1)
+			previous := http.DefaultTransport
+			base := previous.(*http.Transport).Clone()
+			base.DialContext = func(ctx context.Context, network, address string) (net.Conn, error) {
+				conn, err := new(net.Dialer).DialContext(ctx, network, address)
+				if err != nil {
+					return nil, err
+				}
+				opened.Add(1)
+				return &poolTrackedConn{Conn: conn, closed: &closed, notify: closedNotify}, nil
+			}
+			http.DefaultTransport = base
+			t.Cleanup(func() {
+				base.CloseIdleConnections()
+				http.DefaultTransport = previous
+			})
+			handler := mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return fixtureServer() }, &mcp.StreamableHTTPOptions{JSONResponse: true, Stateless: true})
+			upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				switch mode {
+				case "http-error":
+					http.Error(w, "fixture unavailable", http.StatusBadGateway)
+				case "protocol-mismatch":
+					var request struct {
+						ID     json.RawMessage `json:"id"`
+						Method string          `json:"method"`
+					}
+					json.NewDecoder(r.Body).Decode(&request)
+					if request.Method == "initialize" {
+						w.Header().Set("Content-Type", "application/json")
+						json.NewEncoder(w).Encode(map[string]any{"jsonrpc": "2.0", "id": request.ID, "result": map[string]any{"protocolVersion": "2025-03-26", "capabilities": map[string]any{}, "serverInfo": map[string]any{"name": "older-fixture", "version": "1"}}})
+					} else {
+						w.WriteHeader(http.StatusAccepted)
+					}
+				default:
+					handler.ServeHTTP(w, r)
+				}
+			}))
+			defer upstream.Close()
+			connection, err := Open(context.Background(), Config{ID: "owned", Name: "Owned", Transport: "http", Endpoint: upstream.URL})
+			if mode == "success" {
+				if err != nil {
+					t.Fatal(err)
+				}
+				if _, err := connection.ListTools(context.Background(), ""); err != nil {
+					connection.Close()
+					t.Fatal(err)
+				}
+				if err := connection.Close(); err != nil {
+					t.Fatal(err)
+				}
+			} else if err == nil {
+				connection.Close()
+				t.Fatal("invalid initialization succeeded")
+			}
+			if opened.Load() == 0 {
+				t.Fatal("fixture did not open an HTTP connection")
+			}
+			deadline := time.NewTimer(time.Second)
+			defer deadline.Stop()
+			for closed.Load() != opened.Load() {
+				select {
+				case <-closedNotify:
+				case <-deadline.C:
+					t.Fatalf("owned HTTP pool was not released: opened=%d closed=%d", opened.Load(), closed.Load())
+				}
+			}
+		})
+	}
+}
 
 func fixtureServer() *mcp.Server {
 	server := mcp.NewServer(&mcp.Implementation{Name: "vista-fixture", Version: "1"}, nil)
@@ -168,6 +288,28 @@ func TestStdioTransport(t *testing.T) {
 		t.Fatal(err)
 	}
 	checkServer(t, Config{ID: "local", Name: "local", Transport: "stdio", Command: exe, Args: []string{"-test.run=^TestMCPFixture$"}, Directory: t.TempDir()})
+}
+
+func TestStreamableHTTPIPv6OnlyLocalhost(t *testing.T) {
+	listener, err := net.Listen("tcp6", "[::1]:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	handler := mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return fixtureServer() }, &mcp.StreamableHTTPOptions{JSONResponse: true, Stateless: true})
+	server := &http.Server{Handler: handler}
+	go server.Serve(listener)
+	defer server.Close()
+	policy := network.Policy{}
+	config := Config{ID: "ipv6", Name: "IPv6", Transport: "http", Endpoint: "http://localhost:" + strconv.Itoa(listener.Addr().(*net.TCPAddr).Port), Network: &policy}
+	connection, err := Open(context.Background(), config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := connection.CallTool(context.Background(), "echo", json.RawMessage(`{"text":"IPv6 MCP"}`))
+	connection.Close()
+	if err != nil || result.Content != "IPv6 MCP" {
+		t.Fatalf("IPv6 HTTP MCP : %+v %v", result, err)
+	}
 }
 
 func TestStreamableHTTPTransportWithBearer(t *testing.T) {

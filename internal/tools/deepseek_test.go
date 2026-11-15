@@ -165,6 +165,12 @@ func TestDeepSeekFetchSkippedWithoutKeyOrForPrivateTargets(t *testing.T) {
 		})}
 		var output strings.Builder
 		page, err := webfetchWithClient(context.Background(), tc.target, "text", &output, client, workerproto.WebfetchConfig{Order: []string{"deepseek", "jina"}, DeepSeekAPIKey: tc.key})
+		if strings.HasPrefix(tc.target, "http://127.0.0.1/") {
+			if err != nil || page.Reader != "vista" || output.String() != "local evidence" {
+				t.Fatalf("private local read: %+v %v", page, err)
+			}
+			continue
+		}
 		if tc.target != "https://93.184.216.34/article" {
 			if err == nil {
 				t.Fatal("private target accepted")

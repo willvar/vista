@@ -52,11 +52,7 @@ func replaceConnection(ctx context.Context, raw Catalog, previous *Configured, s
 	if LocalProvider(setup.ID) || setup.ID == "github-copilot" {
 		var models []Configured
 		var err error
-		if setup.ID == "github-copilot" {
-			models, err = DiscoverCopilotModels(ctx, prototype)
-		} else {
-			models, err = DiscoverConfiguredLocalModels(ctx, prototype)
-		}
+		models, err = DiscoverModels(ctx, prototype)
 		if err != nil {
 			return Catalog{}, errors.New("could not load this provider's models: " + err.Error())
 		}
@@ -82,7 +78,11 @@ func replaceConnection(ctx context.Context, raw Catalog, previous *Configured, s
 	if len(ids) == 0 && (setup.ID == "custom" || ZenProvider(setup.ID)) {
 		var err error
 		if ZenProvider(setup.ID) {
-			ids, err = FetchZenModelIDs(ctx, setup.ID, input.APIKey)
+			var models []Configured
+			models, err = DiscoverModels(ctx, prototype)
+			for _, model := range models {
+				ids = append(ids, model.ID)
+			}
 			filtered := make([]string, 0, len(ids))
 			for _, id := range ids {
 				if SelectableZenTextModel(setup.ID, id) {
@@ -92,7 +92,7 @@ func replaceConnection(ctx context.Context, raw Catalog, previous *Configured, s
 			ids = filtered
 		} else {
 			var models []Configured
-			models, err = DiscoverCustomModels(ctx, prototype)
+			models, err = DiscoverModels(ctx, prototype)
 			for _, model := range models {
 				ids = append(ids, model.ID)
 				discovered[model.ID] = model
@@ -132,7 +132,7 @@ func replaceConnection(ctx context.Context, raw Catalog, previous *Configured, s
 		return Catalog{}, errors.New("choose between 1 and 16 models")
 	}
 	if ZenProvider(setup.ID) && len(input.IDs) > 0 {
-		if err := ValidateZenModels(ctx, setup.ID, input.APIKey, ids); err != nil {
+		if err := validateZenModels(ctx, prototype, ids); err != nil {
 			return Catalog{}, err
 		}
 	}

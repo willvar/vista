@@ -7,9 +7,11 @@ import (
 	"testing"
 
 	modelcfg "vista/internal/model"
+	"vista/internal/network"
 )
 
 func TestRunCredentialsUsesProviderBeforeProtocol(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	const service, protocol = "fixture-service", "fixture-protocol"
 	t.Cleanup(func() {
 		delete(catalogAdapters, service)
@@ -25,7 +27,7 @@ func TestRunCredentialsUsesProviderBeforeProtocol(t *testing.T) {
 	}
 	catalogAdapters[service] = catalogAdapter{prepareRun: resolve("service")}
 	protocolAdapters[protocol] = protocolAdapter{prepareRun: resolve("protocol")}
-	input := modelcfg.Model{ProviderID: service, Provider: protocol, APIKey: "saved-secret"}
+	input := modelcfg.Model{ProviderID: service, Provider: protocol, APIKey: "saved-secret", Network: &network.Policy{}}
 	model, key, err := ResolveRunCredentials(context.Background(), input, "chosen")
 	if err != nil || key != "chosen" || model.APIKey != "service-run-token" || !reflect.DeepEqual(calls, []string{"service"}) {
 		t.Fatalf("service credential precedence: key=%q calls=%v err=%v", key, calls, err)

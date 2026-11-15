@@ -29,6 +29,7 @@ import (
 	"vista/internal/mcphost"
 	"vista/internal/modelcatalog"
 	"vista/internal/modeltrace"
+	"vista/internal/network"
 	"vista/internal/platform"
 	"vista/internal/provider"
 	"vista/internal/store"
@@ -155,6 +156,7 @@ func Run(portOverride int, onReady func(context.Context) func(), startRestart fu
 	if err := configstore.Migrate(configDir); err != nil {
 		return fmt.Errorf("prepare configuration: %w", err)
 	}
+	network.SetConfigDir(configDir)
 	config, err := LoadRuntimeConfig(configDir, portOverride)
 	if err != nil {
 		return err
@@ -253,6 +255,7 @@ func Run(portOverride int, onReady func(context.Context) func(), startRestart fu
 // loadApp opens one generation of user data. The HTTP listener and instance lock
 // outlive it so a full reset can replace all configuration and state in place.
 func loadApp(parent context.Context, cancel context.CancelFunc, configDir, dir string, build buildinfo.Metadata) (_ *App, err error) {
+	parent = network.WithConfigDir(parent, configDir)
 	st, err := store.Open(filepath.Join(dir, "vista.db"))
 	if err != nil {
 		return nil, err
@@ -367,6 +370,8 @@ func (a *App) handler() http.Handler {
 	mux.HandleFunc("/api/events/subscriptions", a.stateInterests)
 	mux.HandleFunc("/api/status", a.status)
 	mux.HandleFunc("/api/server-config", a.serverConfigHTTP)
+	mux.HandleFunc("/api/network-config", a.networkConfigHTTP)
+	mux.HandleFunc("/api/network-check", a.networkCheckHTTP)
 	// A cross-origin image load is a narrow, credential-free readiness signal
 	// for a user-confirmed port move; it exposes no application state.
 	mux.HandleFunc("/api/port-ready.svg", func(w http.ResponseWriter, r *http.Request) {
@@ -412,7 +417,7 @@ func (a *App) handler() http.Handler {
 	mux.HandleFunc("/api/sessions/", a.session)
 	mux.HandleFunc("/assets/", a.asset)
 	mux.HandleFunc("/", a.root)
-	return cors(a.stateMutations(mux))
+	return cors(a.networkRequests(a.stateMutations(mux)))
 }
 
 // CORS is intentionally unrestricted; deployment controls access.
@@ -1126,7 +1131,7 @@ func (a *App) outputPage(w http.ResponseWriter, r *http.Request, id, outputPath 
 }
 func (a *App) root(w http.ResponseWriter, r *http.Request) {
 	path := r.URL.Path
-	if (path != "/" && path != "/index.html" && path != "/settings" && path != "/settings/models" && path != "/settings/about" && path != "/settings/general" && path != "/settings/personalization" && path != "/settings/search" && path != "/settings/storage" && path != "/settings/mcp" && path != "/settings/skills" && path != "/settings/statistics" && path != "/sessions" && !strings.HasPrefix(path, "/sessions/")) || (r.Method != "GET" && r.Method != "HEAD") {
+	if (path != "/" && path != "/index.html" && path != "/settings" && path != "/settings/models" && path != "/settings/network" && path != "/settings/about" && path != "/settings/general" && path != "/settings/personalization" && path != "/settings/search" && path != "/settings/storage" && path != "/settings/mcp" && path != "/settings/skills" && path != "/settings/statistics" && path != "/sessions" && !strings.HasPrefix(path, "/sessions/")) || (r.Method != "GET" && r.Method != "HEAD") {
 		http.NotFound(w, r)
 		return
 	}

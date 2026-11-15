@@ -8,9 +8,11 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+
 	"vista/internal/codexauth"
 	"vista/internal/copilotauth"
 	"vista/internal/modelcatalog"
+	"vista/internal/network"
 )
 
 type providerLogin struct {
@@ -76,14 +78,20 @@ func (a *App) startProviderLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var input struct {
-		Key         string               `json:"key"`
-		Name        string               `json:"name"`
-		CopilotAuth *copilotauth.Options `json:"copilotAuth"`
+		Key           string               `json:"key"`
+		Name          string               `json:"name"`
+		ProxyID       string               `json:"-"`
+		SelectedProxy *string              `json:"proxyId"`
+		Revision      string               `json:"revision"`
+		CopilotAuth   *copilotauth.Options `json:"copilotAuth"`
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, 4096)
 	if decodeSettingsRequest(r.Body, &input) != nil || !modelcatalog.ValidCustomProviderName(input.Name) || len(input.Key) > 64 {
 		settingsHTTPError(w, errors.New("invalid provider login request"), 400)
 		return
+	}
+	if input.SelectedProxy != nil {
+		input.ProxyID = *input.SelectedProxy
 	}
 	if input.Key != "" {
 		snapshot, err := a.modelSettingsSnapshot()
@@ -91,10 +99,17 @@ func (a *App) startProviderLogin(w http.ResponseWriter, r *http.Request) {
 			settingsHTTPError(w, err, 500)
 			return
 		}
+		if input.Revision != "" && input.Revision != a.modelSettingsVersion(snapshot.revision) {
+			settingsHTTPError(w, errors.New("model settings changed; reload before login"), 409)
+			return
+		}
 		found := false
 		for _, model := range snapshot.raw.Models {
 			if model.Key == input.Key && model.ProviderID == providerID && modelcatalog.Editable(model) {
 				found = true
+				if input.SelectedProxy == nil {
+					input.ProxyID = model.ProxyID
+				}
 				if input.CopilotAuth == nil {
 					input.CopilotAuth = model.CopilotAuth
 				}
@@ -120,6 +135,17 @@ func (a *App) startProviderLogin(w http.ResponseWriter, r *http.Request) {
 		settingsHTTPError(w, errors.New("Copilot login settings are only supported for GitHub Copilot"), 400)
 		return
 	}
+	policyContext, policyErr := network.ForConnection(network.WithConfigDir(r.Context(), a.configDir), input.ProxyID)
+	if policyErr != nil {
+		settingsHTTPError(w, policyErr, 400)
+		return
+	}
+	policy, policyErr := network.FromContext(policyContext)
+	if policyErr != nil {
+		settingsHTTPError(w, policyErr, 400)
+		return
+	}
+	r = r.WithContext(policyContext)
 	a.providerLoginMu.Lock()
 	if a.codexAuthClient == nil {
 		a.codexAuthClient = codexauth.NewClient()
@@ -144,7 +170,7 @@ func (a *App) startProviderLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	login := &providerLogin{ID: uuid.NewString(), kind: kind, Status: "pending",
-		input: modelcatalog.ConnectionInput{Key: input.Key, Name: input.Name, Provider: "catalog", ProviderID: providerID, CredentialMode: "oauth"}}
+		input: modelcatalog.ConnectionInput{ProxyIDSpecified: true, Revision: input.Revision, ProxyID: input.ProxyID, Key: input.Key, Name: input.Name, Provider: "catalog", ProviderID: providerID, CredentialMode: "oauth"}}
 	if kind == "codex" {
 		device, err := codexClient.Begin(r.Context())
 		if err != nil {
@@ -182,6 +208,9 @@ func (a *App) startProviderLogin(w http.ResponseWriter, r *http.Request) {
 				return nil, err
 			}
 			input := login.input
+			if input.Revision != "" && input.Revision != a.modelSettingsVersion(snapshot.revision) {
+				return nil, errors.New("model settings changed during login; start again")
+			}
 			input.APIKey, input.BaseURL = credential.Token, credential.APIEndpoint
 			method := http.MethodPost
 			if input.Key != "" {
@@ -195,6 +224,7 @@ func (a *App) startProviderLogin(w http.ResponseWriter, r *http.Request) {
 	if parent == nil {
 		parent = context.Background()
 	}
+	parent = network.WithConnectionPolicy(network.WithConfigDir(parent, a.configDir), policy)
 	ctx, cancel := context.WithDeadline(parent, login.ExpiresAt)
 	login.cancel = cancel
 	a.providerLoginMu.Lock()
@@ -264,6 +294,9 @@ func (a *App) connectCodexAccount(ctx context.Context, input modelcatalog.Connec
 	snapshot, err := a.modelSettingsSnapshot()
 	if err != nil {
 		return err
+	}
+	if input.Revision != "" && input.Revision != a.modelSettingsVersion(snapshot.revision) {
+		return errors.New("model settings changed during login; start again")
 	}
 	method := http.MethodPost
 	if input.Key != "" {

@@ -92,6 +92,8 @@ async function mockMCP(page: Page, origin: string) {
   await page.goto(`${origin}/settings/general`)
   await openSettingsSection(page, 'mcp')
   await expect(page.getByRole('button', { name: 'Add MCP server', exact: true })).toBeEnabled()
+  await expect(page.locator('.network-policy-summary')).toHaveCount(0)
+  await expect(page.locator('.mcp-settings').getByRole('link', { name: 'Network configuration', exact: true })).toHaveCount(0)
   return fixture
 }
 
@@ -233,12 +235,12 @@ test('connection checks show tools, schemas, errors and retries, and canceled re
   await dialog.getByLabel('Search tools', { exact: true }).fill('read')
   await expect(dialog.locator('.mcp-tool')).toHaveCount(1)
   const tool = dialog.locator('.mcp-tool')
-  await expect(tool).not.toHaveAttribute('open')
+  await expect(tool.locator(':scope > .ui-collapsible-trigger')).toHaveAttribute('aria-expanded', 'false')
   await expect(tool.locator('p')).toBeHidden()
-  await tool.locator(':scope > summary').click()
+  await tool.locator(':scope > .ui-collapsible-trigger').click()
   await expect(tool.locator('p')).toHaveText('Read a local file.')
   expect(await dialog.locator('.mcp-actions').evaluate(element => parseFloat(getComputedStyle(element).marginBottom))).toBeGreaterThan(0)
-  await dialog.getByText('Input parameters', { exact: true }).click()
+  await dialog.getByRole('button', { name: 'Input parameters', exact: true }).click()
   await expect(dialog.locator('pre')).toContainText('path')
   fixture.checkError = 'HTTP 403: service denied access'
   await dialog.getByRole('button', { name: 'Check again', exact: true }).click()
@@ -378,9 +380,9 @@ test('MCP dialogs and long tools stay readable in both languages and themes', as
     await row.getByRole('button', { name: language === 'en' ? 'Check connection & tools' : '检查连接与工具', exact: true }).click()
     const toolsDialog = page.getByRole('dialog', { name: language === 'en' ? 'remote · Tools' : 'remote · 工具', exact: true })
     await expect(toolsDialog.locator('.mcp-tool')).toHaveCount(30)
-    await expect(toolsDialog.locator('.mcp-tool[open]')).toHaveCount(0)
+    await expect(toolsDialog.locator('.mcp-tool > .ui-collapsible-trigger[aria-expanded="true"]')).toHaveCount(0)
     await expect(toolsDialog.locator('.mcp-tool p:visible')).toHaveCount(0)
-    await toolsDialog.locator('.mcp-tool > summary').first().click()
+    await toolsDialog.locator('.mcp-tool > .ui-collapsible-trigger').first().click()
     await expect(toolsDialog.locator('.mcp-tool p').first()).toBeVisible()
     expect(await toolsDialog.evaluate(element => element.scrollWidth - element.clientWidth)).toBeLessThanOrEqual(2)
     await page.screenshot({ path: testInfo.outputPath(`mcp-tools-${language}.png`), animations: 'disabled' })

@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+
 	"vista/internal/mcpclient"
 	"vista/internal/workerproto"
 )
@@ -60,6 +61,12 @@ func (a *App) startMCPLoginLocked(w http.ResponseWriter, config workerproto.MCPS
 		http.Error(w, "this MCP server does not use OAuth", http.StatusBadRequest)
 		return
 	}
+	policy, policyErr := a.globalNetworkPolicy()
+	if policyErr != nil {
+		http.Error(w, "network configuration unavailable", 503)
+		return
+	}
+	config.Network = &policy
 	staging, err := os.MkdirTemp(a.configDir, ".mcp-login-*")
 	if err != nil {
 		http.Error(w, "could not prepare OAuth login", http.StatusInternalServerError)
