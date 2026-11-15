@@ -187,7 +187,8 @@ Session-list entries and their per-conversation event boundaries come from one S
 Global revisions are captured before snapshot reads so concurrent commits retain a later notification.
 Each connection and 15-second heartbeat carries the server generation and all current revisions; `web/src/client/workspaceSync.ts` applies changed payloads directly and reads subscribed snapshots when a changed topic has no payload.
 Initial and reconnect checkpoints use HTTP snapshot calibration; unchanged heartbeats carry no repeated payload or HTTP reads.
-Frames exceeding 120,000 JSON bytes omit their largest payloads until they fit, preserving topic revisions for targeted HTTP recovery within the shared SSE transport's frame limit.
+Application state frames have a server-side budget of 512 KiB including encoded JSON and SSE framing; larger frames omit their largest optional snapshots until they fit, preserving topic revisions for targeted HTTP recovery.
+The shared browser parser has no frame-size ceiling; this state budget never truncates complete conversation records, canonical model content or replay data.
 Reconnection or a different server generation reconciles all subscribed views, and returning to the foreground or regaining connectivity reconnects the stream.
 Failed reads leave the checkpoint unapplied and retry through stream recovery; unchanged heartbeats do not initiate HTTP reads.
 The shared `sse.ts` transport owns connection/idle timeouts, cancellation and reconnect backoff for both stream types.

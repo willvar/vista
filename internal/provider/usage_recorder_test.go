@@ -13,7 +13,6 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/bedrockruntime/types"
 	"github.com/google/uuid"
-
 	modelcfg "vista/internal/model"
 )
 
@@ -101,14 +100,15 @@ func TestModelFailuresRetainReportedUsageWithoutCompletedOutput(t *testing.T) {
 	for _, scenario := range []struct {
 		protocol string
 		stream   string
+		text     string
 	}{
-		{"openai-chat", `data: {"choices":[{"delta":{"content":"partial"}}],"usage":{"prompt_tokens":100,"completion_tokens":25}}` + "\n\ndata: {\"error\":{\"message\":\"unavailable\"}}\n\n"},
-		{"openai-responses", `data: {"type":"response.failed","response":{"status":"failed","usage":{"input_tokens":100,"output_tokens":25},"error":{"message":"unavailable"}}}` + "\n\n"},
-		{"anthropic", `data: {"type":"message_start","message":{"usage":{"input_tokens":100,"output_tokens":0}}}` + "\n\n" + `data: {"type":"message_delta","delta":{},"usage":{"output_tokens":25}}` + "\n\n" + `data: {"type":"error","error":{"message":"unavailable"}}` + "\n\n"},
-		{"gemini", `data: {"candidates":[{"content":{"parts":[{"text":"partial"}]}}],"usageMetadata":{"promptTokenCount":100,"candidatesTokenCount":25}}` + "\n\n"},
-		{"mistral", `data: {"choices":[{"delta":{"content":"partial"}}],"usage":{"prompt_tokens":100,"completion_tokens":25}}` + "\n\n"},
-		{"cohere", `data: {"type":"message-end","delta":{"finish_reason":"MAX_TOKENS","usage":{"tokens":{"input_tokens":100,"output_tokens":25}}}}` + "\n\n"},
-		{"vercel-gateway", `data: {"type":"finish","finishReason":{"unified":"length"},"usage":{"inputTokens":{"total":100},"outputTokens":{"total":25}}}` + "\n\n"},
+		{"openai-chat", `data: {"choices":[{"delta":{"content":"partial"}}],"usage":{"prompt_tokens":100,"completion_tokens":25}}` + "\n\ndata: {\"error\":{\"message\":\"unavailable\"}}\n\n", "partial"},
+		{"openai-responses", `data: {"type":"response.failed","response":{"status":"failed","usage":{"input_tokens":100,"output_tokens":25},"error":{"message":"unavailable"}}}` + "\n\n", ""},
+		{"anthropic", `data: {"type":"message_start","message":{"usage":{"input_tokens":100,"output_tokens":0}}}` + "\n\n" + `data: {"type":"message_delta","delta":{},"usage":{"output_tokens":25}}` + "\n\n" + `data: {"type":"error","error":{"message":"unavailable"}}` + "\n\n", ""},
+		{"gemini", `data: {"candidates":[{"content":{"parts":[{"text":"partial"}]}}],"usageMetadata":{"promptTokenCount":100,"candidatesTokenCount":25}}` + "\n\n", "partial"},
+		{"mistral", `data: {"choices":[{"delta":{"content":"partial"}}],"usage":{"prompt_tokens":100,"completion_tokens":25}}` + "\n\n", "partial"},
+		{"cohere", `data: {"type":"message-end","delta":{"finish_reason":"MAX_TOKENS","usage":{"tokens":{"input_tokens":100,"output_tokens":25}}}}` + "\n\n", ""},
+		{"vercel-gateway", `data: {"type":"finish","finishReason":{"unified":"length"},"usage":{"inputTokens":{"total":100},"outputTokens":{"total":25}}}` + "\n\n", ""},
 	} {
 		t.Run(scenario.protocol, func(t *testing.T) {
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -125,7 +125,7 @@ func TestModelFailuresRetainReportedUsageWithoutCompletedOutput(t *testing.T) {
 			})
 			model := modelcfg.Model{Provider: scenario.protocol, ID: "test", APIKey: "test", BaseURL: server.URL}
 			turn, err := ModelTurn(ctx, model, []ChatMessage{{Role: "user", Content: "hello"}}, nil)
-			if err == nil || calls != 1 || turn.Usage == nil || turn.Text != "" || len(turn.Calls) != 0 {
+			if err == nil || calls != 1 || turn.Usage == nil || turn.Text != scenario.text || len(turn.Calls) != 0 {
 				t.Fatalf("failed output or usage mishandled: %+v calls=%d err=%v", turn, calls, err)
 			}
 		})
@@ -138,9 +138,9 @@ func (r usageReadFailure) Read([]byte) (int, error) { return 0, r.err }
 
 func TestStreamReadFailureAndCancellationRetainUsage(t *testing.T) {
 	for _, readErr := range []error{errors.New("connection lost"), context.Canceled} {
-		stream := `data: {"choices":[],"usage":{"prompt_tokens":100,"completion_tokens":25}}` + "\n\n"
+		stream := `data: {"choices":[{"delta":{"content":"partial"}}],"usage":{"prompt_tokens":100,"completion_tokens":25}}` + "\n\n"
 		turn, err := parseMistralStreamWithReasoning(io.MultiReader(strings.NewReader(stream), usageReadFailure{readErr}), nil, nil)
-		if !errors.Is(err, readErr) || turn.Usage == nil || turn.Usage.InputTokens != 100 || turn.Usage.OutputTokens != 25 || turn.Text != "" {
+		if !errors.Is(err, readErr) || turn.Usage == nil || turn.Usage.InputTokens != 100 || turn.Usage.OutputTokens != 25 || turn.Text != "partial" {
 			t.Fatal("lost usage on read failure", turn, err)
 		}
 	}

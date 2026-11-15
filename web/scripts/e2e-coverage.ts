@@ -14,7 +14,7 @@ const responsiveFiles = [
 ]
 const responsiveTitles: Record<string, string> = {
   'agent-settings': 'full-screen instructions|Appearance and Personalization remain usable',
-  'compaction': 'an automatic summary appears|manual compaction preserves chat and draft|interrupted manual compaction',
+  'compaction': 'short referenced summaries|an automatic summary appears|manual compaction preserves chat and draft|interrupted manual compaction',
   'execution-flow': 'execution messages appear|interleaved main and child|long chronological execution|new execution steps|expanded execution history|continuous history prepares|historical full text|current action, timing|stopping a run|new runs clear|write_file diffs|truncated file and search|usage totals|multi-megabyte process logs|switching monitored processes|token usage uses',
   'iteration': 'independent selection, voluntary feedback',
   'mcp-settings': 'MCP dialogs and long tools stay readable',

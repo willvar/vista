@@ -625,7 +625,7 @@ func TestChatFinishFailuresDoNotReturnPartialSuccess(t *testing.T) {
 			defer server.Close()
 			model := modelcfg.Model{Provider: "openai-chat", ID: "mock", BaseURL: server.URL, APIKey: "key"}
 			turn, err := OpenAIChatTurn(context.Background(), model, []ChatMessage{{Role: "user", Content: "question"}}, nil)
-			if err == nil || !strings.Contains(err.Error(), check.want) || turn.Text != "" {
+			if err == nil || !strings.Contains(err.Error(), check.want) || turn.Text != "partial" || turn.FinishReason != check.reason {
 				t.Fatalf("Chat %s finish was treated as success: %+v, err=%v", check.reason, turn, err)
 			}
 		})

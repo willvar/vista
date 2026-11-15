@@ -151,7 +151,7 @@ func geminiTurnWithReasoning(ctx context.Context, model modelcfg.Model, messages
 	finished := false
 	finishReason := ""
 	var usage *ModelUsage
-	defer retainUsage(&result, &usage)
+	defer retainStreamResult(&result, &text, &finishReason, &usage)
 	for scanner.Scan() {
 		line := scanner.Text()
 		if line != "" {
@@ -226,6 +226,7 @@ func geminiTurnWithReasoning(ctx context.Context, model modelcfg.Model, messages
 			return Turn{}, modelStreamError("Gemini", chunk.Error)
 		}
 		if chunk.PromptFeedback.BlockReason != "" {
+			finishReason = chunk.PromptFeedback.BlockReason
 			switch chunk.PromptFeedback.BlockReason {
 			case "SAFETY", "BLOCKLIST", "PROHIBITED_CONTENT", "IMAGE_SAFETY", "JAILBREAK", "OTHER":
 				return Turn{}, fmt.Errorf("Gemini blocked prompt: %s", chunk.PromptFeedback.BlockReason)
@@ -294,6 +295,7 @@ func geminiTurnWithReasoning(ctx context.Context, model modelcfg.Model, messages
 				calls = append(calls, call)
 			}
 			if candidate.FinishReason != "" {
+				finishReason = candidate.FinishReason
 				if candidate.FinishReason != "STOP" {
 					switch candidate.FinishReason {
 					case "SAFETY", "RECITATION", "MAX_TOKENS", "BLOCKLIST", "PROHIBITED_CONTENT", "SPII", "OTHER", "MALFORMED_FUNCTION_CALL", "UNEXPECTED_TOOL_CALL", "MODEL_ARMOR", "IMAGE_SAFETY":
@@ -302,7 +304,6 @@ func geminiTurnWithReasoning(ctx context.Context, model modelcfg.Model, messages
 					return Turn{}, errors.New("Gemini stopped with unsupported reason")
 				}
 				finished = true
-				finishReason = candidate.FinishReason
 			}
 		}
 	}

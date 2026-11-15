@@ -88,6 +88,9 @@ type ToolCall struct {
 		Arguments string `json:"arguments"`
 	} `json:"function"`
 }
+
+// Turn may retain text, termination and usage on error for diagnostics. Only a
+// nil request error permits accepting its text or replaying its native state.
 type Turn struct {
 	Text              string
 	Calls             []ToolCall

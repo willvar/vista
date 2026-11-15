@@ -217,7 +217,7 @@ func parseVercelGatewayStreamWithReasoning(body io.Reader, onText, onReasoning f
 	finished := false
 	finishReason := ""
 	var usage *ModelUsage
-	defer retainUsage(&result, &usage)
+	defer retainStreamResult(&result, &reply, &finishReason, &usage)
 	consume := func(data string) error {
 		var event struct {
 			Type             string `json:"type"`
@@ -287,6 +287,7 @@ func parseVercelGatewayStreamWithReasoning(body io.Reader, onText, onReasoning f
 			callIDs[call.ID] = true
 			delete(pending, call.ID)
 		case "finish":
+			finishReason = event.FinishReason.Unified
 			var err error
 			usage, err = gatewayModelUsage(event.Usage)
 			if err != nil {
@@ -296,7 +297,6 @@ func parseVercelGatewayStreamWithReasoning(body io.Reader, onText, onReasoning f
 				return errors.New("Vercel AI Gateway stream ended with incomplete output")
 			}
 			finished = true
-			finishReason = event.FinishReason.Unified
 		case "error":
 			return modelStreamError("Vercel AI Gateway", []byte(data))
 		case "tool-approval-request", "tool-result":

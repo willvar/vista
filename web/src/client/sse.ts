@@ -1,7 +1,5 @@
 import type { StreamEvent, SyncCheckpoint } from './types.ts'
 
-const maxFrameBytes = 128_000
-
 export type EventStreamOptions = {
   signal: AbortSignal
   after: () => number
@@ -17,7 +15,8 @@ export type EventStreamOptions = {
 }
 
 // Decode complete lines so UTF-8 characters may span any number of chunks.
-// Buffering is bounded by a single frame, including comments and field names.
+// Buffer only the current frame; state budgets belong to the server and must
+// not reject complete conversation records in this shared parser.
 export async function* parseSSE(body: ReadableStream<Uint8Array>, signal: AbortSignal, onActivity?: () => void): AsyncGenerator<string> {
   for await (const frame of parseFrames(body, signal, onActivity)) yield frame.data
 }
@@ -27,7 +26,6 @@ async function* parseFrames(body: ReadableStream<Uint8Array>, signal: AbortSigna
   const decoder = new TextDecoder()
   let parts: Uint8Array[] = []
   let lineBytes = 0
-  let frameBytes = 0
   let data: string[] = []
   let eventName = ''
   let complete = false
@@ -41,8 +39,6 @@ async function* parseFrames(body: ReadableStream<Uint8Array>, signal: AbortSigna
       if (value.length) onActivity?.()
       let start = 0
       for (let i = 0; i < value.length; i++) {
-        frameBytes++
-        if (frameBytes > maxFrameBytes) throw new Error('event frame too large')
         if (value[i] !== 10) continue
         parts.push(value.subarray(start, i))
         lineBytes += i - start
@@ -57,7 +53,6 @@ async function* parseFrames(body: ReadableStream<Uint8Array>, signal: AbortSigna
           const payload = data.length ? { event: eventName, data: data.join('\n') } : null
           data = []
           eventName = ''
-          frameBytes = 0
           if (payload !== null && !signal.aborted) yield payload
           if (signal.aborted) return
         } else if (line === 'data' || line.startsWith('data:')) {

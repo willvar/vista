@@ -33,6 +33,7 @@ func (s *Store) displayMessages(ctx context.Context, sessionID string, cursor in
 	query := `WITH display AS (
  SELECT e.sequence,COALESCE(json_extract(e.data,'$.runId'),'') AS run_id,e.kind,e.created_at,
  COALESCE(json_extract(e.data,'$.summary'),'') AS summary,
+ COALESCE(json_extract(e.data,'$.outputTurn'),0) AS output_turn,COALESCE(json_extract(e.data,'$.outputBytes'),0) AS output_bytes,
  COALESCE(json_extract(e.data,'$.status'),'') AS status,
  CASE WHEN e.kind='context_notice' THEN COALESCE((SELECT MAX(start.sequence) FROM events start
   WHERE start.session_id=e.session_id AND json_extract(start.data,'$.runId')=json_extract(e.data,'$.runId')
@@ -66,7 +67,7 @@ func (s *Store) displayMessages(ctx context.Context, sessionID string, cursor in
 	}
 	// Summary results carry a provider/model ID, but that pair can be shared
 	// by several connections. Retain the exact request key even off the event page.
-	query += `) SELECT sequence,run_id,kind,created_at,summary,status,results_after,COALESCE(checklist,'{}'),
+	query += `) SELECT sequence,run_id,kind,created_at,summary,status,results_after,COALESCE(checklist,'{}'),output_turn,output_bytes,
  CASE WHEN kind='context_notice' THEN COALESCE((SELECT json_extract(request.data,'$.key') FROM events request
   WHERE request.session_id=? AND request.kind='model_request' AND json_extract(request.data,'$.runId')=display.run_id
   AND json_extract(request.data,'$.purpose')='summary' AND COALESCE(json_extract(request.data,'$.depth'),0)=0
@@ -91,7 +92,7 @@ func (s *Store) displayMessages(ctx context.Context, sessionID string, cursor in
 	for rows.Next() {
 		message := Message{SessionID: sessionID, Role: "assistant"}
 		var kind, status, items string
-		if err := rows.Scan(&message.Sequence, &message.RunID, &kind, &message.CreatedAt, &message.Content, &status, &message.ResultsAfter, &items, &message.ModelKey); err != nil {
+		if err := rows.Scan(&message.Sequence, &message.RunID, &kind, &message.CreatedAt, &message.Content, &status, &message.ResultsAfter, &items, &message.OutputTurn, &message.OutputBytes, &message.ModelKey); err != nil {
 			return nil, err
 		}
 		if kind == "context_notice" {

@@ -339,7 +339,8 @@ func openAIResponsesTurnWithReasoning(ctx context.Context, model modelcfg.Model,
 		}
 		stream = reader
 	}
-	return parseResponsesStreamWithReasoning(stream, onText, onReasoning)
+	turn, parseErr := parseResponsesStreamWithReasoning(stream, onText, onReasoning)
+	return turn, parseErr
 }
 
 func parseResponses(body io.Reader) (Turn, error) {
@@ -431,10 +432,16 @@ func parseResponsesStreamWithReasoning(body io.Reader, onText, onReasoning func(
 	var final []responseItem
 	var finalRaw []json.RawMessage
 	var usage *ModelUsage
-	defer retainUsage(&result, &usage)
+	finishReason := ""
 	var sources citationSources
 	var doneMessageText strings.Builder
 	doneMessageIDs := map[string]bool{}
+	defer func() {
+		if resultErr != nil && text.Len() == 0 {
+			text.WriteString(doneMessageText.String())
+		}
+		retainStreamResult(&result, &text, &finishReason, &usage)
+	}()
 	addAnnotation := func(annotation responseAnnotation) error {
 		if annotation.Type == "url_citation" {
 			return sources.add(annotation.URL, "OpenAI Responses")
@@ -463,6 +470,32 @@ func parseResponsesStreamWithReasoning(body io.Reader, onText, onReasoning func(
 			event.Item.ID = event.ItemID
 		}
 		if event.Type == "response.completed" || event.Type == "response.failed" || event.Type == "response.incomplete" {
+			finishReason = event.Response.Status
+			if finishReason == "" {
+				finishReason = strings.TrimPrefix(event.Type, "response.")
+			}
+			if event.Type == "response.incomplete" && event.Response.IncompleteDetails.Reason != "" {
+				finishReason = event.Response.IncompleteDetails.Reason
+			}
+			// Some services send partial text only in the terminal snapshot.
+			// Retain it for failure diagnostics, without emitting it as output or
+			// accepting native replay from an unsuccessful response.
+			if event.Type != "response.completed" && text.Len() == 0 && doneMessageText.Len() == 0 {
+				for _, raw := range event.Response.Output {
+					var item responseItem
+					if json.Unmarshal(raw, &item) != nil || item.Type != "message" {
+						continue
+					}
+					for _, part := range item.Content {
+						switch part.Type {
+						case "output_text":
+							text.WriteString(part.Text)
+						case "refusal":
+							text.WriteString(part.Refusal)
+						}
+					}
+				}
+			}
 			if event.Response.Usage != nil {
 				known := event.Response.Usage.InputDetails.CachedTokens != nil
 				candidate := ModelUsage{InputTokens: event.Response.Usage.InputTokens, OutputTokens: event.Response.Usage.OutputTokens, CacheReadKnown: &known, CacheWriteTokens: event.Response.Usage.InputDetails.CacheWriteTokens, ReasoningTokens: event.Response.Usage.OutputDetails.ReasoningTokens}

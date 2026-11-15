@@ -12,7 +12,6 @@ import (
 	"unicode/utf8"
 
 	"github.com/google/uuid"
-
 	"vista/internal/agentconfig"
 	modelcfg "vista/internal/model"
 	"vista/internal/modeltrace"
@@ -287,6 +286,16 @@ func (c *workerResultConsumer) consume(result workerproto.Result) error {
 		if result.RunID == "" || result.Turn <= 0 || metadata == nil || metadata.Provider == "" || len(metadata.Provider) > 64 || metadata.ID == "" || len(metadata.ID) > 200 || len(metadata.FinishReason) > 64 || len(metadata.ReasoningEffort) > 64 || (metadata.Purpose != "" && metadata.Purpose != "summary") || result.Content != "" || result.Status != "" {
 			return errors.New("invalid model result")
 		}
+		if summary := metadata.Summary; summary != nil {
+			if metadata.Purpose != "summary" || summary.TextBytes < 0 || summary.EstimatedTokens < 0 || summary.ToolCalls < 0 || len(summary.UpstreamFinishReason) > 64 {
+				return errors.New("invalid summary result metadata")
+			}
+			switch summary.Validation {
+			case "valid", "empty", "invalid_utf8", "tool_calls", "incomplete", "truncated", "request_error", "context_overflow", "cancelled":
+			default:
+				return errors.New("invalid summary validation result")
+			}
+		}
 		if usage := metadata.Usage; usage != nil && !validReportedUsage(*usage) {
 			return errors.New("invalid model usage")
 		}
@@ -314,7 +323,14 @@ func (c *workerResultConsumer) consume(result workerproto.Result) error {
 		if result.RunID == "" || result.Turn <= 0 || result.Content == "" || len(result.Content) > 2048 {
 			return errors.New("invalid model text fragment")
 		}
-		event, err := c.store.AppendModelDelta(c.ctx, c.sessionID, result.RunID, result.Turn, result.Depth, result.Content, result.TaskID, result.ParentTaskID)
+		if result.Purpose != "" && result.Purpose != "summary" {
+			return errors.New("invalid model text purpose")
+		}
+		appendDelta := c.store.AppendModelDelta
+		if result.Purpose == "summary" {
+			appendDelta = c.store.AppendSummaryDelta
+		}
+		event, err := appendDelta(c.ctx, c.sessionID, result.RunID, result.Turn, result.Depth, result.Content, result.TaskID, result.ParentTaskID)
 		return c.persisted(result, event, err, "")
 	case "model_reasoning_delta":
 		if result.RunID == "" || result.Turn <= 0 || result.Content == "" || len(result.Content) > 2048 || result.Status != "" {
@@ -431,13 +447,23 @@ func (c *workerResultConsumer) contextNotice(result workerproto.Result) error {
 	if result.Context != nil && !validCompactionStatus(result.Context) {
 		return errors.New("invalid compaction status")
 	}
-	if result.RunID == "" || result.Status != "succeeded" || result.Turn < 0 || result.Depth < 0 || result.Content == "" || len(result.Content) > 8<<10 || !utf8.ValidString(result.Content) || result.AckID == "" || len(result.AckID) > 64 {
+	if result.RunID == "" || result.Status != "succeeded" || result.Turn < 0 || result.Depth < 0 || strings.TrimSpace(result.Content) == "" || !utf8.ValidString(result.Content) || result.AckID == "" || len(result.AckID) > 64 {
 		return errors.New("invalid context notice")
 	}
 	if result.Checkpoint != nil && (result.Depth != 0 || !validOutputPath(c.stateDir, result.Checkpoint.Path) || result.Checkpoint.ThroughSequence <= 0) {
 		return errors.New("invalid context checkpoint")
 	}
+	if result.FullBytes != 0 || result.OutputTurn != 0 {
+		if result.FullBytes <= len(result.Content) || result.OutputTurn <= 0 || result.OutputTurn > result.Turn {
+			return errors.New("invalid context summary output reference")
+		}
+		page, err := c.store.ReadModelOutput(c.ctx, c.sessionID, result.RunID, result.OutputTurn, 0, 4096)
+		if err != nil || page.AvailableBytes != int64(result.FullBytes) || !strings.HasPrefix(page.Content, result.Content) {
+			return errors.New("context summary output is incomplete or inconsistent")
+		}
+	}
 	return c.append(result, map[string]any{
+		"outputTurn": result.OutputTurn, "outputBytes": result.FullBytes,
 		"contextUsage": result.ContextUsage,
 		"checkpoint":   result.Checkpoint,
 		"message":      "Completed execution history was compacted; original tool records remain available",

@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"os/exec"
 	"path/filepath"
-	"strings"
 	"testing"
 
 	"vista/internal/store"
@@ -92,7 +91,7 @@ func TestWorkerRejectsInvalidOrInactiveContextNotice(t *testing.T) {
 		inactive bool
 	}{
 		{"empty summary", func(result *workerproto.Result) { result.Content = "" }, false},
-		{"oversized summary", func(result *workerproto.Result) { result.Content = strings.Repeat("x", (8<<10)+1) }, false},
+		{"blank summary", func(result *workerproto.Result) { result.Content = " \n\t " }, false},
 		{"missing acknowledgment ID", func(result *workerproto.Result) { result.AckID = "" }, false},
 		{"failed status", func(result *workerproto.Result) { result.Status = "failed" }, false},
 		{"invalid turn", func(result *workerproto.Result) { result.Turn = -1 }, false},

@@ -138,7 +138,7 @@ func parseCohereStreamWithReasoning(body io.Reader, onText, onReasoning func(str
 	finished := false
 	finishReason := ""
 	var usage *ModelUsage
-	defer retainUsage(&result, &usage)
+	defer retainStreamResult(&result, &reply, &finishReason, &usage)
 	consume := func(data string) error {
 		var event struct {
 			Type  string `json:"type"`
@@ -244,6 +244,7 @@ func parseCohereStreamWithReasoning(body io.Reader, onText, onReasoning func(str
 			calls = append(calls, *pending)
 			pending = nil
 		case "message-end":
+			finishReason = event.Delta.FinishReason
 			if event.Delta.Usage != nil {
 				reported := event.Delta.Usage.Tokens
 				if reported != nil {
@@ -260,7 +261,6 @@ func parseCohereStreamWithReasoning(body io.Reader, onText, onReasoning func(str
 			if pending != nil || event.Delta.FinishReason != "COMPLETE" && event.Delta.FinishReason != "STOP_SEQUENCE" && event.Delta.FinishReason != "TOOL_CALL" || event.Delta.FinishReason == "TOOL_CALL" && len(calls) == 0 {
 				return errors.New("Cohere stream ended with incomplete output")
 			}
-			finishReason = event.Delta.FinishReason
 			finished = true
 		case "content-start":
 			if event.Delta.Message.Content.Type == "thinking" && onReasoning == nil {

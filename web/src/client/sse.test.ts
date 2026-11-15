@@ -101,16 +101,17 @@ test('authorization or deleted-session failures report once and stop reconnectin
   }
 })
 
-test('oversized incomplete frames are rejected and the reader is cancelled', async () => {
-  let cancelled = false
-  const stream = new ReadableStream<Uint8Array>({
-    start(sink) { sink.enqueue(encoder.encode('data: ' + 'x'.repeat(128_000))) },
-    cancel() { cancelled = true },
-  })
-  await assert.rejects(async () => {
-    for await (const _ of parseSSE(stream, new AbortController().signal)) assert.fail('no complete frame expected')
-  }, /event frame too large/)
-  assert.equal(cancelled, true)
+test('complete large records retain all content across chunks and adjacent frames', async () => {
+  const content = '你🙂<&>'.repeat(70_000)
+  const record = { sequence: 1, kind: 'message', data: { id: 'large-input', role: 'user', content } }
+  const bytes = encoder.encode(`event: record\ndata: ${JSON.stringify(record)}\n\n` + event(2, 'next'))
+  assert.ok(bytes.length > 512 * 1024)
+  const chunks: Uint8Array[] = []
+  for (let offset = 0; offset < bytes.length; offset += 4093) chunks.push(bytes.subarray(offset, offset + 4093))
+  const stream = body(...chunks)
+  const received: unknown[] = []
+  for await (const payload of parseSSE(stream, new AbortController().signal)) received.push(JSON.parse(payload))
+  assert.deepEqual(received, [record, { sequence: 2, kind: 'model_delta', data: { content: 'next' } }])
   assert.equal(stream.locked, false)
 })
 

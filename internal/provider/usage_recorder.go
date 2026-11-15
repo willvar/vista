@@ -2,6 +2,7 @@ package provider
 
 import (
 	"context"
+	"strings"
 
 	"github.com/google/uuid"
 )
@@ -43,9 +44,16 @@ func recordUsage(ctx context.Context, usage *ModelUsage, requestErr error) {
 	record(uuid.NewString(), total)
 }
 
-// Stream errors must preserve usage already reported by the upstream without
-// turning partial text or tool calls into a completed response.
-func retainUsage(result *Turn, usage **ModelUsage) {
+// Error returns retain received text and termination fields for diagnostics.
+// Callers must still reject the failed turn; native replay is only returned
+// after the adapter has validated a complete response.
+func retainStreamResult(result *Turn, text *strings.Builder, finishReason *string, usage **ModelUsage) {
+	if result.Text == "" {
+		result.Text = text.String()
+	}
+	if result.FinishReason == "" {
+		result.FinishReason = *finishReason
+	}
 	if result.Usage == nil && *usage != nil && ValidModelUsage(**usage) {
 		result.Usage = *usage
 	}

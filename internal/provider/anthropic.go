@@ -167,7 +167,7 @@ func anthropicTurn(ctx context.Context, model modelcfg.Model, messages []ChatMes
 	stopReason := ""
 	stopped := false
 	var usage *ModelUsage
-	defer retainUsage(&result, &usage)
+	defer retainStreamResult(&result, &text, &stopReason, &usage)
 	type usageEvent struct {
 		InputTokens         *int64 `json:"input_tokens"`
 		OutputTokens        *int64 `json:"output_tokens"`

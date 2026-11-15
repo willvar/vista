@@ -32,18 +32,23 @@ func TestCompactExecutionEventPagesKeepTextMetadataAndOriginalBodies(t *testing.
 	}
 	targets := make(map[int64]store.Event)
 	var sequences []int64
-	for index, input := range []struct{ kind, content string }{
-		{"tool", `{"output":"` + strings.Repeat("完整工具输出", 300) + `"}`},
-		{"tool", strings.Repeat("a", 511) + "界" + strings.Repeat("b", 20)},
-		{"tool", strings.Repeat("x", 512)},
-		{"model_reasoning_delta", strings.Repeat("完整推理", 300)},
-		{"model_delta", strings.Repeat("完整正文", 300)},
+	for index, input := range []struct{ kind, content, purpose string }{
+		{"tool", `{"output":"` + strings.Repeat("完整工具输出", 300) + `"}`, ""},
+		{"tool", strings.Repeat("a", 511) + "界" + strings.Repeat("b", 20), ""},
+		{"tool", strings.Repeat("x", 512), ""},
+		{"model_reasoning_delta", strings.Repeat("完整推理", 300), ""},
+		{"model_delta", strings.Repeat("完整正文", 300), ""},
+		{"model_delta", strings.Repeat("摘要<&🙂", 120), "summary"},
 	} {
 		data := map[string]any{
 			"runId": run, "kind": input.kind, "turn": 7,
 			"taskId": "main/child", "parentTaskId": "main", "depth": 1,
 			"status": "succeeded", "content": input.content,
 			"extraMetadata": map[string]any{"keep": "unchanged"},
+		}
+		if input.purpose != "" {
+			data["purpose"] = input.purpose
+			data["offset"] = 123
 		}
 		if input.kind == "tool" {
 			data["tool"] = map[string]any{
@@ -96,6 +101,10 @@ func TestCompactExecutionEventPagesKeepTextMetadataAndOriginalBodies(t *testing.
 						t.Fatal(err)
 					}
 					content := want["content"].(string)
+					if want["purpose"] == "summary" {
+						delete(want, "content")
+						want["contentBytes"] = float64(len(content))
+					}
 					if suffix == "&compact=1" && event.Kind == "tool" && len(content) > 512 {
 						end := 512
 						for !utf8.RuneStart(content[end]) {

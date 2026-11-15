@@ -247,7 +247,7 @@ func parseMistralStreamWithReasoning(body io.Reader, onText, onReasoning func(st
 	finish := ""
 	done := false
 	var usage *ModelUsage
-	defer retainUsage(&result, &usage)
+	defer retainStreamResult(&result, &answer, &finish, &usage)
 	consume := func(raw string) error {
 		if raw == "[DONE]" {
 			done = true

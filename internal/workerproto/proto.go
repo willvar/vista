@@ -110,6 +110,8 @@ type Result struct {
 	RunID        string             `json:"runId"`
 	Turn         int32              `json:"turn,omitempty"`
 	Depth        int                `json:"depth,omitempty"`
+	Purpose      string             `json:"purpose,omitempty"`
+	OutputTurn   int32              `json:"outputTurn,omitempty"`
 	FullBytes    int                `json:"fullBytes,omitempty"`
 	InputID      string             `json:"inputId,omitempty"`
 	AckID        string             `json:"ackId,omitempty"`
@@ -190,14 +192,27 @@ type ModelRetry struct {
 	Error      string `json:"error,omitempty"`
 }
 type ModelResult struct {
-	Purpose         string      `json:"purpose,omitempty"`
-	ReasoningEffort string      `json:"reasoningEffort,omitempty"`
-	Provider        string      `json:"provider"`
-	ID              string      `json:"id"`
-	FinishReason    string      `json:"finishReason"`
-	Usage           *ModelUsage `json:"usage,omitempty"`
-	DurationMS      float64     `json:"durationMs,omitempty"`
+	Summary         *SummaryResult `json:"summary,omitempty"`
+	Purpose         string         `json:"purpose,omitempty"`
+	ReasoningEffort string         `json:"reasoningEffort,omitempty"`
+	Provider        string         `json:"provider"`
+	ID              string         `json:"id"`
+	FinishReason    string         `json:"finishReason"`
+	Usage           *ModelUsage    `json:"usage,omitempty"`
+	DurationMS      float64        `json:"durationMs,omitempty"`
 }
+
+// SummaryResult separates provider termination from local validation, without
+// storing rejected candidate text or enabling full HTTP diagnostics.
+type SummaryResult struct {
+	Refinement           bool   `json:"refinement"`
+	UpstreamFinishReason string `json:"upstreamFinishReason,omitempty"`
+	Validation           string `json:"validation"`
+	TextBytes            int    `json:"textBytes"`
+	EstimatedTokens      int64  `json:"estimatedTokens"`
+	ToolCalls            int    `json:"toolCalls"`
+}
+
 type ModelUsage struct {
 	CacheReadKnown   *bool  `json:"cacheReadKnown,omitempty"`
 	CacheWriteTokens *int64 `json:"cacheWriteTokens,omitempty"`

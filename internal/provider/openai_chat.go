@@ -399,7 +399,7 @@ func openAIChatTurnWithReasoning(ctx context.Context, model modelcfg.Model, mess
 	var sources citationSources
 	finishReason := ""
 	var usage *ModelUsage
-	defer retainUsage(&result, &usage)
+	defer retainStreamResult(&result, &reply, &finishReason, &usage)
 	done := false
 	for scanner.Scan() {
 		lineNumber++

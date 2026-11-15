@@ -1,4 +1,63 @@
 import { test, expect } from './fixtures'
+import type { Message } from '../src/client/types'
+import { coreSnapshot, installConversationStream } from './conversation-fixture'
+
+for (const failedRead of [false, true]) {
+  test(`short referenced summaries ${failedRead ? 'retain complete text when retry and copy overlap' : 'display and copy complete text after reload'}`, async ({ page, context, vista }) => {
+    await vista.api('/preferences', { method: 'PATCH', body: JSON.stringify({ feedbackInvitationSeen: true }) })
+    await context.grantPermissions(['clipboard-read', 'clipboard-write'])
+    const session = await vista.api('/sessions', { method: 'POST', body: '{}' })
+    const body = '<v>中&</v> '.repeat(600)
+    const full = '```text\n' + body + '\n```\n\nSUMMARY-END'
+    const bytes = Buffer.byteLength(full)
+    expect(bytes).toBeLessThan(8192)
+    const message: Message = { id: 'context-summary/10', runId: 'summary-run', role: 'assistant', sequence: 10,
+      createdAt: session.createdAt, contextSummary: true, outputTurn: 3, outputBytes: bytes, content: full.slice(0, 100) }
+    const references = Array.from({ length: Math.ceil(bytes / 2048) }, (_, index) => ({
+      sequence: index + 1, kind: 'model_delta', data: { runId: 'summary-run', purpose: 'summary', turn: 3,
+        offset: index * 2048, contentBytes: Math.min(2048, bytes - index * 2048) },
+    }))
+    const snapshot = coreSnapshot(session, [message], references)
+    await installConversationStream(page, snapshot)
+    await page.route(`**/api/sessions/${session.id}/snapshot`, route => route.fulfill({ json: snapshot }))
+    await page.route(`**/api/sessions/${session.id}/runs/summary-run/main-outputs*`, route => route.fulfill({ json: [] }))
+    let reads = 0
+    let release!: () => void
+    const bodyReady = new Promise<void>(resolve => { release = resolve })
+    await page.route(`**/api/sessions/${session.id}/runs/summary-run/model-output?*`, async route => {
+      reads++
+      expect(new URL(route.request().url()).searchParams.get('full')).toBe('1')
+      if (failedRead && reads === 1) return route.fulfill({ status: 503, body: 'Temporary body read failure' })
+      if (failedRead) await bodyReady
+      return route.fulfill({ json: { content: full, offset: 0, nextOffset: bytes, availableBytes: bytes } })
+    })
+    await page.goto(`${vista.origin}/sessions/${session.id}`)
+    const summary = page.locator('article[data-context-summary]')
+    await expect(summary).toHaveCount(1)
+    if (failedRead) {
+      await expect(summary.locator('.message-output-error')).toBeVisible()
+      await summary.getByRole('button', { name: 'Retry', exact: true }).click()
+      await expect.poll(() => reads).toBe(2)
+      await summary.getByRole('button', { name: 'Copy reply', exact: true }).click()
+      release()
+      await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe(full)
+      await expect(summary.locator('.markdown code')).toHaveText(body + '\n')
+      await expect(summary.locator('.markdown')).toContainText('SUMMARY-END')
+      await expect(summary.locator('.message-output-error')).toHaveCount(0)
+      expect(reads).toBe(2)
+    } else {
+      for (const reload of [false, true]) {
+        if (reload) await page.reload()
+        await expect(summary.locator('.markdown code')).toHaveText(body + '\n')
+        await expect(summary.locator('.markdown')).toContainText('SUMMARY-END')
+        await summary.getByRole('button', { name: 'Copy reply', exact: true }).click()
+        await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe(full)
+        expect(reads).toBe(reload ? 2 : 1)
+      }
+    }
+    expect(vista.modelRequests).toHaveLength(0)
+  })
+}
 
 test.describe('automatic recovery', () => {
   test.use({ modelFailure: { status: 400, body: { error: { code: 'context_length_exceeded', message: 'Context length exceeded' } }, attempts: 1, skipAttempts: 1 } })

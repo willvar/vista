@@ -19,20 +19,21 @@ type messageWithResults struct {
 }
 
 type modelResultEvent struct {
-	TaskID          string                  `json:"taskId,omitempty"`
-	ParentTaskID    string                  `json:"parentTaskId,omitempty"`
-	Purpose         string                  `json:"purpose,omitempty"`
-	ReasoningEffort string                  `json:"reasoningEffort,omitempty"`
-	Sequence        int64                   `json:"sequence"`
-	CreatedAt       string                  `json:"createdAt"`
-	RunID           string                  `json:"runId"`
-	Turn            int32                   `json:"turn"`
-	Depth           int                     `json:"depth"`
-	Provider        string                  `json:"provider"`
-	ID              string                  `json:"id"`
-	FinishReason    string                  `json:"finishReason"`
-	Usage           *workerproto.ModelUsage `json:"usage,omitempty"`
-	DurationMS      float64                 `json:"durationMs,omitempty"`
+	TaskID          string                     `json:"taskId,omitempty"`
+	ParentTaskID    string                     `json:"parentTaskId,omitempty"`
+	Summary         *workerproto.SummaryResult `json:"summary,omitempty"`
+	Purpose         string                     `json:"purpose,omitempty"`
+	ReasoningEffort string                     `json:"reasoningEffort,omitempty"`
+	Sequence        int64                      `json:"sequence"`
+	CreatedAt       string                     `json:"createdAt"`
+	RunID           string                     `json:"runId"`
+	Turn            int32                      `json:"turn"`
+	Depth           int                        `json:"depth"`
+	Provider        string                     `json:"provider"`
+	ID              string                     `json:"id"`
+	FinishReason    string                     `json:"finishReason"`
+	Usage           *workerproto.ModelUsage    `json:"usage,omitempty"`
+	DurationMS      float64                    `json:"durationMs,omitempty"`
 }
 
 func (a *App) messagesWithResults(r *http.Request, id string, items []store.Message) ([]messageWithResults, error) {
@@ -82,7 +83,7 @@ func messagesWithResultData(items []store.Message, events []store.Event, boundar
 		if json.Unmarshal(event.Data, &data) != nil || data.ModelResult == nil {
 			continue
 		}
-		result := modelResultEvent{TaskID: data.TaskID, ParentTaskID: data.ParentTaskID, Purpose: data.ModelResult.Purpose, Sequence: event.Sequence, CreatedAt: event.CreatedAt, RunID: data.RunID, Turn: data.Turn, Depth: data.Depth, Provider: data.ModelResult.Provider, ID: data.ModelResult.ID, FinishReason: data.ModelResult.FinishReason, Usage: data.ModelResult.Usage, DurationMS: data.ModelResult.DurationMS, ReasoningEffort: data.ModelResult.ReasoningEffort}
+		result := modelResultEvent{TaskID: data.TaskID, ParentTaskID: data.ParentTaskID, Purpose: data.ModelResult.Purpose, Sequence: event.Sequence, CreatedAt: event.CreatedAt, RunID: data.RunID, Turn: data.Turn, Depth: data.Depth, Provider: data.ModelResult.Provider, ID: data.ModelResult.ID, FinishReason: data.ModelResult.FinishReason, Usage: data.ModelResult.Usage, DurationMS: data.ModelResult.DurationMS, ReasoningEffort: data.ModelResult.ReasoningEffort, Summary: data.ModelResult.Summary}
 		rootSummary := result.Purpose == "summary" && result.Depth == 0 && (result.TaskID == "" || result.TaskID == "main")
 		if result.ReasoningEffort == "" && !rootSummary {
 			effort := efforts[data.RunID]
@@ -113,6 +114,9 @@ func (a *App) conversationSnapshot(w http.ResponseWriter, r *http.Request, id st
 		return
 	}
 	messages := messagesWithResultData(snapshot.Messages, snapshot.Results, snapshot.Boundaries, snapshot.Efforts)
+	for index, event := range snapshot.Events {
+		snapshot.Events[index] = summaryOutputEvent(event)
+	}
 	jsonOut(w, struct {
 		store.ConversationSnapshot
 		Messages []messageWithResults `json:"messages"`
@@ -227,12 +231,40 @@ func (a *App) messages(w http.ResponseWriter, r *http.Request, id string) {
 	}
 	jsonOut(w, withResults)
 }
-func compactEventPage(r *http.Request, events []store.Event) {
-	if r.URL.Query().Get("compact") != "1" {
-		return
+
+// Summary bodies stay in durable events for canonical output reads. Automatic
+// delivery keeps each event's sequence and output coordinates without its body.
+func summaryOutputEvent(event store.Event) store.Event {
+	if event.Kind != "model_delta" {
+		return event
 	}
+	var header struct {
+		Purpose string `json:"purpose"`
+	}
+	if json.Unmarshal(event.Data, &header) != nil || header.Purpose != "summary" {
+		return event
+	}
+	var data map[string]json.RawMessage
+	if json.Unmarshal(event.Data, &data) != nil {
+		return event
+	}
+	var content string
+	if json.Unmarshal(data["content"], &content) != nil {
+		return event
+	}
+	delete(data, "content")
+	data["contentBytes"], _ = json.Marshal(len(content))
+	event.Data, _ = json.Marshal(data)
+	return event
+}
+
+func compactEventPage(r *http.Request, events []store.Event) {
+	compact := r.URL.Query().Get("compact") == "1"
 	for index := range events {
-		events[index] = store.CompactToolEvent(events[index])
+		events[index] = summaryOutputEvent(events[index])
+		if compact {
+			events[index] = store.CompactToolEvent(events[index])
+		}
 	}
 }
 
@@ -307,6 +339,7 @@ func (a *App) eventStream(w http.ResponseWriter, r *http.Request, id string) {
 	defer heartbeat.Stop()
 	syncDue := true
 	writeEvent := func(event store.Event) bool {
+		event = summaryOutputEvent(event)
 		// Explicit coverage detects a lost frame without assuming contiguous
 		// database sequences (conversation rollback can legitimately leave gaps).
 		b, err := json.Marshal(struct {

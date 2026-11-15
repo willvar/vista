@@ -280,7 +280,7 @@ func parseBedrockEventsWithReasoning(events <-chan types.ConverseStreamOutput, s
 	finished := false
 	finishReason := ""
 	var usage *ModelUsage
-	defer retainUsage(&result, &usage)
+	defer retainStreamResult(&result, &reply, &finishReason, &usage)
 	readMetadata := func(metadata types.ConverseStreamMetadataEvent) error {
 		if metadata.Usage == nil || metadata.Usage.InputTokens == nil || metadata.Usage.OutputTokens == nil {
 			return errors.New("Bedrock metadata lacks token usage")
@@ -428,11 +428,11 @@ func parseBedrockEventsWithReasoning(events <-chan types.ConverseStreamOutput, s
 				delete(pending, index)
 			}
 		case *types.ConverseStreamOutputMemberMessageStop:
+			finishReason = string(value.Value.StopReason)
 			if len(pending) != 0 || len(closed) > len(open) || value.Value.StopReason != types.StopReasonEndTurn && value.Value.StopReason != types.StopReasonStopSequence && value.Value.StopReason != types.StopReasonToolUse || value.Value.StopReason == types.StopReasonToolUse && len(calls) == 0 {
 				return Turn{}, errors.New("Bedrock stream ended with incomplete output")
 			}
 			finished = true
-			finishReason = string(value.Value.StopReason)
 		default:
 			return Turn{}, errors.New("unknown Bedrock stream event")
 		}

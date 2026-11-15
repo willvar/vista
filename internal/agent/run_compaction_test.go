@@ -17,6 +17,40 @@ import (
 	"vista/internal/workerproto"
 )
 
+func TestSummaryOutputReferencesFollowJSONBudget(t *testing.T) {
+	for _, escaped := range []bool{false, true} {
+		name, summary := "plain", strings.Repeat("x", 7200)
+		if escaped {
+			name, summary = "escaped", strings.Repeat("<v>中&</v> ", 600)
+		}
+		t.Run(name, func(t *testing.T) {
+			encoded, err := json.Marshal(summary)
+			if err != nil || len(summary) >= 8192 || (len(encoded) > 16<<10) != escaped {
+				t.Fatalf("invalid fixture: raw=%d encoded=%d error=%v", len(summary), len(encoded), err)
+			}
+			notice := workerproto.Result{RunID: "summary-run"}
+			var body strings.Builder
+			err = emitSummaryText(summary, 3, &notice, func(result workerproto.Result) error {
+				if result.Kind != "model_delta" || result.Purpose != "summary" || result.RunID != notice.RunID || result.Turn != 3 {
+					t.Fatalf("invalid summary chunk: %+v", result)
+				}
+				body.WriteString(result.Content)
+				return nil
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if escaped {
+				if body.String() != summary || notice.OutputTurn != 3 || notice.FullBytes != len(summary) || len(notice.Content) > 2048 || !strings.HasPrefix(summary, notice.Content) {
+					t.Fatal("chunked summary lost its complete body, preview or output reference")
+				}
+			} else if notice.Content != summary || notice.OutputTurn != 0 || notice.FullBytes != 0 || body.Len() != 0 {
+				t.Fatal("inline summary should remain complete without an output reference")
+			}
+		})
+	}
+}
+
 func TestRunCompactsModelWindowWithoutLosingInputsOrReplayingTools(t *testing.T) {
 	for _, limits := range []struct {
 		name                string

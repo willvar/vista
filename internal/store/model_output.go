@@ -32,6 +32,15 @@ type ModelOutputRef struct {
 }
 
 func (s *Store) AppendModelDelta(ctx context.Context, sessionID, runID string, turn int32, depth int, content string, taskIDs ...string) (*Event, error) {
+	return s.appendModelDelta(ctx, sessionID, runID, turn, depth, content, "", taskIDs...)
+}
+
+// Accepted summary text shares the canonical output store, not the reply timeline.
+func (s *Store) AppendSummaryDelta(ctx context.Context, sessionID, runID string, turn int32, depth int, content string, taskIDs ...string) (*Event, error) {
+	return s.appendModelDelta(ctx, sessionID, runID, turn, depth, content, "summary", taskIDs...)
+}
+
+func (s *Store) appendModelDelta(ctx context.Context, sessionID, runID string, turn int32, depth int, content, purpose string, taskIDs ...string) (*Event, error) {
 	if len(taskIDs) > 2 || turn <= 0 || depth < 0 || depth > agentconfig.MaxDelegationDepth || content == "" || len(content) > 2048 || !utf8.ValidString(content) {
 		return nil, errors.New("invalid model text fragment")
 	}
@@ -53,6 +62,9 @@ func (s *Store) AppendModelDelta(ctx context.Context, sessionID, runID string, t
 		return nil, err
 	}
 	data := map[string]any{"runId": runID, "turn": turn, "depth": depth, "content": content, "offset": offset}
+	if purpose != "" {
+		data["purpose"] = purpose
+	}
 	if len(taskIDs) > 0 && taskIDs[0] != "" {
 		data["taskId"] = taskIDs[0]
 	}
@@ -116,6 +128,13 @@ func (s *Store) readModelOutput(ctx context.Context, sessionID, runID string, tu
    AND json_extract(data,'$.runId')=? AND json_extract(data,'$.task.status')='succeeded'
    AND json_extract(data,'$.task.report.runId')=? AND json_extract(data,'$.task.report.turn')=?
    AND json_extract(data,'$.task.report.bytes')=?)`, sessionID, runID, runID, turn, page.AvailableBytes).Row().Scan(&page.Complete); err != nil {
+			return ModelOutputPage{}, err
+		}
+	}
+	if !page.Complete {
+		if err := tx.WithContext(ctx).Raw(`SELECT EXISTS(SELECT 1 FROM events WHERE session_id=? AND kind='context_notice'
+   AND json_extract(data,'$.runId')=? AND json_extract(data,'$.outputTurn')=?
+   AND json_extract(data,'$.outputBytes')=?)`, sessionID, runID, turn, page.AvailableBytes).Row().Scan(&page.Complete); err != nil {
 			return ModelOutputPage{}, err
 		}
 	}

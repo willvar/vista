@@ -71,13 +71,51 @@ turn identity. Token statistics keep the provider-dispatch accounting path;
 these result records do not count the same usage twice.
 The summary prompt preserves goals, constraints, existing authorization,
 verified work and side effects, pending work, uncertainties and evidence references.
-Each compaction has at most 32 summary requests, including rejected requests. A
-summary must be nonempty text within 8 KiB, with no tool calls, and the resulting
-context must be smaller. Failure retains the active checkpoint. The failed main
-request gets at most two recovery compactions before surfacing an error; a
-successful model turn resets this recovery counter. Completed tools do not run
-again during retry. Inputs arriving during compaction are consumed at the next
-decision boundary.
+Each compaction has at most 32 summary requests, including rejected requests and
+at most one final refinement, shared across all transcript segments. Complete,
+nonempty UTF-8 text with no local or hosted tool calls is eligible; explicitly
+truncated or abnormally terminated output is not. There is no fixed 8 KiB summary
+acceptance limit. The assembled replacement request must actually be smaller.
+
+Halving the replaced transcript and previous summary's estimated text tokens is
+a soft compression goal, not a model-capacity assertion. A complete candidate
+that misses this goal, or does not reduce the assembled request, can receive one
+refinement request if the shared budget permits. Refinement sends the candidate
+and retained current/latest user input and latest checklist when available,
+not the original transcript, and starts fresh Responses replay state. It keeps
+the chosen model and effort. Prefer a complete correction only when it makes
+the replacement request smaller than the first candidate. Failed or worse
+corrections may fall back only to a first candidate that reduces the original
+request; cancellation and event/persistence failures remain terminal. No text
+is mechanically truncated to fit a summary target.
+
+`model_result.summary` records the provider's original finish reason separately
+from local validation, UTF-8 byte size, estimated text tokens, tool-call count
+and whether this was refinement. Empty, truncated, abnormal, tool-bearing,
+encoding-invalid and failed requests have distinct validation results. This
+metadata does not capture rejected summary bodies or enable HTTP Debug capture.
+Adapters retain received text, reported usage and the original termination
+field even when returning an error. Validation uses that field rather than
+error wording: output-token limits are `truncated`, other abnormal termination
+is `incomplete`, and failures without an abnormal termination field are
+`request_error`. Cancellation and confirmed context overflow take precedence.
+Upstream error envelopes remain `request_error`, including Responses terminal
+events with status `failed`.
+Text sizes describe the received candidate, including text supplied only in a
+Responses terminal snapshot; an error never makes that candidate eligible.
+Accepted long summaries reuse the existing model-output chunks and on-demand
+reads; `context_notice` and message pages carry a bounded preview and output
+reference when needed. Summary chunks retain `purpose: "summary"`, so they do
+not become ordinary replies or duplicate execution-trace content. The canonical
+summary in the checkpoint and full-output read remains complete.
+Conversation SSE, replay pages and snapshot events send only each summary
+chunk's byte count and output coordinates, retaining its original sequence.
+Exact-event and full-output reads keep the original body.
+
+Failure retains the active checkpoint. The failed main request gets at most two
+recovery compactions before surfacing an error; a successful model turn resets
+this recovery counter. Completed tools do not run again during retry. Inputs
+arriving during compaction are consumed at the next decision boundary.
 
 An immutable gob file under `state/outputs/context-*.gob` preserves the summary,
 remaining messages, resource references, tool pairs and opaque provider replay fields. Image
