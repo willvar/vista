@@ -21,10 +21,12 @@ export function useConversationScroll(options: {
   const atEnd = ref(true)
   const presented = ref(false)
   const jumpPhase = ref<'preparing' | 'scrolling' | null>(null)
+  const locating = ref<string>()
   type Anchor = { key: string; within: number }
-  const preparation = shallowRef<{ id: number; from: Anchor; target: Anchor; start: number; end: number; follow: boolean } | null>(null)
+  const preparation = shallowRef<{ id: number; from: Anchor; target: Anchor; start: number; end: number; follow: boolean; locate?: boolean } | null>(null)
   const loading = computed(() => !presented.value || !!preparation.value)
-  const locked = computed(() => !!preparation.value)
+  const locked = computed(() => !!preparation.value && !preparation.value.locate)
+  const overscan = 6
   let lastReady: Anchor | undefined
   let preparationId = 0
   let applying = false
@@ -51,7 +53,17 @@ export function useConversationScroll(options: {
   let viewportObserver: ResizeObserver | undefined
   let touchTarget: EventTarget | null = null
 
+  function cancelLocation() {
+    locating.value = undefined
+    if (!preparation.value?.locate) return
+    const from = !applying ? preparation.value.from : undefined
+    preparation.value = null
+    applying = false
+    cancelAnimationFrame(revealFrame)
+    if (from) virtualizer.value.scrollToOffset(offsetFor(from))
+  }
   function takeControl() {
+    cancelLocation()
     const offset = element.value?.scrollTop || 0, range = rangeAt(offset)
     if (presented.value && ready(range.start, range.end)) lastReady = anchorAt(offset)
     jumpPhase.value = null
@@ -98,7 +110,7 @@ export function useConversationScroll(options: {
     anchorTo: 'end' as const,
     followOnAppend: !paused.value && !extra && following.value,
     scrollEndThreshold: 3,
-    overscan: 6,
+    overscan,
     // Prepare the requested destination off screen while the current readable
     // viewport stays mounted. Both windows share this virtualizer's geometry.
     rangeExtractor: (range: Parameters<typeof defaultRangeExtractor>[0]) => extra
@@ -143,11 +155,13 @@ export function useConversationScroll(options: {
     return rows.value.slice(start, end + 1).every(item =>
       measurements.has(item.key) && !options.missing.value.has(item.key) && !reads.has(item.key))
   }
-  function prepareDestination(offset: number) {
+  function prepareDestination(offset: number, key?: string) {
     if (!lastReady || preparation.value || !presented.value) return
-    const target = anchorAt(offset)
+    // Keep an explicit source identity. A rounded pixel offset at a row's
+    // boundary can resolve to the preceding, still unmeasured row.
+    const target = key ? { key, within: 0 } : anchorAt(offset)
     if (!target) return
-    preparation.value = { id: ++preparationId, from: lastReady, target, ...rangeAt(offset), follow: following.value }
+    preparation.value = { id: ++preparationId, from: lastReady, target, ...rangeAt(offset), follow: following.value, locate: !!key }
     clearTimeout(idleTimer)
     input = false; smoothCommand = false; motion.value = false; touching.value = false
     releaseTouchTarget()
@@ -155,10 +169,42 @@ export function useConversationScroll(options: {
     virtualizer.value.cancelScroll()
     virtualizer.value.scrollToOffset(offsetFor(lastReady))
   }
+  function destinationReady(pending: NonNullable<typeof preparation.value>) {
+    return ready(Math.max(0, pending.start - (pending.locate ? overscan : 0)),
+      Math.min(rows.value.length - 1, pending.end + (pending.locate ? overscan : 0)))
+  }
+  function finishPreparation(pending: NonNullable<typeof preparation.value>) {
+    if (pending.locate) {
+      const viewport = element.value
+      const node = [...(viewport?.querySelectorAll<HTMLElement>('[data-timeline-key]') || [])].find(row => row.dataset.timelineKey === pending.target.key)
+      if (!viewport || !node || !destinationReady(pending) || Math.abs(viewport.scrollTop - offsetFor(pending.target)) > 3) return
+      const box = node.getBoundingClientRect(), bounds = viewport.getBoundingClientRect()
+      if (box.bottom <= bounds.top || box.top >= bounds.bottom) return
+      locating.value = undefined
+    }
+    preparation.value = null
+    applying = false
+    // The DOM scroll event can reach us before TanStack updates its cached
+    // offset. Use the same actual position as the jump-to-latest control.
+    updatePosition()
+    following.value = pending.follow || atEnd.value
+    lastReady = anchorAt(element.value?.scrollTop || 0)
+    if (jumpPhase.value === 'scrolling' && following.value) jumpPhase.value = null
+    maybeEarlier()
+  }
   function updatePreparation() {
-    if (!presented.value || applying) return
+    if (!presented.value) return
+    if (applying) {
+      if (preparation.value?.locate) finishPreparation(preparation.value)
+      return
+    }
     cancelAnimationFrame(revealFrame)
     const pending = preparation.value
+    if (!pending && locating.value) {
+      if (indices.value.has(locating.value)) prepareDestination(offsetFor({ key: locating.value, within: 0 }), locating.value)
+      else if (lastReady) virtualizer.value.scrollToOffset(offsetFor(lastReady))
+      return
+    }
     if (pending) {
       const offset = pending.follow ? Math.max(0, virtualizer.value.getTotalSize() - (element.value?.clientHeight || 0)) : offsetFor(pending.target)
       const range = rangeAt(offset)
@@ -166,20 +212,16 @@ export function useConversationScroll(options: {
         preparation.value = { ...pending, ...range }
         return
       }
-      if (!ready(range.start, range.end)) return
+      if (!destinationReady(pending)) return
       // Wait for measurements and TanStack's after-commit anchor correction.
       revealFrame = requestAnimationFrame(() => { revealFrame = requestAnimationFrame(async () => {
         if (preparation.value?.id !== pending.id) return
         applying = true
-        virtualizer.value.scrollToOffset(pending.follow ? Math.max(0, virtualizer.value.getTotalSize() - (element.value?.clientHeight || 0)) : offsetFor(pending.target))
+        if (pending.locate) virtualizer.value.scrollToIndex(indices.value.get(pending.target.key)!, { align: 'start' })
+        else virtualizer.value.scrollToOffset(pending.follow ? Math.max(0, virtualizer.value.getTotalSize() - (element.value?.clientHeight || 0)) : offsetFor(pending.target))
         await nextTick(); await frame(); await frame()
         if (preparation.value?.id !== pending.id) return
-        preparation.value = null
-        applying = false
-        following.value = pending.follow || virtualizer.value.getDistanceFromEnd() <= 3
-        lastReady = anchorAt(element.value?.scrollTop || 0)
-        if (jumpPhase.value === 'scrolling' && following.value) jumpPhase.value = null
-        maybeEarlier()
+        finishPreparation(pending)
       }) })
       return
     }
@@ -191,7 +233,7 @@ export function useConversationScroll(options: {
     lastReady = anchorAt(element.value?.scrollTop || 0)
     if (jumpPhase.value === 'scrolling' && virtualizer.value.getDistanceFromEnd() <= 3) jumpPhase.value = null
   }
-  watch([presented, paused, following, jumpPhase, preparation, options.missing,
+  watch([presented, paused, following, jumpPhase, preparation, locating, indices, options.missing,
     readRevision, measurementRevision,
     () => viewport.value.map(item => `${item.key}/${item.start}/${item.size}`).join('|')], updatePreparation, { flush: 'post' })
   // Focus navigation and text selection can scroll without taking input
@@ -221,6 +263,7 @@ export function useConversationScroll(options: {
     updatePosition()
     if (preparation.value) {
       if (!applying) virtualizer.value.scrollToOffset(offsetFor(preparation.value.from))
+      else if (preparation.value.locate) finishPreparation(preparation.value)
       return
     }
     const offset = element.value?.scrollTop || 0, range = rangeAt(offset)
@@ -271,25 +314,34 @@ export function useConversationScroll(options: {
     navigate(['ArrowUp', 'PageUp', 'Home'].includes(event.key) || event.key === ' ' && event.shiftKey ? -1 : 1)
   }
   function inspect() {
+    cancelLocation()
     jumpPhase.value = null
     following.value = false
     if (smoothCommand && element.value) virtualizer.value.scrollToOffset(element.value.scrollTop)
     smoothCommand = false
     virtualizer.value.cancelScroll()
   }
+  function locate(key: string) {
+    inspect()
+    preparation.value = null
+    applying = false
+    cancelAnimationFrame(revealFrame)
+    locating.value = key
+  }
   function onPointerDown(event: PointerEvent) {
     if (locked.value) { event.preventDefault(); return }
     scrollbar.pointerDown(event)
     if ((event.target as Element | null)?.closest('.run-trace')) inspect()
   }
-  function follow(behavior: ScrollBehavior | null = 'auto') {
+  function follow(behavior: ScrollBehavior | null = 'auto', preserveLocation = false) {
+    if (!preserveLocation) locating.value = undefined
     preparation.value = null
     applying = false
     cancelAnimationFrame(revealFrame)
     jumpPhase.value = null
     clearTimeout(idleTimer)
     input = false; motion.value = false
-    following.value = true
+    following.value = !locating.value
     smoothCommand = behavior === 'smooth'
     if (behavior) virtualizer.value.scrollToEnd({ behavior })
     else virtualizer.value.cancelScroll()
@@ -307,20 +359,22 @@ export function useConversationScroll(options: {
     const current = generation
     await nextTick()
     if (current !== generation) return
-    follow()
+    // A source can be clicked before the initial history has been presented.
+    follow('auto', true)
     await frame()
     if (current !== generation) return
     measureVisible()
     await nextTick()
     await frame()
     if (current !== generation) return
-    follow()
+    follow('auto', true)
     presented.value = true
     lastReady = anchorAt(element.value?.scrollTop || 0)
   }
   watch(options.prepared, () => { void present() }, { immediate: true, flush: 'post' })
   watch(options.session, () => {
     generation++
+    locating.value = undefined
     presented.value = false
     preparation.value = null
     applying = false
@@ -368,7 +422,7 @@ export function useConversationScroll(options: {
     })
     viewportObserver.observe(viewport)
   }, { flush: 'post' })
-  onScopeDispose(() => { generation++; preparation.value = null; applying = false; clearTimeout(idleTimer); cancelAnimationFrame(revealFrame); releaseTouchTarget(); window.removeEventListener('blur', onBlur); viewportObserver?.disconnect() })
-  return { virtualizer, visible, totalSize, placeholders, presented, loading, locked, following, showJumpToLatest, dragging,
-    measure, follow, beginJump, jump, inspect, onScroll, onWheel, onTouchStart, onTouchMove, onTouchEnd, onPointerDown, onKeyDown }
+  onScopeDispose(() => { generation++; locating.value = undefined; preparation.value = null; applying = false; clearTimeout(idleTimer); cancelAnimationFrame(revealFrame); releaseTouchTarget(); window.removeEventListener('blur', onBlur); viewportObserver?.disconnect() })
+  return { virtualizer, visible, viewport, totalSize, placeholders, presented, loading, locked, following, showJumpToLatest, dragging,
+    measure, follow, beginJump, jump, inspect, locate, locating, onScroll, onWheel, onTouchStart, onTouchMove, onTouchEnd, onPointerDown, onKeyDown }
 }

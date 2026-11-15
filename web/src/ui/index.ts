@@ -1,6 +1,7 @@
 export { default as Alert } from './Alert.vue'
 export { default as Button } from './Button.vue'
 export { default as Checkbox } from './Checkbox.vue'
+export { default as Collapsible } from './Collapsible.vue'
 export { default as Dropdown } from './Dropdown.vue'
 export { default as Empty } from './Empty.vue'
 export { default as Input } from './Input.vue'

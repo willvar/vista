@@ -263,6 +263,25 @@ test('execution compaction projects one ordinary assistant message without endin
   assert.equal(reduceConversationEvent(restored, notice).messages.length, 1)
 })
 
+test('summary references advance replay without becoming reply text and retain the full-output reference', () => {
+  let state = reduceConversationEvent(createConversationState(session), event(1, 'message', message('input', 1, 'run')))
+  const reference = event(2, 'model_delta', { runId: 'run', turn: 3, purpose: 'summary', offset: 0, contentBytes: 2048 })
+  state = reduceConversationEvent(state, reference)
+  assert.equal(state.lastEvent, 2)
+  assert.equal(state.messages.length, 1)
+  assert.deepEqual(state.modelDrafts, [])
+  assert.deepEqual(state.mainOutputs, [])
+  assert.equal(reduceConversationEvent(state, reference), state, 'Replay remains idempotent')
+  state = reduceConversationEvent(state, event(3, 'context_notice', { runId: 'run', summary: 'Summary preview', outputTurn: 3, outputBytes: 106496 }))
+  assert.equal(state.lastEvent, 3)
+  assert.equal(state.messages.at(-1)?.content, 'Summary preview')
+  assert.equal(state.messages.at(-1)?.outputTurn, 3)
+  assert.equal(state.messages.at(-1)?.outputBytes, 106496)
+  state = reduceConversationEvent(state, event(4, 'model_delta', { runId: 'run', turn: 4, content: 'Continued answer', offset: 0 }))
+  assert.equal(state.lastEvent, 4)
+  assert.equal(state.modelDrafts.at(-1)?.content, 'Continued answer')
+})
+
 test('each summary owns only its root compaction calls, independently of ordinary replies and other compactions', () => {
   let state = reduceConversationEvent(createConversationState(session), event(1, 'message', message('input', 1, 'run')))
   const result = (sequence: number, purpose = '', depth = 0) => event(sequence, 'model_result', {

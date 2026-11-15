@@ -15,7 +15,7 @@ const responsiveFiles = [
 const responsiveTitles: Record<string, string> = {
   'agent-settings': 'full-screen instructions|Appearance and Personalization remain usable',
   'compaction': 'short referenced summaries|an automatic summary appears|manual compaction preserves chat and draft|interrupted manual compaction',
-  'execution-flow': 'execution messages appear|interleaved main and child|long chronological execution|new execution steps|expanded execution history|continuous history prepares|historical full text|current action, timing|stopping a run|new runs clear|write_file diffs|truncated file and search|usage totals|multi-megabyte process logs|switching monitored processes|token usage uses',
+  'execution-flow': 'execution messages appear|interleaved main and child|long chronological execution|new execution steps|expanded execution history|continuous history prepares|historical full text|earlier history uses one loading indicator|current action, timing|stopping a run|new runs clear|write_file diffs|truncated file and search|usage totals|multi-megabyte process logs|switching monitored processes|token usage uses',
   'iteration': 'independent selection, voluntary feedback',
   'mcp-settings': 'MCP dialogs and long tools stay readable',
   'memory-settings': 'memory manager keeps long text|memories in Personalization support editing',
@@ -40,7 +40,7 @@ export const responsiveGrep = new RegExp([
 ].join('|'))
 
 const groups: Record<string, string[]> = {
-  conversation: ['background-process', 'compaction', 'composer-sizing', 'conversation-sync', 'detached', 'empty-reply', 'execution-flow', 'failure-analysis', 'follow-up', 'images', 'interjection', 'iteration', 'main-outputs', 'message-revert', 'model-diagnostics', 'model-retry', 'provider-output', 'question', 'quoted-reply', 'usage', 'worker-status'],
+  conversation: ['background-process', 'compaction', 'composer-sizing', 'conversation-sync', 'detached', 'empty-reply', 'execution-flow', 'failure-analysis', 'follow-up', 'images', 'interjection', 'iteration', 'layout', 'main-outputs', 'message-revert', 'model-diagnostics', 'model-retry', 'provider-output', 'question', 'quoted-reply', 'usage', 'worker-status'],
   sessions: ['management-pagination', 'session-actions', 'session-batch', 'session-bulk', 'session-close', 'session-flow', 'session-manager', 'session-reminders', 'session-scope', 'state-sync'],
   models: ['codex-login', 'model-catalog', 'model-names', 'model-visibility', 'onboarding', 'provider-errors', 'provider-import', 'provider-setup', 'selection-flow', 'selection-stats'],
   personalization: ['agent-settings', 'memory-settings', 'extension-import', 'settings-batch'],
@@ -52,6 +52,7 @@ const groups: Record<string, string[]> = {
   statistics: ['statistics'],
 }
 const consumers: [RegExp, string[]][] = [
+  [/^web\/src\/ui\/Collapsible\.vue$/, ['conversation', 'models', 'skills', 'mcp']],
   [/^internal\/(?:network|codexauth|copilotauth|useragent)\/|^internal\/server\/(?:network_config|provider_network)|^web\/src\/(?:Network|ProxySelection|client\/network|composables\/useNetwork)/, ['network', 'models', 'search', 'mcp', 'conversation']],
   [/^web\/src\/(?:pages\/ConversationPage|Conversation|Message|Run|Trace|TimelineItem|Context|PendingInputs|QuestionForm|BackgroundProcesses|WorkerStatus)|^web\/src\/(?:client\/queries|state\/(?:conversation|checklist|mainOutputs|runTrace|quotedReply|jobs|failureAnalysis)|composables\/use(?:Conversation|Presentation|FullOutput|RunHistory|ScrollbarDrag))|^internal\/(?:agent|worker|workerproto|provider|modeltrace|tool)\//, ['conversation']],
   [/^web\/src\/schema\/(?:question|QuestionChoiceControl)|^internal\/question\//, ['conversation']],

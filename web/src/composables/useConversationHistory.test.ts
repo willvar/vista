@@ -2,16 +2,45 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import { computed, effectScope, nextTick, ref, watch } from 'vue'
 import { useConversationHistory } from './useConversationHistory.ts'
-import { conversationItems, hydrateMainOutput, mergeMainOutputs, type ConversationItem } from '../state/mainOutputs.ts'
+import { conversationItems, displayBodyVersion, hydrateMainOutput, mergeMainOutputs, type ConversationItem } from '../state/mainOutputs.ts'
 
 const item = (sequence: number): ConversationItem => ({ id: String(sequence), displayKey: String(sequence), sequence, displaySequence: sequence, runId: String(sequence), role: 'assistant', content: 'text', createdAt: '' })
 const settle = async () => { await nextTick(); await new Promise(resolve => setImmediate(resolve)) }
 const deferred = () => { let resolve!: () => void; const promise = new Promise<void>(done => { resolve = done }); return { promise, resolve } }
+const body = (row: ConversationItem, text: string) => [row.displayKey, { version: displayBodyVersion(row), text }] as const
 function defaults(items = ref([item(1)])) {
   return { items, session: () => 'a', revision: ref(0), synchronized: () => true, paused: () => false,
-    indexes: async (_runs: string[]) => {}, output: async (_item: ConversationItem) => {}, text: (row: ConversationItem) => row.content,
+    indexes: async (_runs: string[]) => {}, output: async (row: ConversationItem) => new Map([body(row, row.content)]), text: (row: ConversationItem) => row.content,
     traceKeys: () => [] as string[], hasOlder: () => false, older: async () => {} }
 }
+
+test('short referenced summaries load missing UTF-8 bytes without rereading complete text', async () => {
+  const full = '<v>中&</v> '.repeat(600)
+  const bytes = Buffer.byteLength(full)
+  assert.ok(bytes < 8192)
+  const source = ref([
+    { ...item(1), contextSummary: true, outputTurn: 1, outputBytes: bytes, content: full.slice(0, 100) },
+    { ...item(2), contextSummary: true, outputTurn: 2, outputBytes: bytes, content: full },
+  ])
+  const reads: string[] = [], loaded = new Map<string, string>()
+  const scope = effectScope()
+  try {
+    const history = scope.run(() => useConversationHistory({ ...defaults(source),
+      output: async row => { reads.push(row.id); loaded.set(row.id, full); return new Map([body(row, full)]) },
+      text: row => loaded.get(row.id) ?? row.content,
+      release: row => { loaded.delete(row.id) },
+    }))!
+    await settle()
+    assert.equal(history.prepared.value, true)
+    assert.deepEqual(reads, ['1'])
+    assert.deepEqual(history.items.value.map(row => row.content), [full, full])
+    assert.equal(loaded.size, 0)
+    history.setVisible(['1', '2'])
+    await settle()
+    assert.deepEqual(reads, ['1'])
+    assert.equal(history.missing.value.size, 0)
+  } finally { scope.stop() }
+})
 
 test('all fragments of one reply prepare from one shared body before releasing it', async () => {
   const scope = effectScope()
@@ -29,6 +58,7 @@ test('all fragments of one reply prepare from one shared body before releasing i
       records.value = records.value.map(record => hydrateMainOutput(record, {
         content: full, offset: 0, nextOffset: full.length, availableBytes: full.length, lastSequence: 12,
       }))
+      return new Map(source.value.map(row => body(row, row.content)))
     },
     release: () => {
       releases++
@@ -44,12 +74,101 @@ test('all fragments of one reply prepare from one shared body before releasing i
   scope.stop()
 })
 
+test('retry restores every shared fragment and respects a paused history view', async () => {
+  const scope = effectScope(), paused = ref(false), gate = deferred()
+  const fragments = ['First recovered fragment. '.repeat(400), 'Second recovered fragment. '.repeat(400)]
+  const full = fragments.join(''), boundary = fragments[0]!.length
+  const records = ref(mergeMainOutputs([], [0, boundary].map((offset, index) => ({
+    runId: 'run', taskId: 'main', turn: 1, sequence: index + 2, lastSequence: index + 2,
+    createdAt: '', bytes: full.length, complete: true, offset, endOffset: index ? full.length : boundary,
+  }))))
+  const reply = { ...item(4), runId: 'run', outputTurn: 1, outputBytes: full.length, content: 'Preview.' }
+  const source = computed(() => conversationItems([reply], records.value))
+  let reads = 0, releases = 0
+  const history = scope.run(() => useConversationHistory({ ...defaults(), items: source, paused: () => paused.value,
+    output: async () => {
+      if (++reads === 1) return undefined
+      await gate.promise
+      records.value = records.value.map(record => hydrateMainOutput(record, {
+        content: full, offset: 0, nextOffset: full.length, availableBytes: full.length, lastSequence: 3,
+      }))
+      return new Map(source.value.map(row => body(row, row.content)))
+    },
+    release: () => {
+      releases++
+      records.value = records.value.map(record => ({ ...record, content: '', contentSequence: 0, deltas: [], loaded: false }))
+    },
+  }))!
+  try {
+    await settle()
+    assert.equal(reads, 1)
+    assert.equal(releases, 0)
+    assert.equal(history.missing.value.size, 0)
+    const previous = history.items.value
+    paused.value = true
+    const retry = history.retry(previous[1]!)
+    gate.resolve()
+    await retry
+    await settle()
+    assert.equal(history.items.value, previous, 'A retry does not replace rows during native scrolling')
+    paused.value = false
+    await settle()
+    assert.deepEqual(history.items.value.map(row => row.content), fragments)
+    assert.equal(reads, 2)
+    assert.equal(releases, 1)
+    assert.ok(records.value.every(record => !record.loaded && !record.content))
+  } finally { scope.stop() }
+})
+
+test('a late body retry cannot update a newly selected session', async () => {
+  const scope = effectScope(), session = ref('a'), gate = deferred()
+  const source = ref([{ ...item(1), content: 'Preview.', outputTurn: 1, outputBytes: 9000 }])
+  let reads = 0, releases = 0
+  const history = scope.run(() => useConversationHistory({ ...defaults(source), session: () => session.value,
+    output: async () => { if (++reads === 1) return undefined; await gate.promise; return new Map(source.value.map(row => body(row, 'Recovered previous-session body'))) },
+    text: row => row.outputTurn ? 'Recovered previous-session body' : row.content, release: () => { releases++ },
+  }))!
+  try {
+    await settle()
+    const retry = history.retry(history.items.value[0]!)
+    session.value = 'b'
+    source.value = [{ ...item(1), content: 'New session body', outputTurn: 0, outputBytes: 0 }]
+    await settle()
+    const previous = history.items.value
+    gate.resolve()
+    await retry
+    await settle()
+    assert.equal(history.items.value, previous)
+    assert.equal(history.items.value[0]!.content, 'New session body')
+    assert.equal(releases, 0)
+  } finally { scope.stop() }
+})
+
+test('authoritative recovery retries a failed body after clearing its view errors', async () => {
+  const scope = effectScope(), revision = ref(0)
+  const source = ref([{ ...item(1), content: 'Preview.', outputTurn: 1, outputBytes: 9000 }])
+  const full = 'x'.repeat(9000)
+  let reads = 0
+  const history = scope.run(() => useConversationHistory({ ...defaults(source), revision,
+    output: async row => ++reads > 1 ? new Map([body(row, full)]) : undefined, text: () => full,
+  }))!
+  try {
+    await settle()
+    assert.equal(history.items.value[0]!.content, 'Preview.')
+    assert.equal(reads, 1)
+    revision.value++
+    await settle()
+    assert.equal(reads, 2)
+    assert.equal(history.items.value[0]!.content, full)
+  } finally { scope.stop() }
+})
+
 test('history prepares indexes, full bodies and execution sources before exposing its first batch', async () => {
   const scope = effectScope(), index = deferred(), text = deferred()
   const source = ref(Array.from({ length: 80 }, (_, index) => ({ ...item(index + 1), outputTurn: index + 1, outputBytes: 9000 })))
   const reads: number[] = []
   const history = scope.run(() => useConversationHistory({ ...defaults(source),
-    indexes: () => index.promise, output: async row => { reads.push(row.sequence); await text.promise }, traceKeys: () => ['execution'],
+    indexes: () => index.promise, output: async row => { reads.push(row.sequence); await text.promise; return new Map([body(row, row.content)]) }, traceKeys: () => ['execution'],
   }))!
   await settle()
   assert.equal(history.prepared.value, false)
@@ -165,7 +284,7 @@ test('body eviction preserves all indexes and rehydrates only the newly visible 
   const source = ref(Array.from({ length: 80 }, (_, index) => ({ ...item(index + 1), outputTurn: index + 1, outputBytes: 300_000 })))
   const loaded = new Map<string, string>(), reads: string[] = []
   const history = scope.run(() => useConversationHistory({ ...defaults(source),
-    output: async row => { reads.push(row.id); loaded.set(row.id, row.id + 'x'.repeat(150_000)) },
+    output: async row => { reads.push(row.id); loaded.set(row.id, row.id + 'x'.repeat(150_000)); return new Map([body(row, loaded.get(row.id)!)]) },
     text: row => loaded.get(row.id) ?? row.content,
     release: row => { loaded.delete(row.id) },
   }))!
@@ -221,7 +340,7 @@ test('a final message reuses its already prepared complete streaming body', asyn
   const source = ref<ConversationItem[]>([{ ...item(2), id: 'output/run/main/1', displayKey: 'output/run/main/1', runId: 'run',
     outputTurn: 1, outputBytes: text.length, mainOutput: record, progress: true, content: text }])
   let reads = 0
-  const history = scope.run(() => useConversationHistory({ ...defaults(source), output: async () => { reads++ } }))!
+  const history = scope.run(() => useConversationHistory({ ...defaults(source), output: async row => { reads++; return new Map([body(row, row.content)]) } }))!
   await settle()
   source.value = [{ ...item(6), id: 'formal-reply', displayKey: 'output/run/main/1', displaySequence: 2, runId: 'run',
     outputTurn: 1, outputBytes: text.length, content: 'Short persisted preview.' }]
@@ -236,7 +355,7 @@ test('visible keys and equivalent source projections preserve prepared rows with
   const scope = effectScope(), source = ref(Array.from({ length: 1000 }, (_, index) => item(index + 1)))
   let texts = 0, reads = 0, publications = 0
   const history = scope.run(() => useConversationHistory({ ...defaults(source),
-    output: async () => { reads++ }, text: row => { texts++; return row.content },
+    output: async row => { reads++; return new Map([body(row, row.content)]) }, text: row => { texts++; return row.content },
   }))!
   await settle()
   while (history.hasEarlier.value) { await history.earlier(); await settle() }

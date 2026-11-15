@@ -258,7 +258,7 @@ function fullOutputText(label: string) {
   return text
 }
 
-type MockOptions = { messages?: Message[]; jobs?: Job[]; outputContents?: Record<string, string>; outputFailures?: Record<string, number>; outputDelayMs?: number; historyDelayMs?: number; indexDelayMs?: number }
+type MockOptions = { imageContents?: Record<string, Buffer>; messages?: Message[]; jobs?: Job[]; outputContents?: Record<string, string>; outputFailures?: Record<string, number>; outputDelayMs?: number; historyDelayMs?: number; indexDelayMs?: number }
 async function mockExecution(page: Page, origin: string, source = replayEvents(), options: MockOptions = {}) {
   const events = source
   replaySources.set(page, events)
@@ -284,6 +284,7 @@ async function mockExecution(page: Page, origin: string, source = replayEvents()
   const nodeReads: number[] = []
   const turnReads: string[] = []
   const overviewReads: string[] = []
+  const imageReads: string[] = []
   const unexpected: string[] = []
   let sseRequests = 0
   const deliveries = new Set<(checkpoint?: boolean) => void>()
@@ -367,6 +368,7 @@ async function mockExecution(page: Page, origin: string, source = replayEvents()
       unexpected.push(`${request.method()} ${path}`)
       return route.fulfill({ status: 500, body: 'Replay fixture forbids mutations and model requests' })
     }
+    if (options.imageContents?.[path]) { imageReads.push(path); return route.fulfill({ contentType: 'image/png', body: options.imageContents[path] }) }
     if (path === '/preferences') return reply({ userId: 'replay-user', lastMode: 'manual', lastTier: 'speed', manualModelKey: 'replay-model', reasoningByModelId: { 'gpt-6-astra': 'high' }, feedbackInvitationSeen: true })
     if (path === '/agent-settings') return reply({ instructions: '', instructionsPath: '/home/test/.config/vista/AGENTS.md', delegationDepth: 1, maxDelegationDepth: 8 })
     if (path === '/server-config') return reply({
@@ -376,7 +378,7 @@ async function mockExecution(page: Page, origin: string, source = replayEvents()
     if (path === '/model-catalog') return reply({ revision: 'a'.repeat(40), modelCount: 1, providerCount: 1 })
     if (path === '/user-agent') return reply({ preset: 'vista', custom: '', value: 'Vista/test', presets: [{ id: 'vista', name: 'Vista', value: 'Vista/test' }], maxLength: 512 })
     if (path === '/models') return reply({ default: 'replay-model', models: [{ key: 'replay-model', name: 'Replay', provider: 'openai-chat', id: 'gpt-6-astra', tools: true, reasoningOptions: ['high'] }] })
-    if (path === '/status') return reply({ state: 'running', sessions: { total: 1, open: 1, closed: 0, running: session.executing ? 1 : 0, workers: 1 }, workerMetrics: [{ sessionId: session.id, pid: 1, memory: { heapBytes: 1000000, rssBytes: 4000000, sampledAt: session.createdAt } }] })
+    if (path === '/status') return reply({ state: 'running', capacity: { config: { budgetMiB: 2048, workerMiB: 1024, concurrentRuns: 4 }, residentBytes: 4000000 }, sessions: { total: 1, open: 1, closed: 0, running: session.executing ? 1 : 0, workers: 1 }, workerMetrics: [{ sessionId: session.id, pid: 1, memory: { heapBytes: 1000000, rssBytes: 4000000, sampledAt: session.createdAt } }] })
     if (path === '/sessions') {
       if (!url.searchParams.has('page')) return reply([session])
       const items = url.searchParams.get('open') === 'false' ? [] : [session]
@@ -496,7 +498,7 @@ async function mockExecution(page: Page, origin: string, source = replayEvents()
   await page.goto(`${origin}/sessions/${session.id}`)
   await expect(page.locator('.sender-card textarea')).toBeVisible()
   await expect(page.locator('.conversation-sync-notice')).toHaveCount(0)
-  return { events, runId, session, messages, artifacts, jobs, outputContents, outputFailures, holdOutput, historyPages, outputReads, mainOutputReads, nodeReads, turnReads, overviewReads, unexpected, append, get sseRequests() { return sseRequests } }
+  return { events, runId, session, messages, artifacts, jobs, outputContents, outputFailures, holdOutput, historyPages, outputReads, mainOutputReads, nodeReads, turnReads, overviewReads, imageReads, unexpected, append, get sseRequests() { return sseRequests } }
 }
 
 function stepNode(title: Locator) { return title.locator('xpath=ancestor::div[contains(concat(" ",normalize-space(@class)," ")," ui-thought-chain-node ")][1]') }
@@ -541,7 +543,8 @@ test('patch diffs and path/content searches expand inline @responsive', async ({
   await expect(trace.locator('.file-diff').first()).toContainText('Added <safe>')
   await expect(trace.locator('.file-diff').last()).toContainText('File deleted')
   await expect(trace.locator('.trace-search-results')).toHaveCount(2)
-  await expect(trace.locator('.trace-search-context')).toHaveText('/project/new.txt:1Before')
+  await expect(trace.locator('.trace-search-path').last()).toHaveText('/project/new.txt')
+  await expect(trace.locator('.trace-search-context')).toHaveText('1Before')
   await assertNoHorizontalOverflow(page)
   expect(fixture.unexpected).toEqual([])
 })
@@ -624,8 +627,8 @@ async function observeScrollLoading(page: Page) {
         const touch = new TouchEvent('touchmove', { bubbles: true, cancelable: true })
         scroller.dispatchEvent(wheel); scroller.dispatchEvent(key); scroller.dispatchEvent(touch)
         samples.push({ contentVisible: getComputedStyle(scroller.querySelector('.message-space')!).visibility === 'visible',
-          text: first?.innerText.trim().slice(0, 100), first: first?.dataset.timelineKey, rowTop: first ? first.getBoundingClientRect().top - bounds.top : 0,
-          rows: [...scroller.querySelectorAll<HTMLElement>('[data-timeline-key]')].map(row => ({ key: row.dataset.timelineKey, top: row.getBoundingClientRect().top - bounds.top })),
+          text: first?.innerText.trim().slice(0, 100), first: first?.dataset.timelineKey, rowTop: first ? first.getBoundingClientRect().top : 0,
+          rows: [...scroller.querySelectorAll<HTMLElement>('[data-timeline-key]')].map(row => ({ key: row.dataset.timelineKey, top: row.getBoundingClientRect().top })),
           top: loader.getBoundingClientRect().top - bounds.top, height: loader.getBoundingClientRect().height,
           loaders: document.querySelectorAll('.history-loading').length, width: scroller.clientWidth,
           wheelBlocked: wheel.defaultPrevented, keyBlocked: key.defaultPrevented, touchBlocked: touch.defaultPrevented })
@@ -635,7 +638,7 @@ async function observeScrollLoading(page: Page) {
     }).observe(scroller, { attributes: true, attributeFilter: ['class'] })
     const bounds = scroller.getBoundingClientRect()
     const first = [...scroller.querySelectorAll<HTMLElement>('[data-timeline-key]')].find(row => row.getBoundingClientRect().bottom > bounds.top && row.getBoundingClientRect().top < bounds.bottom)
-    return { first: first?.dataset.timelineKey, rowTop: first ? first.getBoundingClientRect().top - bounds.top : 0 }
+    return { first: first?.dataset.timelineKey, rowTop: first ? first.getBoundingClientRect().top : 0 }
   })
 }
 async function assertTopScrollLoading(page: Page, origin?: { first?: string; rowTop: number }) {
@@ -644,6 +647,8 @@ async function assertTopScrollLoading(page: Page, origin?: { first?: string; row
   if (origin) {
     // A row's fractional bottom edge can cross the viewport by less than a
     // pixel. Compare the original readable row rather than the new edge row.
+    // Use screen coordinates: header references can move the history viewport
+    // without moving the readable content on screen.
     const retained = samples[0].rows.find((row: { key: string }) => row.key === origin.first)
     expect(retained, 'Loading retains the previously readable row').toBeTruthy()
     expect(Math.abs(retained.top - origin.rowTop), `Loading retains its screen position: ${JSON.stringify({ origin, retained })}`).toBeLessThanOrEqual(3)
@@ -1225,6 +1230,9 @@ test('receiving a new reply retains the continuous history and reading position'
   // A held gesture may show estimated placeholders. Capture actual readable
   // content after it settles; native-scrollbar coverage checks the held phase.
   await expect(scroller.locator('.timeline-placeholder')).toHaveCount(0)
+  // Cached rows can be readable while wheel ownership still pauses geometry.
+  // This case observes reading after the gesture; held gestures are covered above.
+  await page.waitForTimeout(220)
   const anchor = await scroller.evaluate(element => {
     const viewport = element.getBoundingClientRect()
     const row = [...element.querySelectorAll<HTMLElement>('.message-row')].find(row => row.getBoundingClientRect().bottom > viewport.top)!
@@ -1294,7 +1302,7 @@ test('rapid scrolling keeps readable content while a top loader locks and prepar
   expect(fixture.unexpected).toEqual([])
 })
 
-test('earlier history uses one loading indicator and a failed body read exposes Retry', async ({ page, mockOrigin }) => {
+test('earlier history uses one loading indicator and a failed body read exposes Retry @responsive', async ({ page, mockOrigin }) => {
   const runId = 'earlier-loading', createdAt = '2026-01-01T12:00:00Z'
   const full = fullOutputText('Earlier body')
   const messages: Message[] = Array.from({ length: 60 }, (_, index) => ({
@@ -1321,6 +1329,8 @@ test('earlier history uses one loading indicator and a failed body read exposes 
     await expect(row.locator('.message-output-error')).toBeVisible()
     await row.getByRole('button', { name: 'Retry', exact: true }).click()
     await expect(row.locator('.message-output-error')).toHaveCount(0)
+    await expect(row).toContainText('Earlier body ending — 完整输出 ✅.')
+    expect(fixture.outputReads.filter(read => read.startsWith(path))).toHaveLength(2)
     await expect(loader).toHaveCount(0)
     expect(fixture.unexpected).toEqual([])
   } finally { release() }
@@ -1328,16 +1338,70 @@ test('earlier history uses one loading indicator and a failed body read exposes 
 
 test('historical full text is prepared before display and virtual recycling does not refetch it @responsive', async ({ page, mockOrigin }) => {
   const events = hydrationEvents()
+  const ownRequest = 'Please compare these findings. ' + 'Retain this complete user detail. '.repeat(320) + 'User message ending.'
+  const sentText = 'Quote 1 · Quoted reply · #7 · 2026-01-01T11:59:00.000Z\n> Quoted context must not replace my question.\n\n' + ownRequest
+  events[0]!.data.content = sentText
+  events[0]!.data.imageCount = 1
+  const imagePath = '/sessions/execution-session/messages/hydration-user/images/0'
+  const imageContents = { [imagePath]: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/lN8AAAAASUVORK5CYII=', 'base64') }
   const runId = events[0].data.runId as string
   const full = fullOutputText('Prepared historical reply')
   const reply: Message = { id: 'prepared-reply', sequence: events.at(-1)!.sequence + 1, runId, role: 'assistant', content: 'Short preview.', outputTurn: 3, outputBytes: Buffer.byteLength(full), createdAt: '2026-01-01T12:04:00Z' }
   events.push({ sequence: reply.sequence, kind: 'run_finished', data: { runId, status: 'succeeded', message: reply } })
   const path = `/sessions/execution-session/runs/${runId}/model-output?turn=3`
-  const fixture = await mockExecution(page, mockOrigin, events, { messages: [events[0].data, reply], outputContents: { [path]: full }, outputDelayMs: 500, historyDelayMs: 250, indexDelayMs: 350 })
+  const fixture = await mockExecution(page, mockOrigin, events, { messages: [events[0].data, reply], imageContents, outputContents: { [path]: full }, outputDelayMs: 500, historyDelayMs: 250, indexDelayMs: 350 })
   await expect(page.locator('.history-loading')).toBeVisible()
   await expect(page.locator('.message-row').first()).not.toBeVisible()
   await expect(page.locator('.messages')).toHaveAttribute('aria-busy', 'false')
   await expect(page.getByText('Prepared historical reply ending — 完整输出 ✅.', { exact: true })).toBeVisible()
+  const recent = page.locator('.conversation-recent-message')
+  await expect(recent).toBeVisible()
+  await expect(recent.locator('.recent-sent-preview')).toContainText('Please compare these findings.')
+  await expect(recent.locator('.recent-sent-preview')).not.toContainText('Quoted context')
+  const referenceGeometry = await recent.evaluate(element => {
+    const box = element.getBoundingClientRect()
+    const heading = element.closest('.conversation-header')!.querySelector('.conversation-heading')!.getBoundingClientRect()
+    return { x: box.x, right: box.right, top: box.top, bottom: box.bottom, height: box.height, headingTop: heading.top, headingBottom: heading.bottom,
+      previewShown: getComputedStyle(element.querySelector('.recent-sent-preview')!).display !== 'none' }
+  })
+  expect(referenceGeometry.x).toBeGreaterThanOrEqual(0)
+  expect(referenceGeometry.right).toBeLessThanOrEqual(page.viewportSize()!.width + 1)
+  if (page.viewportSize()!.height <= 520) {
+    expect(referenceGeometry.previewShown).toBe(false)
+    expect(Math.abs(referenceGeometry.top - referenceGeometry.headingTop)).toBeLessThanOrEqual(16)
+  } else {
+    expect(referenceGeometry.previewShown).toBe(true)
+    expect(referenceGeometry.top).toBeGreaterThanOrEqual(referenceGeometry.headingBottom)
+    expect(referenceGeometry.height).toBeLessThanOrEqual(48)
+  }
+  const originalReads = { history: fixture.historyPages.length, outputs: fixture.outputReads.length, overview: fixture.overviewReads.length }
+  await expect.poll(() => distanceToLatest(page)).toBeLessThanOrEqual(3)
+  const originalPosition = await page.locator('.messages').evaluate(element => element.scrollTop)
+  await recent.getByRole('button', { name: 'View sent message', exact: true }).click()
+  const detail = page.locator('.recent-sent-detail')
+  await expect(detail).toContainText('User message ending.')
+  await expect(detail).toContainText('Quoted context must not replace my question.')
+  expect(await detail.locator('.markdown').evaluate(element => element.textContent!.length)).toBeGreaterThan(8192)
+  const detailBox = (await detail.boundingBox())!
+  expect(detailBox.x).toBeGreaterThanOrEqual(-1)
+  expect(detailBox.x + detailBox.width).toBeLessThanOrEqual(page.viewportSize()!.width + 1)
+  expect(detailBox.y + detailBox.height).toBeLessThanOrEqual(page.viewportSize()!.height + 1)
+  await detail.locator('.recent-sent-original').evaluate(element => { element.scrollTop = element.scrollHeight })
+  const image = detail.locator('.message-image-inline')
+  await expect(image).toHaveCount(1)
+  await expect.poll(() => image.evaluate(element => (element as HTMLImageElement).naturalWidth)).toBeGreaterThan(0)
+  expect(fixture.imageReads).toContain(imagePath)
+  await expect(page.locator('.medium-zoom-overlay')).toHaveCount(0)
+  expect(await page.locator('.messages').evaluate(element => element.scrollTop)).toBe(originalPosition)
+  expect({ history: fixture.historyPages.length, outputs: fixture.outputReads.length, overview: fixture.overviewReads.length }).toEqual(originalReads)
+  await page.keyboard.press('Escape')
+  await expect(detail).toHaveCount(0)
+  await recent.getByRole('button', { name: 'View sent message', exact: true }).click()
+  await detail.getByRole('button', { name: 'Go to sent message', exact: true }).click()
+  await expect(page.locator('.message-row.user')).toBeVisible()
+  await expect(recent).toHaveCount(0)
+  await page.getByRole('button', { name: 'Jump to latest', exact: true }).click()
+  await expect(recent).toBeVisible()
   const reads = { history: fixture.historyPages.length, outputs: fixture.outputReads.length, overview: fixture.overviewReads.length }
   const heights: number[] = []
   for (const fraction of [0, .25, .5, .75, 1, .5, 0, 1]) {
@@ -1348,9 +1412,17 @@ test('historical full text is prepared before display and virtual recycling does
     }, fraction))
     await page.waitForTimeout(60)
   }
+  await expect(recent).toBeVisible()
   expect(heights.every(height => height > 0)).toBe(true)
   expect(await page.locator('.timeline-row').count()).toBeLessThan(30)
   expect({ history: fixture.historyPages.length, outputs: fixture.outputReads.length, overview: fixture.overviewReads.length }).toEqual(reads)
+  fixture.messages[0]!.content = ''
+  await page.reload()
+  await expect(recent).toBeVisible()
+  await expect(recent.locator('.recent-sent-preview')).toHaveText('Attached image × 1')
+  await recent.getByRole('button', { name: 'View sent message', exact: true }).click()
+  await expect(detail.locator('.message-image-inline')).toHaveCount(1)
+  await expect(detail.locator('.markdown')).toHaveCount(0)
   expect(fixture.unexpected).toEqual([])
 })
 
@@ -1365,6 +1437,21 @@ test('current action, timing and header checklist survive live work and reload',
   await expect(checklist).toHaveCount(0)
   const assertDock = async () => {
     await expect(dock).toBeVisible()
+    await expect(dock.locator('.conversation-execution-current .conversation-execution-elapsed')).toHaveCount(0)
+    const metadata = dock.locator('.conversation-execution-metadata')
+    await expect(metadata.locator('.conversation-execution-elapsed')).not.toBeEmpty()
+    const timing = await metadata.evaluate(element => {
+      const elapsed = element.querySelector('.conversation-execution-elapsed')!
+      const activity = element.querySelector('.trace-last-activity')!
+      const left = elapsed.getBoundingClientRect(), right = activity.getBoundingClientRect()
+      return { ordered: !!(elapsed.compareDocumentPosition(activity) & Node.DOCUMENT_POSITION_FOLLOWING),
+        elapsedRight: left.right, activityLeft: right.left, topDifference: Math.abs(left.top - right.top) }
+    })
+    expect(timing.ordered).toBe(true)
+    if (page.viewportSize()!.width >= 800) {
+      expect(timing.elapsedRight).toBeLessThanOrEqual(timing.activityLeft + 1)
+      expect(timing.topDifference).toBeLessThanOrEqual(1)
+    }
     await expect(entry).toBeVisible()
     await expect(entry.locator('svg.tabler-icon-list-check')).toBeVisible()
     await entry.click()
@@ -1378,12 +1465,30 @@ test('current action, timing and header checklist survive live work and reload',
     await expect(checklist).toHaveCount(0)
     expect(fixture.session.executing, 'Dismissing the checklist must not stop the task').toBe(true)
     expect(await dock.evaluate(element => !!element.closest('.messages'))).toBe(false)
-    const geometry = await dock.evaluate(element => ({ bottom: element.getBoundingClientRect().bottom, height: innerHeight, sender: document.querySelector('.sender-card')!.getBoundingClientRect().top }))
-    expect(geometry.bottom).toBeLessThanOrEqual(geometry.sender)
+    const geometry = await dock.evaluate(element => {
+      const sender = document.querySelector('.sender-card')!
+      const card = sender.getBoundingClientRect(), status = element.getBoundingClientRect()
+      const input = sender.querySelector('.ui-sender-content')!.getBoundingClientRect()
+      const header = sender.querySelector('.sender-status')?.getBoundingClientRect()
+      return { inside: sender.contains(element), top: status.top, bottom: status.bottom, left: status.left, right: status.right,
+        cardTop: card.top, cardLeft: card.left, cardRight: card.right, inputTop: input.top, headerBottom: header?.bottom, height: innerHeight }
+    })
+    expect(geometry.inside, 'Execution status shares the composer card rather than floating outside it').toBe(true)
+    expect(geometry.top).toBeGreaterThanOrEqual(geometry.cardTop)
+    expect(geometry.left).toBeGreaterThan(geometry.cardLeft)
+    expect(geometry.right).toBeLessThan(geometry.cardRight)
+    expect(geometry.bottom).toBeLessThanOrEqual(geometry.inputTop)
+    expect(Math.abs(geometry.inputTop - geometry.headerBottom!)).toBeLessThanOrEqual(1)
     expect(geometry.bottom).toBeLessThan(geometry.height)
   }
   await assertDock()
+  const original = page.locator('.conversation-recent-message')
+  await original.getByRole('button', { name: 'View sent message', exact: true }).click()
   fixture.append('tool', { taskId: 'main', status: 'started', tool: { callId: 'long-action', name: 'shell', summary: 'Build project', input: { command: 'make build' } } })
+  await expect(page.locator('.recent-sent-detail')).toBeVisible()
+  await expect(page.locator('.recent-sent-detail')).toContainText('Inspect synthetic source with independent delegated agents.')
+  await page.keyboard.press('Escape')
+  expect(fixture.session.executing).toBe(true)
   await expect(dock).toContainText('make build')
   await expect(dock.locator('time')).toHaveAttribute('datetime', fixture.events.at(-1)!.createdAt!)
   await page.locator('.messages').evaluate(element => { element.scrollTop = 0; element.dispatchEvent(new Event('scroll')) })
@@ -1395,6 +1500,7 @@ test('current action, timing and header checklist survive live work and reload',
   fixture.session.executing = false
   fixture.append('run_finished', { status: 'succeeded' })
   await expect(dock).toHaveCount(0)
+  await expect(page.locator('.sender-status')).toHaveCount(0)
   await expect(entry).toHaveCount(0)
   await expect(page.locator('.conversation-column > .conversation-checklist')).toHaveCount(0)
   await expect(page.locator('.messages [data-checklist-summary]')).toHaveCount(1)
@@ -1573,12 +1679,12 @@ test('child messages retain their stable identities, full assignments and delega
     await expect(heading.locator('.trace-agent-delegator')).toHaveText(`Delegated by ${identity.parent}`)
     const assignment = heading.locator('.trace-agent-assignment')
     await expect(assignment).not.toHaveAttribute('open', '')
-    await expect(assignment.locator('summary')).toContainText('Inspect the shared source folder')
+    await expect(assignment.locator('.ui-collapsible-trigger')).toContainText('Inspect the shared source folder')
     await expect(assignment.locator('.trace-agent-purpose')).not.toBeVisible()
-    await assignment.locator('summary').click()
+    await assignment.locator('.ui-collapsible-trigger').click()
     await expect(assignment.locator('.trace-agent-purpose')).toBeVisible()
     await expect(assignment.locator('.trace-agent-purpose')).toContainText('完整委派说明结束。')
-    await assignment.locator('summary').click()
+    await assignment.locator('.ui-collapsible-trigger').click()
     await readFull(row.locator('.ui-thought-chain-node-header'))
     await expect(row).toContainText(`Independent result from ${identity.id}.`)
   }
@@ -1671,8 +1777,11 @@ for (const theme of ['light', 'dark']) test(`write_file diffs load on expansion,
   expect(fixture.unexpected).toEqual([])
 })
 
-test('execution tool results render once, keep useful summaries, and move metadata to one debug dialog', async ({ page, mockOrigin }, testInfo) => {
-  await page.addInitScript(() => localStorage.setItem('vista-debug-mode', 'true'))
+test('execution tool results render once, keep useful summaries, and move metadata to one debug dialog @responsive', async ({ page, mockOrigin }, testInfo) => {
+  await page.addInitScript(() => {
+    localStorage.setItem('vista-debug-mode', 'true')
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: async (text: string) => { Object.assign(window, { resultCardCopy: text }) } } })
+  })
   const source = cleanToolOutputEvents()
   const runId = source.events[0].data.runId as string
   const fullPath = '/sessions/execution-session/artifacts/artifact-full/output'
@@ -1700,6 +1809,29 @@ test('execution tool results render once, keep useful summaries, and move metada
   await expect(fullNode.locator('pre.trace-output')).toHaveCount(1)
   await expect(fullNode.locator('pre.trace-output')).toHaveText(source.full)
   expect(fixture.outputReads.filter(path => path.includes('artifact-full'))).toEqual([fullPath + '?full=1'])
+  const card = fullNode.locator('.trace-result-card')
+  const viewport = card.locator('.trace-result-viewport')
+  await expect(card).toHaveAttribute('data-result-kind', 'text')
+  const size = await viewport.evaluate(element => ({ height: element.clientHeight, full: element.scrollHeight, limit: Math.min(384, innerHeight * .4) }))
+  expect(size.height).toBeLessThanOrEqual(size.limit + 1)
+  expect(size.full).toBeGreaterThan(size.height)
+  await viewport.evaluate(element => { element.scrollTop = element.scrollHeight })
+  const savedScroll = await viewport.evaluate(element => element.scrollTop)
+  await card.getByRole('button', { name: 'Copy result', exact: true }).click()
+  await expect.poll(() => page.evaluate(() => (window as any).resultCardCopy)).toBe(source.full)
+  await card.getByRole('button', { name: 'Enlarge result', exact: true }).click()
+  const resultDialog = page.getByRole('dialog', { name: 'Output', exact: true })
+  await expect(resultDialog).toBeVisible()
+  await expect(resultDialog.locator('pre.trace-output')).toHaveText(source.full)
+  await expect(fullNode.locator('pre.trace-output')).toHaveCount(0)
+  await resultDialog.getByRole('button', { name: 'Copy result', exact: true }).click()
+  await expect.poll(() => page.evaluate(() => (window as any).resultCardCopy)).toBe(source.full)
+  await page.keyboard.press('Escape')
+  await expect(resultDialog).not.toBeVisible()
+  await expect(card.getByRole('button', { name: 'Enlarge result', exact: true })).toBeFocused()
+  await expect.poll(() => viewport.evaluate(element => element.scrollTop)).toBe(savedScroll)
+  expect(fixture.outputReads.filter(path => path.includes('artifact-full'))).toEqual([fullPath + '?full=1'])
+  await expect(trace).toHaveAttribute('data-run-status', 'active')
 
   const failedTitle = nodeTitle(trace, runId, 'tool/main/shell-error')
   await readFull(failedTitle)
@@ -1709,7 +1841,8 @@ test('execution tool results render once, keep useful summaries, and move metada
   await expect(failedNode.locator('pre.trace-output')).toHaveText('/synthetic\n')
   await readFull(nodeTitle(trace, runId, 'tool/main/source-search'))
   await expect(trace.locator('.trace-search-results li')).toHaveCount(1)
-  await expect(trace.locator('.trace-search-results')).toContainText('src/example.ts:2')
+  await expect(trace.locator('.trace-search-path')).toHaveText('src/example.ts')
+  await expect(trace.locator('.trace-search-line')).toHaveText('2')
   await expect(trace.locator('.trace-search-results')).toContainText('Search output preserved.')
   await expect(trace).not.toContainText('Structured search preview replaced by its full result.')
   await readFull(nodeTitle(trace, runId, 'tool/main/source-read'))
@@ -1732,6 +1865,10 @@ test('execution tool results render once, keep useful summaries, and move metada
     expect(output.scrollHeight).toBeLessThanOrEqual(output.height + 2)
     expect(output.overflowY).not.toBe('scroll')
   }
+  // Earlier rows may be recycled after expanding and inspecting the results.
+  await scrollConversationTo(page, 0)
+  await scrollToConversationEntry(page, `.run-trace[data-run-id="${runId}"] .trace-debug-trigger`, source.events.find(event => event.kind === 'model_request')!.sequence)
+  await expect(diagnosticsButton).toBeInViewport()
   await diagnosticsButton.click()
   const debug = page.getByRole('dialog', { name: 'Debug details' })
   await expect(debug).toBeVisible()
@@ -1739,6 +1876,7 @@ test('execution tool results render once, keep useful summaries, and move metada
   await expect(debug).toContainText('cat src/example.ts')
   await page.keyboard.press('Escape')
   await expect(debug).not.toBeVisible()
+  await scrollToTraceStep(page, trace, runId, 'tool/main/shell-full')
   await expect(fullNode.locator('pre.trace-output'), 'Opening and closing debug details preserves the expanded execution output').toHaveText(source.full)
   await readFull(fullTitle)
   await fullTitle.scrollIntoViewIfNeeded()
@@ -1836,7 +1974,8 @@ test('grouped search results keep full paths and permission warnings after refre
     await readFull(title)
     const node = title.locator('xpath=ancestor::div[contains(concat(" ",normalize-space(@class)," ")," ui-thought-chain-node ")][1]')
     await expect(node.locator('.trace-search-results li')).toHaveCount(2)
-    await expect(node.locator('.trace-search-results')).toContainText('/project/src/title.test.ts:24')
+    await expect(node.locator('.trace-search-path').last()).toHaveText('/project/src/title.test.ts')
+    await expect(node.locator('.trace-search-line').last()).toHaveText('24')
     await expect(node).toContainText('/project/locked: permission denied')
     await expect(node).toContainText('The tool returned a partial list of matches.')
     await expect(node.locator('.trace-result-summary').first()).toHaveText('2 matches · 7 files scanned')
@@ -1863,7 +2002,8 @@ test('truncated file and search steps hydrate on expansion, and jump to latest r
   await readFull(searchTitle)
   const searchNode = searchTitle.locator('xpath=ancestor::div[contains(concat(" ",normalize-space(@class)," ")," ui-thought-chain-node ")][1]')
   await expect(searchNode.locator('.trace-search-results li')).toHaveCount(2)
-  await expect(searchNode.locator('.trace-search-results')).toContainText('src/title.test.ts:24')
+  await expect(searchNode.locator('.trace-search-path').last()).toHaveText('src/title.test.ts')
+  await expect(searchNode.locator('.trace-search-line').last()).toHaveText('24')
   await expect(searchNode.locator('.trace-result-summary')).toHaveText('2 matches · 7 files scanned')
   await expect.poll(() => fixture.nodeReads).toEqual([readEvent.sequence, searchEvent.sequence])
   await expect(searchNode.locator('details.trace-details')).toHaveCount(0)

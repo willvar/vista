@@ -21,7 +21,9 @@ async function copy() {
       const input = document.createElement('textarea')
       input.value = text
       input.style.cssText = 'position:fixed;inset:0 auto auto -9999px;opacity:0'
-      document.body.append(input)
+      // Dialog focus traps must also contain the temporary copy selection.
+      const root = previous?.closest('dialog,[role="dialog"],[role="alertdialog"]') || document.body
+      root.append(input)
       input.select()
       try { if (!document.execCommand('copy')) throw new Error(props.label || t('copyReply')) }
       finally { input.remove(); previous?.focus({ preventScroll: true }) }

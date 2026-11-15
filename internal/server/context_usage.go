@@ -3,9 +3,9 @@ package server
 import (
 	"errors"
 	"net/http"
+	"vista/internal/store"
 
 	"vista/internal/agent"
-	"vista/internal/store"
 	"vista/internal/workerproto"
 )
 

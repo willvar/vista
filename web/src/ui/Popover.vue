@@ -34,7 +34,8 @@ function requestDismiss(event: CustomEvent<{ targetLayer?: HTMLElement }>) {
   // A closing sibling must not dismiss this one as if it were a child.
   if (parent?.dataset.scope === 'popover' && !parent.contains(triggerElement.value?.$el || null)) event.preventDefault()
 }
-watch(visible, open => { if (!open) { clearTimeout(timer); pinned.value = false } })
+// A controlled open (for example keyboard focus) supersedes pending hover work.
+watch(visible, open => { clearTimeout(timer); if (!open) pinned.value = false })
 onBeforeUnmount(() => clearTimeout(timer))
 </script>
 

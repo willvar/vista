@@ -156,6 +156,10 @@ func TestCompactedHistoricalImageCanBeListedAndRereadWithoutAddingChatMessages(t
 	if err != nil || !strings.Contains(listed, refs[0].Hash) || !strings.Contains(listed, "original.png") {
 		t.Fatalf("compacted resource could not be discovered: %s %v", listed, err)
 	}
+	var listing struct{ Resources []resourceLink }
+	if err := json.Unmarshal([]byte(listed), &listing); err != nil || len(listing.Resources) != 1 || listing.Resources[0].URL != "/api/sessions/session/resources/"+refs[0].Hash {
+		t.Fatalf("listed image has no browser URL: %s %v", listed, err)
+	}
 	before, _ := db.MessagesBefore(ctx, "session", 0, 20)
 	answer, err := Run(ctx, command, func(workerproto.Result) error { return nil })
 	if err != nil || answer != "Inspected original." || requests != 2 {
@@ -209,6 +213,10 @@ func TestReadResourceImportsLocalOriginalWithSessionOwnership(t *testing.T) {
 		t.Fatalf("path image: %v", err)
 	}
 	ref := r.resourceResults[0]
+	var result struct{ Resource resourceLink }
+	if err := json.Unmarshal([]byte(output), &result); err != nil || result.Resource.URL != "/api/sessions/session/resources/"+ref.Hash || result.Resource.Ref != ref {
+		t.Fatalf("imported image has no original browser reference: %s %v", output, err)
+	}
 	if _, err = db.SessionResource(ctx, "session", ref.Hash); err != nil {
 		t.Fatal("ownership not committed", err)
 	}

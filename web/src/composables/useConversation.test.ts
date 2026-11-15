@@ -3,7 +3,9 @@ import test, { type TestContext } from 'node:test'
 import { effectScope, nextTick, ref } from 'vue'
 import { useConversation, welcomeDraftStorageKey, type ConversationOptions } from './useConversation.ts'
 import { useInteractionPreferences } from './useInteractionPreferences.ts'
-import { quoteStoragePrefix } from '../state/quotedReply.ts'
+import { useConversationHistory } from './useConversationHistory.ts'
+import { displayBodyVersion } from '../state/mainOutputs.ts'
+import { quoteStoragePrefix, sentMessageBody } from '../state/quotedReply.ts'
 import type { VistaClient } from '../client/vista'
 import type { EventStreamOptions } from '../client/sse'
 import type { Artifact, Job, CompactionStatus, Message, ModelCatalog, OutputView, PendingReply, Session, StreamEvent } from '../client/types'
@@ -126,7 +128,7 @@ function fixture(t: TestContext, response?: (path: string, options?: RequestInit
   }
   const scope = effectScope()
   const preferences = scope.run(() => useInteractionPreferences())!
-  const conversation = scope.run(() => useConversation({ client, sessions, modelCatalog, error, busy, refresh: async () => { refreshes++ }, translate: key => key, interactionPreferences: preferences, onSessionStarted }))!
+  const conversation = scope.run(() => useConversation({ client, sessions, modelCatalog, error, busy, refresh: async () => { refreshes++ }, translate: (key, values) => key === 'quoteNumber' ? `Quote ${values?.number}` : key, interactionPreferences: preferences, onSessionStarted }))!
   t.after(() => scope.stop())
   return { conversation, sessions, modelCatalog, error, busy, saved, streams, preferences, client, refreshes: () => refreshes }
 }
@@ -166,6 +168,101 @@ test('a verified snapshot stays available through stream failure and resets befo
   f.conversation.clearSession()
   assert.equal(f.conversation.snapshotReady.value, false)
 })
+
+test('opening a conversation restores the saved manual model from its authoritative snapshot', async t => {
+  const persisted: Session = { ...session('a'), selectionMode: 'manual', selectionTier: 'quality', manualModelKey: 'other' }
+  const f = fixture(t, path => path === '/sessions/a/snapshot' ? Promise.resolve({ session: persisted,
+    throughSequence: 0, messages: [], events: [], hasOlder: false, hasOlderEvents: false }) : undefined)
+  f.modelCatalog.value.models.push({ key: 'other', id: 'other-model', provider: 'openai-chat', recognized: true })
+  await f.conversation.selectSession({ ...session('a'), selectionMode: 'auto', selectionTier: 'speed' })
+  assert.equal(f.conversation.selectionMode.value, 'manual')
+  assert.equal(f.conversation.selectionTier.value, 'quality')
+  assert.equal(f.conversation.selectedModel.value, 'other')
+  assert.equal(f.conversation.selected.value?.manualModelKey, 'other')
+})
+
+for (const edit of ['mode and tier', 'manual model'] as const) {
+  test(`a delayed opening snapshot preserves the newer local ${edit}`, async t => {
+    const pending = deferred<unknown>()
+    const f = fixture(t, path => path === '/sessions/a/snapshot' ? pending.promise : undefined)
+    f.modelCatalog.value.models.push({ key: 'other', id: 'other-model', provider: 'openai-chat', recognized: true })
+    const initial: Session = { ...session('a'), selectionMode: 'manual', selectionTier: 'speed', manualModelKey: 'example' }
+    const opening = f.conversation.selectSession(initial)
+    if (edit === 'mode and tier') {
+      f.conversation.chooseSelectionMode('auto')
+      f.conversation.chooseSelectionTier('quality')
+    } else f.conversation.chooseModel('other')
+    pending.resolve({ session: initial, throughSequence: 0, messages: [], events: [], hasOlder: false, hasOlderEvents: false })
+    await opening
+    assert.equal(f.conversation.selectionMode.value, edit === 'mode and tier' ? 'auto' : 'manual')
+    assert.equal(f.conversation.selectionTier.value, edit === 'mode and tier' ? 'quality' : 'speed')
+    assert.equal(f.conversation.selectedModel.value, edit === 'manual model' ? 'other' : 'example')
+  })
+}
+
+test('sending while the opening snapshot is pending preserves the submitted selection', async t => {
+  const pending = deferred<unknown>()
+  let submitted: Record<string, unknown> = {}
+  const f = fixture(t, (path, options) => {
+    if (path === '/sessions/a/snapshot') return pending.promise
+    if (path === '/sessions/a/messages' && options?.method === 'POST') {
+      submitted = JSON.parse(String(options.body))
+      return Promise.resolve({ runId: 'new', message: message('new-user', 1, 'new') })
+    }
+  })
+  const opening = f.conversation.selectSession({ ...session('a'), selectionMode: 'auto', selectionTier: 'quality' })
+  f.conversation.draft.value = 'Use the displayed choice'
+  await f.conversation.send()
+  pending.resolve({ session: { ...session('a'), selectionMode: 'manual', selectionTier: 'speed' },
+    throughSequence: 0, messages: [], events: [], hasOlder: false, hasOlderEvents: false })
+  await opening
+  assert.equal(submitted.selectionMode, 'auto')
+  assert.equal(submitted.selectionTier, 'quality')
+  assert.equal(f.conversation.selectionMode.value, 'auto')
+  assert.equal(f.conversation.selectionTier.value, 'quality')
+})
+
+for (const choice of ['auto', 'manual'] as const) for (const timing of ['before response', 'after response', 'failed response'] as const) {
+  test(`structured answers retain the submitted ${choice} selection when the opening snapshot arrives ${timing}`, async t => {
+    const snapshot = deferred<unknown>(), response = deferred<unknown>()
+    const posted: Record<string, unknown>[] = []
+    const accepted = { runId: 'continued', message: message('answer', 1, 'continued') }
+    const f = fixture(t, (path, options) => {
+      if (path === '/sessions/a/snapshot') return snapshot.promise
+      if (path === '/sessions/a/messages' && options?.method === 'POST') {
+        posted.push(JSON.parse(String(options.body)))
+        return posted.length === 1 ? response.promise : Promise.resolve(accepted)
+      }
+    })
+    f.modelCatalog.value.models.push({ key: 'other', provider: 'openai-chat', id: 'other-model', recognized: true, reasoningOptions: ['low', 'high'] })
+    const opening = f.conversation.selectSession({ ...session('a'), selectionMode: choice, selectionTier: 'quality',
+      manualModelKey: 'other', pendingReply: questionPending() })
+    const before = { model: f.conversation.selectedModel.value, reasoning: f.conversation.selectedReasoning.value }
+    const answers = [{ options: ['B'] }]
+    const submission = f.conversation.submitQuestion('question-run', answers)
+    const resolveSnapshot = async () => {
+      snapshot.resolve({ session: { ...session('a'), selectionMode: 'manual', selectionTier: 'speed', manualModelKey: 'example', pendingReply: questionPending() },
+        throughSequence: 0, messages: [], events: [], hasOlder: false, hasOlderEvents: false })
+      await opening
+    }
+    if (timing === 'before response') await resolveSnapshot()
+    if (timing === 'failed response') response.reject(new Error('temporarily unavailable'))
+    else response.resolve(accepted)
+    assert.equal(await submission, timing !== 'failed response')
+    if (timing !== 'before response') await resolveSnapshot()
+    assert.equal(posted[0]!.selectionMode, choice)
+    assert.equal(posted[0]!.selectionTier, 'quality')
+    assert.equal(f.conversation.selectionMode.value, choice)
+    assert.equal(f.conversation.selectionTier.value, 'quality')
+    assert.equal(f.conversation.selectedModel.value, before.model)
+    assert.equal(f.conversation.selectedReasoning.value, before.reasoning)
+    if (choice === 'manual') assert.equal(posted[0]!.modelKey, 'other')
+    if (timing === 'failed response') {
+      assert.equal(await f.conversation.submitQuestion('question-run', answers), true)
+      assert.deepEqual(posted[1], posted[0])
+    }
+  })
+}
 
 test('successful sends apply acknowledgements without workspace reloads or skipping stream records', async t => {
   const sent = message('new-user', 2, 'new-run')
@@ -217,37 +314,58 @@ test('quoted selections preserve the draft and become ordinary persisted user co
   conversation.draft.value = 'Explain this part.'
   conversation.quoteSelection({ text: 'First line\n第二行 café 🙂', role: 'assistant' })
   assert.equal(conversation.draft.value, 'Explain this part.')
-  assert.deepEqual(JSON.parse(saved.get(quoteStoragePrefix + 'a')!), conversation.quotedText.value)
+  assert.deepEqual(JSON.parse(saved.get(quoteStoragePrefix + 'a')!).items, conversation.quotedTexts.value)
   await conversation.send()
-  assert.deepEqual(sent, [{ content: '> First line\n> 第二行 café 🙂\n\nExplain this part.',
+  assert.deepEqual(sent, [{ content: '> Quote 1 · quotedReply\n> First line\n> 第二行 café 🙂\n\nExplain this part.',
     modelKey: 'example', reasoningEffort: 'low', selectionMode: 'manual', selectionTier: 'speed', images: [] }])
   assert.equal(conversation.messages.value.at(-1)?.content, sent[0]!.content)
-  assert.equal(conversation.quotedText.value, null)
+  assert.equal(conversation.quotedTexts.value.length, 0)
   assert.equal(conversation.draft.value, '')
+  assert.equal(saved.has(quoteStoragePrefix + 'a'), false)
+})
+
+test('sending a restored legacy quote preserves its full text and exposes the question in previews', async t => {
+  const posted: { content: string }[] = []
+  const { conversation, saved } = fixture(t, (path, options) => {
+    if (path !== '/sessions/a/messages' || options?.method !== 'POST') return
+    const input = JSON.parse(String(options.body))
+    posted.push(input)
+    return Promise.resolve({ message: { ...message('legacy-quoted-question', 2, 'quote-run'), content: input.content } })
+  })
+  saved.set(quoteStoragePrefix + 'a', JSON.stringify({ text: 'Old context\r\n\r\n第二段', role: 'assistant' }))
+  await conversation.selectSession(session('a'))
+  conversation.draft.value = 'Explain the new question.'
+  await conversation.send()
+  assert.equal(posted.length, 1)
+  assert.equal(posted[0]!.content, '> Quote 1 · quotedReply\n> Old context\n> \n> 第二段\n\nExplain the new question.')
+  assert.equal(conversation.messages.value.at(-1)?.content, posted[0]!.content)
+  assert.equal(sentMessageBody(posted[0]!.content), 'Explain the new question.')
   assert.equal(saved.has(quoteStoragePrefix + 'a'), false)
 })
 
 test('quotes survive session changes and failed sends, and removing a quote preserves the question', async t => {
   const { conversation, saved, error } = fixture(t, (path, options) =>
     options?.method === 'POST' && path.endsWith('/messages') ? Promise.reject(new Error('Send failed')) : undefined)
+  saved.set(quoteStoragePrefix + 'a', JSON.stringify({ text: 'Quote A', role: 'assistant' }))
   await conversation.selectSession(session('a'))
-  conversation.quoteSelection({ text: 'Quote A', role: 'assistant' })
   conversation.draft.value = 'Question A'
   await conversation.selectSession(session('b'))
-  assert.equal(JSON.stringify(conversation.quotedText.value), 'null')
+  assert.equal(conversation.quotedTexts.value.length, 0)
   conversation.quoteSelection({ text: 'Quote B', role: 'user' })
   await conversation.selectSession(session('a'))
-  assert.deepEqual(conversation.quotedText.value, { text: 'Quote A', role: 'assistant' })
+  assert.deepEqual([...conversation.quotedTexts.value], [{ id: 1, text: 'Quote A', role: 'assistant' }])
   await conversation.send()
   assert.match(error.value, /Send failed/)
-  assert.equal(conversation.quotedText.value?.text, 'Quote A')
+  assert.equal(conversation.quotedTexts.value[0]?.text, 'Quote A')
   assert.equal(conversation.draft.value, 'Question A')
-  conversation.quoteSelection({ text: 'Replacement', role: 'user' })
-  assert.equal(conversation.quotedText.value?.text, 'Replacement')
-  conversation.removeQuote()
+  conversation.quoteSelection({ text: 'Another quote', role: 'user' })
+  assert.deepEqual(conversation.quotedTexts.value.map(quote => quote.text), ['Quote A', 'Another quote'])
+  conversation.removeQuote(1)
+  assert.deepEqual(conversation.quotedTexts.value.map(quote => quote.id), [2])
+  conversation.removeQuote(2)
   assert.equal(conversation.draft.value, 'Question A')
-  assert.equal(saved.has(quoteStoragePrefix + 'a'), false)
-  assert.equal(JSON.parse(saved.get(quoteStoragePrefix + 'b')!).text, 'Quote B')
+  assert.deepEqual(JSON.parse(saved.get(quoteStoragePrefix + 'a')!), { items: [], nextId: 3 })
+  assert.equal(JSON.parse(saved.get(quoteStoragePrefix + 'b')!).items[0].text, 'Quote B')
 })
 
 for (const failed of [false, true]) {
@@ -266,8 +384,8 @@ for (const failed of [false, true]) {
     else pending.resolve({ message: message('old-a', 2, 'quote-a') })
     await sent
     assert.equal(conversation.selected.value?.id, 'b')
-    assert.equal(conversation.quotedText.value?.text, 'Quote B')
-    assert.equal(JSON.parse(saved.get(quoteStoragePrefix + 'b')!).text, 'Quote B')
+    assert.equal(conversation.quotedTexts.value[0]?.text, 'Quote B')
+    assert.equal(JSON.parse(saved.get(quoteStoragePrefix + 'b')!).items[0].text, 'Quote B')
   })
 }
 
@@ -1067,7 +1185,7 @@ test('failure analysis sends once into a new conversation with the current selec
   assert.equal(f.conversation.selected.value?.id, 'analysis')
   assert.equal(f.saved.get('vista-session-draft:a'), 'Keep my source draft')
   assert.equal(f.saved.get(welcomeDraftStorageKey), 'Unsent home draft')
-  assert.equal(JSON.parse(f.saved.get(quoteStoragePrefix + 'a')!).text, 'Original quote')
+  assert.equal(JSON.parse(f.saved.get(quoteStoragePrefix + 'a')!).items[0].text, 'Original quote')
   assert.equal(f.refreshes(), 0)
   assert.equal(f.busy.value, false)
   assert.equal(f.conversation.analyzingFailure.value, '')
@@ -1075,7 +1193,7 @@ test('failure analysis sends once into a new conversation with the current selec
   await f.conversation.selectSession(session('a'))
   assert.equal(f.conversation.draft.value, 'Keep my source draft')
   assert.equal(f.conversation.attachedImages.value[0], attachment)
-  assert.equal(f.conversation.quotedText.value?.text, 'Original quote')
+  assert.equal(f.conversation.quotedTexts.value[0]?.text, 'Original quote')
 })
 
 test('failure analysis preserves automatic model selection without forcing a manual model', async t => {
@@ -1098,6 +1216,53 @@ test('failure analysis preserves automatic model selection without forcing a man
   assert.equal(submitted.reasoningEffort, undefined)
   assert.equal(f.conversation.selectionMode.value, 'auto')
   assert.equal(f.conversation.selectionTier.value, 'quality')
+})
+
+test('failure analysis restores persisted selection when routing uses the earlier creation summary', async t => {
+  const created: Session = { ...session('analysis'), selectionMode: 'manual', selectionTier: 'speed' }
+  const persisted: Session = { ...created, selectionMode: 'auto', selectionTier: 'quality' }
+  let submitted: Record<string, unknown> = {}
+  const f = fixture(t, (path, options) => {
+    if (path === '/sessions/analysis/snapshot') return Promise.resolve({ session: persisted,
+      throughSequence: 0, messages: [], events: [], hasOlder: false, hasOlderEvents: false })
+    if (options?.method !== 'POST') return
+    if (path === '/sessions') return Promise.resolve(created)
+    if (path === '/sessions/analysis/messages') {
+      submitted = JSON.parse(String(options.body))
+      // A shared-state response from creation arrives before navigation,
+      // while the first message has already persisted auto/quality.
+      f.sessions.value = [...f.sessions.value.filter(item => item.id !== created.id), created]
+      return Promise.resolve({})
+    }
+  }, async item => { await f.conversation.selectSession(f.sessions.value.find(entry => entry.id === item.id)!) })
+  await f.conversation.selectSession({ ...session('a'), selectionMode: 'auto', selectionTier: 'quality' })
+  await f.conversation.analyzeFailure({ kind: 'compaction', runId: 'compact-run', error: 'Failed to compact' })
+  assert.equal(submitted.selectionMode, 'auto')
+  assert.equal(submitted.selectionTier, 'quality')
+  assert.equal(submitted.modelKey, undefined)
+  assert.equal(f.conversation.selected.value?.id, 'analysis')
+  assert.equal(f.conversation.selectionMode.value, 'auto')
+  assert.equal(f.conversation.selectionTier.value, 'quality')
+  assert.equal(f.conversation.selected.value?.selectionMode, 'auto')
+})
+
+test('a rejected diagnostic first message keeps its automatic retry choice despite the empty saved snapshot', async t => {
+  const created: Session = { ...session('analysis'), selectionMode: 'manual', selectionTier: 'speed' }
+  const f = fixture(t, (path, options) => {
+    if (path === '/sessions/analysis/snapshot') return Promise.resolve({ session: created,
+      throughSequence: 0, messages: [], events: [], hasOlder: false, hasOlderEvents: false })
+    if (options?.method !== 'POST') return
+    if (path === '/sessions') return Promise.resolve(created)
+    if (path === '/sessions/analysis/messages') return Promise.reject(new Error('capacity unavailable'))
+  })
+  await f.conversation.selectSession({ ...session('a'), selectionMode: 'auto', selectionTier: 'quality' })
+  await f.conversation.analyzeFailure({ kind: 'compaction', runId: 'compact-run', error: 'Failed to compact' })
+  assert.equal(f.conversation.selected.value?.id, created.id)
+  assert.equal(f.conversation.selectionMode.value, 'auto')
+  assert.equal(f.conversation.selectionTier.value, 'quality')
+  assert.equal(f.conversation.selected.value?.selectionMode, 'auto')
+  assert.match(f.conversation.draft.value, /Failed to compact/)
+  assert.match(f.error.value, /capacity unavailable/)
 })
 
 test('failed diagnostic creation leaves the source intact and a rejected first send keeps a retry draft', async t => {
@@ -1172,6 +1337,10 @@ test('a failed first message keeps the created session and retry sends without c
 test('the initial automatic send carries mode and tier while keeping remembered manual selection independent', async t => {
   let submitted: unknown
   const { conversation, saved } = fixture(t, (path, options) => {
+    if (path === '/sessions/first/snapshot') return Promise.resolve({
+      session: { ...session('first'), selectionMode: 'manual', selectionTier: 'speed' },
+      throughSequence: 0, messages: [], events: [], hasOlder: false, hasOlderEvents: false,
+    })
     if (options?.method !== 'POST') return
     if (path === '/sessions') return Promise.resolve(session('first'))
     if (path === '/sessions/first/messages') {
@@ -1186,6 +1355,8 @@ test('the initial automatic send carries mode and tier while keeping remembered 
   conversation.draft.value = 'Automatically select'
   await conversation.send()
   assert.deepEqual(submitted, { content: 'Automatically select', images: [], selectionMode: 'auto', selectionTier: 'quality' })
+  assert.equal(conversation.selectionMode.value, 'auto')
+  assert.equal(conversation.selectionTier.value, 'quality')
   assert.equal(saved.get('vista-last-model'), remembered)
 })
 
@@ -1255,6 +1426,47 @@ test('copying a small final fragment returns the whole canonical reply without a
   assert.equal(reads, 0)
 })
 
+test('split output snapshots retain the terminal reply version and complete history bodies', async t => {
+  const opening = 'Opening🙂', answer = 'Answer', full = opening + answer
+  let reads = 0
+  const { conversation, streams } = fixture(t, path => {
+    if (path.includes('/model-output?')) {
+      reads++
+      return Promise.resolve({ content: full, offset: 0, nextOffset: Buffer.byteLength(full), availableBytes: Buffer.byteLength(full), lastSequence: 4 })
+    }
+  })
+  await conversation.selectSession(session('a'))
+  const emit = (sequence: number, kind: string, data: object) => streams.get('a')!.onEvent({ sequence, kind, data: { runId: 'history', taskId: 'main', turn: 1, ...data } })
+  emit(2, 'model_delta', { offset: 0, content: opening })
+  emit(3, 'model_reasoning_delta', { content: 'Reasoning' })
+  emit(4, 'model_delta', { offset: Buffer.byteLength(opening), content: answer })
+  emit(5, 'model_result', {})
+  emit(6, 'run_finished', { status: 'succeeded', message: { ...message('reply', 6, 'history', 'assistant'), content: full, outputTurn: 1, outputBytes: Buffer.byteLength(full) } })
+  const rows = conversation.displayMessages.value.filter(row => row.outputTurn === 1)
+  for (const evicted of [false, true]) {
+    if (evicted) conversation.releaseDisplayOutput(rows[0]!)
+    const bodies = await conversation.readDisplayOutput(rows[0]!)
+    for (const row of rows) {
+      assert.equal(bodies?.get(row.displayKey)?.version, displayBodyVersion(row))
+      assert.equal(bodies?.get(row.displayKey)?.text, row.progress ? opening : answer)
+    }
+  }
+  const scope = effectScope()
+  t.after(() => scope.stop())
+  const history = scope.run(() => useConversationHistory({
+    items: conversation.displayMessages, session: () => conversation.selected.value?.id, revision: conversation.viewRevision,
+    synchronized: () => conversation.snapshotReady.value, paused: () => false,
+    indexes: conversation.readOutputIndexes, output: conversation.readDisplayOutput,
+    text: row => row.content, release: conversation.releaseDisplayOutput,
+    traceKeys: () => [], hasOlder: () => false, older: async () => {},
+  }))!
+  await nextTick(); await new Promise(resolve => setImmediate(resolve))
+  assert.deepEqual(history.items.value.filter(row => row.outputTurn === 1).map(row => row.content), [opening, answer])
+  assert.equal(history.missing.value.size, 0)
+  assert.equal(await conversation.fullMessageText(rows[1]!), full)
+  assert.equal(reads, 1)
+})
+
 test('a late full reply cannot replace output or errors in a new session', async t => {
   const loading = deferred<OutputView>()
   let signal: AbortSignal | null | undefined
@@ -1292,6 +1504,59 @@ test('a failed full reply keeps its preview and retries only when requested', as
   assert.equal(attempts, 2)
   assert.equal(conversation.modelOutputFailure.value[reply.id], '')
   assert.equal(conversation.modelOutput.value[reply.id].content, 'recovered full report')
+})
+
+for (const failures of [1, 2]) test(`summary history recovers its full body after ${failures} failed reads`, async t => {
+  const full = '<>'.repeat(3600)
+  const preview = full.slice(0, 2048)
+  const bytes = Buffer.byteLength(full)
+  let attempts = 0
+  const { conversation } = fixture(t, path => {
+    if (!path.includes('/model-output?')) return
+    if (++attempts <= failures) return Promise.reject(new Error('temporarily unavailable'))
+    return Promise.resolve({ content: full, offset: 0, nextOffset: bytes, availableBytes: bytes })
+  })
+  await conversation.selectSession(session('a'))
+  const reply: Message = { ...message('summary', 2, 'run-a', 'assistant'), contextSummary: true,
+    content: preview, outputTurn: 1, outputBytes: bytes }
+  conversation.messages.value = [reply]
+  const scope = effectScope()
+  t.after(() => scope.stop())
+  const history = scope.run(() => useConversationHistory({
+    items: conversation.displayMessages, session: () => conversation.selected.value?.id, revision: conversation.viewRevision,
+    synchronized: () => conversation.snapshotReady.value, paused: () => false,
+    indexes: conversation.readOutputIndexes, output: conversation.readDisplayOutput,
+    text: row => row.mainOutput ? row.content : conversation.modelOutput.value[row.id]?.content ?? row.content,
+    release: conversation.releaseDisplayOutput, traceKeys: () => [], hasOlder: () => false, older: async () => {},
+  }))!
+  const settle = async () => { await nextTick(); await new Promise(resolve => setImmediate(resolve)) }
+  await settle()
+  assert.equal(history.prepared.value, true)
+  assert.equal(history.items.value[0]!.content, preview)
+  assert.match(conversation.modelOutputFailure.value[reply.id], /temporarily unavailable/)
+  assert.equal(history.missing.value.size, 0, 'A failed row shows its preview and Retry instead of a loading placeholder')
+  history.setVisible([reply.id])
+  await history.prepare()
+  await settle()
+  assert.equal(attempts, 1, 'Rendering a failed row does not automatically retry')
+  for (let retry = 1; retry < failures; retry++) {
+    await history.retry(history.items.value[0]!)
+    await settle()
+    assert.equal(history.items.value[0]!.content, preview)
+    assert.match(conversation.modelOutputFailure.value[reply.id], /temporarily unavailable/)
+  }
+  const row = history.items.value[0]!
+  await Promise.all([history.retry(row), history.retry(row)])
+  await settle()
+  assert.equal(attempts, failures + 1)
+  assert.equal(conversation.modelOutputFailure.value[reply.id], '')
+  assert.equal(history.items.value[0]!.content, full)
+  assert.equal(conversation.modelOutput.value[reply.id], undefined, 'Prepared history owns the text after releasing its source buffer')
+  assert.equal(await conversation.fullMessageText(history.items.value[0]!), full)
+  await history.prepare()
+  await settle()
+  assert.equal(history.items.value[0]!.content, full)
+  assert.equal(attempts, failures + 1, 'Preparing and copying recovered text do not reread it')
 })
 
 test('recalling from an older history window finds the latest user behind a full assistant page without replacing history', async t => {
@@ -1597,7 +1862,7 @@ test('entering edit only prepares a draft and cancel restores the previous draft
   assert.equal(conversation.editingMessage.value?.id, original.id)
   conversation.cancelEditMessage()
   assert.equal(conversation.draft.value, 'Unsent draft')
-  assert.equal(conversation.quotedText.value?.text, 'Saved quote')
+  assert.equal(conversation.quotedTexts.value[0]?.text, 'Saved quote')
   assert.equal(conversation.editingMessage.value, null)
 })
 
@@ -1755,7 +2020,7 @@ test('snapshot recovery preserves composer state and a send acknowledgement newe
   assert.equal(conversation.activeRunID.value, 'new')
   assert.equal(conversation.selected.value?.executing, true)
   assert.equal(conversation.draft.value, 'Keep this draft')
-  assert.equal(conversation.quotedText.value?.text, 'Keep this quote')
+  assert.equal(conversation.quotedTexts.value[0]?.text, 'Keep this quote')
   assert.equal(conversation.attachedImages.value[0], image)
   assert.equal(conversation.selectedReasoning.value, 'high')
   assert.equal(indexes, 2)
@@ -1853,4 +2118,136 @@ test('late auxiliary snapshots cannot replace newer process and artifact events'
   assert.equal(conversation.jobs.value.find(job => job.id === 'unchanged')?.status, 'succeeded')
   assert.ok(conversation.jobs.value.some(job => job.id === 'historical-job'))
   assert.ok(conversation.artifacts.value.some(artifact => artifact.id === 'historical-artifact'))
+})
+
+test('manual body retry racing model_result preserves the complete projection', async t => {
+  const full = 'x'.repeat(13000), preview = full.slice(-2048)
+  const pending = deferred<OutputView>()
+  let attempts = 0, releases = 0
+  const { conversation, streams } = fixture(t, path => {
+    if (!path.includes('/model-output?')) return
+    if (++attempts === 1) return Promise.reject(new Error('initial read failed'))
+    return pending.promise
+  })
+  await conversation.selectSession(session('a'))
+  conversation.activeRunID.value = 'race-run'
+  const emit = (sequence: number, kind: string, data: object) => streams.get('a')!.onEvent({
+    sequence, kind, data: { runId: 'race-run', taskId: 'main', turn: 1, ...data },
+  })
+  emit(2, 'model_delta', { offset: full.length - preview.length, content: preview })
+  const scope = effectScope()
+  t.after(() => scope.stop())
+  const history = scope.run(() => useConversationHistory({
+    items: conversation.displayMessages, session: () => conversation.selected.value?.id, revision: conversation.viewRevision,
+    synchronized: () => conversation.snapshotReady.value, paused: () => false,
+    indexes: conversation.readOutputIndexes, output: conversation.readDisplayOutput,
+    text: row => row.mainOutput ? row.content : conversation.modelOutput.value[row.id]?.content ?? row.content,
+    release: row => { releases++; conversation.releaseDisplayOutput(row) },
+    traceKeys: () => [], hasOlder: () => false, older: async () => {},
+  }))!
+  const settle = async () => { await nextTick(); await new Promise(resolve => setImmediate(resolve)) }
+  await settle()
+  assert.equal(attempts, 1)
+  const retry = history.retry(history.items.value.find(row => row.runId === 'race-run')!)
+  emit(3, 'model_result', {})
+  await settle()
+  assert.equal(attempts, 2, 'HTTP retry remains deduplicated')
+  pending.resolve({ content: full, offset: 0, nextOffset: full.length, availableBytes: full.length, lastSequence: 2 })
+  await retry
+  await settle()
+  const row = history.items.value.find(row => row.runId === 'race-run')!
+  assert.equal(Buffer.byteLength(row.content), full.length)
+  assert.equal(releases, 1)
+  assert.equal(conversation.modelOutputFailure.value['output/race-run/main/1'], '')
+})
+
+for (const mode of ['retry-only', 'retry-then-copy', 'copy-then-retry'] as const) {
+  test(`summary retry and copy retain the complete history body: ${mode}`, async t => {
+    const full = '<>'.repeat(3600), preview = full.slice(0, 2048), bytes = Buffer.byteLength(full)
+    const loading = deferred<OutputView>()
+    let attempts = 0
+    const { conversation } = fixture(t, path => {
+      if (!path.includes('/model-output?')) return
+      return ++attempts === 1 ? Promise.reject(new Error('temporarily unavailable')) : loading.promise
+    })
+    await conversation.selectSession(session('a'))
+    const reply: Message = { ...message('summary', 2, 'run-a', 'assistant'), contextSummary: true,
+      content: preview, outputTurn: 1, outputBytes: bytes }
+    conversation.messages.value = [reply]
+    const scope = effectScope()
+    t.after(() => scope.stop())
+    const history = scope.run(() => useConversationHistory({
+      items: conversation.displayMessages, session: () => conversation.selected.value?.id, revision: conversation.viewRevision,
+      synchronized: () => conversation.snapshotReady.value, paused: () => false,
+      indexes: conversation.readOutputIndexes, output: conversation.readDisplayOutput,
+      text: row => row.mainOutput ? row.content : conversation.modelOutput.value[row.id]?.content ?? row.content,
+      release: conversation.releaseDisplayOutput, traceKeys: () => [], hasOlder: () => false, older: async () => {},
+    }))!
+    const settle = async () => { await nextTick(); await new Promise(resolve => setImmediate(resolve)) }
+    await settle()
+    assert.equal(history.items.value[0]?.content, preview)
+    assert.match(conversation.modelOutputFailure.value[reply.id], /temporarily unavailable/)
+    const row = history.items.value[0]!
+    let retry: Promise<void>, copy: Promise<string> | undefined
+    if (mode === 'copy-then-retry') { copy = conversation.fullMessageText(row); retry = history.retry(row) }
+    else { retry = history.retry(row); if (mode === 'retry-then-copy') copy = conversation.fullMessageText(row) }
+    assert.equal(attempts, 2)
+    loading.resolve({ content: full, offset: 0, nextOffset: bytes, availableBytes: bytes })
+    const [, copied] = await Promise.all([retry!, copy])
+    await settle()
+    const observed = { mode, fullCharacters: full.length, displayedCharacters: history.items.value[0]!.content.length,
+      copiedCharacters: copied?.length, requests: attempts, error: conversation.modelOutputFailure.value[reply.id],
+      missingBodies: history.missing.value.size }
+    assert.equal(observed.displayedCharacters, full.length)
+    assert.equal(history.items.value[0]!.content, full)
+    if (copy) assert.equal(copied, full)
+    assert.equal(conversation.modelOutputFailure.value[reply.id], '')
+    assert.equal(history.missing.value.size, 0)
+  })
+}
+
+
+test('body hydration cannot label an older snapshot with a later completed SSE version', async t => {
+  const prefix = 'x'.repeat(10000), tail = '尾部🚀-complete'
+  const full = prefix + tail
+  let reads = 0, injectTail = true
+  const { conversation, streams } = fixture(t, path => {
+    if (path.includes('/model-output?')) {
+      reads++
+      return Promise.resolve({ content: prefix, offset: 0, nextOffset: prefix.length, availableBytes: prefix.length, lastSequence: 2 })
+    }
+  })
+  await conversation.selectSession(session('a'))
+  conversation.activeRunID.value = 'tail-race'
+  const emit = (sequence: number, kind: string, data: object, turn = 1) => streams.get('a')!.onEvent({
+    sequence, kind, data: { runId: 'tail-race', taskId: 'main', turn, ...data },
+  })
+  emit(2, 'model_delta', { offset: 7952, content: prefix.slice(7952) })
+  const scope = effectScope()
+  t.after(() => scope.stop())
+  const history = scope.run(() => useConversationHistory({
+    items: conversation.displayMessages, session: () => conversation.selected.value?.id, revision: conversation.viewRevision,
+    synchronized: () => conversation.snapshotReady.value, paused: () => false,
+    indexes: conversation.readOutputIndexes,
+    output: async row => {
+      const body = await conversation.readDisplayOutput(row)
+      if (injectTail) {
+        injectTail = false
+        emit(3, 'model_delta', { offset: prefix.length, content: tail })
+        emit(4, 'model_result', {})
+      }
+      return body
+    },
+    text: row => row.mainOutput ? row.content : conversation.modelOutput.value[row.id]?.content ?? row.content,
+    release: conversation.releaseDisplayOutput, traceKeys: () => [], hasOlder: () => false, older: async () => {},
+  }))!
+  const settle = async () => { await nextTick(); await new Promise(resolve => setImmediate(resolve)) }
+  await settle()
+  assert.equal(Buffer.byteLength(history.items.value.find(row => row.runId === 'tail-race' && row.outputTurn === 1)?.content ?? ''), Buffer.byteLength(full))
+  assert.equal(history.missing.value.size, 0)
+  assert.equal(reads, 1, 'newer retained SSE completes the body without another HTTP read')
+  emit(5, 'model_delta', { offset: 0, content: 'next turn' }, 2)
+  emit(6, 'model_result', {}, 2)
+  await settle()
+  assert.equal(Buffer.byteLength(history.items.value.find(row => row.runId === 'tail-race' && row.outputTurn === 1)?.content ?? ''), Buffer.byteLength(full))
 })

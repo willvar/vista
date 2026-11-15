@@ -11,6 +11,11 @@ export type MainOutputRecord = MainOutput & {
   deltas: { sequence: number; content: string }[]
 }
 export type ConversationItem = Message & { displayKey: string; displaySequence: number; mainOutput?: MainOutputRecord; progress?: boolean }
+export type DisplayBody = { version: string; text: string }
+
+export function displayBodyVersion(item: ConversationItem) {
+  return `${item.displayKey}/${item.outputTurn || 0}/${item.outputBytes || 0}/${item.mainOutput && !item.mainOutput.complete ? item.mainOutput.lastSequence : 'complete'}`
+}
 
 export function mainOutputKey(output: Pick<MainOutput, 'runId' | 'taskId' | 'turn'>) {
   return `output/${output.runId}/${output.taskId || 'main'}/${output.turn}`
@@ -23,6 +28,10 @@ export function displayOutputKey(message: ConversationItem) {
 }
 const encoder = new TextEncoder()
 const decoder = new TextDecoder()
+
+export function needsFullMessageText(message: Pick<Message, 'content' | 'outputTurn' | 'outputBytes'>) {
+  return (message.outputTurn || 0) > 0 && (message.outputBytes || 0) > encoder.encode(message.content).length
+}
 
 export function mergeMainOutputs(records: readonly MainOutputRecord[], page: readonly MainOutput[]): MainOutputRecord[] {
   const merged = new Map(records.map(output => [mainOutputKey(output), output]))

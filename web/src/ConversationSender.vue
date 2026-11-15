@@ -6,15 +6,17 @@ import { Button as VButton, Select as VSelect, Tooltip as VTooltip } from './ui'
 import Sender from './ui/Sender.vue'
 import type { TextAreaRef as SenderRef } from './ui/types'
 import ReasoningEffortPicker from './ReasoningEffortPicker.vue'
+import ConversationQuotes from './ConversationQuotes.vue'
+import type { QuotedExcerpt } from './state/quotedReply'
 import { useWorkspace } from './composables/useWorkspace'
 import { useQuestionComposer } from './composables/useQuestionComposer'
 import type { QuestionAnswer } from './client/types'
 
 const QuestionForm = defineAsyncComponent(() => import('./QuestionForm.vue'))
 const { t } = useI18n({ useScope: 'global' })
-const emit = defineEmits<{ send: [] }>()
+const emit = defineEmits<{ send: []; locateQuote: [quote: QuotedExcerpt] }>()
 const { selected, busy, needsProvider, workerAvailable, modelChoices, interactionPreferences, conversation, route, mobileSessionsOpen, modalQuery } = useWorkspace()
-const { draft, quotedText, removeQuote, agentWorking, selectionMode, selectionTier, chooseSelectionTier,
+const { draft, quotedTexts, removeQuote, agentWorking, selectionMode, selectionTier, chooseSelectionTier,
   editingMessage, cancelEditMessage,
   selectedModel, selectedReasoning, reasoningChoices, chooseModel,
   canAttachImage, attachedImages, attachedPreviewURLs, chooseImages, pasteImages, dropImages, removeImage,
@@ -29,7 +31,7 @@ watch(() => selected.value?.id, () => { composing.value = false; inputEdited.val
 const questionComposer = useQuestionComposer(() => selected.value, () => {
   const input = sender.value?.input
   return composing.value || !!input && (document.activeElement === input && inputEdited.value
-    && !!(draft.value || quotedText.value || attachedImages.value.length || editingMessage.value)
+    && !!(draft.value || quotedTexts.value.length || attachedImages.value.length || editingMessage.value)
     || !!input.closest('.sender-card')?.querySelector('.sender-attach')?.contains(document.activeElement))
 })
 const { pending: pendingQuestion, requestKey: questionKey, answering } = questionComposer
@@ -50,12 +52,15 @@ watch(activeInputKey, async id => {
     lastInputKey = id
   }
 }, { immediate: true, flush: 'post' })
-watch(quotedText, async quote => {
+watch([() => selected.value?.id, quotedTexts], async ([id, quotes], previous) => {
   if (!inputViewKey.value) return
-  if (quote && pendingQuestion.value) questionComposer.showText()
+  const prior = previous?.[1] || []
+  const added = previous?.[0] === id && quotes.some(quote => !prior.some(item => item.id === quote.id))
+  // Restoring an existing quote draft must not override an explicit answer mode.
+  if (added && pendingQuestion.value) questionComposer.showText()
   const inputKey = inputViewKey.value
   await nextTick()
-  if (activeInputKey.value === inputKey && quotedText.value === quote) sender.value?.focus({ cursor: 'end', preventScroll: true })
+  if (activeInputKey.value === inputKey && quotedTexts.value === quotes) sender.value?.focus({ cursor: 'end', preventScroll: true })
 }, { flush: 'post' })
 watch(editingMessage, async message => {
   if (!message || !inputViewKey.value) return
@@ -84,7 +89,7 @@ async function answerQuestions(runId: string, answers: QuestionAnswer[], callId?
   return accepted
 }
 const continueCompletion = computed(() => continueAfterCompaction.value && !senderDisabled.value)
-const senderPlaceholder = computed(() => t(quotedText.value ? 'askAboutQuote' : continueCompletion.value ? 'continuePlaceholder' : 'sendMessage'))
+const senderPlaceholder = computed(() => t(quotedTexts.value.length ? 'askAboutQuote' : continueCompletion.value ? 'continuePlaceholder' : 'sendMessage'))
 const imageInput = ref<HTMLInputElement | null>(null)
 const imageInputDisabled = computed(() => busy.value || senderDisabled.value || !canAttachImage.value || answering.value)
 const imageDragDepth = ref(0)
@@ -162,7 +167,7 @@ function senderKeyDown(event: KeyboardEvent) {
   if ((event.key === 'ArrowUp' || event.key === 'Tab' && continueCompletion.value)
     && !event.defaultPrevented && !event.repeat && !event.ctrlKey && !event.metaKey && !event.altKey && !event.shiftKey
     && !event.isComposing && event.keyCode !== 229 && !composing.value && performance.now() - compositionEndedAt >= 200
-    && !draft.value && !quotedText.value && !attachedImages.value.length && !senderDisabled.value && !busy.value && selected.value
+    && !draft.value && !quotedTexts.value.length && !attachedImages.value.length && !senderDisabled.value && !busy.value && selected.value
     && event.target instanceof HTMLTextAreaElement && !event.target.value) {
     event.preventDefault()
     event.stopPropagation()
@@ -195,21 +200,21 @@ onUnmounted(() => {
 </script>
 
 <template>
-        <router-link v-if="needsProvider" class="composer sender-card sender-setup" :to="{ path: '/settings/models', query: modalQuery() }">
-          <span>{{ t('configureModelToStart') }}</span><IconArrowRight aria-hidden="true" />
-        </router-link>
-        <Sender v-else ref="sender" v-model:value="draft" :class="[senderClass, { 'sender-card-answering': answering }]" :content-active="answering" :data-composer-mode="answering ? 'answers' : pendingQuestion ? 'text' : 'message'" :auto-size="senderAutoSize" :disabled="senderDisabled" :loading="busy || agentWorking && !draft.trim() && !attachedImages.length" :placeholder="senderPlaceholder" :aria-label="t('sendMessage')" :on-key-down="senderKeyDown" @input.capture="trackInput" @compositionstart.capture="compositionStart" @compositionend.capture="compositionEnd" @paste="pasteMessageImages" @dragenter="enterImageDrag" @dragover="overImageDrag" @dragleave="leaveImageDrag" @drop="receiveImageDrop">
+        <div v-if="needsProvider" class="composer sender-card">
+          <div v-if="$slots.execution" class="sender-status"><slot name="execution" /></div>
+          <router-link class="sender-setup" :to="{ path: '/settings/models', query: modalQuery() }">
+            <span>{{ t('configureModelToStart') }}</span><IconArrowRight aria-hidden="true" />
+          </router-link>
+        </div>
+        <Sender v-else ref="sender" v-model:value="draft" :class="[senderClass, { 'sender-card-with-status': !!$slots.execution, 'sender-card-answering': answering }]" :content-active="answering" :data-composer-mode="answering ? 'answers' : pendingQuestion ? 'text' : 'message'" :auto-size="senderAutoSize" :disabled="senderDisabled" :loading="busy || agentWorking && !draft.trim() && !attachedImages.length" :placeholder="senderPlaceholder" :aria-label="t('sendMessage')" :on-key-down="senderKeyDown" @input.capture="trackInput" @compositionstart.capture="compositionStart" @compositionend.capture="compositionEnd" @paste="pasteMessageImages" @dragenter="enterImageDrag" @dragover="overImageDrag" @dragleave="leaveImageDrag" @drop="receiveImageDrop">
           <template #header>
+          <div v-if="$slots.execution" class="sender-status"><slot name="execution" /></div>
           <div v-if="pendingQuestion && !answering" class="sender-question-notice" role="status">
             <span>{{ t('questionPendingNotice') }}</span>
             <v-button type="button" variant="text" :disabled="busy || composing" @click="showAnswers">{{ t('questionReturnToAnswers') }}</v-button>
           </div>
           <div v-if="editingMessage" v-show="!answering" class="sender-editing" role="status"><span>{{ t('editingSentMessage') }}</span><v-button variant="text" :disabled="busy" @click="cancelEditMessage">{{ t('cancelEditMessage') }}</v-button></div>
-          <div v-if="quotedText" v-show="!answering" class="sender-quote" role="group" :aria-label="t('quotedText')">
-            <span class="sender-quote-mark" aria-hidden="true">“</span>
-            <div class="sender-quote-body"><span class="sender-quote-label">{{ t(quotedText.role === 'assistant' ? 'quotedReply' : 'quotedMessage') }}</span><p>{{ quotedText.text }}</p></div>
-            <v-button variant="text" class="icon-button sender-quote-remove icon-close" :aria-label="t('removeQuote')" :disabled="busy" @click="removeQuote">×</v-button>
-          </div>
+          <div v-show="!answering"><ConversationQuotes :key="selected?.id" :quotes="quotedTexts" :disabled="busy" @remove="removeQuote" @locate="emit('locateQuote', $event)" /></div>
           <div v-if="imageDragDepth" class="sender-drop-hint" :class="{ unsupported: !canAttachImage }" role="status"><IconPhoto /><strong>{{ imageDropHint }}</strong><small v-if="canAttachImage">{{ t('imageLimit') }}</small></div>
           <div v-if="attachedImages.length" v-show="!answering" class="sender-attachments" aria-live="polite">
             <div v-for="(file, index) in attachedImages" :key="index" class="sender-attachment">
@@ -253,11 +258,10 @@ onUnmounted(() => {
 @media(max-width:830px){.sender-setup{min-height:120px;padding:18px 20px}}
 @media(max-height:520px){.sender-setup{min-height:88px;padding:16px 18px}}
 @media(prefers-reduced-motion:reduce){.sender-setup{transition:none}}
-.sender-quote{display:flex;align-items:flex-start;gap:10px;margin:12px 12px 0;padding:10px 10px 10px 12px;min-width:0;border-inline-start:3px solid var(--accent);border-radius:4px 9px 9px 4px;background:color-mix(in srgb,var(--accent) 7%,var(--surface));color:var(--text)}
-.sender-quote-mark{flex:none;height:26px;color:var(--accent);font-family:Georgia,serif;font-size:38px;line-height:1}
-.sender-quote-body{min-width:0;flex:1}
-.sender-quote-label{display:block;margin-bottom:3px;color:var(--muted);font-size:12px}
-.sender-quote-body p{max-height:5.4em;margin:0;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere;font-size:14px;line-height:1.6}
+.sender-status{padding:10px 18px 8px;border-bottom:1px solid var(--border-subtle);border-radius:17px 17px 0 0;background:var(--surface-subtle)}
+.sender-card-with-status :deep(.ui-sender-content){padding-top:12px}
+@media(max-width:520px){.sender-status{padding:8px 12px}}
+@media(max-height:520px){.sender-status{padding:6px 10px}}
 .sender-drop-hint{position:absolute;inset:0;z-index:5;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:.3rem;padding:.6rem;pointer-events:none;border:2px dashed var(--accent);border-radius:inherit;background:var(--surface);text-align:center}
 .sender-drop-hint>.tabler-icon{font-size:24px}
 .sender-drop-hint strong{font-size:16px;font-weight:500}
@@ -270,8 +274,6 @@ onUnmounted(() => {
 .sender-card .composer-submit{width:auto;margin-left:0}
 .sender-card-auto .sender-footer{flex-wrap:nowrap}.sender-card-auto .sender-options{flex:1 1 auto;flex-wrap:nowrap}.sender-card-auto .composer-submit{width:auto;flex:0 1 auto;flex-wrap:nowrap}
 @media(max-height:520px){
-  .sender-quote{gap:7px;margin:6px 8px 0;padding:6px 8px}
-  .sender-quote-body p{max-height:3.2em}
   .sender-card :deep(.ui-sender-content){padding:4px 8px}
   .sender-card :deep(.ui-sender-footer){padding:0 8px 6px}
   .sender-card .sender-footer{flex-wrap:wrap;gap:.35rem;padding:0}

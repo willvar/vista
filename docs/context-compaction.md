@@ -185,8 +185,8 @@ resume a stopped task; the user sends a continuation explicitly.
 `GET /api/sessions/:id/context` and ordered `context_status`/`context_notice`
 events expose progress and outcome. The frontend compares event sequences,
 retains its session cancellation guards, and does not let a late POST restore
-an older status. There is no capacity, remaining-token, or percentage display. The execution area above the
-composer shows automatic and manual compaction progress once, without a dedicated cancel
+an older status. There is no capacity, remaining-token, or percentage display. The execution header inside the
+composer card shows automatic and manual compaction progress once, without a dedicated cancel
 control. Manual maintenance does not expose the ordinary task stop button or Escape action.
 Stopping an ordinary task during automatic recovery still interrupts that task.
 Interrupted and failed outcomes retain error details, copying and failure analysis here. The conversation header's compaction icon shows an estimated token total on hover for the retained main context,

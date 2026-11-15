@@ -22,7 +22,12 @@ function readSelection(): { selected: Selection; source: HTMLElement; quote: Quo
   const role = source.dataset.quoteRole
   const text = selected.toString()
   if (!text.trim() || role !== 'user' && role !== 'assistant') return null
-  return { selected, source, quote: { text, role } }
+  const row = source.closest<HTMLElement>('[data-display-key]')
+  const key = row?.dataset.displayKey
+  const sequence = Number(row?.dataset.timelineSequence)
+  const createdAt = row?.querySelector('time')?.dateTime
+  return { selected, source, quote: { text, role,
+    ...(key && sequence > 0 && createdAt ? { source: { key, sequence, createdAt: new Date(createdAt).toISOString() } } : {}) } }
 }
 function updateSelection() {
   timer = 0

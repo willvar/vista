@@ -5,9 +5,9 @@ import { createConversationSync, type ConversationSyncStatus, type ConversationS
 import type { Artifact, ConversationSnapshot, CompactionStatus, ContextUsage, Job, MainOutput, Message, ModelCatalog, OutputView, QuestionAnswer, QueuedInput, SendMessageResult, Session, StreamEvent } from '../client/types'
 import { appendMessage, createConversationState, messageResults, runResults, pruneConversationWindow, reduceConversationEvent, replyTraceSegments } from '../state/conversation.ts'
 import { toolOperationLabelKey, compactTraceText } from '../state/runTrace.ts'
-import { conversationItems, displayOutputKey, hydrateMainOutput, mainOutputKey, mainOutputText, mergeMainOutputs, type ConversationItem, type MainOutputRecord } from '../state/mainOutputs.ts'
+import { conversationItems, displayBodyVersion, displayOutputKey, hydrateMainOutput, mainOutputKey, mainOutputText, mergeMainOutputs, type ConversationItem, type MainOutputRecord } from '../state/mainOutputs.ts'
 import { useInteractionPreferences, type InteractionPreferences, type SelectionMode, type SelectionTier } from './useInteractionPreferences.ts'
-import { formatQuotedReply, quoteStoragePrefix, readQuotedText, type QuotedText } from '../state/quotedReply.ts'
+import { formatQuotedReply, quoteStoragePrefix, readQuotedReply, type QuotedReply, type QuotedText } from '../state/quotedReply.ts'
 import { reasoningChoiceLabel } from '../ui/reasoning.ts'
 import { jobActive } from '../state/jobs.ts'
 import { initialModelKey, visibleModels } from '../state/modelVisibility.ts'
@@ -24,7 +24,7 @@ export type ConversationOptions = {
   interactionPreferences?: InteractionPreferences
   onSessionStarted?: (session: Session) => Promise<void>
 }
-type Scope = { id: string; generation: number; controller: AbortController; sync?: ReturnType<typeof createConversationSync> }
+type Scope = { id: string; generation: number; controller: AbortController; initialSelectionVersion?: number; sync?: ReturnType<typeof createConversationSync> }
 export const draftStoragePrefix = 'vista-session-draft:'
 export const welcomeDraftStorageKey = 'vista-home-draft'
 
@@ -69,7 +69,7 @@ export function useConversation({ client, sessions, modelCatalog, error, busy, r
     && (compaction.value.phase === 'compacting' || maintenanceRunID === compaction.value.runId))
   let maintenanceRunID = ''
   const continueAfterCompaction = computed(() => !!selected.value?.open && !selected.value.executing && !busy.value
-    && !draft.value && !quotedText.value && !attachedImages.value.length && compaction.value?.manual && compaction.value.phase === 'compacted'
+    && !draft.value && !quotedTexts.value.length && !attachedImages.value.length && compaction.value?.manual && compaction.value.phase === 'compacted'
     && (compaction.value.sequence || 0) > latestUserSequence.value)
   const latestUserSequence = ref(0)
   const canCompact = computed(() => !!selected.value?.open && !selected.value.executing && !busy.value
@@ -77,7 +77,7 @@ export function useConversation({ client, sessions, modelCatalog, error, busy, r
   const modelOutputLoading = ref<Record<string, boolean>>({})
   const modelOutputFailure = ref<Record<string, string>>({})
   const modelOutputRequests = new Map<string, Promise<OutputView>>()
-  const mainOutputRequests = new Map<string, Promise<void>>()
+  const mainOutputRequests = new Map<string, Promise<MainOutputRecord>>()
   const indexedRuns = new Map<string, { request: Promise<void> }>()
   const displayMessages = computed(() => conversationItems(messages.value, state.mainOutputs, state.hasOlder, state.hasNewer))
   const pendingInputs = computed(() => state.queuedInputs.filter(item => ['queued', 'paused', 'delivering'].includes(item.status)))
@@ -105,12 +105,13 @@ export function useConversation({ client, sessions, modelCatalog, error, busy, r
   const attachedImages = ref<File[]>([])
   const attachedPreviewURLs = ref<string[]>([])
   const draft = ref(readWelcomeDraft())
-  const quotedText = ref<QuotedText | null>(null)
+  const quotedReply = ref<QuotedReply | null>(null)
+  const quotedTexts = computed(() => quotedReply.value?.items || [])
   const editingMessage = ref<Message | null>(null)
   const rollbackFailure = ref('')
   const analyzingFailure = ref('')
   const canAnalyzeFailure = computed(() => interactionPreferences.ready.value && !!selectedModelInfo.value?.provider)
-  let editBackup: { draft: string; quote: QuotedText | null; images: File[] } | null = null
+  let editBackup: { draft: string; quote: QuotedReply | null; images: File[] } | null = null
   type ImageRef = { hash: string; name: string; mediaType: string; bytes: number }
   type MessageDraft = { message: Message; images: ImageRef[] }
   let draftRevision = 0
@@ -339,10 +340,17 @@ export function useConversation({ client, sessions, modelCatalog, error, busy, r
   }
   function applySnapshot(scope: Scope, snapshot: ConversationSnapshot) {
     if (!current(scope)) return
+    // Routing can start from a workspace list captured before the first send.
+    // Restore the saved choice once, unless the user has since edited it.
+    // Locally created first-send scopes keep their not-yet-persisted choice.
+    const restore = scope.initialSelectionVersion === selectionVersion
+    delete scope.initialSelectionVersion
+    if (restore) restoreSelection(snapshot.session)
+    const choice = restore ? snapshot.session : selected.value
     const old = state
     const updated = { ...snapshot.session, readSequence: Math.max(snapshot.session.readSequence || 0, selected.value?.readSequence || 0),
       selectionMode: selectionMode.value, selectionTier: selectionTier.value,
-      manualModelKey: selected.value?.manualModelKey, manualReasoningEffort: selected.value?.manualReasoningEffort }
+      manualModelKey: choice?.manualModelKey, manualReasoningEffort: choice?.manualReasoningEffort }
     let next = createConversationState(updated)
     next.messages = snapshot.messages
     const latestUser = snapshot.messages.filter(message => message.role === 'user').at(-1)
@@ -444,7 +452,7 @@ export function useConversation({ client, sessions, modelCatalog, error, busy, r
       else localStorage.removeItem(key)
     } catch { /* Keep the draft when storage is unavailable. */ }
   }, { flush: 'sync' })
-  watch(quotedText, quote => {
+  watch(quotedReply, quote => {
     draftRevision++
     if (restoringDraft || !selected.value) return
     try {
@@ -540,7 +548,7 @@ export function useConversation({ client, sessions, modelCatalog, error, busy, r
     attachedImages.value = [...welcomeImages]
     restoringDraft = true
     Object.assign(state, createConversationState())
-    quotedText.value = null
+    quotedReply.value = null
     modelOutputLoading.value = {}
     modelOutputFailure.value = {}
     modelOutputRequests.clear()
@@ -567,21 +575,24 @@ export function useConversation({ client, sessions, modelCatalog, error, busy, r
   }
   onScopeDispose(() => { clearSession(); analysisImageDrafts.clear() })
 
+  function restoreSelection(session: Session) {
+    selectionMode.value = session.selectionMode || lastMode.value
+    selectionTier.value = session.selectionTier || lastTier.value
+    const candidates = selectionMode.value === 'auto' ? [session.modelKey]
+      : [session.manualModelKey || session.modelKey || rememberedModel.value?.key]
+    selectedModel.value = initialModelKey(modelCatalog.value, candidates)
+  }
   async function selectSession(session: Session) {
     clearSession()
-    const scope: Scope = { id: session.id, generation, controller: new AbortController() }
+    const scope: Scope = { id: session.id, generation, controller: new AbortController(), initialSelectionVersion: selectionVersion }
     currentScope = scope
     selected.value = session
     attachedImages.value = analysisImageDrafts.get(session.id) || []
     analysisImageDrafts.delete(session.id)
     draft.value = readDraft(session.id)
-    quotedText.value = readQuotedText(session.id)
-    selectionMode.value = session.selectionMode || lastMode.value
-    selectionTier.value = session.selectionTier || lastTier.value
-    const candidates = selectionMode.value === 'auto' ? [session.modelKey]
-      : [session.manualModelKey || session.modelKey || rememberedModel.value?.key]
+    quotedReply.value = readQuotedReply(session.id)
+    restoreSelection(session)
     inviteFeedback()
-    selectedModel.value = initialModelKey(modelCatalog.value, candidates)
     await connectStream(scope)
   }
   async function loadAuxiliary(scope: Scope) {
@@ -754,7 +765,7 @@ export function useConversation({ client, sessions, modelCatalog, error, busy, r
     if (!editingMessage.value) return
     if (editBackup) {
       draft.value = editBackup.draft
-      quotedText.value = editBackup.quote
+      quotedReply.value = editBackup.quote
       attachedImages.value = editBackup.images
     }
     editingMessage.value = null
@@ -769,10 +780,10 @@ export function useConversation({ client, sessions, modelCatalog, error, busy, r
       if (!current(scope)) return false
       const files = await draftFiles(scope, result)
       if (!current(scope)) return false
-      editBackup ||= { draft: draft.value, quote: quotedText.value, images: [...attachedImages.value] }
+      editBackup ||= { draft: draft.value, quote: quotedReply.value, images: [...attachedImages.value] }
       editingMessage.value = result.message
       draft.value = result.message.content
-      quotedText.value = null
+      quotedReply.value = null
       attachedImages.value = files
       error.value = ''
       return true
@@ -782,12 +793,12 @@ export function useConversation({ client, sessions, modelCatalog, error, busy, r
   async function reloadAfterRollback(clearEdit = true) {
     const session = selected.value
     if (!session) return
-    const saved = { draft: draft.value, quote: quotedText.value, images: [...attachedImages.value], edit: editingMessage.value, backup: editBackup }
+    const saved = { draft: draft.value, quote: quotedReply.value, images: [...attachedImages.value], edit: editingMessage.value, backup: editBackup }
     const nextGeneration = generation + 1
     await selectSession(session)
     if (selected.value?.id !== session.id || generation !== nextGeneration) return
     draft.value = saved.draft
-    quotedText.value = saved.quote
+    quotedReply.value = saved.quote
     attachedImages.value = saved.images
     if (!clearEdit) { editingMessage.value = saved.edit; editBackup = saved.backup }
   }
@@ -811,7 +822,7 @@ export function useConversation({ client, sessions, modelCatalog, error, busy, r
       editingMessage.value = null
       editBackup = null
       draft.value = result.message.content
-      quotedText.value = null
+      quotedReply.value = null
       attachedImages.value = files
       await reloadAfterRollback()
       return true
@@ -823,10 +834,10 @@ export function useConversation({ client, sessions, modelCatalog, error, busy, r
 
   async function recallLastUserMessage(): Promise<boolean> {
     const scope = currentScope
-    if (!scope || !current(scope) || !selected.value?.open || draft.value || quotedText.value || attachedImages.value.length || busy.value || recallingScope === scope) return false
+    if (!scope || !current(scope) || !selected.value?.open || draft.value || quotedTexts.value.length || attachedImages.value.length || busy.value || recallingScope === scope) return false
     recallingScope = scope
     const revision = draftRevision
-    const canRestore = () => current(scope) && draftRevision === revision && !draft.value && !quotedText.value && !attachedImages.value.length && !busy.value
+    const canRestore = () => current(scope) && draftRevision === revision && !draft.value && !quotedTexts.value.length && !attachedImages.value.length && !busy.value
     try {
       // Reading older history must not recall an older question as the latest one.
       let page = state.hasNewer ? await request<Message[]>(scope, `/sessions/${scope.id}/messages`) : state.messages
@@ -874,9 +885,12 @@ export function useConversation({ client, sessions, modelCatalog, error, busy, r
   function removeImage(index: number) { attachedImages.value = attachedImages.value.filter((_, item) => item !== index) }
   function quoteSelection(quote: QuotedText) {
     if (!selected.value?.open || busy.value || !quote.text.trim()) return
-    quotedText.value = { text: quote.text, role: quote.role }
+    const id = quotedReply.value?.nextId || 1
+    quotedReply.value = { items: [...quotedTexts.value, { ...quote, id }], nextId: id + 1 }
   }
-  function removeQuote() { quotedText.value = null }
+  function removeQuote(id: number) {
+    if (!busy.value && quotedReply.value) quotedReply.value = { ...quotedReply.value, items: quotedTexts.value.filter(quote => quote.id !== id) }
+  }
   async function applySentMessage(scope: Scope, result: SendMessageResult) {
     if (!current(scope)) return
     if (state.hasNewer) { await selectSession(selected.value!); return }
@@ -899,14 +913,16 @@ export function useConversation({ client, sessions, modelCatalog, error, busy, r
     if (session && (!scope || !current(scope) || !session.open)) return
     if (!session && (!interactionPreferences.ready.value || !modelCatalog.value.models.some(model => model.key === selectedModel.value && !!model.provider))) return
     const text = draft.value
-    const quote = quotedText.value
-    const content = formatQuotedReply(text, quote)
+    const quote = quotedReply.value
+    const content = formatQuotedReply(text, quote, item => t('quoteNumber', { number: item.id }) + ' · ' + t(item.role === 'assistant' ? 'quotedReply' : 'quotedMessage'))
     const files = [...attachedImages.value]
     const edited = editingMessage.value
     const modeChoice = selectionMode.value
     const tierChoice = selectionTier.value
     const modelKey = modeChoice === 'manual' ? selectedModel.value : undefined
     const reasoningEffort = modeChoice === 'manual' ? selectedReasoning.value : undefined
+    // Submitting also commits the displayed choice while initial loading is pending.
+    if (scope) delete scope.initialSelectionVersion
     rememberSelectedModel()
     const owner = startBusy()
     const startedGeneration = generation
@@ -945,7 +961,7 @@ export function useConversation({ client, sessions, modelCatalog, error, busy, r
       const result = await request<SendMessageResult>(scope, `/sessions/${scope.id}/messages`, { method: 'POST', body: JSON.stringify({ content, images, modelKey, reasoningEffort, selectionMode: modeChoice, selectionTier: tierChoice, ...(edited ? { replacesMessageId: edited.id } : {}) }) })
       if (!current(scope)) return
       if (draft.value === text) draft.value = ''
-      if (quotedText.value === quote) quotedText.value = null
+      if (quotedReply.value === quote) quotedReply.value = null
       if (attachedImages.value.length === files.length && files.every((file, index) => attachedImages.value[index] === file)) attachedImages.value = []
       if (edited) {
         editingMessage.value = null
@@ -1024,11 +1040,18 @@ export function useConversation({ client, sessions, modelCatalog, error, busy, r
       if (!current(scope)) return
       endBusy(scope, owner)
       if (sourceImages.length) analysisImageDrafts.set(source.id, sourceImages)
+      const destinationSelectionVersion = selectionVersion
       await onSessionStarted?.(created)
       // The workspace route normally selects it; standalone callers need the
       // same state transition without opening a second stream for that route.
       if (current(scope)) await selectSession(created)
       if (selected.value?.id === created.id && deliveryFailure) {
+        // A rejected first message has not saved this local retry choice.
+        if (selectionVersion === destinationSelectionVersion) {
+          restoreSelection(created)
+          selected.value = { ...selected.value, selectionMode: created.selectionMode, selectionTier: created.selectionTier,
+            manualModelKey: created.manualModelKey, manualReasoningEffort: created.manualReasoningEffort }
+        }
         draft.value = content
         error.value = String(deliveryFailure)
       }
@@ -1044,6 +1067,7 @@ export function useConversation({ client, sessions, modelCatalog, error, busy, r
     const identified = pending.questions.some(question => !!question.id)
     if (identified ? answers.some(answer => !answer.questionId || !pending.questions.some(question => question.id === answer.questionId))
       : answers.length !== pending.questions.length) return false
+    delete scope.initialSelectionVersion
     const owner = startBusy()
     rememberSelectedModel()
     try {
@@ -1129,17 +1153,18 @@ export function useConversation({ client, sessions, modelCatalog, error, busy, r
     return loading
   }
   function readModelOutput(message: Message, retry = false) {
-    if (!message.outputTurn) return Promise.resolve()
-    if (modelOutputFailure.value[message.id] && !retry) return Promise.resolve()
-    return loadFullModelOutput(message).then(() => {}, () => {})
+    if (!message.outputTurn) return Promise.resolve(true)
+    if (modelOutputFailure.value[message.id] && !retry) return Promise.resolve(false)
+    return loadFullModelOutput(message).then(() => true, () => false)
   }
 
-  function loadMainOutput(record: MainOutputRecord): Promise<void> {
+  function loadMainOutput(record: MainOutputRecord): Promise<MainOutputRecord> {
     const scope = currentScope
     if (!scope || !current(scope)) return Promise.reject(new DOMException('Session changed', 'AbortError'))
     const key = mainOutputKey(record)
     const latest = state.mainOutputs.find(output => mainOutputKey(output) === key)
-    if (!latest || latest.loaded) return Promise.resolve()
+    if (!latest) return Promise.reject(new DOMException('Output changed', 'AbortError'))
+    if (latest.loaded) return Promise.resolve(latest)
     const pending = mainOutputRequests.get(key)
     if (pending) return pending
     modelOutputLoading.value[key] = true
@@ -1148,7 +1173,12 @@ export function useConversation({ client, sessions, modelCatalog, error, busy, r
     const loading = snapshot.then(output => {
       if (!current(scope)) throw new DOMException('Session changed', 'AbortError')
       if (output.offset !== 0 || output.nextOffset !== output.availableBytes || !output.lastSequence) throw new Error('Incomplete output response')
-      if (mainOutputRequests.get(key) === loading) state.mainOutputs = pruneConversationWindow({ ...state, mainOutputs: state.mainOutputs.map(item => mainOutputKey(item) === key ? hydrateMainOutput(item, output) : item) }).mainOutputs
+      const retained = state.mainOutputs.find(item => mainOutputKey(item) === key)
+      if (!retained || mainOutputRequests.get(key) !== loading) throw new DOMException('Output changed', 'AbortError')
+      const hydrated = hydrateMainOutput(retained, output)
+      state.mainOutputs = pruneConversationWindow({ ...state, mainOutputs: state.mainOutputs.map(item => mainOutputKey(item) === key ? hydrated : item) }).mainOutputs
+      if (!hydrated.loaded) throw new Error('Incomplete output response')
+      return hydrated
     }).catch(failure => {
       if (current(scope) && mainOutputRequests.get(key) === loading) modelOutputFailure.value[key] = String(failure)
       throw failure
@@ -1162,9 +1192,14 @@ export function useConversation({ client, sessions, modelCatalog, error, busy, r
     return loading
   }
   function readDisplayOutput(message: ConversationItem, retry = false) {
-    if (!message.mainOutput) return readModelOutput(message, retry)
-    if (modelOutputFailure.value[displayOutputKey(message)] && !retry) return Promise.resolve()
-    return loadMainOutput(message.mainOutput).catch(() => {})
+    if (modelOutputFailure.value[displayOutputKey(message)] && !retry) return Promise.resolve(undefined)
+    // Each consumer owns the returned strings even when another consumer
+    // releases the shared source cache before history prepares its projection.
+    if (!message.mainOutput) return loadFullModelOutput(message)
+      .then(output => new Map([[message.displayKey, { version: displayBodyVersion({ ...message, outputBytes: output.availableBytes }), text: output.content }]]), () => undefined)
+    const replies = messages.value.filter(row => row.runId === message.runId && row.role === 'assistant' && row.outputTurn === message.outputTurn)
+    return loadMainOutput(message.mainOutput).then(output =>
+      new Map(conversationItems(replies, [output]).map(row => [row.displayKey, { version: displayBodyVersion(row), text: row.content }])), () => undefined)
   }
   function releaseDisplayOutput(message: ConversationItem) {
     if (refs.modelOutput.value[message.id]) {
@@ -1185,7 +1220,7 @@ export function useConversation({ client, sessions, modelCatalog, error, busy, r
     selectedReasoning, reasoningChoices, canAttachImage, attachedImages, attachedPreviewURLs,
     selectionMode, selectionTier, chooseSelectionMode, chooseSelectionTier, feedbackInvitationOpen,
     feedback, feedbackBusy, rateMessage, pendingInputs, inputQueuePaused, pendingBusy, mutateInput, resumeInputs, compaction, compacting, compactionResult, contextUsage, canCompact, compactSession, manualCompacting, compactionRequestPending, continueAfterCompaction, fillContinueDraft,
-    draft, quotedText, quoteSelection, removeQuote, agentWorking, agentStatus, hasTaskDetails, chooseModel, recallLastUserMessage,
+    draft, quotedTexts, quoteSelection, removeQuote, agentWorking, agentStatus, hasTaskDetails, chooseModel, recallLastUserMessage,
     synchronization, syncDiagnostics, snapshotReady, viewRevision, resynchronize, renderFailure,
     selectSession, clearSession, refreshConversation, loadOlderActivity, showRecentActivity, loadOlder, loadNewer, loadLatest, markRead,
     send, submitMessage, analyzingFailure, canAnalyzeFailure, analyzeFailure, canRetryFailure, retryFailure, submitQuestion, cancelExecution, readModelOutput, modelOutputLoading, modelOutputFailure,

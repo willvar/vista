@@ -1,5 +1,5 @@
 import { computed, hasInjectionContext, inject, nextTick, onScopeDispose, ref, shallowRef, watch, type InjectionKey, type Ref } from 'vue'
-import { displayOutputKey, type ConversationItem } from '../state/mainOutputs.ts'
+import { displayBodyVersion as bodyVersion, displayOutputKey, needsFullMessageText, type ConversationItem, type DisplayBody } from '../state/mainOutputs.ts'
 
 export const historyReadKey: InjectionKey<(key: symbol, pending: boolean) => void> = Symbol('historyReads')
 export function useHistoryRead(loading: Ref<boolean>) {
@@ -15,10 +15,9 @@ export function useHistoryRead(loading: Ref<boolean>) {
 const batchSize = 20
 const maxBodies = 32
 const maxBodyBytes = 8 * 1024 * 1024
-function needsBody(item: ConversationItem) { return !!item.mainOutput || (item.outputBytes || 0) > 8192 }
-function bodyVersion(item: ConversationItem) {
-  return `${item.displayKey}/${item.outputTurn || 0}/${item.outputBytes || 0}/${item.mainOutput && !item.mainOutput.complete ? item.mainOutput.lastSequence : 'complete'}`
-}
+// Cache complete referenced text too, so releasing its source buffer preserves
+// the prepared body and the existing bounded eviction behavior.
+function needsBody(item: ConversationItem) { return !!item.mainOutput || (item.outputTurn || 0) > 0 && (item.outputBytes || 0) > 0 }
 function sameFields(left: object, right: object, omitted: readonly string[]) {
   const a = left as Record<string, unknown>, b = right as Record<string, unknown>
   return Object.keys(a).every(key => omitted.includes(key) || a[key] === b[key])
@@ -37,7 +36,7 @@ export function useConversationHistory(options: {
   synchronized: () => boolean
   paused: () => boolean
   indexes: (runs: string[]) => Promise<void>
-  output: (item: ConversationItem) => Promise<void>
+  output: (item: ConversationItem, retry?: boolean) => Promise<ReadonlyMap<string, DisplayBody> | undefined>
   text: (item: ConversationItem) => string
   release?: (item: ConversationItem) => void
   traceKeys: () => string[]
@@ -52,6 +51,8 @@ export function useConversationHistory(options: {
   const prepending = ref(false)
   const missing = ref(new Set<string>())
   const versions = new Map<string, string>()
+  const failed = new Map<string, string>()
+  const bodyRequests = new Map<string, Promise<void>>()
   const bodies = new Map<string, { version: string; text: string }>()
   let bodyBytes = 0
   let sourceChanged = true
@@ -106,7 +107,8 @@ export function useConversationHistory(options: {
       const previous = items.value
       const absent = sourceChanged ? new Set<string>() : new Set(missing.value)
       const update = (item: ConversationItem, old?: ConversationItem) => {
-        if (needsBody(item) && bodies.get(item.displayKey)?.version !== bodyVersion(item)) absent.add(item.displayKey)
+        if (needsBody(item) && bodies.get(item.displayKey)?.version !== bodyVersion(item)
+          && failed.get(item.displayKey) !== bodyVersion(item)) absent.add(item.displayKey)
         else absent.delete(item.displayKey)
         return project(item, old)
       }
@@ -119,6 +121,7 @@ export function useConversationHistory(options: {
           return update(item, oldByKey.get(item.displayKey))
         })
         for (const key of versions.keys()) if (!positions.has(key)) { versions.delete(key); removeBody(key) }
+        for (const key of failed.keys()) if (!positions.has(key)) failed.delete(key)
       } else {
         // Visibility changes affect only evicted/rehydrated bodies, not every
         // message already prepared in the continuous history.
@@ -139,6 +142,58 @@ export function useConversationHistory(options: {
     prepared.value = true
     prepending.value = false
   }
+  function cacheGroup(group: ConversationItem[], requested: Map<string, string>, texts?: ReadonlyMap<string, DisplayBody>) {
+    let stale = false
+    for (const item of group) {
+      const latest = candidatesByKey.value.get(item.displayKey)
+      if (!latest) continue
+      const version = bodyVersion(latest)
+      const body = texts?.get(item.displayKey)
+      if (body && body.version !== version || !texts && requested.get(item.displayKey) !== version) {
+        stale = true
+        continue
+      }
+      removeBody(item.displayKey)
+      if (body) {
+        failed.delete(item.displayKey)
+        versions.set(item.displayKey, version)
+        bodies.set(item.displayKey, body)
+        bodyBytes += body.text.length * 2
+      } else {
+        versions.delete(item.displayKey)
+        if (texts) failed.delete(item.displayKey)
+        else failed.set(item.displayKey, version)
+      }
+      changedBodies.add(item.displayKey)
+    }
+    // All fragments must retain their text before the shared source is released.
+    if (texts && group.length && group.every(item => bodies.get(item.displayKey)?.version === bodyVersion(item))) options.release?.(group[0]!)
+    return stale
+  }
+  function prepareBody(item: ConversationItem, retry = false): Promise<void> {
+    const latest = candidatesByKey.value.get(item.displayKey)
+    if (!latest || disposed) return Promise.resolve()
+    const current = generation, key = displayOutputKey(latest)
+    const pending = bodyRequests.get(key)
+    if (pending) return pending
+    const requested = new Map(candidates.value.filter(row => displayOutputKey(row) === key).map(row => [row.displayKey, bodyVersion(row)]))
+    let stale = false
+    const reading = (latest.mainOutput || needsFullMessageText(latest) ? options.output(latest, retry)
+      : Promise.resolve(new Map([[latest.displayKey, { version: bodyVersion(latest), text: options.text(latest) }]]))).then(texts => {
+      if (disposed || current !== generation) return
+      stale = cacheGroup(candidates.value.filter(row => displayOutputKey(row) === key), requested, texts)
+      if (stale) changed = true
+      publish()
+    }).finally(() => {
+      if (bodyRequests.get(key) === reading) bodyRequests.delete(key)
+      if (stale && !disposed && current === generation) void prepare()
+    })
+    // Share ownership transfer as well as the HTTP read. A second consumer
+    // must never cache text after the first has released its source buffer.
+    bodyRequests.set(key, reading)
+    return reading
+  }
+  function retry(item: ConversationItem) { return prepareBody(item, true) }
   function prepare(): Promise<void> {
     changed = true
     if (request) return request
@@ -156,7 +211,7 @@ export function useConversationHistory(options: {
         if (initial && start.value === undefined) start.value = options.items.value.slice(-batchSize)[0]?.displaySequence ?? 0
         const groups = new Map<string, ConversationItem[]>()
         for (const item of candidates.value) {
-          if (!needsBody(item) || versions.get(item.displayKey) === bodyVersion(item)
+          if (!needsBody(item) || failed.get(item.displayKey) === bodyVersion(item) || versions.get(item.displayKey) === bodyVersion(item)
             && (!visible.has(item.displayKey) || bodies.get(item.displayKey)?.version === bodyVersion(item))) continue
           const key = displayOutputKey(item)
           const group = groups.get(key) || []
@@ -167,22 +222,7 @@ export function useConversationHistory(options: {
         await Promise.all(Array.from({ length: Math.min(4, outputs.length) }, async () => {
           while (outputs.length && current === generation && !disposed) {
             const group = outputs.shift()!
-            await options.output(group[0]!)
-            if (current !== generation || disposed) continue
-            for (const item of group) {
-              const latest = candidatesByKey.value.get(item.displayKey)
-              if (!latest) continue
-              const version = bodyVersion(latest)
-              versions.set(item.displayKey, version)
-              removeBody(item.displayKey)
-              const text = options.text(latest)
-              bodies.set(item.displayKey, { version, text })
-              bodyBytes += text.length * 2
-              changedBodies.add(item.displayKey)
-            }
-            // Fragments share one canonical body. Prepare the whole group
-            // before releasing it, so later fragments do not fetch it again.
-            options.release?.(group[0]!)
+            await prepareBody(group[0]!)
           }
         }))
         if (disposed || current !== generation) return
@@ -233,12 +273,14 @@ export function useConversationHistory(options: {
     initialized = true
     sessionIdentity = options.session()
     generation++
+    bodyRequests.clear()
+    failed.clear()
     sourceChanged = true
     request = undefined; olderRequest = undefined; changed = false; prepending.value = false
     if (changedSession) {
       start.value = undefined; items.value = []; prepared.value = false
       visible.clear(); visibleRegistered = false; missing.value = new Set()
-      versions.clear(); bodies.clear(); bodyBytes = 0; changedBodies.clear(); positions.clear()
+      versions.clear(); failed.clear(); bodies.clear(); bodyBytes = 0; changedBodies.clear(); positions.clear()
     } else if (start.value !== undefined && !candidates.value.length) {
       start.value = options.items.value.slice(-batchSize)[0]?.displaySequence ?? 0
     }
@@ -250,5 +292,5 @@ export function useConversationHistory(options: {
   watch(options.synchronized, ready => { if (ready) void prepare() }, { flush: 'post' })
   watch([settled, options.paused], () => { publish(); if (!options.paused() && [...visible].some(key => missing.value.has(key))) void prepare() }, { flush: 'post' })
   onScopeDispose(() => { disposed = true; generation++ })
-  return { items, candidates, start, prepared, loading, failure, prepending, hasEarlier, earlier, traceReady, prepare, missing, setVisible }
+  return { items, candidates, start, prepared, loading, failure, prepending, hasEarlier, earlier, traceReady, prepare, retry, missing, setVisible }
 }

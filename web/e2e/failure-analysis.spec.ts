@@ -1,5 +1,7 @@
-import { test, expect } from './fixtures'
-import type { Message } from '../src/client/types'
+import type { Page, TestInfo } from '@playwright/test'
+import { test, expect, type VistaFixture } from './fixtures'
+import type { Message, SessionListSnapshot } from '../src/client/types'
+import { installMockStateStream, notifyState } from './state-stream-fixture'
 
 test.use({ modelFailure: { status: 400, body: { error: { type: 'invalid_request_error',
   message: 'Synthetic prompt_rendering_failed <|start|> </rfl:parameter> test-key' } } } })
@@ -72,6 +74,14 @@ test('one click sends a localized diagnostic question in a new conversation and 
 })
 
 test('a compaction failure exposes the same diagnostic action and preserves the failed compaction', async ({ page, vista }) => {
+  await analyzeFailedCompaction(page, vista)
+})
+
+test('a delayed creation summary preserves automatic selection in the diagnostic conversation', { tag: '@responsive' }, async ({ page, vista }, testInfo) => {
+  await analyzeFailedCompaction(page, vista, testInfo)
+})
+
+async function analyzeFailedCompaction(page: Page, vista: VistaFixture, orderedDelivery?: TestInfo) {
   await vista.api('/preferences', { method: 'PATCH', body: JSON.stringify({ feedbackInvitationSeen: true }) })
   const source = await vista.api('/sessions', { method: 'POST', body: '{}' })
   await vista.api(`/sessions/${source.id}/messages`, { method: 'POST', body: JSON.stringify({ content: 'Original failed task' }) })
@@ -83,14 +93,49 @@ test('a compaction failure exposes the same diagnostic action and preserves the 
   // The only mock connection just failed. Clear its cooldown to exercise automatic delivery.
   await vista.api('/model-selection/stats', { method: 'DELETE', body: JSON.stringify({ scope: 'speed' }) })
   await vista.api(`/sessions/${source.id}/selection`, { method: 'PATCH', body: JSON.stringify({ selectionMode: 'auto', selectionTier: 'quality' }) })
+  if (orderedDelivery) await installMockStateStream(page)
   await page.goto(`${vista.origin}/sessions/${source.id}`)
   await page.locator('.compaction-details').click()
   const detail = page.locator('.compaction-error-detail')
   await expect(detail).toContainText('manual context compaction')
+  let submitted: Record<string, unknown> | undefined
+  if (orderedDelivery) {
+    let creationSnapshot: SessionListSnapshot
+    let destinationID: string
+    const snapshotTitle = 'Diagnostic creation snapshot'
+    await page.route('**/api/sessions', async route => {
+      if (route.request().method() !== 'POST') return route.continue()
+      const response = await route.fetch()
+      destinationID = (await response.json()).id
+      // A real saved title makes application of the earlier list observable,
+      // including when the sidebar is hidden on a mobile viewport.
+      await vista.api(`/sessions/${destinationID}`, { method: 'PATCH', body: JSON.stringify({ title: snapshotTitle }) })
+      const items = await vista.api('/sessions?open=true')
+      const points = await Promise.all(items.map(async (item: { id: string }) => [item.id, (await vista.api(`/sessions/${item.id}/checkpoint`)).throughSequence]))
+      creationSnapshot = { items, throughSequences: Object.fromEntries(points) }
+      await route.fulfill({ response })
+    })
+    await page.route('**/api/sessions/*/messages', async route => {
+      if (route.request().method() !== 'POST') return route.continue()
+      submitted = route.request().postDataJSON()
+      const response = await route.fetch()
+      // The message commits auto/quality before the older creation list is
+      // delivered. Withhold only the acknowledgement until that list applies.
+      await notifyState(page, ['sessions'], { sessions: creationSnapshot })
+      await expect(page.locator(`.session-card[data-session-id="${destinationID}"] .session-name`)).toHaveText(snapshotTitle)
+      await route.fulfill({ response })
+    })
+  }
   await detail.getByRole('button', { name: 'Analyze this failure in a new conversation', exact: true }).click()
   await expect.poll(() => new URL(page.url()).pathname).not.toBe(`/sessions/${source.id}`)
   const destination = new URL(page.url()).pathname
   await expect.poll(async () => (await vista.api(`${destination}/checkpoint`)).session.executing).toBe(false)
+  const checkpoint = await vista.api(`${destination}/checkpoint`)
+  if (orderedDelivery) {
+    await orderedDelivery.attach('diagnostic-selection', { body: JSON.stringify({ submitted, checkpoint }), contentType: 'application/json' })
+    expect(submitted).toMatchObject({ selectionMode: 'auto', selectionTier: 'quality' })
+    expect(checkpoint.session).toMatchObject({ selectionMode: 'auto', selectionTier: 'quality' })
+  }
   await expect(page.locator('.sender-card-auto')).toBeVisible()
   await expect(page.locator('.composer-tier')).toContainText('Quality')
   expect((await vista.api(`${destination}/checkpoint`)).session).toMatchObject({ selectionMode: 'auto', selectionTier: 'quality' })
@@ -100,4 +145,4 @@ test('a compaction failure exposes the same diagnostic action and preserves the 
   expect(data.error.content).toBe(failure.error)
   expect(await vista.api(`/sessions/${source.id}/messages`)).toEqual(original)
   expect(await vista.api(`/sessions/${source.id}/context`)).toEqual(failure)
-})
+}

@@ -27,15 +27,34 @@ test('background child survives refresh and the next reply, then saves its tool 
     'Mock reply: Start background', 'Mock reply: Next question', 'Background completion received: succeeded.',
   ])
   const events = await vista.api(`/sessions/${session.id}/event-page`)
-  expect(events.filter((event: any) => event.kind === 'runtime_event')).toHaveLength(1)
-  expect(vista.modelRequests.filter(request => request.messages?.some(message => message.role === 'system'
-    && String(message.content).startsWith('Runtime completion event.')))).toHaveLength(1)
-  expect(vista.modelRequests.filter(request => request.messages?.filter(message => message.role === 'user').at(-1)?.content === 'Background check')).toHaveLength(2)
+  const completionEvents = events.filter((event: any) => event.kind === 'runtime_event'
+    && event.data.kind === 'agent' && event.data.sourceId === 'main/background')
+  expect(completionEvents).toHaveLength(1)
+  expect(completionEvents[0].data).toMatchObject({ recipient: 'main', status: 'succeeded' })
+  const notices = vista.modelRequests.flatMap(request => request.messages || [])
+    .filter(message => String(message.content).startsWith('Runtime completion event.'))
+  expect(notices.every(message => message.role === 'user')).toBe(true)
+  expect(notices.filter(message => JSON.parse(String(message.content).split('\n').slice(1).join('\n')).id === completionEvents[0].data.id)).toHaveLength(1)
+  const toolEvents = events.filter((event: any) => event.kind === 'runtime_event' && event.data.kind === 'tool'
+    && event.data.recipient === 'main/background')
+  expect(toolEvents).toHaveLength(1)
+  expect(toolEvents[0].data).toMatchObject({ status: 'succeeded' })
+  expect(toolEvents[0].data.sourceId).toMatch(/(?:^|\/)background-shell$/)
+  const childRequests = vista.modelRequests.filter(request => request.messages?.some(message => message.role === 'user' && message.content === 'Background check'))
+  const pendingRequests = childRequests.filter(request => {
+    const last = request.messages?.at(-1)
+    if (last?.role !== 'tool') return false
+    try { return JSON.parse(String(last.content)).status === 'running' } catch { return false }
+  })
+  expect(pendingRequests.length).toBeLessThanOrEqual(1)
+  expect(childRequests).toHaveLength(2 + pendingRequests.length)
   const report = events.findLast((event: any) => event.kind === 'agent_task' && event.data.task?.id === 'main/background').data.task.report
   const output = await vista.api(`/sessions/${session.id}/runs/${report.runId}/model-output?turn=${report.turn}&full=1`)
   expect(output.content).toBe('Background report complete.')
   expect(output.complete).toBe(true)
-  expect(events.some((event: any) => event.kind === 'tool' && event.data.taskId === 'main/background' && event.data.status === 'succeeded')).toBe(true)
+  const childTools = events.filter((event: any) => event.kind === 'tool' && event.data.taskId === 'main/background')
+  expect(childTools.filter((event: any) => event.data.status === 'started')).toHaveLength(1)
+  expect(childTools.filter((event: any) => event.data.status === 'succeeded')).toHaveLength(1)
   const requests = vista.modelRequests.length
   await page.reload()
   await expect(page.locator('article.assistant').last()).toContainText('Background completion received: succeeded.')

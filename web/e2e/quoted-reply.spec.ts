@@ -1,10 +1,123 @@
 import type { Locator, Page } from '@playwright/test'
 import { test, expect, type VistaFixture } from './fixtures'
-import type { Message, QueuedInput } from '../src/client/types'
+import { test as historyTest } from './long-history-fixture'
+import type { MainOutput, Message, QueuedInput } from '../src/client/types'
+import { quoteStoragePrefix } from '../src/state/quotedReply'
 
 test.use({ replyWithPrompt: true })
 const passage = 'A quoted passage with café and 中文🙂.'
-const secondPassage = 'A separate paragraph can replace the quote.'
+const secondPassage = 'A separate paragraph can be quoted alongside the first.'
+
+for (const scenario of ['covered missing', 'older missing', 'opening valid', 'older valid', 'older long valid', 'older long interrupted'] as const) {
+  const long = scenario.startsWith('older long')
+  const valid = scenario.endsWith('valid') || long
+  historyTest(`quote source navigation stops at its sequence boundary: ${scenario}`, { tag: valid ? '@responsive' : [] }, async ({ page, vista, historySeed }) => {
+    historyTest.setTimeout(90_000)
+    await vista.api('/preferences', { method: 'PATCH', body: JSON.stringify({ feedbackInvitationSeen: true }) })
+    const base = `/sessions/${historySeed.sessionId}`
+    const messages: Message[] = await vista.api(base + '/messages')
+    const runId = messages[0]!.runId
+    const path = `${base}/runs/${runId}/main-outputs`
+    const latest: MainOutput[] = await vista.api(path)
+    const earlier: MainOutput[] = await vista.api(`${path}?before=${latest[0]!.sequence}`)
+    const outputs = [...earlier, ...latest]
+    const target = scenario === 'covered missing' ? outputs.at(-3)! : long ? outputs[0]! : valid ? outputs[10]! : outputs[Math.floor(outputs.length / 2)]!
+    const key = `output/${runId}/main/${target.turn}${valid ? '' : '/deleted'}`
+    await page.goto(vista.origin)
+    await page.evaluate(({ storageKey, key, target }) => localStorage.setItem(storageKey, JSON.stringify({ nextId: 2, items: [{ id: 1, role: 'assistant', text: 'Preserved quote',
+      source: { key, sequence: target.sequence, createdAt: target.createdAt } }] })), { storageKey: quoteStoragePrefix + historySeed.sessionId, key, target })
+    if (scenario === 'older long interrupted') await page.addInitScript(() => {
+      const observer = new MutationObserver(() => {
+        const list = document.querySelector<HTMLElement>('.messages')
+        const source = list?.querySelector<HTMLElement>('.quote-source-target')
+        if (!list || !source || !document.querySelector('.history-loading')) return
+        const bounds = list.getBoundingClientRect(), box = source.getBoundingClientRect()
+        if (box.top < bounds.bottom && box.bottom > bounds.top) return
+        const wheel = new WheelEvent('wheel', { deltaY: 200, bubbles: true, cancelable: true })
+        list.dispatchEvent(wheel)
+        document.body.dataset.quoteInterrupted = String(!wheel.defaultPrevented)
+        observer.disconnect()
+      })
+      observer.observe(document, { childList: true, subtree: true, attributes: true, attributeFilter: ['class'] })
+    })
+    if (scenario === 'opening valid') await page.addInitScript(() => {
+      const observer = new MutationObserver(() => {
+        const source = document.querySelector<HTMLElement>('.sender-quote-source')
+        if (!source || document.querySelector('.messages')?.getAttribute('aria-busy') !== 'true') return
+        source.click()
+        document.body.dataset.quoteOpening = 'true'
+        observer.disconnect()
+      })
+      observer.observe(document, { childList: true, subtree: true })
+    })
+    const reads: string[] = []
+    page.on('request', request => {
+      if (/\/(?:model-output|main-outputs)(?:\?|$)|\/messages\?before=/.test(request.url())) reads.push(request.url())
+    })
+    await page.goto(vista.origin + base)
+    const list = page.locator('.messages')
+    await expect(list).toHaveAttribute('aria-busy', 'false')
+    const start = Number(await list.getAttribute('data-history-start'))
+    const before = reads.length
+    let release = () => {}, started = Promise.resolve()
+    if (scenario === 'older long valid') {
+      const held = new Promise<void>(resolve => { release = resolve })
+      let received!: () => void
+      started = new Promise<void>(resolve => { received = resolve })
+      let first = true
+      await page.route('**/model-output?*', async route => {
+        if (!first || new URL(route.request().url()).searchParams.get('turn') !== '1') return route.continue()
+        first = false
+        const response = await route.fetch()
+        received()
+        await held
+        await route.fulfill({ response })
+      })
+    }
+    try {
+      if (scenario === 'opening valid') await expect(page.locator('body')).toHaveAttribute('data-quote-opening', 'true')
+      else await page.locator('.sender-quote-source').click()
+      await started
+      if (scenario === 'older long valid') await expect(page.locator('article.assistant:not(.main-output)')).toBeInViewport()
+      release()
+      if (scenario === 'older long interrupted') {
+        await expect(page.locator('body')).toHaveAttribute('data-quote-interrupted', 'true')
+        await expect(list).toHaveAttribute('aria-busy', 'false')
+        await expect(page.locator('article.assistant:not(.main-output)')).toBeInViewport()
+        await expect(page.locator('.quote-source-target')).not.toBeInViewport()
+      } else if (valid) {
+        await expect(page.locator('.quote-source-target')).toHaveAttribute('data-display-key', key)
+        await expect(page.locator('.quote-source-target')).toBeInViewport()
+        await expect(page.locator('.quote-source-target')).toContainText(long ? 'Long progress ending.' : 'Saved progress text.')
+        await expect(list).toHaveAttribute('aria-busy', 'false')
+        expect(await list.locator('[data-timeline-key]').count()).toBeLessThan(35)
+        if (long) {
+          await page.getByRole('button', { name: 'Jump to latest', exact: true }).click()
+          await expect(list).toHaveAttribute('aria-busy', 'false')
+          await expect(page.locator('article.assistant:not(.main-output)')).toBeInViewport()
+          await page.locator('.sender-quote-source').click()
+          await expect(page.locator('.quote-source-target')).toBeInViewport()
+          await expect(list).toHaveAttribute('aria-busy', 'false')
+        }
+      } else {
+        await expect(page.locator('.error')).toContainText('The original message is no longer available.')
+        await expect(page.locator('.sender-quote p')).toHaveText('Preserved quote')
+        const after = Number(await list.getAttribute('data-history-start'))
+        expect(after).toBeLessThanOrEqual(target.sequence)
+        expect(after).toBeGreaterThan(outputs[0]!.sequence)
+        if (scenario === 'covered missing') {
+          expect(start).toBeLessThanOrEqual(target.sequence)
+          expect(after).toBe(start)
+          expect(reads.length).toBe(before)
+        } else {
+          expect(start).toBeGreaterThan(target.sequence)
+          expect(after).toBeLessThan(start)
+        }
+      }
+    } finally { release() }
+    expect(vista.modelRequests).toHaveLength(0)
+  })
+}
 
 async function createConversation(page: Page, vista: VistaFixture, content = `${passage}\n\n${secondPassage}`) {
   await vista.api('/preferences', { method: 'PATCH', body: JSON.stringify({ feedbackInvitationSeen: true }) })
@@ -40,6 +153,14 @@ async function selectText(source: Locator, text?: string) {
   }, text)
 }
 
+async function quoteHeader(source: Locator, number = 1, role = 'Quoted reply') {
+  const metadata = await source.evaluate(element => {
+    const row = element.closest<HTMLElement>('[data-display-key]')!
+    return { sequence: row.dataset.timelineSequence, createdAt: new Date(row.querySelector('time')!.dateTime).toISOString() }
+  })
+  return `Quote ${number} · ${role} · #${metadata.sequence} · ${metadata.createdAt}`
+}
+
 async function quoteSelected(page: Page, touch: boolean) {
   const action = page.getByRole('button', { name: 'Quote selection', exact: true })
   await expect(action).toBeVisible()
@@ -59,6 +180,7 @@ test('selected text reaches the model with the question and remains quoted after
   const session = await createConversation(page, vista)
   const input = page.locator('.sender-card textarea')
   await input.fill('Explain this passage.')
+  const header = await quoteHeader(page.locator('article.assistant [data-quote-role]'))
   await selectText(page.locator('article.assistant [data-quote-role]'), passage)
   await expect(page.locator('.message-quote-action')).toBeVisible()
   await page.screenshot({ path: testInfo.outputPath('selection-action.png'), animations: 'disabled' })
@@ -68,41 +190,81 @@ test('selected text reaches the model with the question and remains quoted after
   await page.screenshot({ path: testInfo.outputPath('quoted-draft-light.png'), animations: 'disabled' })
   await page.emulateMedia({ colorScheme: 'dark' })
   await page.screenshot({ path: testInfo.outputPath('quoted-draft-dark.png'), animations: 'disabled' })
+  const secondHeader = await quoteHeader(page.locator('article.user [data-quote-role]'), 2, 'Quoted message')
+  await selectText(page.locator('article.user [data-quote-role]'), secondPassage)
+  await quoteSelected(page, isMobile)
   await page.getByRole('button', { name: 'Send', exact: true }).click()
-  const expected = `> ${passage}\n\nExplain this passage.`
+  const expected = `${header}\n> ${passage}\n\n${secondHeader}\n> ${secondPassage}\n\nExplain this passage.`
   await expect.poll(() => vista.modelRequests.at(-1)?.messages?.filter(message => message.role === 'user').at(-1)?.content).toBe(expected)
   await expect(page.locator('.sender-quote')).toHaveCount(0)
   await expect(input).toHaveValue('')
   await expect.poll(async () => (await vista.api(`/sessions/${session.id}/messages`) as Message[]).filter(message => message.role === 'assistant').length).toBe(2)
   await page.reload()
   const message = page.locator('article.user').last()
-  await expect(message.locator('blockquote')).toHaveText(passage)
+  await expect(message.locator('blockquote')).toHaveText([passage, secondPassage])
   await expect(message).toContainText('Explain this passage.')
-  await expect(message).not.toContainText(secondPassage)
+  await expect(message).toContainText('Quote 1 · Quoted reply')
+  await expect(message).toContainText('Quote 2 · Quoted message')
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(page.viewportSize()!.width)
 })
 
-test('quotes replace, persist with their own session draft, and can be removed independently', { tag: '@responsive' }, async ({ page, vista, isMobile }) => {
+test('restored legacy quote drafts show the new question in the recent sent preview', { tag: '@responsive' }, async ({ page, vista }) => {
+  const session = await createConversation(page, vista)
+  const text = Array.from({ length: 60 }, (_, i) => `Legacy quoted paragraph ${i + 1}.`).join('\n\n')
+  await page.evaluate(({ key, text }) => localStorage.setItem(key, JSON.stringify({ role: 'assistant', text })), { key: quoteStoragePrefix + session.id, text })
+  await page.reload()
+  await expect(page.locator('.sender-quote p')).toHaveText(text)
+  const question = 'Please explain the new question.'
+  await page.locator('.sender-card textarea').fill(question)
+  await page.getByRole('button', { name: 'Send', exact: true }).click()
+  await expect.poll(async () => (await vista.api(`/sessions/${session.id}/messages`) as Message[]).filter(message => message.role === 'assistant').length).toBe(2)
+  const recent = page.locator('.conversation-recent-message')
+  await expect(recent).toBeVisible()
+  await expect(recent.locator('.recent-sent-trigger')).toHaveAttribute('aria-description', question)
+  const expected = '> Quote 1 · Quoted reply\n' + text.split('\n').map(line => '> ' + line).join('\n') + '\n\n' + question
+  expect(vista.modelRequests.at(-1)?.messages?.filter(message => message.role === 'user').at(-1)?.content).toBe(expected)
+  const messages = await vista.api(`/sessions/${session.id}/messages`) as Message[]
+  expect(messages.filter(message => message.role === 'user').at(-1)?.content).toBe(expected)
+  await expect(page.locator('.sender-quote')).toHaveCount(0)
+  await page.reload()
+  await expect(recent.locator('.recent-sent-trigger')).toHaveAttribute('aria-description', question)
+})
+
+test('quotes append, persist with their own session draft, and can be removed independently', { tag: '@responsive' }, async ({ page, vista, isMobile }) => {
   const first = await createConversation(page, vista)
   const input = page.locator('.sender-card textarea')
   await input.fill('Keep my existing question.')
   const source = page.locator('article.assistant [data-quote-role]')
   await selectText(source, passage)
   await quoteSelected(page, isMobile)
+  await selectText(page.locator('article.user [data-quote-role]'), secondPassage)
+  await quoteSelected(page, isMobile)
   await selectText(source, secondPassage)
   await quoteSelected(page, isMobile)
-  await expect(page.locator('.sender-quote p')).toHaveText(secondPassage)
+  await expect(page.locator('.sender-quote p')).toHaveText([passage, secondPassage, secondPassage])
+  await page.getByRole('button', { name: 'Remove quote 2', exact: true }).click()
+  await expect(page.locator('.sender-quote-header strong')).toHaveText(['Quote 1', 'Quote 3'])
   await page.reload()
-  await expect(page.locator('.sender-quote p')).toHaveText(secondPassage)
+  await expect(page.locator('.sender-quote p')).toHaveText([passage, secondPassage])
+  await expect(page.locator('.sender-quote-header strong')).toHaveText(['Quote 1', 'Quote 3'])
   await expect(input).toHaveValue('Keep my existing question.')
   const second = await vista.api('/sessions', { method: 'POST', body: '{}' })
   await page.goto(`${vista.origin}/sessions/${second.id}`)
   await expect(page.locator('.sender-quote')).toHaveCount(0)
   await input.fill('A different question.')
   await page.goto(`${vista.origin}/sessions/${first.id}`)
-  await expect(page.locator('.sender-quote p')).toHaveText(secondPassage)
+  await expect(page.locator('.sender-quote p')).toHaveText([passage, secondPassage])
   await expect(input).toHaveValue('Keep my existing question.')
-  await page.getByRole('button', { name: 'Remove quote', exact: true }).click()
+  await page.locator('.sender-quote-source').first().click()
+  await expect(page.locator('.quote-source-target')).toContainText(passage)
+  await expect(page.locator('.quote-source-target')).toBeInViewport()
+  await selectText(page.locator('article.user [data-quote-role]'), passage)
+  await quoteSelected(page, isMobile)
+  await expect(page.locator('.sender-quote-header strong')).toHaveText(['Quote 1', 'Quote 3', 'Quote 4'])
+  await expect(page.locator('.sender-quote-source').last()).toContainText('Quoted message')
+  await page.getByRole('button', { name: 'Remove quote 1', exact: true }).click()
+  await page.getByRole('button', { name: 'Remove quote 3', exact: true }).click()
+  await page.getByRole('button', { name: 'Remove quote 4', exact: true }).click()
   await expect(page.locator('.sender-quote')).toHaveCount(0)
   await expect(input).toBeFocused()
   await expect(input).toHaveValue('Keep my existing question.')
@@ -111,7 +273,7 @@ test('quotes replace, persist with their own session draft, and can be removed i
   await input.fill('')
   await selectText(page.locator('article.user [data-quote-role]'), passage)
   await quoteSelected(page, isMobile)
-  await expect(page.locator('.sender-quote-label')).toHaveText('Quoted message')
+  await expect(page.locator('.sender-quote-header strong')).toHaveText('Quote 5')
   await expect(page.getByRole('button', { name: 'Send', exact: true })).toBeDisabled()
 })
 
@@ -184,11 +346,12 @@ test('a quote sent during execution reaches the next model request intact', asyn
     await input.fill('Keep working.')
     await input.press('Enter')
     await expect(page.getByRole('button', { name: 'Stop current execution', exact: true })).toBeEnabled()
+    const header = await quoteHeader(page.locator('article.assistant [data-quote-role]'))
     await selectText(page.locator('article.assistant [data-quote-role]'), passage)
     await quoteSelected(page, isMobile)
     await input.fill('Explain this next.')
     await page.getByRole('button', { name: 'Send', exact: true }).click()
-    const expected = `> ${passage}\n\nExplain this next.`
+    const expected = `${header}\n> ${passage}\n\nExplain this next.`
     await expect.poll(async () => (await vista.api(`/sessions/${session.id}/inputs`) as QueuedInput[]).find(item => item.content === expected)?.status).toBe('queued')
     await expect(page.locator('.sender-quote')).toHaveCount(0)
     release()
@@ -201,17 +364,21 @@ test('long selections remain complete while the quote preview keeps the composer
   await createConversation(page, vista, content)
   const source = page.locator('article.assistant [data-quote-role]')
   await expect(source).toContainText('End of the full quote.')
+  const header = await quoteHeader(source)
   const selected = await selectText(source)
   expect(new TextEncoder().encode(selected).length).toBeGreaterThan(4096)
   await quoteSelected(page, isMobile)
   await expect(page.locator('.sender-quote p')).toHaveText(selected)
+  await page.getByRole('button', { name: 'Expand quote', exact: true }).click()
+  await expect(page.getByRole('button', { name: 'Collapse quote', exact: true })).toHaveAttribute('aria-expanded', 'true')
+  await page.getByRole('button', { name: 'Collapse quote', exact: true }).click()
   const input = page.locator('.sender-card textarea')
   await input.fill('Explain the ending.')
   const send = page.getByRole('button', { name: 'Send', exact: true })
   await expect(send).toBeInViewport()
   await page.screenshot({ path: testInfo.outputPath('long-quote-preview.png'), animations: 'disabled' })
   await send.click()
-  const expected = selected.split('\n').map(line => `> ${line}`).join('\n') + '\n\nExplain the ending.'
+  const expected = header + '\n' + selected.split('\n').map(line => `> ${line}`).join('\n') + '\n\nExplain the ending.'
   await expect.poll(() => vista.modelRequests.at(-1)?.messages?.filter(message => message.role === 'user').at(-1)?.content).toBe(expected)
 })
 

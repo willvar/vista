@@ -29,7 +29,7 @@ async function expectControlReachable(control: Locator) {
 async function expectNoConversationOverflow(page: Page) {
   const geometry = await page.evaluate(() => {
     const selectors = ['.messages', '.run-trace', '.ui-think-status-wrapper', '.ui-think-status-text',
-      '.ui-thought-chain-node-box', '.ui-thought-chain-node-title', '.sender-card', '.sender-footer', '.composer-submit']
+      '.ui-thought-chain-node-box', '.ui-thought-chain-node-title', '.sender-card', '.sender-status', '.conversation-execution', '.sender-footer', '.composer-submit']
     const model = document.querySelector('.composer-model')?.getBoundingClientRect()
     return {
       pageWidth: document.documentElement.scrollWidth,
@@ -253,6 +253,7 @@ test('empty and eight-line drafts keep Send and model selection reachable', asyn
   const textarea = page.locator('.sender-card textarea')
   await expect(textarea).toBeEnabled()
   await settleLayout(page)
+  await expect(page.locator('.sender-status')).toHaveCount(0)
   const idleInputHeight = await page.locator('.sender-card').evaluate(element => element.getBoundingClientRect().height)
   if (page.viewportSize()!.height <= 520) expect(idleInputHeight, 'Idle input area must preserve space for conversation history').toBeLessThanOrEqual(90)
   await testInfo.attach('idle-sender-layout', { body: await page.screenshot(), contentType: 'image/png' })
@@ -323,6 +324,9 @@ test('long running tool and completed process keep Stop and Send reachable', asy
   await page.goto(`${vista.origin}/sessions/${session.id}`)
   const activeTrace = page.locator(`.run-trace[data-run-id="${activeRun}"]`)
   const completedTrace = page.locator(`.run-trace[data-run-id="${completedRun}"]`)
+  await expect(page.locator('.sender-card .sender-status .conversation-execution')).toBeVisible()
+  await expect(page.locator('.conversation-execution-current .conversation-execution-elapsed')).toHaveCount(0)
+  await expect(page.locator('.conversation-execution-metadata .conversation-execution-elapsed')).not.toBeEmpty()
   await expect(page.locator('.conversation-execution .trace-last-activity')).toContainText('Last activity:')
   await expect(page.locator('.conversation-execution .trace-last-activity')).not.toContainText('UI geometry only')
   await expect(page.locator('.conversation-execution .trace-last-activity time')).toHaveAttribute('datetime', createdAt)

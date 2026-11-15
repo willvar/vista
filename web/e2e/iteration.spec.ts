@@ -236,12 +236,16 @@ test('independent selection, voluntary feedback, pending controls, and context f
     const next = element.nextElementSibling
     return { inHistory: !!element.closest('.conversation-history'), adjacentComposer: !!(next?.matches('.sender-card') || next?.querySelector('.sender-card')),
       top: element.getBoundingClientRect().top, bottom: element.getBoundingClientRect().bottom,
-      senderTop: sender.getBoundingClientRect().top, executionBottom: execution?.getBoundingClientRect().bottom }
+      senderTop: sender.getBoundingClientRect().top, executionTop: execution?.getBoundingClientRect().top, executionInComposer: !!execution && sender.contains(execution) }
   })
+  await expect(page.locator('.conversation-recent-message')).toHaveCount(0)
   expect(queueLayout.inHistory).toBe(false)
   expect(queueLayout.adjacentComposer).toBe(true)
   expect(queueLayout.bottom).toBeLessThanOrEqual(queueLayout.senderTop + 1)
-  if (queueLayout.executionBottom !== undefined) expect(queueLayout.executionBottom).toBeLessThanOrEqual(queueLayout.top + 1)
+  if (queueLayout.executionTop !== undefined) {
+    expect(queueLayout.executionInComposer).toBe(true)
+    expect(queueLayout.executionTop).toBeGreaterThanOrEqual(queueLayout.senderTop)
+  }
   const first = page.locator('[data-input-id="pending-1"]')
   await first.getByRole('button', { name: 'Edit pending message', exact: true }).click()
   await first.getByRole('textbox', { name: 'Edit pending message', exact: true }).fill('Edited gardening note')

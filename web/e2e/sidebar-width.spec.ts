@@ -19,9 +19,11 @@ async function dragSidebarTo(page: Page, width: number) {
 }
 
 async function noPageOverflow(page: Page) {
-  const bounds = await page.evaluate(() => ({ width: innerWidth, height: innerHeight, pageWidth: document.documentElement.scrollWidth, pageHeight: document.documentElement.scrollHeight }))
-  expect(bounds.pageWidth).toBeLessThanOrEqual(bounds.width + 2)
-  expect(bounds.pageHeight).toBeLessThanOrEqual(bounds.height + 2)
+  // Media queries can hide the dragger before resize listeners update splitter sizing.
+  await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth - innerWidth),
+    { message: 'Horizontal page overflow must settle after layout updates' }).toBeLessThanOrEqual(2)
+  await expect.poll(() => page.evaluate(() => document.documentElement.scrollHeight - innerHeight),
+    { message: 'Vertical page overflow must settle after layout updates' }).toBeLessThanOrEqual(2)
 }
 
 test('sidebar keyboard resizing uses pixel steps, preserves limits and saves the width', async ({ page }) => {

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onScopeDispose, ref, useId, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { Empty as VEmpty, Alert, Button, Modal, Select, Tabs } from './ui'
+import { Empty as VEmpty, Alert, Button, Collapsible, Modal, Select, Tabs } from './ui'
 import { IconCopy } from '@tabler/icons-vue'
 import type { StreamEvent } from './client/types'
 import type { TraceAgentHierarchyEntry } from './state/runTrace'
@@ -147,9 +147,9 @@ const details = computed(() => open.value ? JSON.stringify({ runId: props.runId,
           <pre class="trace-model-body">{{ headers(exchange.responseHeaders) }}
 
 {{ exchange.response.encoding === 'base64' ? '[base64]\n' : '' }}{{ exchange.response.content }}</pre>
-          <details class="trace-http-timings"><summary>{{ t('traceReceiveTimings') }}</summary>
+          <Collapsible class="trace-http-timings" :title="t('traceReceiveTimings')">
             <pre class="trace-model-body">{{ pretty({ startedMs: exchange.startedMs, headersMs: exchange.headersMs, durationMs: exchange.durationMs, requestBytes: exchange.request.bytes, responseBytes: exchange.response.bytes, requestTruncated: exchange.request.truncated, responseTruncated: exchange.response.truncated, eof: exchange.eof, readError: exchange.readError, error: exchange.error, timingsTruncated: exchange.timingsTruncated, chunks: exchange.chunks }) }}</pre>
-          </details>
+          </Collapsible>
         </section>
       </div>
     </div>
@@ -157,5 +157,5 @@ const details = computed(() => open.value ? JSON.stringify({ runId: props.runId,
 </template>
 
 <style scoped>
-.trace-debug-body,.trace-model-body{margin:0;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere;font-size:15px;line-height:1.6;color:var(--text-secondary)}.trace-debug-body,.trace-model-diagnostics{max-height:65dvh;overflow:auto}.trace-diagnostic-hint{color:var(--muted);margin:0 0 12px}.trace-diagnostic-controls{display:flex;gap:8px;margin-bottom:12px}.trace-diagnostic-controls :deep(.ui-select){flex:1;min-width:0}.trace-model-record h4{margin:16px 0 8px}.trace-model-body{padding:12px;background:var(--surface-subtle);border:1px solid var(--border);border-radius:8px;max-height:45dvh}.trace-http-timings{margin-top:12px}.trace-http-timings summary{cursor:pointer;color:var(--text-secondary);padding:4px 0}.trace-model-record :deep(.ui-alert){margin-top:12px}
+.trace-debug-body,.trace-model-body{margin:0;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere;font-size:15px;line-height:1.6;color:var(--text-secondary)}.trace-debug-body,.trace-model-diagnostics{max-height:65dvh;overflow:auto}.trace-diagnostic-hint{color:var(--muted);margin:0 0 12px}.trace-diagnostic-controls{display:flex;gap:8px;margin-bottom:12px}.trace-diagnostic-controls :deep(.ui-select){flex:1;min-width:0}.trace-model-record h4{margin:16px 0 8px}.trace-model-body{padding:12px;background:var(--surface-subtle);border:1px solid var(--border);border-radius:8px;max-height:45dvh}.trace-http-timings{margin-top:12px}.trace-http-timings :deep(.ui-collapsible-trigger){color:var(--text-secondary);padding:4px 0}.trace-model-record :deep(.ui-alert){margin-top:12px}
 </style>

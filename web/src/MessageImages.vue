@@ -6,7 +6,7 @@ import { IconX } from '@tabler/icons-vue'
 import { isPlainEscape } from './composables/useEscape'
 import { messageImageZoom } from './ui/messageImageZoom'
 
-const props = defineProps<{ sessionId: string; messageId: string; count: number }>()
+const props = defineProps<{ sessionId: string; messageId: string; count: number; inline?: boolean }>()
 const { t } = useI18n({ useScope: 'global' })
 const failed = ref<Record<number, boolean>>({})
 const retries = ref<Record<number, number>>({})
@@ -97,9 +97,10 @@ onBeforeUnmount(() => {
       <div v-if="failed[index]" class="message-image-error">
         <span>{{ t('imageLoadFailed') }}</span><v-button @click="retry(index)">{{ t('retry') }}</v-button>
       </div>
-      <button v-else type="button" class="message-image-thumbnail" :aria-label="t('zoomImage', { index: index + 1 })" @click.stop="openPreview">
+      <button v-else-if="!inline" type="button" class="message-image-thumbnail" :aria-label="t('zoomImage', { index: index + 1 })" @click.stop="openPreview">
         <img :src="src" :alt="t('attachedImage')" loading="lazy" decoding="async" @error="failed[index] = true">
       </button>
+      <img v-else class="message-image-inline" :src="src" :alt="t('attachedImage')" loading="lazy" decoding="async" @error="failed[index] = true">
     </template>
   </div>
   <Teleport to="body">
@@ -111,6 +112,7 @@ onBeforeUnmount(() => {
 
 <style scoped>
 .message-images{display:flex;flex-wrap:wrap;align-items:flex-start;gap:.5rem;max-width:100%;margin-top:.55rem}
+.message-image-inline{display:block;max-width:100%;height:auto;object-fit:contain}
 .message-image-thumbnail{display:flex;align-items:center;justify-content:center;flex:0 1 240px;width:240px;height:180px;max-width:100%;margin:0;padding:0;border:0;border-radius:8px;background:var(--surface);cursor:zoom-in;line-height:0;overflow:hidden}
 .message-image-thumbnail:focus-visible{outline:var(--focus-outline, 2px solid var(--accent));outline-offset:3px}
 .message-image-thumbnail img{display:block;width:100%;height:100%;object-fit:contain;border-radius:8px}

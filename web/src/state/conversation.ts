@@ -161,7 +161,7 @@ export function reduceConversationEvent(state: ConversationState, event: StreamE
     if (event.kind === 'model_request' && !data?.purpose) next.runProgress = { runId, phase: 'model' }
     else if (event.kind === 'model_retry' && data?.status === 'waiting' && data?.modelRetry) next.runProgress = { runId, phase: 'retry', retry: data.modelRetry }
     else if (event.kind === 'model_reasoning_delta') next.runProgress = { runId, phase: 'reasoning' }
-    else if (event.kind === 'model_delta') next.runProgress = { runId, phase: 'response' }
+    else if (event.kind === 'model_delta' && !data.purpose) next.runProgress = { runId, phase: 'response' }
     else if (event.kind === 'model_result') next.runProgress = { runId, phase: 'processing' }
     else if (event.kind === 'tool') next.runProgress = data?.status === 'started' ? { runId, phase: 'tool', tool: data?.tool?.name, summary: data?.tool?.input?.command || data?.tool?.summary } : { runId, phase: 'processing' }
   }
@@ -189,7 +189,7 @@ export function reduceConversationEvent(state: ConversationState, event: StreamE
         sequence: event.sequence, createdAt: event.createdAt || '', checklist } : null)
     next.modelDrafts = next.modelDrafts.map(draft => draft.runId === runId ? { ...draft, finished: true } : draft)
   }
-  if (event.kind === 'model_delta' && runId && data?.turn > 0 && typeof data?.content === 'string' && !next.finishedRuns[runId]
+  if (event.kind === 'model_delta' && !data.purpose && runId && data?.turn > 0 && typeof data?.content === 'string' && !next.finishedRuns[runId]
     && (depth || !next.messages.some(message => message.role === 'assistant' && message.runId === runId && message.outputTurn === data.turn))) {
     const index = next.modelDrafts.findIndex(draft => draft.runId === runId && draft.turn === data.turn && draft.depth === depth)
     if (index >= 0) next.modelDrafts = next.modelDrafts.map((draft, i) => i === index ? { ...draft, content: (draft.content + data.content).slice(0, 8192) } : draft)
@@ -198,7 +198,7 @@ export function reduceConversationEvent(state: ConversationState, event: StreamE
   if (event.kind === 'model_result' && data?.modelResult && runId) {
     const result = data.modelResult
     next.modelDrafts = next.modelDrafts.map(draft => draft.runId === runId && draft.turn === data.turn && draft.depth === depth ? { ...draft, finished: true } : draft)
-    next.modelResults = [...next.modelResults, { sequence: event.sequence, runId, turn: data.turn, depth, createdAt: event.createdAt, ...(data.taskId ? { taskId: data.taskId, parentTaskId: data.parentTaskId } : {}), purpose: result.purpose, provider: result.provider, id: result.id, finishReason: result.finishReason, reasoningEffort: result.reasoningEffort, usage: result.usage, durationMs: result.durationMs }]
+    next.modelResults = [...next.modelResults, { sequence: event.sequence, runId, turn: data.turn, depth, createdAt: event.createdAt, ...(data.taskId ? { taskId: data.taskId, parentTaskId: data.parentTaskId } : {}), purpose: result.purpose, provider: result.provider, id: result.id, finishReason: result.finishReason, reasoningEffort: result.reasoningEffort, usage: result.usage, durationMs: result.durationMs, summary: result.summary }]
   }
   if (['input_queued', 'input_updated', 'input_status'].includes(event.kind) && data?.id) {
     const existing = next.queuedInputs.some(input => input.id === data.id)
@@ -222,6 +222,7 @@ export function reduceConversationEvent(state: ConversationState, event: StreamE
     next = appendMessage(next, {
       id: `context-summary/${event.sequence}`, runId: runId || '', sequence: event.sequence, createdAt: event.createdAt || '',
       role: 'assistant', content: data.summary, contextSummary: true, resultsAfter: next.summaryStart && next.summaryStart.runId === runId ? next.summaryStart.sequence : 0,
+      ...(data.outputTurn > 0 && data.outputBytes > 0 ? { outputTurn: data.outputTurn, outputBytes: data.outputBytes } : {}),
       ...(model ? { modelKey: model.key, provider: model.provider, modelId: model.id } : {}),
     })
     if (runId) next.summaryStart = { runId, sequence: event.sequence }

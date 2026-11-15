@@ -31,6 +31,7 @@ again. A text-only model sees metadata and an omission notice; switching models
 does not automatically resend earlier attachments or modify canonical history.
 `read_resource` accepts exactly one of `path` (an absolute local image path) or `hash` (an exact hash owned by the conversation).
 Path reads copy the original into the library before activating it; later reads survive source-file changes or deletion.
+Both tools return a session-owned HTTP `url` alongside each resource reference. Replies can display it with `![description](url)`; local filesystem paths and `file:` URLs are not browser image URLs. These URLs reuse the existing ownership-checked original download route. Previously saved replies with incorrect paths are not rewritten.
 Summaries include resource hashes. `list_resources` lists retained originals with
 a hash cursor, and `read_resource` supplies an authorized original as visual input
 to the next request only. The model can recover images omitted by compaction without

@@ -23,6 +23,17 @@ export type TimelineEntry = {
 export type TimelineLayout = { index: number; start: number; size: number; key: string | number | bigint }
 export function traceTimelineKey(trace: string, step: string) { return `trace/${trace}/${step}` }
 
+// Use the measured virtual viewport, not overscan or bottom-follow intent.
+// A reference is useful only after the user's complete row has left above it.
+export function recentSentMessage(messages: readonly ConversationItem[], firstVisibleSequence?: number): ConversationItem | undefined {
+  if (firstVisibleSequence === undefined) return
+  for (let index = messages.length - 1; index >= 0; index--) {
+    const message = messages[index]!
+    if (message.role !== 'user' || message.contextSummary) continue
+    return message.displaySequence < firstVisibleSequence && (message.content.trim() || message.imageCount) ? message : undefined
+  }
+}
+
 export function conversationTimeline(messages: readonly ConversationItem[], traces: Readonly<Record<string, readonly TraceTimelineEntry[]>>, start: number): TimelineEntry[] {
   const rows: TimelineEntry[] = messages.map(message => ({ key: message.displayKey, sequence: message.displaySequence,
     estimate: message.checklist ? 160 : Math.max(80, Math.min(1200, 80 + message.content.length / 50 * 24)), message }))

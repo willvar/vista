@@ -9,6 +9,7 @@ import ConversationSender from '../ConversationSender.vue'
 import ContextCompaction from '../ContextCompaction.vue'
 import ConversationChecklist from '../ConversationChecklist.vue'
 import ConversationExecution from '../ConversationExecution.vue'
+import ConversationRecentMessage from '../ConversationRecentMessage.vue'
 import VistaMark from '../VistaMark.vue'
 import InlineSessionTitle from '../InlineSessionTitle.vue'
 import { useConversationHistory } from '../composables/useConversationHistory'
@@ -18,7 +19,7 @@ import RenderGuard from '../RenderGuard.vue'
 import MessageMarkdown from '../MessageMarkdown.vue'
 import RunToolOutput from '../RunToolOutput.vue'
 import BackgroundProcesses from '../BackgroundProcesses.vue'
-import { conversationTimeline, type TimelineLayout, type TraceTimelineEntry } from '../state/conversationTimeline'
+import { conversationTimeline, recentSentMessage, type TimelineLayout, type TraceTimelineEntry } from '../state/conversationTimeline'
 import { createRunTraceView, type RunTraceViewState } from '../state/runTraceView'
 import type { Message } from '../client/types'
 import MessageUsage from '../MessageUsage.vue'
@@ -31,12 +32,13 @@ import WorkerStatus from '../WorkerStatus.vue'
 import { useWorkspace } from '../composables/useWorkspace'
 import { messageModelIdentity } from '../composables/usePresentation'
 import { checklistItems } from '../state/checklist.ts'
-import { displayOutputKey } from '../state/mainOutputs.ts'
+import { displayOutputKey, needsFullMessageText, type ConversationItem } from '../state/mainOutputs.ts'
 import { jobActive } from '../state/jobs.ts'
+import type { QuotedExcerpt, QuoteSource } from '../state/quotedReply'
 
 const { t } = useI18n({ useScope: 'global' })
 const workspace = useWorkspace()
-const { selected, needsProvider, busy, workerAvailable, modelLabel, modelCatalog, localTime, statusLabel,
+const { selected, needsProvider, busy, error, workerAvailable, modelLabel, modelCatalog, localTime, statusLabel,
   historicalModelLabel, modelNameById, formatModelWithReasoning,
   workerMemory, mobileSessionsOpen, attentionCount, debugMode, route, displaySessionTitle } = workspace
 const selectedWorkerMemory = computed(() => selected.value ? workerMemory(selected.value.id) : undefined)
@@ -49,7 +51,7 @@ const { synchronization, snapshotReady, viewRevision, resynchronize, renderFailu
   agentWorking, agentStatus, jobs, artifacts, currentChecklist, runClock,
   contextUsage, canCompact, compactSession, compacting, compactionResult, compaction, manualCompacting, compactionRequestPending,
   modelByRun,
-  hasOlder, hasNewer, lastEvent, loadOlder, submitQuestion, readOutputIndexes, readDisplayOutput, releaseDisplayOutput, modelOutputLoading, modelOutputFailure,
+  hasOlder, hasNewer, lastEvent, loadOlder, readOutputIndexes, readDisplayOutput, releaseDisplayOutput, modelOutputLoading, modelOutputFailure,
   fullMessageText, resultsForMessage, resultsForTrace, traceSegment, runReplyTurns, runActivityAnchor, firstRunSequence } = workspace.conversation
 const runningJobs = computed(() => jobs.value.filter(jobActive).length)
 const showExecution = computed(() => agentWorking.value || compacting.value || !!compactionResult.value)
@@ -84,7 +86,7 @@ const history = useConversationHistory({
   synchronized: () => snapshotReady.value,
   paused: () => paused.value,
   indexes: readOutputIndexes,
-  output: message => message.mainOutput || (message.outputBytes || 0) > 8192 ? readDisplayOutput(message) : Promise.resolve(),
+  output: readDisplayOutput,
   text: message => message.mainOutput ? message.content : modelOutput.value[message.id]?.content ?? message.content,
   release: releaseDisplayOutput,
   traceKeys: () => expectedTraces.value,
@@ -106,6 +108,13 @@ const timeline = computed(() => history.prepared.value ? conversationTimeline(hi
 const scrolling = useConversationScroll({ element: messageList, rows: timeline, session: () => selected.value?.id,
   prepared: history.prepared, missing: history.missing, paused, earlier: history.earlier })
 const { showJumpToLatest } = scrolling
+const recentSent = computed(() => {
+  // Navigation preparation keeps the readable window; keep its header geometry too.
+  if (!scrolling.presented.value || hasNewer.value || route.name !== 'session'
+    || pendingInputs.value.length || mobileSessionsOpen.value || feedbackInvitationOpen.value) return
+  const first = scrolling.viewport.value[0]
+  return recentSentMessage(messages.value, first ? timeline.value[first.index]?.sequence : undefined)
+})
 const visibleMessages = computed(() => scrolling.visible.value.flatMap(layout => {
   const row = timeline.value[layout.index]!
   return row.message ? [{ key: row.key, index: layout.index, message: row.message, layout }] : []
@@ -174,6 +183,48 @@ async function jumpToLatest() {
   await nextTick()
   if (selected.value?.id === sessionId && scrolling.following.value) scrolling.jump()
 }
+const quoteSourceKey = ref('')
+let quoteNavigation = 0
+function locateQuote(quote: QuotedExcerpt) {
+  if (quote.source) return locateSource(quote.source, t('quoteSourceUnavailable'))
+}
+function locateRecentSent(message: ConversationItem) {
+  return locateSource({ key: message.displayKey, sequence: message.displaySequence, createdAt: message.createdAt }, t('recentSentUnavailable'))
+}
+async function locateSource(source: QuoteSource, unavailable: string) {
+  const sessionId = selected.value?.id
+  if (!sessionId) return
+  const navigation = ++quoteNavigation
+  const current = () => selected.value?.id === sessionId && navigation === quoteNavigation && scrolling.locating.value === source.key
+  scrolling.locate(source.key)
+  quoteSourceKey.value = source.key
+  // Source/history bounds are usable after the initial indexes are prepared.
+  if (!history.prepared.value) await new Promise<void>(resolve => {
+    watch(() => history.prepared.value || !current(), () => resolve(), { once: true })
+  })
+  if (!current()) return
+  if (hasNewer.value && source.sequence > (messages.value.at(-1)?.displaySequence || 0)) await workspace.conversation.loadLatest()
+  if (!current()) return
+  await history.prepare()
+  // A reply's indexed fragments may precede the first loaded message page.
+  // Cover both that page boundary and the prepared display window before
+  // concluding that a missing key has been removed.
+  const covered = () => history.start.value !== undefined && history.start.value <= source.sequence
+    && (!hasOlder.value || (workspace.conversation.messages.value[0]?.sequence ?? Infinity) <= source.sequence)
+  while (current() && !history.candidates.value.some(item => item.displayKey === source.key) && !covered() && history.hasEarlier.value) {
+    const before = history.start.value
+    await history.earlier()
+    if (history.start.value === before) break
+  }
+  if (current() && !history.candidates.value.some(item => item.displayKey === source.key)) {
+    scrolling.inspect()
+    error.value = unavailable
+  }
+}
+watch(() => selected.value?.id, () => {
+  quoteNavigation++
+  quoteSourceKey.value = ''
+})
 watch(() => selected.value?.id, () => {
   traceViews.value = {}
   traceEntries.value = {}
@@ -187,14 +238,16 @@ onUnmounted(() => {
 
 <template>
       <section v-if="selected" class="workspace">
-        <div class="conversation-header"><v-button variant="text" class="icon-button mobile-sessions-trigger" :aria-label="t('sessions')" :aria-expanded="mobileSessionsOpen" @click="mobileSessionsOpen = true"><IconMenu2 /><span v-if="attentionCount" class="session-attention-dot" role="img" :aria-label="t('sessionsNeedAttention', { count: attentionCount })"></span></v-button><div class="conversation-heading"><InlineSessionTitle :key="selected.id" :session="selected" v-model:editing="renamingTitle"><div class="session-heading-title"><h2 :title="displaySessionTitle(selected)">{{ displaySessionTitle(selected) }}</h2><v-button class="icon-button" variant="text" :aria-label="t('editTitle')" @click="renamingTitle = true"><IconPencil /></v-button></div></InlineSessionTitle></div><div class="conversation-header-tools">
+        <div class="conversation-header" :class="{ 'has-recent-sent': !!recentSent }"><v-button variant="text" class="icon-button mobile-sessions-trigger" :aria-label="t('sessions')" :aria-expanded="mobileSessionsOpen" @click="mobileSessionsOpen = true"><IconMenu2 /><span v-if="attentionCount" class="session-attention-dot" role="img" :aria-label="t('sessionsNeedAttention', { count: attentionCount })"></span></v-button><div class="conversation-heading"><InlineSessionTitle :key="selected.id" :session="selected" v-model:editing="renamingTitle"><div class="session-heading-title"><h2 :title="displaySessionTitle(selected)">{{ displaySessionTitle(selected) }}</h2><v-button class="icon-button" variant="text" :aria-label="t('editTitle')" @click="renamingTitle = true"><IconPencil /></v-button></div></InlineSessionTitle></div><div class="conversation-header-tools">
           <WorkerStatus v-if="debugMode && selected.open" :key="selected.id" :memory="selectedWorkerMemory" :available="workerAvailable(selected.id)" />
           <ContextCompaction :key="selected.id" :usage="contextUsage" :disabled="!canCompact || !workerAvailable(selected.id)" @compact="compactSession" />
           <ConversationChecklist :key="selected.id" :items="currentChecklist" :active="agentWorking" :status="selected.latestRunStatus" />
           <v-button v-if="jobs.length" variant="text" class="icon-button header-status-trigger background-processes-trigger"
             :aria-label="t('backgroundProcessCount', { count: runningJobs })" :title="t('backgroundProcessCount', { count: runningJobs })" @click="processes?.open()">
             <IconSubtask aria-hidden="true" /><span class="background-processes-count">{{ runningJobs }}</span></v-button>
-        </div></div>
+        </div>
+          <ConversationRecentMessage v-if="recentSent" :key="`${selected.id}/${recentSent.id}`" :session-id="selected.id" :message="recentSent" @locate="locateRecentSent" />
+        </div>
         <v-alert v-if="needsProvider" class="session-setup-notice" type="warning" :message="t('noModelConfigured')" />
         <div v-if="synchronization.phase === 'error' || scrolling.presented.value && synchronization.phase !== 'ready' && synchronization.phase !== 'stopped'" class="conversation-sync-notice" :role="synchronization.phase === 'error' ? 'alert' : 'status'">
           <span>{{ t(synchronization.phase === 'error' ? 'conversationSyncFailed' : 'conversationSynchronizing') }}</span>
@@ -245,8 +298,8 @@ onUnmounted(() => {
           </RunTrace><template #fallback="{ retry }"><div class="conversation-render-notice"><span>{{ t('executionDetailsUnavailable') }}</span><v-button @click="retry">{{ t('retry') }}</v-button></div></template></RenderGuard>
 
           <TimelineItem v-for="row in visibleMessages" :key="row.key" :layout="row.layout" :paused="paused || history.missing.value.has(row.key)" :placeholder="scrolling.placeholders.value.has(row.key) || history.missing.value.has(row.key)" @measure="observeMessage" :data-display-key="row.message.displayKey" :data-timeline-sequence="row.message.displaySequence" :data-progress="row.message.progress || undefined"
-            class="timeline-row message-row" :class="row.message.role">
-          <article v-if="row.message.content || !row.message.checklist" :data-session-id="selected.id" :data-context-summary="row.message.contextSummary || undefined" :data-reply-sequence="row.message.role === 'assistant' && !row.message.contextSummary && !row.message.progress ? row.message.sequence : undefined" :class="[row.message.role, { 'question-reply': row.message.questionCallId, 'main-output': row.message.progress, 'live-response': row.message.progress && !row.message.mainOutput?.complete && agentWorking }]"><Bubble :streaming="!!row.message.progress && !row.message.mainOutput?.complete && agentWorking" :content="row.message.content" :placement="row.message.role === 'user' ? 'end' : 'start'" :variant="row.message.role === 'user' ? 'filled' : 'borderless'" :styles="{ body: { maxWidth: '100%', width: row.message.role === 'assistant' ? '100%' : undefined } }"><template #header><div class="message-meta"><time :datetime="row.message.createdAt" :title="localTime(row.message.createdAt)">{{ localTime(row.message.createdAt) }}</time></div></template><template #content><div v-if="row.message.failure" class="markdown run-failure-message" :data-quote-role="row.message.role" role="alert">{{ row.message.content }}</div><MessageMarkdown v-else :content="row.message.content" :role="row.message.role" @failure="renderFailure" /><FailureHelp v-if="row.message.failure" :failure="{ kind: 'execution', runId: row.message.runId, error: row.message.content, sequence: row.message.sequence, messageId: row.message.id, createdAt: row.message.createdAt, provider: row.message.provider, modelId: row.message.modelId, modelKey: row.message.modelKey }" /><MessageImages v-if="row.message.imageCount && selected" :session-id="selected.id" :message-id="row.message.id" :count="row.message.imageCount!" /><small v-if="modelOutputLoading[displayOutputKey(row.message)]" class="message-output-loading" role="status">{{ t('outputLoading') }}</small><div v-if="modelOutputFailure[displayOutputKey(row.message)]" class="message-output-error"><small role="alert" :title="modelOutputFailure[displayOutputKey(row.message)]">{{ t('outputLoadFailed') }}</small><v-button @click="readDisplayOutput(row.message, true)">{{ t('retry') }}</v-button></div></template><template v-if="!row.message.progress" #footer><div class="reply-footer"><MessageActions :allow-mutation="row.message.role === 'user'" :mutation-disabled="busy || !selected.open" @edit="beginEditMessage(row.message)" @withdraw="requestWithdrawal(row.message)" :text="row.message.content" :allow-feedback="row.message.role === 'assistant' && !row.message.contextSummary" :compact-feedback="selectionMode === 'manual'" :feedback="feedback[row.message.id]" :busy="feedbackBusy[row.message.id]" @feedback="rateMessage(row.message, $event)" :full-text="row.message.mainOutput || row.message.outputBytes && row.message.outputBytes! > 8192 ? () => fullMessageText(row.message) : undefined" /><MessageUsage v-if="row.message.role === 'assistant'" :results="resultsForMessage(row.message)" :model-name="runModelName(row.message)" /></div></template></Bubble></article>
+            class="timeline-row message-row" :class="[row.message.role, { 'quote-source-target': quoteSourceKey === row.message.displayKey }]">
+          <article v-if="row.message.content || !row.message.checklist" :data-session-id="selected.id" :data-context-summary="row.message.contextSummary || undefined" :data-reply-sequence="row.message.role === 'assistant' && !row.message.contextSummary && !row.message.progress ? row.message.sequence : undefined" :class="[row.message.role, { 'question-reply': row.message.questionCallId, 'main-output': row.message.progress, 'live-response': row.message.progress && !row.message.mainOutput?.complete && agentWorking }]"><Bubble :streaming="!!row.message.progress && !row.message.mainOutput?.complete && agentWorking" :content="row.message.content" :placement="row.message.role === 'user' ? 'end' : 'start'" :variant="row.message.role === 'user' ? 'filled' : 'borderless'" :styles="{ body: { maxWidth: '100%', width: row.message.role === 'assistant' ? '100%' : undefined } }"><template #header><div class="message-meta"><time :datetime="row.message.createdAt" :title="localTime(row.message.createdAt)">{{ localTime(row.message.createdAt) }}</time></div></template><template #content><div v-if="row.message.failure" class="markdown run-failure-message" :data-quote-role="row.message.role" role="alert">{{ row.message.content }}</div><MessageMarkdown v-else :content="row.message.content" :role="row.message.role" @failure="renderFailure" /><FailureHelp v-if="row.message.failure" :failure="{ kind: 'execution', runId: row.message.runId, error: row.message.content, sequence: row.message.sequence, messageId: row.message.id, createdAt: row.message.createdAt, provider: row.message.provider, modelId: row.message.modelId, modelKey: row.message.modelKey }" /><MessageImages v-if="row.message.imageCount && selected" :session-id="selected.id" :message-id="row.message.id" :count="row.message.imageCount!" /><small v-if="modelOutputLoading[displayOutputKey(row.message)]" class="message-output-loading" role="status">{{ t('outputLoading') }}</small><div v-if="modelOutputFailure[displayOutputKey(row.message)]" class="message-output-error"><small role="alert" :title="modelOutputFailure[displayOutputKey(row.message)]">{{ t('outputLoadFailed') }}</small><v-button @click="history.retry(row.message)">{{ t('retry') }}</v-button></div></template><template v-if="!row.message.progress" #footer><div class="reply-footer"><MessageActions :allow-mutation="row.message.role === 'user'" :mutation-disabled="busy || !selected.open" @edit="beginEditMessage(row.message)" @withdraw="requestWithdrawal(row.message)" :text="row.message.content" :allow-feedback="row.message.role === 'assistant' && !row.message.contextSummary" :compact-feedback="selectionMode === 'manual'" :feedback="feedback[row.message.id]" :busy="feedbackBusy[row.message.id]" @feedback="rateMessage(row.message, $event)" :full-text="row.message.mainOutput || needsFullMessageText(row.message) ? () => fullMessageText(row.message) : undefined" /><MessageUsage v-if="row.message.role === 'assistant'" :results="resultsForMessage(row.message)" :model-name="runModelName(row.message)" /></div></template></Bubble></article>
           <article v-if="row.message.checklist" class="assistant checklist-message" :data-checklist-summary="row.message.runId">
             <Bubble variant="borderless" :styles="{ body: { maxWidth: '100%', width: '100%' } }">
               <template #header><div class="message-meta"><time :datetime="row.message.createdAt" :title="localTime(row.message.createdAt)">{{ localTime(row.message.createdAt) }}</time></div></template>
@@ -264,9 +317,12 @@ onUnmounted(() => {
 
         </div>
         <MessageQuoteSelection :root="messageList" :session-id="selected.id" :disabled="busy || !selected.open || route.name !== 'session' || mobileSessionsOpen || feedbackInvitationOpen" @quote="workspace.conversation.quoteSelection" />
-        <ConversationExecution v-if="showExecution" :key="selected.id" :status="agentStatus" :clock="executionClock" :compacting="compacting" :manual="manualCompacting || compactionRequestPending" :compaction="compactionResult || (compacting ? compaction : null)" />
         <PendingInputs :items="pendingInputs" :paused="inputQueuePaused" :busy="pendingBusy" :mutate="mutateInput" @resume="resumeInputs" />
-        <ConversationSender @send="prepareForSend" />
+        <ConversationSender @send="prepareForSend" @locate-quote="locateQuote">
+          <template v-if="showExecution" #execution>
+            <ConversationExecution :key="selected.id" :status="agentStatus" :clock="executionClock" :compacting="compacting" :manual="manualCompacting || compactionRequestPending" :compaction="compactionResult || (compacting ? compaction : null)" />
+          </template>
+        </ConversationSender>
         </div></div>
       </section>
       <section v-else class="workspace welcome">
@@ -292,7 +348,10 @@ onUnmounted(() => {
 </template>
 
 <style scoped>
+.quote-source-target{border-inline-start:2px solid var(--accent);border-radius:2px}
 .checklist-summary-text{white-space:pre-wrap;overflow-wrap:anywhere}
+.conversation-header.has-recent-sent{flex-wrap:wrap;row-gap:6px}
+@media(max-height:520px){.conversation-header.has-recent-sent{flex-wrap:nowrap}}
 .background-processes-trigger.ui-btn{gap:.25rem;min-width:32px;width:auto}
 .background-processes-count{font-size:12px;font-variant-numeric:tabular-nums}
 .conversation-sync-notice,.conversation-render-notice{display:flex;align-items:center;gap:12px;color:var(--muted);font-size:var(--font-size-body);line-height:1.6}

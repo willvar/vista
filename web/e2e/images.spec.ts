@@ -29,6 +29,30 @@ async function expectNoPageOverflow(page: Page) {
   expect(geometry.pageHeight).toBeLessThanOrEqual(geometry.height + 2)
 }
 
+test('resource tool URLs display original images in replies and survive reload', async ({ page, vista }) => {
+  await vista.api('/preferences', { method: 'PATCH', body: JSON.stringify({ feedbackInvitationSeen: true }) })
+  const original = (await imageFiles(page, 1))[0]!.buffer
+  const session = await vista.api('/sessions', { method: 'POST', body: '{}' })
+  const ref = await vista.api(`/sessions/${session.id}/resources?name=original.png`, {
+    method: 'POST', headers: { 'Content-Type': 'image/png' }, body: original,
+  })
+  await vista.api(`/sessions/${session.id}/messages`, {
+    method: 'POST', body: JSON.stringify({ content: `Display retained image ${ref.hash}` }),
+  })
+  await page.goto(`${vista.origin}/sessions/${session.id}`)
+  const image = page.locator('article.assistant .markdown img[alt="Original image"]')
+  const url = `/api/sessions/${session.id}/resources/${ref.hash}`
+  await expect(image).toHaveAttribute('src', url)
+  await expect.poll(() => image.evaluate(image => (image as HTMLImageElement).naturalWidth)).toBe(480)
+  const response = await page.request.get(vista.origin + url)
+  expect(response.status()).toBe(200)
+  expect(await response.body()).toEqual(original)
+  await page.reload()
+  await expect.poll(() => image.evaluate(image => (image as HTMLImageElement).naturalWidth)).toBe(480)
+  const other = await vista.api('/sessions', { method: 'POST', body: '{}' })
+  expect((await page.request.get(`${vista.origin}/api/sessions/${other.id}/resources/${ref.hash}`)).status()).toBe(404)
+})
+
 test('multiple images send once with empty-text Enter and render automatically with a zoom preview', async ({ page, vista }, testInfo) => {
   await vista.api('/preferences', { method: 'PATCH', body: JSON.stringify({ feedbackInvitationSeen: true }) })
   await page.reload()
