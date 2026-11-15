@@ -9,11 +9,11 @@ import (
 	"strings"
 	"time"
 
-	"gorm.io/gorm"
-
 	"vista/internal/agentconfig"
 	"vista/internal/question"
 	"vista/internal/workerproto"
+
+	"gorm.io/gorm"
 )
 
 var ErrBusy = errors.New("session already has a running execution")
@@ -179,6 +179,9 @@ func (s *Store) beginRun(ctx context.Context, sessionID, runID, messageID, conte
 		pending := pendingFromStorage(pendingKind, pendingRunID, pendingContent)
 		if err := ValidatePendingReply(pending); err != nil {
 			return Message{}, Event{}, err
+		}
+		if !question.MatchesCall(pending.Questions, pending.CallID, reply.CallID) {
+			return Message{}, Event{}, ErrNoPendingQuestion
 		}
 		questionCallID = pending.CallID
 		content, err = question.FormatAnswers(pending.Questions, reply.Answers)

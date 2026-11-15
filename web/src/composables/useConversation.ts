@@ -1035,24 +1035,27 @@ export function useConversation({ client, sessions, modelCatalog, error, busy, r
     } catch (cause) { report(scope, cause) }
     finally { endBusy(scope, owner); analyzingFailure.value = '' }
   }
-  async function submitQuestion(runId: string, answers: QuestionAnswer[]): Promise<boolean> {
+  async function submitQuestion(runId: string, answers: QuestionAnswer[], callId?: string): Promise<boolean> {
     const scope = currentScope
     const session = selected.value
     const pending = session?.pendingReply
-    if (!scope || !current(scope) || !session?.open || session.executing || busy.value || pending?.kind !== 'question' || pending.runId !== runId) return false
-    if (!pending.questions?.length || answers.length !== pending.questions.length) return false
+    if (!scope || !current(scope) || !session?.open || session.executing || busy.value || pending?.kind !== 'question' || pending.runId !== runId || pending.callId !== callId) return false
+    if (!pending.questions?.length || !answers.length) return false
+    const identified = pending.questions.some(question => !!question.id)
+    if (identified ? answers.some(answer => !answer.questionId || !pending.questions.some(question => question.id === answer.questionId))
+      : answers.length !== pending.questions.length) return false
     const owner = startBusy()
     rememberSelectedModel()
     try {
       const manual = selectionMode.value === 'manual'
       const result = await request<SendMessageResult>(scope, `/sessions/${scope.id}/messages`, {
         method: 'POST', body: JSON.stringify({
-          questionReply: { runId, answers }, selectionMode: selectionMode.value, selectionTier: selectionTier.value,
+          questionReply: { runId, ...(callId ? { callId } : {}), answers }, selectionMode: selectionMode.value, selectionTier: selectionTier.value,
           ...(manual ? { modelKey: selectedModel.value, reasoningEffort: selectedReasoning.value } : {}),
         }),
       })
       if (!current(scope)) return false
-      if (selected.value?.pendingReply?.runId === runId) selected.value = { ...selected.value, pendingReply: undefined }
+      if (selected.value?.pendingReply?.runId === runId && selected.value.pendingReply.callId === callId) selected.value = { ...selected.value, pendingReply: undefined }
       await applySentMessage(scope, result)
       return true
     } catch (failure) { report(scope, failure); return false }

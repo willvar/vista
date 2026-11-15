@@ -5,7 +5,7 @@ test.use({ replyWithPrompt: true, questionTool: true })
 test('a plain question is shown once and continues through the ordinary composer', async ({ page, vista }) => {
   await vista.api('/preferences', { method: 'PATCH', body: JSON.stringify({ feedbackInvitationSeen: true }) })
   await page.reload()
-  const sender = page.locator('.sender-card textarea')
+  const sender = page.locator('.sender-card .ui-sender-input')
   await sender.fill('Which person do you mean?')
   await sender.press('Enter')
   const reply = page.getByText('Mock reply: Which person do you mean?', { exact: true })
@@ -22,13 +22,61 @@ test('a plain question is shown once and continues through the ordinary composer
   expect(vista.modelRequests[1]?.messages?.some(message => message.role === 'assistant' && message.content === 'Mock reply: Which person do you mean?')).toBe(true)
 })
 
+test('question submission preserves the displayed choice across a delayed opening snapshot', { tag: '@responsive' }, async ({ page, vista }) => {
+  await vista.api('/preferences', { method: 'PATCH', body: JSON.stringify({ feedbackInvitationSeen: true }) })
+  const session = await vista.api('/sessions', { method: 'POST', body: '{}' })
+  const catalog = await vista.api('/models')
+  await vista.api(`/sessions/${session.id}/messages`, { method: 'POST', body: JSON.stringify({
+    content: 'Ask me about the setup', selectionMode: 'manual', selectionTier: 'speed', modelKey: catalog.default,
+  }) })
+  await expect.poll(async () => (await vista.api('/sessions')).find((item: { id: string }) => item.id === session.id)?.pendingReply?.kind).toBe('question')
+  const snapshotPath = `/api/sessions/${session.id}/snapshot`
+  const oldSnapshot = await vista.api(`/sessions/${session.id}/snapshot`)
+  expect(oldSnapshot.session).toMatchObject({ selectionMode: 'manual', selectionTier: 'speed' })
+  await vista.api(`/sessions/${session.id}/selection`, { method: 'PATCH', body: JSON.stringify({ selectionMode: 'auto', selectionTier: 'quality' }) })
+
+  let releaseSnapshot!: () => void
+  const held = new Promise<void>(resolve => { releaseSnapshot = resolve })
+  await page.route(`**${snapshotPath}`, async route => {
+    await held
+    await route.fulfill({ json: oldSnapshot })
+  }, { times: 1 })
+  try {
+    const opening = page.waitForRequest(request => new URL(request.url()).pathname === snapshotPath)
+    await page.goto(`${vista.origin}/sessions/${session.id}`)
+    await opening
+    const form = page.locator('.sender-card .question-form')
+    await expect(form).toBeVisible()
+    await expect(page.locator('.composer-tier')).toContainText('Quality')
+    await form.getByRole('radio', { name: 'Keep local', exact: true }).check()
+    await form.getByRole('button', { name: 'Next question', exact: true }).click()
+    await form.getByRole('checkbox', { name: 'Messages', exact: true }).check()
+    await form.getByRole('button', { name: 'Next question', exact: true }).click()
+    await form.getByRole('radio', { name: 'Better quality', exact: true }).check()
+    const posted = page.waitForRequest(request => request.method() === 'POST'
+      && new URL(request.url()).pathname === `/api/sessions/${session.id}/messages`)
+    await form.getByRole('button', { name: 'Submit answers', exact: true }).click()
+    expect((await posted).postDataJSON()).toMatchObject({ selectionMode: 'auto', selectionTier: 'quality', questionReply: { callId: 'setup-question' } })
+    releaseSnapshot()
+    await expect(page.locator('article.user .markdown').filter({ hasText: 'Ask me about the setup' })).toHaveCount(1)
+    await expect(form).toHaveCount(0)
+    await expect(page.locator('.composer-tier')).toContainText('Quality')
+    await expect(page.locator('.composer-model')).toHaveCount(0)
+    await expect(page.locator('article.assistant .markdown').filter({ hasText: 'Mock reply:' })).toBeVisible()
+    await expect.poll(() => vista.modelRequests.length).toBe(2)
+    const results = vista.modelRequests[1]!.messages!.filter(message => message.role === 'tool' && message.tool_call_id === 'setup-question')
+    expect(results).toHaveLength(1)
+    expect(results[0]!.content).toContain('Better quality')
+  } finally { releaseSnapshot() }
+})
+
 test('question choices persist across reload and resume with selected answers', async ({ page, vista }, testInfo) => {
   await vista.api('/preferences', { method: 'PATCH', body: JSON.stringify({ feedbackInvitationSeen: true }) })
   await page.reload()
-  const sender = page.locator('.sender-card textarea')
+  const sender = page.locator('.sender-card .ui-sender-input')
   await sender.fill('Ask me about the setup')
   await sender.press('Enter')
-  const form = page.locator('.question-form')
+  const form = page.locator('.sender-card .question-form')
   await expect(form).toBeVisible()
   const runId = await form.getAttribute('data-run-id')
   expect(runId).toBeTruthy()
@@ -72,7 +120,7 @@ test('question choices persist across reload and resume with selected answers', 
   await form.getByRole('button', { name: 'Previous question', exact: true }).click()
   await expect(deployment.getByRole('radio', { name: 'Keep local', exact: true })).toBeChecked()
 
-  // Long question descriptions must wrap inside the message card on small screens.
+  // Long question descriptions must wrap inside the answer composer on small screens.
   const geometry = await form.evaluate(element => {
     const box = element.getBoundingClientRect()
     return {
@@ -98,13 +146,13 @@ test('question choices persist across reload and resume with selected answers', 
     && !!request.postDataJSON()?.questionReply)
   await submit.click()
   const answerRequest = (await requestPromise).postDataJSON()
-  expect(answerRequest.questionReply).toEqual({ runId, answers: [
+  expect(answerRequest.questionReply).toEqual({ runId, callId: 'setup-question', answers: [
     { options: ['Keep local'] },
     { options: ['Messages', 'Sessions'] },
     { options: [], text: 'Make keyboard navigation predictable' },
   ] })
   await expect(form).toHaveCount(0)
-  await expect.poll(() => page.evaluate(key => [sessionStorage.getItem(key), sessionStorage.getItem(key + ':index')], `vista-question:${sessionId}:${runId}`)).toEqual([null, null])
+  await expect.poll(() => page.evaluate(key => [sessionStorage.getItem(key), sessionStorage.getItem(key + ':index')], `vista-question:${sessionId}:${runId}:setup-question`)).toEqual([null, null])
   await expect(page.locator('article.assistant .markdown').filter({ hasText: 'Mock reply:' })).toContainText('Make keyboard navigation predictable')
   await expect.poll(() => vista.modelRequests.length).toBe(2)
   const replay = vista.modelRequests[1]!.messages!
@@ -139,10 +187,10 @@ test('question tabs switch one panel at a time with keyboard navigation and redu
   await vista.api('/preferences', { method: 'PATCH', body: JSON.stringify({ feedbackInvitationSeen: true }) })
   await page.emulateMedia({ reducedMotion: 'no-preference' })
   await page.reload()
-  const sender = page.locator('.sender-card textarea')
+  const sender = page.locator('.sender-card .ui-sender-input')
   await sender.fill('Ask me about the setup')
   await sender.press('Enter')
-  const form = page.locator('.question-form')
+  const form = page.locator('.sender-card .question-form')
   const deployment = form.getByRole('tab', { name: 'Deployment', exact: true })
   const scope = form.getByRole('tab', { name: 'Scope', exact: true })
   const priority = form.getByRole('tab', { name: 'Priority', exact: true })
@@ -185,13 +233,14 @@ test('question tabs switch one panel at a time with keyboard navigation and redu
 test('typing a normal message replaces a pending question and rejects its stale form', async ({ page, vista }) => {
   await vista.api('/preferences', { method: 'PATCH', body: JSON.stringify({ feedbackInvitationSeen: true }) })
   await page.reload()
-  const sender = page.locator('.sender-card textarea')
+  const sender = page.locator('.sender-card .ui-sender-input')
   await sender.fill('Ask me about the setup')
   await sender.press('Enter')
-  const form = page.locator('.question-form')
+  const form = page.locator('.sender-card .question-form')
   await expect(form).toBeVisible()
   const runId = await form.getAttribute('data-run-id')
   const sessionId = new URL(page.url()).pathname.split('/').at(-1)!
+  await page.getByRole('button', { name: 'Reply with text', exact: true }).click()
   await sender.fill('Skip those choices and use my text')
   await sender.press('Enter')
   await expect(form).toHaveCount(0)

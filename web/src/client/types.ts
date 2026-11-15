@@ -1,7 +1,7 @@
-export type QuestionOption = { label: string; description?: string }
-export type QuestionPrompt = { header?: string; question: string; options: QuestionOption[]; multiple?: boolean; custom?: boolean }
-export type QuestionAnswer = { options: string[]; text?: string }
-export type PendingReply = { runId: string; kind: 'question'; content: string; questions: QuestionPrompt[] }
+export type QuestionOption = { id?: string; label: string; description?: string }
+export type QuestionPrompt = { id?: string; header?: string; question: string; options: QuestionOption[]; multiple?: boolean; custom?: boolean; when?: { questionId: string; optionId: string } }
+export type QuestionAnswer = { questionId?: string; options: string[]; text?: string }
+export type PendingReply = { runId: string; callId?: string; kind: 'question'; content: string; questions: QuestionPrompt[] }
 export type Session = { id: string; title: string; modelKey: string; open: boolean; pinned?: boolean; running: boolean; executing: boolean; createdAt: string; updatedAt?: string; pendingReply?: PendingReply; inputQueuePaused?: boolean; readSequence?: number; latestReplySequence?: number; latestRunStatus?: string; pendingInputCount?: number; selectionMode?: 'manual' | 'auto'; selectionTier?: 'speed' | 'quality'; manualModelKey?: string; manualReasoningEffort?: string; selectionReasoningEffort?: string }
 export type SessionListSnapshot = { items: Session[]; throughSequences: Record<string, number> }
 export type ModelInfo = { proxyId?: string; key: string; connectionId?: string; name?: string; modelName?: string; recognized?: boolean; provider: string; providerId?: string; id: string; baseUrl?: string; tools?: boolean; context?: number; inputLimit?: number; outputLimit?: number; catalogReasoning?: boolean; status?: string; inputModalities?: string[]; outputModalities?: string[]; discoverySource?: string; reasoningOptions?: string[]; reasoningEffort?: string }
@@ -112,7 +112,7 @@ export type ServerStatus = {
   mcpHost?: { pid: number; memory: { heapBytes: number; rssBytes: number; sampledAt?: string } } | null
   sampledAt: string
 }
-export type QuestionReplyInput = { runId: string; answers: QuestionAnswer[] }
+export type QuestionReplyInput = { runId: string; callId?: string; answers: QuestionAnswer[] }
 export type SendMessageInput = { content?: string; images?: Array<{ mediaType: string; hash: string; bytes: number; name?: string }>; questionReply?: QuestionReplyInput; modelKey?: string; reasoningEffort?: string; selectionMode?: 'manual' | 'auto'; selectionTier?: 'speed' | 'quality' }
 export type SendMessageResult = { runId?: string; message?: Message; input?: QueuedInput; event: StreamEvent }
 export type ModelSpeedStats = { count: number; failures: number; medianMs: number | null; p90Ms: number | null; lowConfidence: boolean }

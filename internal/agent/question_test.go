@@ -237,8 +237,17 @@ func TestQuestionHistoryPairsAnswersAcrossRestartCompactionAndFollowingRuns(t *t
 			if err != nil {
 				t.Fatal(err)
 			}
-			last = prepared.messages[len(prepared.messages)-1]
-			if last.Role != "tool" || last.ToolCallID != "ask" || !strings.Contains(last.Content, "Use the revised constraint") || strings.Contains(last.Content, "Keep the API stable") {
+			answerResults := 0
+			for i, message := range prepared.messages {
+				if message.Role == "tool" && message.ToolCallID == "ask" {
+					answerResults++
+					last = message
+					if i == 0 || len(prepared.messages[i-1].ToolCalls) != 1 || prepared.messages[i-1].ToolCalls[0].ID != "ask" {
+						t.Fatal("revised answer was separated from its native call")
+					}
+				}
+			}
+			if answerResults != 1 || !strings.Contains(last.Content, "Use the revised constraint") || strings.Contains(last.Content, "Keep the API stable") {
 				t.Fatalf("revised answer not paired: %+v", last)
 			}
 		})

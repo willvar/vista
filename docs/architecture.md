@@ -256,6 +256,13 @@ Checklists are replacement events scoped to a run, not conversation-global state
 After a successful checklist commit, the same turn enters normal completion checks without another model request; failed updates, missing text and mixed calls cannot finish it.
 Pending required work, runtime results and new user inputs retain their existing continuation behavior; checklist statuses are never inferred from run completion.
 
+### Structured question contract
+
+`internal/question` validates stable question/option `id` values and optional `when: {questionId, optionId}` conditions. Identified prompts require IDs on every question and option; IDs start with an ASCII letter and contain only letters, digits, `_` and `-`. Conditions reference an earlier single-choice question and an existing option, so cycles and forward references are rejected before presentation. A dependent question is active only while its parent is active and that option is selected; a custom parent answer activates no predefined branch.
+Identified replies contain `runId`, the pending tool's `callId`, and `answers` keyed by `questionId`; `options` contains option IDs, not labels. The HTTP boundary and transactional store both check the pending identity. The store recomputes active questions, rejects inactive/unknown/duplicate answers and requires all active answers before consuming pending and starting the continuation atomically. Display/model answer summaries include readable labels and IDs for the actual path, while the original complete prompt and tool pairing remain durable.
+Legacy ID-less prompts keep positional label-based answers and byte-identical text projections; those clients may omit `callId`, but an explicitly supplied mismatch is always rejected. No stored history is rewritten. Question errors remain recoverable tool results, and queue, compaction, cancellation and rollback ownership are unchanged.
+The frontend derives JSON Schema conditional requirements and JSON Forms visibility rules from this restricted contract. It does not accept model-authored schemas, layouts or expressions. Browser drafts include the prompt fingerprint and pending call identity; branch changes clear inactive values before persistence and submission. Question submission only collects input and does not create execution approval or permission boundaries.
+
 ## Context continuity
 
 Main model messages and tool results are saved to immutable history files, committed through acknowledged `model_history` references. Later runs merge them with formal inputs in event order and exclude duplicate formal assistant projections. Missing results after interruption become explicit unknown outcomes; restoration does not run tools.

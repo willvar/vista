@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, provide, ref, useSlots, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { createAjv, isBooleanControl, isIntegerControl, isNumberControl, isObjectControl, isStringControl, rankWith, schemaTypeIs, uiTypeIs, type JsonFormsI18nState, type JsonSchema, type UISchemaElement } from '@jsonforms/core'
+import { createAjv, isBooleanControl, isIntegerControl, isNumberControl, isObjectControl, isStringControl, rankWith, schemaTypeIs, uiTypeIs, type JsonFormsI18nState, type JsonFormsRendererRegistryEntry, type JsonSchema, type UISchemaElement } from '@jsonforms/core'
 import { JsonForms, type JsonFormsChangeEvent } from '@jsonforms/vue'
 import { Alert as VAlert, Button as VButton } from './ui'
 import ConfirmPopover from './ConfirmPopover.vue'
@@ -10,7 +10,7 @@ import ArrayControl from './schema/ArrayControl.vue'
 import ObjectControl from './schema/ObjectControl.vue'
 import LayoutRenderer from './schema/LayoutRenderer.vue'
 import { additionalErrors, validationMessage, type FormIssue } from './schema/validation'
-const props = defineProps<{ id: string; modelValue: Record<string, unknown>; schema: JsonSchema; uischema?: UISchemaElement; disabled?: boolean; resetKey?: string | number; validate?: (value: Record<string, unknown>) => FormIssue[]; normalizeDraft?: (value: Record<string, unknown>) => Record<string, unknown> }>()
+const props = defineProps<{ id: string; modelValue: Record<string, unknown>; schema: JsonSchema; uischema?: UISchemaElement; disabled?: boolean; resetKey?: string | number; validate?: (value: Record<string, unknown>) => FormIssue[]; renderers?: readonly JsonFormsRendererRegistryEntry[]; draftUpdates?: boolean; normalizeDraft?: (value: Record<string, unknown>) => Record<string, unknown> }>()
 const emit = defineEmits<{ 'update:modelValue': [value: Record<string, unknown>]; validity: [valid: boolean]; dirty: [dirty: boolean] }>()
 const { t, locale } = useI18n({ useScope: 'global' })
 provide('vista-schema-editor-id', props.id)
@@ -30,12 +30,13 @@ const customErrors = computed(() => additionalErrors(props.validate?.(data.value
 const i18n = computed<JsonFormsI18nState>(() => ({ locale: locale.value, translateError: error => validationMessage(error, t) }))
 const valid = computed(() => !conflict.value && !!validate.value?.(data.value) && customErrors.value.length === 0)
 const dirty = computed(() => signature(data.value) !== baseline.value)
-const renderers = Object.freeze([
+const defaultRenderers = Object.freeze([
   { renderer: ScalarControl, tester: rankWith(1, (uischema, schema, context) => isStringControl(uischema, schema, context) || isIntegerControl(uischema, schema, context) || isNumberControl(uischema, schema, context) || isBooleanControl(uischema, schema, context)) },
   { renderer: ArrayControl, tester: rankWith(2, schemaTypeIs('array')) },
   { renderer: ObjectControl, tester: rankWith(2, isObjectControl) },
   ...['VerticalLayout', 'HorizontalLayout', 'Group'].map(type => ({ renderer: LayoutRenderer, tester: rankWith(1, uiTypeIs(type)) })),
 ])
+const renderers = computed(() => Object.freeze([...(props.renderers ?? []), ...defaultRenderers]))
 function formChange(event: JsonFormsChangeEvent) {
   if (!event.data || typeof event.data !== 'object' || Array.isArray(event.data)) return
   const next = props.normalizeDraft ? props.normalizeDraft(event.data) : event.data
@@ -44,7 +45,8 @@ function formChange(event: JsonFormsChangeEvent) {
     return
   }
   data.value = next
-  if (props.disabled || !valid.value) return
+  // Question navigation observes incomplete drafts; settings keep valid-only updates.
+  if (props.disabled || !valid.value && !props.draftUpdates) return
   pendingEchoes.push(signature(data.value)!)
   emitting = true
   try { emit('update:modelValue', copy(data.value)) } finally { emitting = false }

@@ -105,7 +105,8 @@ func (a *App) submitMessage(w http.ResponseWriter, r *http.Request, sessionID st
 			http.Error(w, "submit a question reply without additional content or images", http.StatusBadRequest)
 			return
 		}
-		if item.Pending == nil || item.Pending.Kind != "question" || input.QuestionReply.RunID == "" || item.Pending.RunID != input.QuestionReply.RunID {
+		if item.Pending == nil || item.Pending.Kind != "question" || input.QuestionReply.RunID == "" || item.Pending.RunID != input.QuestionReply.RunID ||
+			!question.MatchesCall(item.Pending.Questions, item.Pending.CallID, input.QuestionReply.CallID) {
 			http.Error(w, store.ErrNoPendingQuestion.Error(), http.StatusConflict)
 			return
 		}

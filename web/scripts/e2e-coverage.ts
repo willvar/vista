@@ -54,6 +54,8 @@ const groups: Record<string, string[]> = {
 const consumers: [RegExp, string[]][] = [
   [/^internal\/(?:network|codexauth|copilotauth|useragent)\/|^internal\/server\/(?:network_config|provider_network)|^web\/src\/(?:Network|ProxySelection|client\/network|composables\/useNetwork)/, ['network', 'models', 'search', 'mcp', 'conversation']],
   [/^web\/src\/(?:pages\/ConversationPage|Conversation|Message|Run|Trace|TimelineItem|Context|PendingInputs|QuestionForm|BackgroundProcesses|WorkerStatus)|^web\/src\/(?:client\/queries|state\/(?:conversation|checklist|mainOutputs|runTrace|quotedReply|jobs|failureAnalysis)|composables\/use(?:Conversation|Presentation|FullOutput|RunHistory|ScrollbarDrag))|^internal\/(?:agent|worker|workerproto|provider|modeltrace|tool)\//, ['conversation']],
+  [/^web\/src\/schema\/(?:question|QuestionChoiceControl)|^internal\/question\//, ['conversation']],
+  [/^web\/src\/composables\/useQuestionComposer/, ['conversation']],
   [/^web\/src\/state\/cacheUsage/, ['conversation']],
   [/^web\/src\/(?:pages\/SessionManager|Session|InlineSessionTitle)|^web\/src\/composables\/useSessions/, ['sessions']],
   [/^internal\/store\/(?:main_outputs|model_output)/, ['conversation']],

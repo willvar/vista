@@ -341,7 +341,7 @@ export default { ...base, ...{
   "workerMemory": "工作進程堆內存 {heap} MiB · RSS {rss} MiB · 採樣於 {time}",
   "workerAwaitingMetrics": "等待工作進程指標",
   "workerRetryHint": "工作進程不可用，請重試後再發送",
-  "questionComposerHint": "也可以在下方消息框直接回復。",
+  "questionPendingNotice": "有問題待回答；發送消息後將替代這份問卷。",
   "traceDebugDetails": "調試信息",
   "traceDebugEvents": "運行事件",
   "traceModelRequestsHint": "請求完成或失敗後可查看。發送前需開啓調試模式，記錄最多保留 7 天，總量不超過 128 MiB。",

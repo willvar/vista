@@ -1,198 +1,161 @@
 <script setup lang="ts">
-import { computed, nextTick, ref, watch } from 'vue'
-import { Button, Checkbox, Radio, TextArea } from './ui'
+import { computed, markRaw, nextTick, ref, watch } from 'vue'
+import { rankWith, type UISchemaElement } from '@jsonforms/core'
+import { Button } from './ui'
 import { IconCheck, IconChevronLeft, IconChevronRight } from '@tabler/icons-vue'
 import type { QuestionAnswer, QuestionPrompt } from './client/types'
 import { useI18n } from 'vue-i18n'
-
-type AnswerDraft = { options: string[]; custom: boolean; text: string }
+import SchemaForm from './SchemaForm.vue'
+import QuestionChoiceControl from './schema/QuestionChoiceControl.vue'
+import { questionDefinition, type QuestionData } from './schema/question'
 
 const props = defineProps<{
   sessionId: string
   runId: string
+  callId?: string
   questions: QuestionPrompt[]
   busy?: boolean
-  submit: (runId: string, answers: QuestionAnswer[]) => Promise<boolean>
+  embedded?: boolean
+  submit: (runId: string, answers: QuestionAnswer[], callId?: string) => Promise<boolean>
 }>()
-
 const { t } = useI18n({ useScope: 'global' })
-const storageKey = computed(() => `vista-question:${props.sessionId}:${props.runId}`)
-const drafts = ref<AnswerDraft[]>([])
+const definition = computed(() => questionDefinition(props.questions))
+const fingerprint = computed(() => JSON.stringify(props.questions))
+const storageKey = computed(() => `vista-question:${props.sessionId}:${props.runId}${props.callId ? ':' + props.callId : ''}`)
+const drafts = ref<QuestionData>(definition.value.empty())
+const activeKey = ref('q0')
 const submitting = ref(false)
-const activeIndex = ref(0)
+const submissionFailed = ref(false)
+const formValid = ref(false)
 const direction = ref(1)
 const tabs = ref<HTMLElement | null>(null)
 const panel = ref<HTMLElement | null>(null)
+const stage = ref<HTMLElement | null>(null)
 let focusAfterSwitch = false
-const question = computed(() => props.questions[activeIndex.value])
-const panelID = computed(() => `question-panel-${props.runId}-${activeIndex.value}`)
+const entries = computed(() => definition.value.active(drafts.value))
+const activeIndex = computed(() => Math.max(0, entries.value.findIndex(entry => entry.key === activeKey.value)))
+const question = computed(() => entries.value[activeIndex.value])
+const panelID = computed(() => `question-panel-${props.runId}-${question.value?.index ?? 0}`)
+const renderers = [{ renderer: markRaw(QuestionChoiceControl), tester: rankWith(5, uischema => !!uischema.options?.question) }]
+const uischema = computed<UISchemaElement>(() => ({
+  type: 'VerticalLayout', elements: question.value ? [{
+    ...question.value.control,
+    options: { ...question.value.control.options, showHeader: entries.value.length === 1 },
+  }] : [],
+}))
 
-function emptyDrafts() {
-  return props.questions.map(() => ({ options: [], custom: false, text: '' }))
-}
-
-function readDrafts(): AnswerDraft[] {
+function restore() {
+  let data = definition.value.empty(), key = 'q0'
   try {
     const raw = sessionStorage.getItem(storageKey.value)
-    if (!raw) return emptyDrafts()
-    const parsed: unknown = JSON.parse(raw)
-    if (!Array.isArray(parsed) || parsed.length !== props.questions.length) return emptyDrafts()
-    return props.questions.map((question, index) => {
-      const value = parsed[index]
-      if (!value || typeof value !== 'object') return { options: [], custom: false, text: '' }
-      const candidate = value as { options?: unknown; custom?: unknown; text?: unknown }
-      const labels = new Set(question.options.map(option => option.label))
-      const options = Array.isArray(candidate.options)
-        ? candidate.options.filter((option): option is string => typeof option === 'string' && labels.has(option))
-        : []
-      const custom = question.custom !== false && candidate.custom === true
-      return {
-        options: question.multiple ? [...new Set(options)] : custom ? [] : options.slice(0, 1),
-        custom,
-        text: typeof candidate.text === 'string' ? candidate.text : '',
+    if (raw) {
+      const saved = JSON.parse(raw)
+      if (saved && saved.prompt === fingerprint.value && saved.data && typeof saved.data === 'object' && !Array.isArray(saved.data)) {
+        data = definition.value.normalize(saved.data)
+        if (typeof saved.activeKey === 'string') key = saved.activeKey
+      } else if (!props.callId && Array.isArray(saved) && saved.length === props.questions.length) {
+        // Only old, identity-less clients use the old positional draft location.
+        data = definition.value.normalize(Object.fromEntries(saved.map((draft, index) => [`q${index}`, draft])))
       }
-    })
-  } catch { return emptyDrafts() }
-}
-
-function readIndex() {
-  try {
-    const saved = Number(sessionStorage.getItem(storageKey.value + ':index') || '0')
-    return Number.isInteger(saved) ? Math.max(0, Math.min(saved, props.questions.length - 1)) : 0
-  } catch { return 0 }
-}
-
-watch(() => storageKey.value + JSON.stringify(props.questions), () => {
-  const index = readIndex()
-  drafts.value = readDrafts()
-  activeIndex.value = index
+    }
+  } catch { /* Keep usable defaults when browser storage is unavailable. */ }
+  drafts.value = data
+  activeKey.value = definition.value.active(data).some(entry => entry.key === key) ? key : 'q0'
   focusAfterSwitch = false
-}, { immediate: true })
-watch(drafts, value => {
-  try { sessionStorage.setItem(storageKey.value, JSON.stringify(value)) } catch { /* Keep answers in memory when storage is unavailable. */ }
+  submissionFailed.value = false
+}
+watch(() => storageKey.value + fingerprint.value, restore, { immediate: true })
+watch([drafts, activeKey], () => {
+  try {
+    sessionStorage.setItem(storageKey.value, JSON.stringify({ prompt: fingerprint.value, data: drafts.value, activeKey: activeKey.value }))
+  } catch { /* Keep answers in memory when storage is unavailable. */ }
 }, { deep: true, flush: 'sync' })
-watch(activeIndex, value => {
-  try { sessionStorage.setItem(storageKey.value + ':index', String(value)) } catch { /* Keep the current question in memory. */ }
+watch(entries, value => {
+  if (!value.some(entry => entry.key === activeKey.value)) activeKey.value = value[0]?.key || 'q0'
 }, { flush: 'sync' })
 
 function goTo(index: number, focus = false) {
-  if (submitting.value || props.busy || index === activeIndex.value || index < 0 || index >= props.questions.length) return
+  if (submitting.value || props.busy || index === activeIndex.value || index < 0 || index >= entries.value.length) return
   direction.value = index > activeIndex.value ? 1 : -1
   focusAfterSwitch = focus
-  activeIndex.value = index
+  activeKey.value = entries.value[index]!.key
 }
 function focusQuestion() {
+  if (props.embedded && stage.value) stage.value.scrollTop = 0
   if (focusAfterSwitch) panel.value?.querySelector<HTMLElement>('.question-text')?.focus({ preventScroll: true })
   focusAfterSwitch = false
 }
 async function navigateTabs(event: KeyboardEvent, index: number) {
-  const target = event.key === 'ArrowRight' ? (index + 1) % props.questions.length
-    : event.key === 'ArrowLeft' ? (index + props.questions.length - 1) % props.questions.length
-      : event.key === 'Home' ? 0 : event.key === 'End' ? props.questions.length - 1 : undefined
+  const count = entries.value.length
+  const target = event.key === 'ArrowRight' ? (index + 1) % count
+    : event.key === 'ArrowLeft' ? (index + count - 1) % count
+      : event.key === 'Home' ? 0 : event.key === 'End' ? count - 1 : undefined
   if (target === undefined) return
   event.preventDefault()
   goTo(target)
   await nextTick()
   tabs.value?.querySelector<HTMLButtonElement>(`[data-question-tab="${target}"]`)?.focus()
 }
-
-function selected(index: number, label: string) { return drafts.value[index]?.options.includes(label) || false }
-function customSelected(index: number) { return !!drafts.value[index]?.custom }
-function toggleOption(index: number, label: string, checked: boolean) {
-  const question = props.questions[index]
-  const draft = drafts.value[index]
-  if (!question || !draft) return
-  if (question.multiple) {
-    const options = checked ? [...draft.options, label] : draft.options.filter(item => item !== label)
-    drafts.value = drafts.value.map((item, itemIndex) => itemIndex === index ? { ...item, options: [...new Set(options)] } : item)
-    return
-  }
-  drafts.value = drafts.value.map((item, itemIndex) => itemIndex === index
-    ? { ...item, options: checked ? [label] : [], custom: false }
-    : item)
-}
-function toggleCustom(index: number, checked: boolean) {
-  const question = props.questions[index]
-  if (!question || question.custom === false) return
-  drafts.value = drafts.value.map((item, itemIndex) => itemIndex === index
-    ? { ...item, custom: checked, ...(checked && !question.multiple ? { options: [] } : {}) }
-    : item)
-}
-function setText(index: number, text: string) {
-  drafts.value = drafts.value.map((item, itemIndex) => itemIndex === index ? { ...item, text } : item)
-}
 function valid(index: number) {
-  const draft = drafts.value[index]
-  if (!draft) return false
-  return (!draft.custom || !!draft.text.trim()) && (draft.options.length > 0 || draft.custom)
+  const entry = entries.value[index]
+  return !!entry?.validate(drafts.value[entry.key])
 }
-const canSubmit = computed(() => props.questions.length > 0 && props.questions.every((_, index) => valid(index)))
-
+const canSubmit = computed(() => formValid.value && entries.value.length > 0 && entries.value.every((_, index) => valid(index)))
 async function submitAnswers() {
   if (!canSubmit.value || submitting.value || props.busy) return
   submitting.value = true
+  submissionFailed.value = false
   const submittedStorageKey = storageKey.value
-  const answers = drafts.value.map(draft => ({
-    options: draft.options,
-    ...(draft.custom && draft.text.trim() ? { text: draft.text.trim() } : {}),
-  }))
   try {
-    if (await props.submit(props.runId, answers)) {
+    if (await props.submit(props.runId, definition.value.answers(drafts.value), props.callId)) {
       try {
         sessionStorage.removeItem(submittedStorageKey)
         sessionStorage.removeItem(submittedStorageKey + ':index')
       } catch { /* Ignore storage failures. */ }
-    }
-  } finally { submitting.value = false }
+    } else submissionFailed.value = true
+  } catch { submissionFailed.value = true }
+  finally { submitting.value = false }
 }
 </script>
-
 <template>
-  <form class="question-form" :data-run-id="runId" :data-direction="direction" @submit.prevent="submitAnswers">
-    <div v-if="questions.length > 1" class="question-navigation">
+  <form class="question-form" :class="{ 'question-form-embedded': embedded }" :aria-label="t('questionAnswerMode')" :data-run-id="runId" :data-call-id="callId" :data-direction="direction" @submit.prevent="submitAnswers">
+    <div v-if="entries.length > 1" class="question-navigation">
       <div ref="tabs" class="question-tabs" role="tablist" :aria-label="t('questionNavigation')">
-        <button v-for="(item, index) in questions" :id="`question-tab-${runId}-${index}`" :key="index" type="button" role="tab" class="question-tab" :data-question-tab="index" :data-answered="valid(index) || undefined" :aria-selected="activeIndex === index" :aria-controls="`question-panel-${runId}-${index}`" :aria-label="item.header || t('questionNumber', { index: index + 1 })" :tabindex="activeIndex === index ? 0 : -1" :disabled="submitting || busy" @click="goTo(index)" @keydown="navigateTabs($event, index)">
+        <button v-for="(item, index) in entries" :id="`question-tab-${runId}-${item.index}`" :key="item.key" type="button" role="tab" class="question-tab" :data-question-tab="index" :data-answered="valid(index) || undefined" :aria-selected="activeIndex === index" :aria-controls="`question-panel-${runId}-${item.index}`" :aria-label="item.prompt.header || t('questionNumber', { index: index + 1 })" :tabindex="activeIndex === index ? 0 : -1" :disabled="submitting || busy" @click="goTo(index)" @keydown="navigateTabs($event, index)">
           <span class="question-tab-number" aria-hidden="true"><IconCheck v-if="valid(index)" /><template v-else>{{ index + 1 }}</template></span>
-          <span class="question-tab-label">{{ item.header || t('questionNumber', { index: index + 1 }) }}</span>
+          <span class="question-tab-label">{{ item.prompt.header || t('questionNumber', { index: index + 1 }) }}</span>
         </button>
       </div>
-      <small class="question-position" role="status">{{ activeIndex + 1 }} / {{ questions.length }}</small>
+      <small class="question-position" role="status">{{ activeIndex + 1 }} / {{ entries.length }}</small>
     </div>
-    <div class="question-stage">
+    <div ref="stage" class="question-stage">
       <Transition name="question-page" mode="out-in" @after-enter="focusQuestion">
-        <div v-if="question" :id="panelID" :key="`${runId}-${activeIndex}`" ref="panel" :role="questions.length > 1 ? 'tabpanel' : undefined" :aria-labelledby="questions.length > 1 ? `question-tab-${runId}-${activeIndex}` : undefined">
-          <fieldset class="question-item" :data-question-index="activeIndex" :disabled="submitting || busy">
-            <legend class="question-text" tabindex="-1"><span v-if="question.header && questions.length === 1" class="question-header">{{ question.header }}</span>{{ question.question }}</legend>
-            <small class="question-selection-hint">{{ t(question.multiple ? 'questionMultiple' : 'questionSingle') }}</small>
-            <div class="question-options">
-              <component :is="question.multiple ? Checkbox : Radio" v-for="option in question.options" :key="option.label" class="question-option" :name="`question-${runId}-${activeIndex}`" :checked="selected(activeIndex, option.label)" :disabled="submitting || busy" :aria-label="option.label" @update:checked="toggleOption(activeIndex, option.label, !!$event)">
-                <span class="question-option-copy"><strong>{{ option.label }}</strong><small v-if="option.description">{{ option.description }}</small></span>
-              </component>
-              <component :is="question.multiple ? Checkbox : Radio" v-if="question.custom !== false" class="question-option question-custom-option" :name="`question-${runId}-${activeIndex}`" :checked="customSelected(activeIndex)" :disabled="submitting || busy" :aria-label="t('questionCustomOption')" @update:checked="toggleCustom(activeIndex, !!$event)">
-                <span class="question-option-copy"><strong>{{ t('questionCustomOption') }}</strong></span>
-              </component>
-            </div>
-            <TextArea v-if="customSelected(activeIndex)" :value="drafts[activeIndex]?.text || ''" :disabled="submitting || busy" :auto-size="{ minRows: 2, maxRows: 6 }" :aria-label="t('questionCustomAnswer', { question: question.question })" :placeholder="t('questionCustomPlaceholder')" @update:value="setText(activeIndex, String($event))" />
-          </fieldset>
+        <div v-if="question" :id="panelID" :key="`${runId}-${question.key}`" ref="panel" :role="entries.length > 1 ? 'tabpanel' : undefined" :aria-labelledby="entries.length > 1 ? `question-tab-${runId}-${question.index}` : undefined">
+          <SchemaForm :id="`question-${sessionId}-${runId}-${callId || 'legacy'}`" v-model="drafts" :schema="definition.schema" :uischema="uischema" :renderers="renderers" :normalize-draft="definition.normalize" draft-updates :disabled="submitting || busy" @validity="formValid = $event" />
         </div>
       </Transition>
     </div>
+    <p v-if="submissionFailed" class="question-submit-error" role="alert">{{ t('questionSubmitFailed') }}</p>
     <div class="question-form-footer">
-      <small>{{ t('questionComposerHint') }}</small>
+      <small v-if="!embedded">{{ t('questionComposerHint') }}</small>
       <div class="question-form-actions">
-        <Button v-if="questions.length > 1" type="button" variant="text" :disabled="activeIndex === 0 || submitting || busy" @click="goTo(activeIndex - 1, true)"><IconChevronLeft aria-hidden="true" />{{ t('questionPrevious') }}</Button>
-        <Button v-if="activeIndex < questions.length - 1" type="button" variant="primary" :disabled="submitting || busy" @click="goTo(activeIndex + 1, true)">{{ t('questionNext') }}<IconChevronRight aria-hidden="true" /></Button>
+        <Button v-if="entries.length > 1" type="button" variant="text" :disabled="activeIndex === 0 || submitting || busy" @click="goTo(activeIndex - 1, true)"><IconChevronLeft aria-hidden="true" />{{ t('questionPrevious') }}</Button>
+        <Button v-if="activeIndex < entries.length - 1" type="button" variant="primary" :disabled="submitting || busy" @click="goTo(activeIndex + 1, true)">{{ t('questionNext') }}<IconChevronRight aria-hidden="true" /></Button>
         <Button v-else type="submit" variant="primary" :disabled="!canSubmit || submitting || busy" :loading="submitting">{{ t('questionSubmit') }}</Button>
       </div>
     </div>
   </form>
 </template>
-
 <style scoped>
 .question-form{--question-slide:12px;display:flex;flex-direction:column;gap:1.2rem;min-width:0;max-width:100%}.question-form[data-direction="-1"]{--question-slide:-12px}
-.question-navigation{display:flex;align-items:center;gap:.75rem;min-width:0}.question-tabs{display:flex;gap:.3rem;min-width:0;overflow-x:auto;overscroll-behavior-x:contain}.question-tab{display:flex;align-items:center;gap:.4rem;flex:none;max-width:12rem;padding:.4rem .6rem;border:0;border-radius:8px;background:transparent;color:var(--muted);font:inherit;font-size:14px;cursor:pointer;transition:background-color .14s,color .14s}.question-tab:hover{background:var(--hover);color:var(--text)}.question-tab[aria-selected="true"]{background:var(--accent-soft);color:var(--accent)}.question-tab:focus-visible{outline:var(--focus-outline, 2px solid var(--accent));outline-offset:-2px}.question-tab:disabled{cursor:default;opacity:.6}.question-tab-number{display:inline-flex;align-items:center;justify-content:center;flex:none;width:1.3rem;height:1.3rem;border:1px solid currentColor;border-radius:50%;font-size:12px}.question-tab[data-answered] .question-tab-number{border-color:transparent;color:var(--accent)}.question-tab-label{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.question-position{flex:none;margin-left:auto;color:var(--muted);font-size:13px;font-variant-numeric:tabular-nums;white-space:nowrap}
+.question-navigation{display:flex;align-items:center;gap:.75rem;min-width:0}.question-tabs{display:flex;gap:.3rem;min-width:0;overflow-x:auto;overscroll-behavior-x:contain}.question-tab{display:flex;align-items:center;gap:.4rem;flex:none;max-width:12rem;padding:.4rem .6rem;border:0;border-radius:8px;background:transparent;color:var(--muted);font:inherit;font-size:14px;cursor:pointer;transition:background-color .14s,color .14s}.question-tab:hover{background:var(--hover);color:var(--text)}.question-tab[aria-selected="true"]{background:var(--accent-soft);color:var(--accent)}.question-tab:focus-visible{outline:var(--focus-outline, 2px solid var(--accent));outline-offset:2px}.question-tab:disabled{cursor:default;opacity:.6}.question-tab-number{display:inline-flex;align-items:center;justify-content:center;flex:none;width:1.3rem;height:1.3rem;border:1px solid currentColor;border-radius:50%;font-size:12px}.question-tab[data-answered] .question-tab-number{border-color:transparent;color:var(--accent)}.question-tab-label{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.question-position{flex:none;margin-left:auto;color:var(--muted);font-size:13px;font-variant-numeric:tabular-nums;white-space:nowrap}
 .question-stage{min-width:0;overflow:hidden;margin:-3px;padding:3px}.question-page-enter-active,.question-page-leave-active{transition:opacity .12s ease,transform .12s ease}.question-page-leave-active{pointer-events:none}.question-page-enter-from{opacity:0;transform:translateX(var(--question-slide))}.question-page-leave-to{opacity:0;transform:translateX(calc(-1 * var(--question-slide)))}
-.question-item{min-width:0;margin:0;padding:0;border:0}.question-header{display:block;margin-bottom:.25rem;color:var(--muted);font-size:14px;font-weight:500}.question-text{float:none;display:block;width:100%;max-width:100%;margin:0 0 .35rem;padding:0;color:var(--text);font-size:17px;line-height:1.5;white-space:pre-wrap;overflow-wrap:anywhere}.question-text:focus{outline:none}.question-selection-hint{display:block;margin-bottom:.6rem;font-size:14px;color:var(--muted)}.question-options{display:grid;gap:.5rem;min-width:0}.question-option{display:flex;align-items:flex-start;gap:.25rem;min-width:0;width:100%;margin:0;padding:.65rem .75rem;border:1px solid var(--border);border-radius:9px;background:var(--surface-subtle);cursor:pointer;white-space:normal}.question-option:focus-within{outline:var(--focus-outline, 2px solid var(--accent));outline-offset:2px}.question-option:hover{border-color:var(--accent);background:var(--hover)}.question-option.ui-radio-wrapper-checked,.question-option.ui-checkbox-wrapper-checked{border-color:var(--accent);background:var(--hover)}.question-option:deep(.ui-radio),.question-option:deep(.ui-checkbox){flex:none;margin-top:.2rem;align-self:flex-start}.question-option:deep(.ui-radio-label),.question-option:deep(.ui-checkbox-label){min-width:0;flex:1;white-space:normal;overflow-wrap:anywhere}.question-option-copy{display:flex;flex-direction:column;gap:.2rem;min-width:0;overflow-wrap:anywhere}.question-option-copy strong{font-size:16px;font-weight:500;color:var(--text)}.question-option-copy small{font-size:14px;color:var(--muted);line-height:1.5}.question-item>.ui-input,.question-item textarea{width:100%;margin-top:.65rem}.question-form-footer{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:.75rem}.question-form-footer>small{min-width:0;color:var(--muted);font-size:14px}.question-form-actions{display:flex;align-items:center;justify-content:space-between;gap:.5rem;margin-left:auto}.question-form-actions>.ui-btn:last-child{min-width:6.5rem}
-@media(max-width:520px){.question-option{padding:.5rem}.question-tab{gap:.3rem;padding:.4rem .45rem}.question-navigation{gap:.5rem}.question-form-footer{align-items:stretch;flex-direction:column}.question-form-actions{width:100%;margin-left:0}.question-form-actions>.ui-btn:only-child{width:100%}}
+.question-form-footer{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:.75rem}.question-form-footer>small{min-width:0;color:var(--muted);font-size:14px}.question-form-actions{display:flex;align-items:center;justify-content:space-between;gap:.5rem;margin-left:auto}.question-form-actions>.ui-btn:last-child{min-width:6.5rem}
+@media(max-width:520px){.question-tab{gap:.3rem;padding:.4rem .45rem}.question-navigation{gap:.5rem}.question-form-footer{align-items:stretch;flex-direction:column}.question-form-actions{width:100%;margin-left:0}.question-form-actions>.ui-btn:only-child{width:100%}}
 @media(prefers-reduced-motion:reduce){.question-tab,.question-page-enter-active,.question-page-leave-active{transition:none}.question-page-enter-from,.question-page-leave-to{transform:none}}
+.question-submit-error{flex:none;margin:0;color:var(--danger);font-size:14px;line-height:1.5;overflow-wrap:anywhere}
+.question-form-embedded{flex:1 1 auto;min-height:0;gap:.65rem;overflow:hidden}
+.question-form-embedded .question-navigation,.question-form-embedded .question-form-footer{flex:none}
+.question-form-embedded .question-stage{flex:1 1 auto;min-height:0;overflow:auto;overscroll-behavior:contain;scrollbar-gutter:stable}
+@media(max-height:520px){.question-form-embedded{gap:.35rem}.question-form-embedded .question-form-footer{gap:.35rem}}
 </style>
