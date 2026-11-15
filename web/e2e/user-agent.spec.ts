@@ -1,5 +1,6 @@
 import { openAboutAdvanced } from './settings-navigation'
 import { test, expect } from './fixtures'
+import { deferPointerDownFrames } from './deferred-frames'
 import type { UserAgentSettings } from '../src/client/types'
 
 test('UA presets preview exact headers and custom changes reach a resident Worker @responsive', async ({ page, vista }, testInfo) => {
@@ -79,7 +80,7 @@ test('UA presets preview exact headers and custom changes reach a resident Worke
   await region.screenshot({ path: testInfo.outputPath('user-agent-dark.png'), animations: 'disabled' })
 })
 
-test('UA save errors retain the draft and allow retry', async ({ page, vista }) => {
+test('UA save errors retain the draft and allow retry', { tag: '@responsive' }, async ({ page, vista, isMobile }) => {
   let rejected = false
   let release!: () => void
   const held = new Promise<void>(resolve => { release = resolve })
@@ -105,10 +106,12 @@ test('UA save errors retain the draft and allow retry', async ({ page, vista }) 
   await expect(region.getByRole('alert')).toContainText('could not save User-Agent settings')
   await expect(input).toHaveValue('RetainedClient/1')
   expect((await vista.api('/user-agent')).preset).toBe('vista')
+  let releaseFrames: (() => Promise<number>) | undefined
   try {
     await save.click()
     await expect(region).toHaveAttribute('aria-busy', 'true')
     await expect(page.locator('.about-advanced-modal .ui-modal-close')).toBeDisabled()
+    if (!isMobile) releaseFrames = await deferPointerDownFrames(page.locator('.ui-modal-wrap:visible').last())
     await page.locator('.ui-modal-wrap:visible').last().click({ position: { x: 5, y: 5 } })
     await page.keyboard.press('Escape')
     await expect(page.locator('.about-advanced-modal')).toBeVisible()
@@ -116,6 +119,11 @@ test('UA save errors retain the draft and allow retry', async ({ page, vista }) 
   } finally { release() }
   await expect(save).toBeDisabled()
   await expect(region).toHaveAttribute('aria-busy', 'false')
+  if (releaseFrames) expect(await releaseFrames()).toBeGreaterThan(0)
+  await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))))
+  await expect(page.locator('.about-advanced-modal [role="dialog"]')).toHaveAttribute('data-state', 'open')
+  await expect(page.locator('.about-advanced-modal')).toBeVisible()
+  await expect(input).toHaveValue('RetainedClient/1')
   await expect(region.getByRole('alert')).toHaveCount(0)
   expect((await vista.api('/user-agent')).value).toBe('RetainedClient/1')
   await page.locator('.ui-modal-wrap:visible').last().click({ position: { x: 5, y: 5 } })

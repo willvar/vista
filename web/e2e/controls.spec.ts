@@ -1,5 +1,6 @@
 import { test as base, expect, type Locator } from '@playwright/test'
 import { controlAssets, startFrontend } from './frontend-server'
+import { deferPointerDownFrames } from './deferred-frames'
 
 // Exercise the production wrappers directly, including states that are hard to
 // hold while a real server acknowledges a write. No product route is added.
@@ -384,6 +385,72 @@ test('modal traps focus and respects busy dismissal and action constraints', asy
   await expect(dialog).toHaveCount(0)
   await expect(page.getByTestId('cancelled')).toHaveText('1')
   await expect(trigger).toBeFocused()
+})
+
+test('modal rejects busy backdrop clicks delivered after unlocking', async ({ page }) => {
+  const trigger = page.getByRole('button', { name: 'Open dialog', exact: true })
+  await trigger.click()
+  const dialog = page.getByRole('dialog', { name: 'Control dialog', exact: true })
+  const input = dialog.getByRole('textbox', { name: 'Dialog input', exact: true })
+  const toggle = dialog.getByRole('button', { name: 'Toggle busy', exact: true })
+  await input.fill('Retained after unlocking')
+  await toggle.click()
+  await expect(dialog.getByRole('button', { name: 'Cancel', exact: true })).toBeDisabled()
+  const release = await deferPointerDownFrames(page.locator('.ui-modal-wrap'))
+  try {
+    await page.locator('.ui-modal-wrap').click({ position: { x: 5, y: 5 } })
+    await page.getByTestId('overlays').dispatchEvent('release-busy')
+    await expect(dialog.getByRole('button', { name: 'Cancel', exact: true })).toBeEnabled()
+  } finally { expect(await release()).toBeGreaterThan(0) }
+  await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))))
+  await expect(dialog).toHaveAttribute('data-state', 'open')
+  await expect(dialog).toBeVisible()
+  await expect(input).toHaveValue('Retained after unlocking')
+  await expect(page.getByTestId('cancelled')).toHaveText('0')
+  await page.keyboard.press('Tab')
+  expect(await dialog.evaluate(element => element.contains(document.activeElement))).toBe(true)
+  await page.locator('.ui-modal-wrap').click({ position: { x: 5, y: 5 } })
+  await expect(dialog).toHaveCount(0)
+  await expect(page.getByTestId('cancelled')).toHaveText('1')
+  await expect(trigger).toBeFocused()
+  await trigger.click()
+  await page.locator('.ui-modal-wrap').click({ position: { x: 5, y: 5 } })
+  await expect(dialog).toHaveCount(0)
+  await expect(page.getByTestId('cancelled')).toHaveText('2')
+})
+
+test('modal keeps a busy touch gesture blocked through unlock and permits a new gesture', { tag: '@responsive' }, async ({ page, isMobile }) => {
+  test.skip(!isMobile, 'Native touch gestures require a touch viewport')
+  const trigger = page.getByRole('button', { name: 'Open dialog', exact: true })
+  await trigger.tap()
+  const dialog = page.getByRole('dialog', { name: 'Control dialog', exact: true })
+  const input = dialog.getByRole('textbox', { name: 'Dialog input', exact: true })
+  const toggle = dialog.getByRole('button', { name: 'Toggle busy', exact: true })
+  await input.fill('Retained until finger release')
+  await toggle.tap()
+  await expect(dialog.getByRole('button', { name: 'Cancel', exact: true })).toBeDisabled()
+  const client = await page.context().newCDPSession(page)
+  try {
+    await client.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: 5, y: 5, id: 1 }] })
+    await page.getByTestId('overlays').dispatchEvent('release-busy')
+    await expect(dialog.getByRole('button', { name: 'Cancel', exact: true })).toBeEnabled()
+    await client.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] })
+    await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))))
+    await expect(dialog).toHaveAttribute('data-state', 'open')
+    await expect(dialog).toBeVisible()
+    await expect(input).toHaveValue('Retained until finger release')
+    await expect(page.getByTestId('cancelled')).toHaveText('0')
+    // A canceled locked gesture must not block a later unlocked tap either.
+    await toggle.tap()
+    await client.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: 5, y: 5, id: 2 }] })
+    await client.send('Input.dispatchTouchEvent', { type: 'touchCancel', touchPoints: [] })
+    await page.getByTestId('overlays').dispatchEvent('release-busy')
+    await expect(dialog.getByRole('button', { name: 'Cancel', exact: true })).toBeEnabled()
+    await page.locator('.ui-modal-wrap').tap({ position: { x: 5, y: 5 } })
+    await expect(dialog).toHaveCount(0)
+    await expect(page.getByTestId('cancelled')).toHaveText('1')
+    await expect(trigger).toBeFocused()
+  } finally { await client.detach() }
 })
 
 test('message controls retain draft, keyboard, collapse and copy semantics', async ({ page }) => {

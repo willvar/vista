@@ -110,7 +110,8 @@ const composerLevel = ref(2)
       <Dropdown :trigger="['click']" :menu="{ items: [{ key: 'enabled', label: 'Enabled item' }, { key: 'disabled', label: 'Disabled item', disabled: true }], onClick: item => menu = item.key }"><Button>Menu</Button></Dropdown>
       <output data-testid="menu">{{ menu }}</output>
     </section>
-    <section data-testid="overlays">
+    <!-- A completion signal releases busy without synthesizing another click. -->
+    <section data-testid="overlays" @release-busy="busy = false">
       <h2>Overlays</h2>
       <Tooltip title="Tooltip content"><Button>Tooltip trigger</Button></Tooltip>
       <Popover trigger="click"><Button>Click popover</Button><template #content><Button>Inside click popover</Button></template></Popover>
