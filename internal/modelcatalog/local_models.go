@@ -3,7 +3,6 @@ package modelcatalog
 import (
 	"bytes"
 	"context"
-	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -140,13 +139,8 @@ func discoveryJSON(ctx context.Context, method, endpoint, key string, body any, 
 }
 
 func discoveredModel(source LocalSource, base, id string, tools bool, context int) Configured {
-	hash := sha256.Sum256([]byte(id))
-	key := fmt.Sprintf("%s-%x", source.kind, hash[:6])
-	apiKey := source.apiKey
-	if apiKey == "" {
-		apiKey = "-" // OpenAI Chat requires a nonempty key; local endpoints ignore this placeholder.
-	}
-	return Configured{Key: key, Provider: "openai-chat", ProviderID: source.kind, ID: id, BaseURL: base, APIKey: apiKey, Tools: &tools, Context: context, metadataKnown: true}.WithDiscoverySource(source.kind)
+	source.baseURL = base
+	return source.WithInventoryModel(InventoryModel{ID: id, Tools: &tools, Context: context, metadataKnown: true, discoverySource: source.kind})
 }
 
 func discoverOllama(ctx context.Context, source LocalSource, base, endpoint string) ([]Configured, error) {

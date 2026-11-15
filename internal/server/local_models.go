@@ -33,7 +33,7 @@ func (a *App) pollLocalModels(ctx context.Context) {
 func (a *App) refreshLocalModels(ctx context.Context) {
 	for _, source := range modelcatalog.LocalSources() {
 		a.modelMu.Lock()
-		ticket := a.beginModelDiscoveryLocked("local:" + source.Kind())
+		ticket := a.beginModelDiscoveryLocked("local:" + source.Identity())
 		a.modelMu.Unlock()
 		models, err := modelcatalog.DiscoverLocalModels(ctx, source)
 		if err != nil {
@@ -45,14 +45,14 @@ func (a *App) refreshLocalModels(ctx context.Context) {
 			continue
 		}
 		a.modelMu.Lock()
-		if !a.currentModelDiscoveryLocked("local:"+source.Kind(), ticket) {
+		if !a.currentModelDiscoveryLocked("local:"+source.Identity(), ticket) {
 			a.modelMu.Unlock()
 			continue
 		}
 		if a.localModels == nil {
-			a.localModels = make(map[string][]configuredModel)
+			a.localModels = make(map[string][]modelcatalog.InventoryModel)
 		}
-		a.localModels[source.Kind()] = models
+		a.localModels[source.Identity()] = modelcatalog.Inventory(models)
 		a.rebuildModelsLocked()
 		a.modelMu.Unlock()
 	}
@@ -62,39 +62,20 @@ func (a *App) rebuildModelsLocked() {
 	catalog := modelCatalog{Default: a.baseModels.Default, Models: []configuredModel{}}
 	seenKeys := make(map[string]bool, len(a.baseModels.Models))
 	seenModels := make(map[string]bool, len(a.baseModels.Models))
-	copilot := make(map[string]configuredModel)
-	for _, models := range a.copilotInventories {
-		for _, model := range models {
-			copilot[modelcatalog.Identity(model)] = model
-		}
-	}
-	custom := make(map[string]configuredModel)
-	for _, source := range customSources(a.baseModels) {
-		for _, model := range a.customInventories[source.identity()] {
-			custom[modelcatalog.Identity(model)] = model
-		}
-	}
 	for _, model := range a.baseModels.Models {
 		if model.ProviderID == "github-copilot" {
-			if _, ready := a.copilotInventories[modelcatalog.CopilotSourceID(model)]; ready {
-				if remote, ok := copilot[modelcatalog.Identity(model)]; ok {
-					remote.Key = model.Key
-					if model.Tools != nil && !*model.Tools {
-						remote.Tools = model.Tools
-					}
-					if model.Context > 0 && model.Context < remote.Context {
-						remote.Context = model.Context
-					}
-					model = remote
+			if inventory, ready := a.copilotInventories[modelcatalog.CopilotSourceID(model)]; ready {
+				if remote, ok := inventoryModel(inventory, model.ID); ok {
+					model = model.WithInventoryModel(remote)
 				} else {
 					continue
 				}
 			}
 		}
 		if source, ok := customSourceFor(model); ok {
-			if _, ready := a.customInventories[source.identity()]; ready {
+			if inventory, ready := a.customInventories[source.identity()]; ready {
 				// A successful inventory replaces saved anchors, even when empty.
-				remote, present := custom[modelcatalog.Identity(model)]
+				remote, present := inventoryModel(inventory, model.ID)
 				if !present {
 					continue
 				}
@@ -107,11 +88,12 @@ func (a *App) rebuildModelsLocked() {
 		seenKeys[model.Key] = true
 		seenModels[modelcatalog.Identity(model)] = true
 	}
-	for _, kind := range []string{"ollama", "lmstudio", "vllm"} {
-		for _, model := range a.localModels[kind] {
+	for _, source := range modelcatalog.LocalSources() {
+		for _, remote := range a.localModels[source.Identity()] {
+			model := source.WithInventoryModel(remote)
 			managed := false
 			for _, configured := range a.baseModels.Models {
-				if configured.ConnectionID != "" && configured.ProviderID == kind && strings.TrimRight(configured.BaseURL, "/") == strings.TrimRight(model.BaseURL, "/") {
+				if configured.ConnectionID != "" && configured.ProviderID == source.Kind() && strings.TrimRight(configured.BaseURL, "/") == strings.TrimRight(model.BaseURL, "/") {
 					managed = true
 					break
 				}
@@ -129,7 +111,14 @@ func (a *App) rebuildModelsLocked() {
 		}
 	}
 	for _, source := range customSources(a.baseModels) {
-		for _, model := range a.customInventories[source.identity()] {
+		for _, remote := range a.customInventories[source.identity()] {
+			// Resolve against current catalog routes and connection preferences.
+			model := source.model.WithInventoryModel(remote).WithDiscoverySource("provider")
+			resolved := modelCatalog{Models: []configuredModel{model}}
+			if err := modelcatalog.ResolveCatalog(&resolved); err != nil {
+				continue
+			}
+			model = resolved.Models[0]
 			identity := modelcatalog.Identity(model)
 			if seenKeys[model.Key] || seenModels[identity] {
 				continue
@@ -140,7 +129,8 @@ func (a *App) rebuildModelsLocked() {
 		}
 	}
 	for _, source := range copilotSources(a.baseModels) {
-		for _, model := range a.copilotInventories[modelcatalog.CopilotSourceID(source)] {
+		for _, remote := range a.copilotInventories[modelcatalog.CopilotSourceID(source)] {
+			model := source.DiscoveryTemplate().WithInventoryModel(remote)
 			identity := modelcatalog.Identity(model)
 			if seenKeys[model.Key] || seenModels[identity] {
 				continue
@@ -159,4 +149,13 @@ func (a *App) rebuildModelsLocked() {
 		a.models = catalog
 		a.updates.notify("models", "status")
 	}
+}
+
+func inventoryModel(models []modelcatalog.InventoryModel, id string) (modelcatalog.InventoryModel, bool) {
+	for _, model := range models {
+		if model.ID == id {
+			return model, true
+		}
+	}
+	return modelcatalog.InventoryModel{}, false
 }

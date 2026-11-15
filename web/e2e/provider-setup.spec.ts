@@ -63,6 +63,67 @@ test('model-only drafts require confirmation and reset after reverting, discardi
   await expect(discard).toHaveCount(0)
 })
 
+test('saved model selection is ready to reopen while shared-state reads are delayed', async ({ page, vista }) => {
+  const connection = await azureConnection(page, vista)
+  const { form, picker, label } = connection
+  await page.goto(vista.origin + '/settings/models')
+  await connection.open()
+  await connection.select('gpt-4.1-mini')
+  let reads = 0
+  let release!: () => void
+  const gate = new Promise<void>(resolve => { release = resolve })
+  await page.route('**/api/model-config', async route => {
+    reads++
+    const response = await route.fetch()
+    await gate
+    await route.fulfill({ response })
+  })
+  try {
+    await form.getByRole('button', { name: 'Save changes', exact: true }).click()
+    await expect(form).toHaveCount(0)
+    await connection.open()
+    await expect(picker.locator('.ui-select-selection-item')).toHaveText(label('gpt-4.1-mini'))
+    release()
+    await page.unrouteAll({ behavior: 'wait' })
+    await expect(form.getByRole('button', { name: 'Reload current settings', exact: true })).toHaveCount(0)
+    expect(reads).toBeLessThanOrEqual(1)
+  } finally { release() }
+})
+
+test('a delayed save response preserves newer shared settings and the active draft', async ({ page, vista }) => {
+  const connection = await azureConnection(page, vista)
+  const { form, picker, label } = connection
+  await page.goto(vista.origin + '/settings/models')
+  await connection.open()
+  await connection.select('gpt-4.1-mini')
+  let release!: () => void
+  let received!: () => void
+  const gate = new Promise<void>(resolve => { release = resolve })
+  const saved = new Promise<void>(resolve => { received = resolve })
+  await page.route('**/api/provider-config', async route => {
+    if (route.request().method() !== 'PUT') { await route.continue(); return }
+    const response = await route.fetch()
+    received()
+    await gate
+    await route.fulfill({ response })
+  })
+  try {
+    await form.getByRole('button', { name: 'Save changes', exact: true }).click()
+    await saved
+    const settings = await vista.api('/model-config')
+    const current = settings.models.find((model: { name: string }) => model.name === connection.input.name)
+    const name = 'Draft Azure saved elsewhere'
+    await vista.api('/provider-config', { method: 'PUT', body: JSON.stringify({ ...connection.input, key: current.key, apiKey: '', name, revision: settings.settingsRevision }) })
+    await expect(page.locator('.configured-provider').filter({ hasText: name })).toBeVisible()
+    await expect(picker.locator('.ui-select-selection-item')).toHaveText(label('gpt-4.1-mini'))
+    release()
+    await expect(form).toHaveCount(0)
+    await connection.open()
+    await expect(form.getByLabel(/^Provider name/)).toHaveValue(name)
+    await expect(picker.locator('.ui-select-selection-item')).toHaveText(label('gpt-4.1'))
+  } finally { release() }
+})
+
 test('model-only drafts survive navigation cancellation and reload from the accepted connection', async ({ page, vista }) => {
   const connection = await azureConnection(page, vista)
   const { dialog, form, picker, discard, label } = connection

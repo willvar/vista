@@ -8,6 +8,9 @@ WebUI 连接列表来自[服务商配置](../internal/modelcatalog/provider_setu
 
 连接有独立 ID。即使地址或模型 ID 相同，凭据、发现、编辑、默认值和断开操作仍按连接隔离。读接口只报告凭据是否存在，不回显密钥。
 
+`POST` / `PUT /api/provider-config` 成功后返回与 `GET /api/model-config` 相同的脱敏配置快照和 `settingsRevision`。
+编辑框接收该快照后才关闭；较旧的响应不能覆盖同步收到的较新配置。
+
 自定义连接选择一种对话 API 格式，连接内所有模型使用该格式：
 
 | 格式 | 实现 |
@@ -53,6 +56,10 @@ WebUI 连接列表来自[服务商配置](../internal/modelcatalog/provider_setu
 发现结果不能替换接口格式、地址、认证或请求头。
 
 发现周期分别实现：自定义／Zen 每分钟、Copilot 每五分钟、本地服务每 30 秒。临时错误保留上次成功清单；编辑连接后，过时发现响应失效。见[自定义发现](../internal/server/custom_models.go)、[Copilot 发现](../internal/server/copilot_models.go)及[本地发现](../internal/server/local_models.go)。
+
+目录缓存使用[仅含模型资料的类型](../internal/modelcatalog/inventory.go)，保存 ID、名称、服务声明的逐模型协议、能力和令牌限制。运行模型由这些资料与当前连接的地址、凭据、代理选择和用户选项组装。修改代理、路由或提示词缓存选项后，新任务立即使用新配置与已有清单，无须等待刷新成功。更换服务或账号访问方式会使原清单失效；任何连接编辑前已发出的发现请求，其响应仍会被拒绝。保存的逐模型限制只约束对应锚点，不限制新发现的其他模型。已开始的任务保留其取得的网络快照。
+
+缓存能力与传输路由独立选择，多服务商策略和配置见[提示词缓存](./prompt-caching.zh-CN.md)。
 
 ## 导入连接
 

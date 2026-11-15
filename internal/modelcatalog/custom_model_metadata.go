@@ -172,9 +172,24 @@ func inventoryReasoning(fields ...discoveryFields) *modelcfg.ReasoningCapabiliti
 	return &modelcfg.ReasoningCapabilities{Supported: supported == nil || *supported, Options: options}
 }
 
+// DiscoveryTemplate retains connection settings without carrying one model's
+// identity, capability restrictions or resolved metadata into other models.
+func (m Configured) DiscoveryTemplate() Configured {
+	m.Key, m.ID = "", ""
+	m.Tools, m.Context, m.InputModalities = nil, 0, nil
+	m.baseURLExplicit, m.wireID = false, ""
+	m.inputLimit, m.outputLimit = 0, 0
+	m.catalogReasoning, m.catalogResolved, m.status = false, false, ""
+	m.inputModalities, m.outputModalities = nil, nil
+	m.discoverySource, m.discoveredName = "", ""
+	m.metadataKnown, m.discoveredReasoning = false, nil
+	m.azureCatalog, m.azureNative = false, false
+	return m
+}
+
 // WithDiscoveryMetadata preserves connection identity and explicit restrictions
 // while applying the metadata for this exact inventory model.
-func (m Configured) WithDiscoveryMetadata(remote Configured) Configured {
+func (m Configured) WithDiscoveryMetadata(remote InventoryModel) Configured {
 	if remote.Context > 0 && (m.Context == 0 || remote.Context < m.Context) {
 		m.Context = remote.Context
 	}
@@ -188,5 +203,6 @@ func (m Configured) WithDiscoveryMetadata(remote Configured) Configured {
 	}
 	m.discoveredName, m.discoveredReasoning = remote.discoveredName, remote.discoveredReasoning
 	m.metadataKnown, m.discoverySource = remote.metadataKnown, remote.discoverySource
+	m.catalogReasoning, m.status = remote.catalogReasoning, remote.status
 	return m
 }

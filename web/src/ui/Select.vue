@@ -7,6 +7,9 @@ import { useI18n } from 'vue-i18n'
 import { placement as position } from './placement'
 import type { CSSProperties } from 'vue'
 import type { SelectOption, SelectGroup } from './types'
+import type { ComboboxRootComponent } from '@ark-ui/vue/combobox'
+// Zag supports null for controlled clearing; Ark's generated root type omits it.
+const Combobox = ComboboxRoot as ComboboxRootComponent<{ highlightedValue?: string | null }>
 defineOptions({ inheritAttrs: false })
 const props = withDefaults(defineProps<{
   value?: string | number | (string | number)[] | null
@@ -19,6 +22,7 @@ const emit = defineEmits<{ 'update:value': [value: string | number | (string | n
 const attrs = useAttrs()
 const { t } = useI18n()
 const open = ref(false)
+const highlighted = ref<string | null>(null)
 const search = ref('')
 const text = ref('')
 const scrolling = ref<HTMLElement>()
@@ -79,6 +83,11 @@ function inputChange(details: { inputValue: string; reason?: string }) {
   if (details.reason === 'input-change') { text.value = details.inputValue; search.value = details.inputValue }
   else if (details.reason === 'item-select') { text.value = ''; search.value = '' }
 }
+function highlightChange(details: { highlightedValue: string | null }) {
+  // Opening can restore the previous selection after search/navigation ran.
+  // Keep the current highlight when that deferred value was filtered out.
+  if (details.highlightedValue === null || collection.value.has(details.highlightedValue)) highlighted.value = details.highlightedValue
+}
 function setScrolling(element: unknown) { scrolling.value = (element as { $el?: HTMLElement } | null)?.$el }
 function requestDismiss(event: CustomEvent<{ targetLayer?: HTMLElement }>) {
   const parent = event.detail.targetLayer
@@ -96,13 +105,13 @@ function addTag(event: KeyboardEvent) {
 </script>
 
 <template>
-  <ComboboxRoot class="ui-select" :class="[attrs.class, { 'ui-select-borderless': variant === 'borderless', 'ui-select-multiple': multiple, 'ui-select-disabled': disabled }]" :style="attrs.style"
-    :collection="collection" :model-value="selected" :input-value="editable && (multiple || open) ? text : selectedLabel" :open="open" :multiple="multiple" :allow-custom-value="multiple" :disabled="disabled"
+  <Combobox class="ui-select" :class="[attrs.class, { 'ui-select-borderless': variant === 'borderless', 'ui-select-multiple': multiple, 'ui-select-disabled': disabled }]" :style="attrs.style"
+    :collection="collection" :model-value="selected" :highlighted-value="highlighted" :input-value="editable && (multiple || open) ? text : selectedLabel" :open="open" :multiple="multiple" :allow-custom-value="multiple" :disabled="disabled"
     :close-on-select="!multiple" open-on-click :ids="id ? { input: id } : undefined"
     :positioning="{ placement: position(placement), sameWidth, gutter: 5 }"
     :translations="{ triggerLabel: t('uiToggleOptions'), clearTriggerLabel: t('uiClear'), resultsCount: count => t('uiResultsCount', { count }), noResults: t('traceNoMatches'), loading: t('uiLoading') }"
     :scroll-to-index-fn="virtualized ? details => virtualizer.scrollToIndex(details.index) : undefined" lazy-mount unmount-on-exit
-    @open-change="openChange($event.open)" @input-value-change="inputChange" @update:model-value="update">
+    @open-change="openChange($event.open)" @input-value-change="inputChange" @highlight-change="highlightChange" @update:model-value="update">
     <ComboboxControl ref="control" class="ui-select-selector">
       <template v-if="multiple"><span v-for="value in selected" :key="value" class="ui-select-tag">{{ label(value) }}<button type="button" :aria-label="`${t('remove')} ${label(value)}`" :disabled="disabled" @pointerdown.prevent @click.stop="update(selected.filter(item => item !== value))">×</button></span></template>
       <span v-else class="ui-select-selection-item" :class="{ 'ui-select-placeholder': !selected.length }" :style="[{ visibility: open && editable ? 'hidden' : undefined }, styles?.content]">{{ selectedLabel || placeholder }}</span>
@@ -124,5 +133,5 @@ function addTag(event: KeyboardEvent) {
         </component>
       </div>
     </ComboboxContent></ComboboxPositioner></Teleport>
-  </ComboboxRoot>
+  </Combobox>
 </template>

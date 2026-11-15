@@ -104,9 +104,9 @@ type App struct {
 	modelDiscoveries       map[string]uint64
 	models                 modelCatalog
 	baseModels             modelCatalog
-	localModels            map[string][]configuredModel
-	customInventories      map[string][]configuredModel
-	copilotInventories     map[string][]configuredModel
+	localModels            map[string][]modelcatalog.InventoryModel
+	customInventories      map[string][]modelcatalog.InventoryModel
+	copilotInventories     map[string][]modelcatalog.InventoryModel
 	mcpMu                  sync.Mutex
 	mcpServers             []workerproto.MCPServer
 	mcpChecks              map[string]mcpCheck
@@ -326,7 +326,7 @@ func loadApp(parent context.Context, cancel context.CancelFunc, configDir, dir s
 	if err != nil {
 		return nil, err
 	}
-	app := &App{memoryConfig: memorySettings, workers: map[string]*worker{}, workerFailures: map[string]workerFailureWindow{}, store: st, dir: dir, configDir: configDir, started: time.Now(), buildInfo: build, hostOS: platform.HostOS(), ctx: ctx, cancel: cancel, closeContext: closeContext, models: models, baseModels: models, localModels: map[string][]configuredModel{}, customInventories: map[string][]configuredModel{}, mcpServers: mcpServers, searchProviders: searchConfigs, searchConfig: searchSettings}
+	app := &App{memoryConfig: memorySettings, workers: map[string]*worker{}, workerFailures: map[string]workerFailureWindow{}, store: st, dir: dir, configDir: configDir, started: time.Now(), buildInfo: build, hostOS: platform.HostOS(), ctx: ctx, cancel: cancel, closeContext: closeContext, models: models, baseModels: models, localModels: map[string][]modelcatalog.InventoryModel{}, customInventories: map[string][]modelcatalog.InventoryModel{}, mcpServers: mcpServers, searchProviders: searchConfigs, searchConfig: searchSettings}
 	app.initCatalogUpdates()
 	return app, nil
 }

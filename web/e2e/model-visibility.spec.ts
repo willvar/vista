@@ -1,6 +1,7 @@
 import { createServer } from 'node:http'
 import { test, expect, type VistaFixture } from './fixtures'
 import { closeSettings } from './settings-navigation'
+import { deferClickFrames } from './deferred-frames'
 
 async function inventory(vista: VistaFixture, rows: object[], name = 'Metadata test') {
   const upstream = createServer((_request, response) => {
@@ -134,6 +135,31 @@ test('large model inventories render a bounded list and retain keyboard and sear
     await picker.press('ArrowDown')
     await picker.press('Enter')
     await expect(page.locator('.composer-model')).toContainText('Private model 005')
+  } finally { await stop() }
+})
+
+test('deferred opening frames preserve filtered keyboard selection @responsive', async ({ page, vista }) => {
+  const stop = await inventory(vista, [
+    { id: 'private-old', name: 'Previous model', input_modalities: ['text'] },
+    { id: 'private-next', name: 'Next model', input_modalities: ['text'] },
+  ])
+  try {
+    await page.goto(vista.origin + '/')
+    const picker = page.getByRole('combobox', { name: 'Model', exact: true })
+    const popup = page.locator('.ui-select-dropdown:visible')
+    await picker.click()
+    await popup.getByRole('option', { name: 'Previous model', exact: true }).click()
+    const release = await deferClickFrames(picker)
+    await picker.click()
+    await picker.fill('private-next')
+    await expect(popup.getByRole('option')).toHaveText(['Next model'])
+    await picker.press('ArrowDown')
+    await expect(popup.getByRole('option', { name: 'Next model', exact: true })).toHaveAttribute('data-highlighted', '')
+    expect(await release()).toBeGreaterThan(0)
+    await expect(popup.getByRole('option', { name: 'Next model', exact: true })).toHaveAttribute('data-highlighted', '')
+    await picker.press('Enter')
+    await expect(popup).toBeHidden()
+    await expect(page.locator('.composer-model')).toContainText('Next model')
   } finally { await stop() }
 })
 

@@ -56,7 +56,7 @@ func TestCopilotDiscoveryOverridesPinnedRouteAndRetainsInventoryOnFailure(t *tes
 	if err != nil {
 		t.Fatal(err)
 	}
-	app := &App{models: base, baseModels: base, localModels: map[string][]configuredModel{}}
+	app := &App{models: base, baseModels: base, localModels: map[string][]modelcatalog.InventoryModel{}}
 	app.refreshCopilotModels(context.Background())
 	catalog := app.modelsSnapshot()
 	if len(catalog.Models) != 3 || catalog.Default != "copilot" {
@@ -97,13 +97,52 @@ func TestCopilotDiscoveryRequiresConfiguredModel(t *testing.T) {
 	defer endpoint.Close()
 	t.Setenv("GITHUB_TOKEN", "ambient-token")
 	base := modelCatalog{}
-	app := &App{models: base, baseModels: base, localModels: map[string][]configuredModel{}}
+	app := &App{models: base, baseModels: base, localModels: map[string][]modelcatalog.InventoryModel{}}
 	app.refreshCopilotModels(context.Background())
 	if calls.Load() != 0 || len(app.modelsSnapshot().Models) != 0 {
 		t.Fatal("ambient token triggered Copilot discovery")
 	}
 	if _, err := modelcatalog.DiscoverModels(context.Background(), configuredModel{BaseURL: "http://example.com", APIKey: "token"}); err == nil {
 		t.Fatal("external HTTP Copilot discovery accepted")
+	}
+}
+
+func TestCopilotCachedInventoryUsesCurrentConnectionBeforeRefresh(t *testing.T) {
+	endpoint := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, `{"data":[{"id":"anchor","model_picker_enabled":true,"supported_endpoints":["/responses"],"capabilities":{"limits":{"max_prompt_tokens":4000,"max_output_tokens":500},"supports":{"tool_calls":true}}},{"id":"discovered","model_picker_enabled":true,"supported_endpoints":["/v1/messages"],"capabilities":{"limits":{"max_prompt_tokens":8000,"max_output_tokens":1000},"supports":{"tool_calls":true}}}]}`)
+	}))
+	defer endpoint.Close()
+	source := configuredModel{Key: "saved", ConnectionID: "account", Name: "Copilot", Provider: "openai-chat", ProviderID: "github-copilot", ID: "anchor", BaseURL: endpoint.URL, APIKey: "token"}
+	base := modelCatalog{Default: source.Key, Models: []configuredModel{source}}
+	app := &App{models: base, baseModels: base}
+	app.refreshCopilotModels(context.Background())
+	before := app.modelsSnapshot()
+	if len(before.Models) != 2 {
+		t.Fatalf("discovery prerequisite: %+v", before)
+	}
+	source.ProxyID = "new-proxy"
+	app.publishBaseModelsLocked(modelCatalog{Default: source.Key, Models: []configuredModel{source}})
+	check := func() {
+		t.Helper()
+		live := app.modelsSnapshot()
+		if len(live.Models) != 2 {
+			t.Fatalf("cached inventory lost: %+v", live)
+		}
+		for i, m := range live.Models {
+			if m.ProxyID != "new-proxy" || m.Key != before.Models[i].Key || m.APIKey != "token" || m.ConnectionID != "account" {
+				t.Fatalf("cached model replaced current connection: %+v", m)
+			}
+		}
+		if live.Models[1].Provider != "anthropic" || live.Models[1].BaseURL != endpoint.URL+"/v1" {
+			t.Fatalf("per-model endpoint metadata lost: %+v", live.Models[1])
+		}
+	}
+	check()
+	// Missing proxy forces discovery to fail before sending any network traffic.
+	app.refreshCopilotModels(context.Background())
+	check()
+	if before.Models[0].ProxyID != "" {
+		t.Fatal("previously acquired run snapshot was mutated")
 	}
 }
 
@@ -153,7 +192,7 @@ func TestCopilotSuccessfulInventoryRemovesMissingModelsOnlyForItsAccount(t *test
 		model("other-account", "missing", "second-token", endpoint.URL),
 		model("other-endpoint", "missing", "first-token", otherEndpoint.URL),
 	}}
-	app := &App{models: base, baseModels: base, localModels: map[string][]configuredModel{}}
+	app := &App{models: base, baseModels: base, localModels: map[string][]modelcatalog.InventoryModel{}}
 	fail.Store(true)
 	app.refreshCopilotModels(context.Background())
 	if got := app.modelsSnapshot(); len(got.Models) != 4 || got.Default != "missing" {
@@ -184,7 +223,7 @@ func TestCopilotEmptySuccessfulInventoryDoesNotRestorePinnedModels(t *testing.T)
 	}))
 	defer endpoint.Close()
 	base := modelCatalog{Default: "copilot", Models: []configuredModel{{Key: "copilot", Provider: "openai-chat", ProviderID: "github-copilot", ID: "unavailable", BaseURL: endpoint.URL, APIKey: "token"}}}
-	app := &App{models: base, baseModels: base, localModels: map[string][]configuredModel{}, workers: map[string]*worker{}, started: time.Now()}
+	app := &App{models: base, baseModels: base, localModels: map[string][]modelcatalog.InventoryModel{}, workers: map[string]*worker{}, started: time.Now()}
 	app.refreshCopilotModels(context.Background())
 	got := app.modelsSnapshot()
 	if len(got.Models) != 0 || got.Default != "" || len(got.Public()) != 0 {
@@ -249,7 +288,7 @@ func TestCopilotDiscoverySeparatesAccountsAtOneEndpoint(t *testing.T) {
 		{Key: "first", Provider: "openai-chat", ProviderID: "github-copilot", ID: "shared", BaseURL: endpoint.URL, APIKey: "first-token"},
 		{Key: "second", Provider: "openai-chat", ProviderID: "github-copilot", ID: "shared", BaseURL: endpoint.URL, APIKey: "second-token"},
 	}}
-	app := &App{models: base, baseModels: base, localModels: map[string][]configuredModel{}}
+	app := &App{models: base, baseModels: base, localModels: map[string][]modelcatalog.InventoryModel{}}
 	app.refreshCopilotModels(context.Background())
 	got := app.modelsSnapshot()
 	if firstCalls.Load() != 1 || secondCalls.Load() != 1 || len(got.Models) != 4 || got.Models[0].Key != "first" || got.Models[0].Provider != "openai-chat" || got.Models[1].Key != "second" || got.Models[1].Provider != "openai-responses" || got.Models[1].Context != 8000 {

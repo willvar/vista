@@ -21,9 +21,33 @@ class OMPCatalogTests(unittest.TestCase):
         self.assertTrue(expected["providers"]["fixture"]["bitmap"]["supportsTools"])
         self.assertFalse(expected["providers"]["opencode-zen"]["vista-no-tools"]["supportsTools"])
 
+    def test_more_than_256_providers_are_preserved(self):
+        source = {
+            "version": 1,
+            "keys": ["provider", "name", "api", "input"],
+            "booleanShapes": [[]],
+            "nodes": [[1, ["text"]], [0, [], 0, []]],
+            "providers": [],
+        }
+        for i in range(328):
+            provider = f"provider-{i:03d}"
+            source["nodes"].append([0, [0, provider, 1, "Test model", 2, "openai-completions", 3, [0]], 0, []])
+            source["providers"].append([provider, [len(source["nodes"]) - 1], [["model", [1]]]])
+        result = build(source, "fixture")
+        self.assertEqual(result["modelCount"], 328)
+        self.assertEqual(len(result["providers"]), 328)
+        for i in range(328):
+            self.assertEqual(result["providers"][f"provider-{i:03d}"]["model"]["name"], "Test model")
+
     def test_legacy_source_is_rejected(self):
         with self.assertRaisesRegex(ValueError, "unsupported OMP catalog version"):
             build({"fixture": {"model": {"id": "model", "provider": "fixture"}}}, "fixture")
+
+    def test_model_budget_is_preserved(self):
+        source = copy.deepcopy(self.compact)
+        source["providers"][0][2] = [source["providers"][0][2][0]] * 20001
+        with self.assertRaisesRegex(ValueError, "invalid compact OMP model count"):
+            build(source, "fixture")
 
     def test_invalid_formats_are_rejected(self):
         for version in (None, True, 2, "1"):

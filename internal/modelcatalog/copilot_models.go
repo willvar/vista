@@ -136,24 +136,16 @@ func discoverCopilotModels(parent context.Context, source Configured) ([]Configu
 		if vision {
 			inputModalities = append(inputModalities, "image")
 		}
-		identity := source.ConnectionID
-		if identity == "" {
-			identity = CopilotSourceID(source)
-		}
-		hash := sha256.Sum256([]byte(identity + "\x00" + item.ID))
-		modelBase := base
-		if protocol == "anthropic" {
-			modelBase += "/v1"
-		}
-		models = append(models, Configured{ProxyID: source.ProxyID, PromptCaching: source.PromptCaching, ResponsesRoute: source.ResponsesRoute,
-			Key: fmt.Sprintf("copilot-%x", hash[:6]), ConnectionID: source.ConnectionID, Name: source.Name, Provider: protocol,
-			ProviderID: "github-copilot", ID: item.ID, BaseURL: modelBase,
-			APIKey: source.APIKey, Tools: item.Capabilities.Supports.Tools,
+		metadata := InventoryModel{
+			ID: item.ID, protocol: protocol, Tools: item.Capabilities.Supports.Tools,
 			Context: contextLimit, inputLimit: limit.Input, outputLimit: limit.Output,
 			catalogReasoning: len(item.Capabilities.Supports.ReasoningEffort) > 0,
 			status:           "active", inputModalities: inputModalities, outputModalities: []string{"text"},
 			discoverySource: "github-copilot",
-		})
+		}
+		connection := source.DiscoveryTemplate()
+		connection.ProviderID = "github-copilot"
+		models = append(models, connection.WithInventoryModel(metadata))
 		seen[item.ID] = true
 	}
 	sort.Slice(models, func(i, j int) bool { return models[i].ID < models[j].ID })

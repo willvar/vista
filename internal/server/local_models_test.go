@@ -6,6 +6,8 @@ import (
 	"net/http/httptest"
 	"sync/atomic"
 	"testing"
+
+	"vista/internal/modelcatalog"
 )
 
 func TestLocalInventoryRefreshAndTransientFailure(t *testing.T) {
@@ -46,7 +48,7 @@ func TestLocalInventoryRefreshAndTransientFailure(t *testing.T) {
 	t.Setenv("VISTA_LMSTUDIO_BASE_URL", studio.URL+"/v1")
 	t.Setenv("VISTA_VLLM_BASE_URL", vllm.URL+"/v1")
 	base := modelCatalog{}
-	app := &App{models: base, baseModels: base, localModels: map[string][]configuredModel{}}
+	app := &App{models: base, baseModels: base, localModels: map[string][]modelcatalog.InventoryModel{}}
 	app.refreshLocalModels(context.Background())
 	first := app.modelsSnapshot()
 	if len(first.Models) != 3 || first.Models[0].ProviderID != "ollama" || first.Models[1].ProviderID != "lmstudio" || first.Models[2].ProviderID != "vllm" {

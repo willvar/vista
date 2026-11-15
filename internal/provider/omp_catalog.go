@@ -92,7 +92,7 @@ func decodeOMPCatalog(data []byte) (*OMPCatalogSnapshot, error) {
 	if err := decoder.Decode(&extra); err != io.EOF {
 		return nil, errors.New("OMP model catalog has extra data")
 	}
-	if catalog.Source != "oh-my-pi" || catalog.Revision == "" || len(catalog.Providers) == 0 || len(catalog.Providers) > 256 || catalog.ModelCount <= 0 || catalog.ModelCount > 20000 {
+	if catalog.Source != "oh-my-pi" || catalog.Revision == "" || len(catalog.Providers) == 0 || catalog.ModelCount <= 0 || catalog.ModelCount > 20000 {
 		return nil, errors.New("invalid OMP model catalog header")
 	}
 	if err := validateCatalogModels(catalog.Providers, catalog.ModelCount); err != nil {
@@ -121,7 +121,7 @@ func decodeOMPCatalog(data []byte) (*OMPCatalogSnapshot, error) {
 }
 
 func validateCatalogModels(providers map[string]map[string]OMPModel, modelCount int) error {
-	if len(providers) == 0 || len(providers) > 256 || modelCount <= 0 || modelCount > 20000 {
+	if len(providers) == 0 || modelCount <= 0 || modelCount > 20000 {
 		return errors.New("invalid model catalog size")
 	}
 	count := 0

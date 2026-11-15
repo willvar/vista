@@ -6,7 +6,6 @@ import (
 	"log"
 	"sync"
 	"time"
-
 	"vista/internal/modelcatalog"
 )
 
@@ -89,9 +88,9 @@ func (a *App) refreshCopilotModels(ctx context.Context) {
 			continue // Retain this source's last successful inventory.
 		}
 		if a.copilotInventories == nil {
-			a.copilotInventories = map[string][]configuredModel{}
+			a.copilotInventories = map[string][]modelcatalog.InventoryModel{}
 		}
-		a.copilotInventories[modelcatalog.CopilotSourceID(discovered.source)] = discovered.models
+		a.copilotInventories[modelcatalog.CopilotSourceID(discovered.source)] = modelcatalog.Inventory(discovered.models)
 	}
 	a.rebuildModelsLocked()
 }

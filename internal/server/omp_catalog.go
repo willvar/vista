@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"vista/internal/modelcatalog"
+	"vista/internal/network"
 	"vista/internal/provider"
 )
 
@@ -61,6 +62,7 @@ func (a *App) checkModelCatalog(ctx context.Context, automatic bool) (changed bo
 		stop := context.AfterFunc(a.ctx, cancel)
 		defer stop()
 	}
+	ctx = network.WithOperation(network.WithConfigDir(ctx, a.configDir))
 	next, err := provider.FetchModelCatalog(ctx, a.ompCatalogClient)
 	if err != nil {
 		return false, err

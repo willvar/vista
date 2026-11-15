@@ -48,5 +48,9 @@ func (a *App) providerSettings(w http.ResponseWriter, r *http.Request) {
 		settingsHTTPError(w, err, status)
 		return
 	}
-	w.WriteHeader(http.StatusNoContent)
+	if r.Method == http.MethodDelete {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	a.writeModelSettings(w)
 }

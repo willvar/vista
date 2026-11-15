@@ -207,7 +207,7 @@ func TestNamedCustomResponsesDiscoveryAndReply(t *testing.T) {
 	}
 	save := httptest.NewRecorder()
 	app.providerSettings(save, httptest.NewRequest(http.MethodPost, "/api/provider-config", strings.NewReader(`{"name":"Herdex","provider":"openai-responses","providerId":"custom","credentialMode":"bearer","baseUrl":"`+base+`","apiKey":"private-key","ids":["gpt-6-luna"]}`)))
-	if save.Code != http.StatusNoContent {
+	if save.Code != http.StatusOK {
 		t.Fatalf("Responses save: %d %s", save.Code, save.Body.String())
 	}
 	configured := app.modelsSnapshot()
@@ -239,13 +239,13 @@ func TestNamedCustomResponsesDiscoveryAndReply(t *testing.T) {
 	}
 	add := httptest.NewRecorder()
 	app.providerSettings(add, httptest.NewRequest(http.MethodPut, "/api/provider-config", strings.NewReader(`{"key":"`+configured.Models[0].Key+`","name":"Herdex","provider":"openai-responses","providerId":"custom","credentialMode":"bearer","baseUrl":"`+base+`","ids":["gpt-6-luna","gpt-5.6-luna"]}`)))
-	if add.Code != http.StatusNoContent || app.modelsSnapshot().Models[1].Name != "Herdex" {
+	if add.Code != http.StatusOK || app.modelsSnapshot().Models[1].Name != "Herdex" {
 		t.Fatalf("connection name or credential not reused: %d %s", add.Code, add.Body.String())
 	}
 	rename := httptest.NewRecorder()
 	app.providerSettings(rename, httptest.NewRequest(http.MethodPut, "/api/provider-config", strings.NewReader(`{"key":"`+configured.Models[0].Key+`","name":"Herdex Pool","provider":"openai-responses","providerId":"custom","credentialMode":"bearer","baseUrl":"`+base+`"}`)))
 	models := app.modelsSnapshot().Models
-	if rename.Code != http.StatusNoContent || models[0].Name != "Herdex Pool" || models[1].Name != "Herdex Pool" {
+	if rename.Code != http.StatusOK || models[0].Name != "Herdex Pool" || models[1].Name != "Herdex Pool" {
 		t.Fatalf("provider rename did not reach all models: %d %s %+v", rename.Code, rename.Body.String(), models)
 	}
 }
@@ -292,7 +292,7 @@ func TestCustomDiscoveryUsesSelectedFormatWithoutProbingInference(t *testing.T) 
 	}
 	saved := httptest.NewRecorder()
 	app.providerSettings(saved, httptest.NewRequest(http.MethodPost, "/api/provider-config", strings.NewReader(`{"provider":"openai-responses","providerId":"custom","credentialMode":"bearer","baseUrl":"`+base+`","apiKey":"private-key"}`)))
-	if saved.Code != http.StatusNoContent || app.modelsSnapshot().Models[0].Provider != "openai-responses" {
+	if saved.Code != http.StatusOK || app.modelsSnapshot().Models[0].Provider != "openai-responses" {
 		t.Fatalf("selected format was not preserved: %d %s", saved.Code, saved.Body.String())
 	}
 }

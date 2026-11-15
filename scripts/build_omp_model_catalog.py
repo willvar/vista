@@ -24,7 +24,6 @@ from typing import Any, NoReturn
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 DEFAULT_OUTPUT = ROOT / "internal" / "provider" / "omp_models.json"
 MAX_MODELS = 20000
-MAX_PROVIDERS = 256
 EFFORTS = {"minimal", "low", "medium", "high", "xhigh", "max"}
 MODALITIES = {"text", "image", "audio", "video", "pdf"}
 
@@ -126,8 +125,6 @@ def build(payload: Any, revision: str) -> dict[str, Any]:
     if not isinstance(payload, dict) or not payload:
         fail("OMP models.json must be a non-empty object")
     payload = decode_compact(payload)
-    if len(payload) > MAX_PROVIDERS:
-        fail("OMP models.json contains too many providers")
     providers: dict[str, dict[str, dict[str, Any]]] = {}
     count = 0
     for provider, models in sorted(payload.items()):
@@ -165,7 +162,7 @@ def decode_compact(payload: dict[str, Any]) -> dict[str, Any]:
     keys, shapes, nodes, providers = (payload.get(key) for key in ("keys", "booleanShapes", "nodes", "providers"))
     if any(not isinstance(value, list) for value in (keys, shapes, nodes, providers)):
         fail("invalid compact OMP catalog tables")
-    if not 0 < len(providers) <= MAX_PROVIDERS or any(not isinstance(key, str) for key in keys):
+    if not providers or any(not isinstance(key, str) for key in keys):
         fail("invalid compact OMP provider count or keys")
     cache: dict[int, Any] = {}
     visiting: set[int] = set()

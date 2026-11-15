@@ -38,7 +38,7 @@ type ompCompactSource struct {
 }
 
 func (source *ompCompactSource) models() (map[string]map[string]ompSourceModel, error) {
-	if len(source.Providers) == 0 || len(source.Providers) > 256 {
+	if len(source.Providers) == 0 {
 		return nil, errors.New("invalid compact OMP provider count")
 	}
 	source.values = make([]any, len(source.Nodes))

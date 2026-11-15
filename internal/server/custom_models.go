@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"log"
 	"time"
-
 	"vista/internal/modelcatalog"
 )
 
@@ -15,15 +14,16 @@ import (
 // The connection stays in config.json models; discovered IDs stay in memory so a
 // provider with a large catalog does not rewrite the user's configuration.
 type customSource struct {
-	proxyID, connectionID, name, provider, providerID, baseURL, apiKey, authentication string
-	headers                                                                            map[string]string
+	model configuredModel
 }
 
 func (source customSource) identity() string {
-	if len(source.headers) == 0 {
-		source.headers = nil
-	}
-	data, _ := json.Marshal([]any{source.connectionID, source.name, source.provider, source.providerID, source.baseURL, source.apiKey, source.authentication, source.headers})
+	// Inventory access depends on service/account identity, not run preferences.
+	model := source.model
+	data, _ := json.Marshal(struct {
+		ConnectionID, Provider, ProviderID, BaseURL, Authentication, APIKey string
+		Headers                                                             map[string]string `json:"headers,omitempty"`
+	}{model.ConnectionID, model.Provider, model.ProviderID, model.BaseURL, model.Authentication, model.APIKey, model.Headers})
 	return fmt.Sprintf("%x", sha256.Sum256(data))
 }
 
@@ -34,11 +34,12 @@ func customSourceFor(model configuredModel) (customSource, bool) {
 	if !local && !custom && !(zen && model.APIKey != "") {
 		return customSource{}, false
 	}
-	source := customSource{proxyID: model.ProxyID, connectionID: model.ConnectionID, name: model.Name, provider: model.Provider, providerID: model.ProviderID, baseURL: model.BaseURL, apiKey: model.APIKey, authentication: model.Authentication, headers: model.Headers}
+	template := model.DiscoveryTemplate()
 	if zen {
-		source.provider, source.baseURL = "catalog", ""
+		// Resolve each Zen model's native endpoint and route independently.
+		template.Provider, template.BaseURL, template.ResponsesRoute = "catalog", "", ""
 	}
-	return source, true
+	return customSource{model: template}, true
 }
 
 func customSources(catalog modelCatalog) []customSource {
@@ -83,7 +84,7 @@ func (a *App) refreshCustomModels(ctx context.Context) {
 			return
 		}
 		requestCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
-		modelsFound, err := modelcatalog.DiscoverModels(requestCtx, configuredModel{ProxyID: source.proxyID, ConnectionID: source.connectionID, Name: source.name, Provider: source.provider, ProviderID: source.providerID, BaseURL: source.baseURL, APIKey: source.apiKey, Authentication: source.authentication, Headers: source.headers})
+		modelsFound, err := modelcatalog.DiscoverModels(requestCtx, source.model)
 		ids := make([]string, 0, len(modelsFound))
 		local := map[string]configuredModel{}
 		for _, model := range modelsFound {
@@ -93,30 +94,19 @@ func (a *App) refreshCustomModels(ctx context.Context) {
 		cancel()
 		if err != nil {
 			// Keep the last successful inventory while a provider is unavailable.
-			log.Printf("model discovery for %s: %v", source.name, err)
+			log.Printf("model discovery for %s: %v", source.model.Name, err)
 			continue
 		}
-		models := make([]configuredModel, 0, len(ids))
+		models := make([]modelcatalog.InventoryModel, 0, len(ids))
 		for _, id := range ids {
-			if modelcatalog.ZenProvider(source.providerID) && !modelcatalog.SelectableZenTextModel(source.providerID, id) {
+			if modelcatalog.ZenProvider(source.model.ProviderID) && !modelcatalog.SelectableZenTextModel(source.model.ProviderID, id) {
 				continue
 			}
-			identity := source.connectionID
-			if identity == "" {
-				identity = source.provider + "\x00" + source.providerID + "\x00" + source.baseURL
-			}
-			hash := sha256.Sum256([]byte(identity + "\x00" + id))
-			model := configuredModel{
-				Key: fmt.Sprintf("remote-%x", hash[:10]), ConnectionID: source.connectionID, Name: source.name, Provider: source.provider,
-				ProviderID: source.providerID, ID: id, BaseURL: source.baseURL, APIKey: source.apiKey, Authentication: source.authentication, Headers: source.headers,
-			}.WithDiscoverySource("provider")
+			metadata := modelcatalog.InventoryModel{ID: id}
 			if remote, ok := local[id]; ok {
-				model = model.WithDiscoveryMetadata(remote).WithDiscoverySource("provider")
+				metadata = remote.InventoryMetadata()
 			}
-			resolved := modelCatalog{Models: []configuredModel{model}}
-			if err := modelcatalog.ResolveCatalog(&resolved); err == nil {
-				models = append(models, resolved.Models[0])
-			}
+			models = append(models, metadata)
 		}
 		a.modelMu.Lock()
 		if !a.currentModelDiscoveryLocked("custom:"+source.identity(), tickets[source.identity()]) {
@@ -126,7 +116,7 @@ func (a *App) refreshCustomModels(ctx context.Context) {
 		for _, current := range customSources(a.baseModels) {
 			if current.identity() == source.identity() {
 				if a.customInventories == nil {
-					a.customInventories = map[string][]configuredModel{}
+					a.customInventories = map[string][]modelcatalog.InventoryModel{}
 				}
 				a.customInventories[source.identity()] = models
 				a.rebuildModelsLocked()

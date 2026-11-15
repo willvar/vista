@@ -19,12 +19,17 @@ import (
 	"github.com/klauspost/compress/zstd"
 	"vista/internal/configstore"
 	"vista/internal/modelcatalog"
+	"vista/internal/network"
 	"vista/internal/provider"
 )
 
-type catalogTestTransport func(*http.Request) (*http.Response, error)
+type catalogTestTransportFunc func(*http.Request) (*http.Response, error)
 
-func (f catalogTestTransport) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
+func (f catalogTestTransportFunc) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
+
+func catalogTestTransport(f func(*http.Request) (*http.Response, error)) http.RoundTripper {
+	return network.Transport{Base: catalogTestTransportFunc(f)}
+}
 
 const updatedCatalogSource = `{
  "version":1,

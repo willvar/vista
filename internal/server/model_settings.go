@@ -40,38 +40,42 @@ type modelSetting struct {
 	APIVersion     string                  `json:"apiVersion,omitempty"`
 }
 
+func (a *App) writeModelSettings(w http.ResponseWriter) {
+	w.Header().Set("Cache-Control", "no-store")
+	snapshot, err := a.modelSettingsSnapshot()
+	catalog, exists := snapshot.raw, snapshot.exists
+	if err != nil {
+		settingsHTTPError(w, err, 500)
+		return
+	}
+	items := make([]modelSetting, 0, len(catalog.Models))
+	for _, model := range catalog.Models {
+		mode := "apiKey"
+		if model.ProviderID == "custom" {
+			mode = model.Authentication
+		}
+		headerNames := make([]string, 0, len(model.Headers))
+		for name := range model.Headers {
+			headerNames = append(headerNames, name)
+		}
+		sort.Strings(headerNames)
+		if model.ProviderID == "openai-codex" || model.ProviderID == "github-copilot" {
+			mode = "oauth"
+		} else if model.AccessToken != "" {
+			mode = "accessToken"
+		} else if model.APIKey == "" && (modelcatalog.LocalProvider(model.ProviderID) || model.ProviderID == "amazon-bedrock" || model.ProviderID == "google-vertex") || model.BedrockAuth == "sigv4" {
+			mode = "default"
+		}
+		items = append(items, modelSetting{PromptCaching: model.PromptCaching, ResponsesRoute: model.ResponsesRoute, ProxyID: model.ProxyID, Kind: modelcatalog.SetupID(model), Key: model.Key, ConnectionID: model.ConnectionID, Name: model.Name, Provider: model.Provider, ProviderID: model.ProviderID, ID: model.ID, BaseURL: model.BaseURL, HasAPIKey: model.APIKey != "", Editable: exists && modelcatalog.Editable(model),
+			HeaderNames: headerNames, CopilotAuth: model.CopilotAuth, HasAccessToken: model.AccessToken != "", CredentialMode: mode, Region: model.Region, Project: model.Project, Location: model.Location, ResourceName: model.ResourceName, DeploymentID: model.DeploymentID, APIVersion: model.APIVersion})
+	}
+	jsonOut(w, map[string]any{"default": catalog.Default, "models": items, "settingsRevision": a.modelSettingsVersion(snapshot.revision)})
+}
+
 func (a *App) modelSettings(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
-		w.Header().Set("Cache-Control", "no-store")
-		snapshot, err := a.modelSettingsSnapshot()
-		catalog, exists := snapshot.raw, snapshot.exists
-		if err != nil {
-			settingsHTTPError(w, err, 500)
-			return
-		}
-		items := make([]modelSetting, 0, len(catalog.Models))
-		for _, model := range catalog.Models {
-			mode := "apiKey"
-			if model.ProviderID == "custom" {
-				mode = model.Authentication
-			}
-			headerNames := make([]string, 0, len(model.Headers))
-			for name := range model.Headers {
-				headerNames = append(headerNames, name)
-			}
-			sort.Strings(headerNames)
-			if model.ProviderID == "openai-codex" || model.ProviderID == "github-copilot" {
-				mode = "oauth"
-			} else if model.AccessToken != "" {
-				mode = "accessToken"
-			} else if model.APIKey == "" && (modelcatalog.LocalProvider(model.ProviderID) || model.ProviderID == "amazon-bedrock" || model.ProviderID == "google-vertex") || model.BedrockAuth == "sigv4" {
-				mode = "default"
-			}
-			items = append(items, modelSetting{PromptCaching: model.PromptCaching, ResponsesRoute: model.ResponsesRoute, ProxyID: model.ProxyID, Kind: modelcatalog.SetupID(model), Key: model.Key, ConnectionID: model.ConnectionID, Name: model.Name, Provider: model.Provider, ProviderID: model.ProviderID, ID: model.ID, BaseURL: model.BaseURL, HasAPIKey: model.APIKey != "", Editable: exists && modelcatalog.Editable(model),
-				HeaderNames: headerNames, CopilotAuth: model.CopilotAuth, HasAccessToken: model.AccessToken != "", CredentialMode: mode, Region: model.Region, Project: model.Project, Location: model.Location, ResourceName: model.ResourceName, DeploymentID: model.DeploymentID, APIVersion: model.APIVersion})
-		}
-		jsonOut(w, map[string]any{"default": catalog.Default, "models": items, "settingsRevision": a.modelSettingsVersion(snapshot.revision)})
+		a.writeModelSettings(w)
 	case http.MethodPatch:
 		r.Body = http.MaxBytesReader(w, r.Body, 8<<10)
 		var input struct {

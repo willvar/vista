@@ -3,6 +3,7 @@ package provider
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"os"
@@ -18,6 +19,53 @@ func ompCatalogFixture(t *testing.T, name string) []byte {
 		t.Fatal(err)
 	}
 	return data
+}
+
+func TestOMPCompactSourceAcceptsMoreThan256Providers(t *testing.T) {
+	const providerCount = 328
+	nodes := [][]any{
+		{1, []string{"text"}},
+		{0, []any{}, 0, []any{}},
+	}
+	var providers [][]any
+	for i := range providerCount {
+		id := fmt.Sprintf("provider-%03d", i)
+		nodes = append(nodes, []any{0, []any{0, id, 1, "Test model", 2, "openai-completions", 3, []int{0}}, 0, []any{}})
+		providers = append(providers, []any{id, []int{len(nodes) - 1}, [][]any{{"model", []int{1}}}})
+	}
+	data, err := json.Marshal(map[string]any{
+		"version": 1, "keys": []string{"provider", "name", "api", "input"},
+		"booleanShapes": [][]int{{}}, "nodes": nodes, "providers": providers,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	original := CurrentOMPCatalog()
+	t.Cleanup(original.Activate)
+	next, err := FetchOMPCatalog(context.Background(), ompDownloadClient(t, ompSourceRevision(data), string(data)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if CurrentOMPCatalog() != original || next.Info().ProviderCount != providerCount || next.Info().ModelCount != providerCount {
+		t.Fatalf("large staged catalog lost providers/models or changed active metadata: %+v", next.Info())
+	}
+	dir := t.TempDir()
+	if err := next.Save(dir); err != nil {
+		t.Fatal(err)
+	}
+	if err := LoadOMPCatalog(dir); err != nil {
+		t.Fatal(err)
+	}
+	if CurrentOMPCatalog().Info() != next.Info() {
+		t.Fatal("large catalog did not survive save/reload")
+	}
+	for i := range providerCount {
+		id := fmt.Sprintf("provider-%03d", i)
+		row, ok := OMPModelMetadata(id, "model")
+		if !ok || row.Name != "Test model" || row.API != "openai-completions" {
+			t.Fatalf("lost provider metadata after reload: %s %+v", id, row)
+		}
+	}
 }
 
 func TestOMPCompactSourcePreservesStableMetadata(t *testing.T) {
@@ -85,9 +133,17 @@ func TestOMPCompactSourceRejectsMalformedData(t *testing.T) {
 		"version":         func(s map[string]any) { s["version"] = 2 },
 		"null-version":    func(s map[string]any) { s["version"] = nil },
 		"providers":       func(s map[string]any) { s["providers"] = []any{} },
-		"keys":            func(s map[string]any) { s["keys"] = []any{} },
-		"shapes":          func(s map[string]any) { s["booleanShapes"] = []any{} },
-		"nodes":           func(s map[string]any) { s["nodes"] = []any{} },
+		"model-budget": func(s map[string]any) {
+			provider := s["providers"].([]any)[0].([]any)
+			rows := make([]any, 20001)
+			for i := range rows {
+				rows[i] = provider[2].([]any)[0]
+			}
+			provider[2] = rows
+		},
+		"keys":   func(s map[string]any) { s["keys"] = []any{} },
+		"shapes": func(s map[string]any) { s["booleanShapes"] = []any{} },
+		"nodes":  func(s map[string]any) { s["nodes"] = []any{} },
 		"reference": func(s map[string]any) {
 			s["providers"].([]any)[0].([]any)[1] = []any{1000000}
 		},

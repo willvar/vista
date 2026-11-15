@@ -1,9 +1,34 @@
 package provider
 
 import (
+	"encoding/json"
 	"slices"
+	"strconv"
+	"strings"
 	"testing"
 )
+
+func TestOMPCatalogRetainsSizeAndCountValidation(t *testing.T) {
+	for _, count := range []int{0, CurrentOMPCatalog().data.ModelCount + 1, 20001} {
+		t.Run(strconv.Itoa(count), func(t *testing.T) {
+			file := CurrentOMPCatalog().data
+			file.ModelCount = count
+			data, err := json.Marshal(file)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := decodeOMPCatalog(data); err == nil {
+				t.Fatal("invalid declared model count was accepted")
+			}
+			if err := validateCatalogModels(file.Providers, count); err == nil {
+				t.Fatal("invalid normalized model count was accepted")
+			}
+		})
+	}
+	if _, err := decodeOMPCatalog([]byte(strings.Repeat(" ", maxOMPCatalogBytes+1))); err == nil || !strings.Contains(err.Error(), "exceeds 8 MiB") {
+		t.Fatalf("encoded catalog size budget was lost: %v", err)
+	}
+}
 
 func TestOMPCatalogSnapshotIsEmbeddedAndProviderAware(t *testing.T) {
 	if revision := OMPCatalogRevision(); revision != "602b6c812fa9ef774f359f1e399a09d30ee2eaca" {

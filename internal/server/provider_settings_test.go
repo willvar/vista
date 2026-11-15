@@ -14,6 +14,44 @@ import (
 	"vista/internal/provider"
 )
 
+func TestProviderSaveReturnsAcceptedSettingsWithoutCredentials(t *testing.T) {
+	app := &App{configDir: t.TempDir()}
+	if err := os.Chmod(app.configDir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	input := providerSettingsInput{Name: "Saved connection", Provider: "openai-chat", ProviderID: "custom", CredentialMode: "bearer", BaseURL: "http://127.0.0.1:1/v1", APIKey: "private-save-key", Headers: map[string]string{"X-Account": "private-save-header"}, IDs: []string{"first-model"}}
+	var previousRevision string
+	for _, method := range []string{http.MethodPost, http.MethodPut} {
+		body, err := json.Marshal(input)
+		if err != nil {
+			t.Fatal(err)
+		}
+		saved := httptest.NewRecorder()
+		app.providerSettings(saved, httptest.NewRequest(method, "/api/provider-config", strings.NewReader(string(body))))
+		var settings struct {
+			Default          string         `json:"default"`
+			Models           []modelSetting `json:"models"`
+			SettingsRevision string         `json:"settingsRevision"`
+		}
+		if saved.Code != http.StatusOK || json.Unmarshal(saved.Body.Bytes(), &settings) != nil {
+			t.Fatalf("%s did not return accepted settings: %d %s", method, saved.Code, saved.Body.String())
+		}
+		if len(settings.Models) != 1 || settings.Models[0].ID != input.IDs[0] || !settings.Models[0].HasAPIKey || settings.Default != settings.Models[0].Key || settings.SettingsRevision == "" || settings.SettingsRevision == previousRevision {
+			t.Fatalf("%s returned stale or incomplete settings: %+v", method, settings)
+		}
+		if strings.Contains(saved.Body.String(), "private-save-key") || strings.Contains(saved.Body.String(), "private-save-header") || saved.Header().Get("Cache-Control") != "no-store" {
+			t.Fatal("save response leaked credentials or allowed caching")
+		}
+		current := httptest.NewRecorder()
+		app.modelSettings(current, httptest.NewRequest(http.MethodGet, "/api/model-config", nil))
+		if current.Code != http.StatusOK || current.Body.String() != saved.Body.String() {
+			t.Fatalf("%s response differs from the authoritative settings", method)
+		}
+		input.Key, input.Revision, input.APIKey, input.IDs = settings.Models[0].Key, settings.SettingsRevision, "", []string{"second-model"}
+		previousRevision = settings.SettingsRevision
+	}
+}
+
 func TestCatalogConnectionUsesAllModelsWithoutSetupSelection(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.Chmod(dir, 0700); err != nil {
@@ -131,7 +169,7 @@ func TestProviderConnectionLifecycle(t *testing.T) {
 		return response
 	}
 	input := providerSettingsInput{Name: "Herdex", Provider: "openai-chat", ProviderID: "custom", CredentialMode: "bearer", BaseURL: upstream.URL + "/v1", APIKey: "test-key"}
-	if response := call(app.providerSettings, http.MethodPost, input); response.Code != http.StatusNoContent {
+	if response := call(app.providerSettings, http.MethodPost, input); response.Code != http.StatusOK {
 		t.Fatalf("connect without model IDs: %d %s", response.Code, response.Body.String())
 	}
 	app.refreshCustomModels(context.Background())
@@ -156,7 +194,7 @@ func TestProviderConnectionLifecycle(t *testing.T) {
 		t.Fatal("discovered default was not applied")
 	}
 	input.Key, input.Name, input.Provider, input.APIKey = anchor, "Renamed", "openai-chat", ""
-	if response := call(app.providerSettings, http.MethodPut, input); response.Code != http.StatusNoContent {
+	if response := call(app.providerSettings, http.MethodPut, input); response.Code != http.StatusOK {
 		t.Fatalf("edit with saved credential: %d %s", response.Code, response.Body.String())
 	}
 	raw, _, err := modelcatalog.Read(dir)
@@ -217,7 +255,7 @@ func TestProviderAccountsAtSameEndpointStayIndependent(t *testing.T) {
 	connect := func(name, key string) configuredModel {
 		t.Helper()
 		input := providerSettingsInput{Name: name, Provider: "openai-chat", ProviderID: "custom", CredentialMode: "bearer", BaseURL: upstream.URL + "/v1", APIKey: key}
-		if response := call(app.providerSettings, http.MethodPost, input); response.Code != http.StatusNoContent {
+		if response := call(app.providerSettings, http.MethodPost, input); response.Code != http.StatusOK {
 			t.Fatalf("connect %s: %d %s", name, response.Code, response.Body.String())
 		}
 		return app.baseModels.Models[len(app.baseModels.Models)-1]
@@ -251,7 +289,7 @@ func TestProviderAccountsAtSameEndpointStayIndependent(t *testing.T) {
 		t.Fatalf("connection-specific discovery: %s", response.Body.String())
 	}
 	input := providerSettingsInput{Key: first.Key, Name: "First renamed", Provider: "openai-chat", ProviderID: "custom", CredentialMode: "bearer", BaseURL: first.BaseURL, APIKey: "rotated-key"}
-	if response := call(app.providerSettings, http.MethodPut, input); response.Code != http.StatusNoContent {
+	if response := call(app.providerSettings, http.MethodPut, input); response.Code != http.StatusOK {
 		t.Fatalf("edit one account: %s", response.Body.String())
 	}
 	app.refreshCustomModels(context.Background())
@@ -334,7 +372,7 @@ func TestZenConnectionAutomaticallyIncludesSupportedModels(t *testing.T) {
 	app := &App{dir: filepath.Join(dir, "state"), configDir: dir, baseModels: base, models: base}
 	response := httptest.NewRecorder()
 	app.providerSettings(response, httptest.NewRequest(http.MethodPost, "/api/provider-config", strings.NewReader(`{"provider":"catalog","providerId":"opencode-go","apiKey":"zen-key"}`)))
-	if response.Code != http.StatusNoContent {
+	if response.Code != http.StatusOK {
 		t.Fatalf("connect Zen without choosing IDs: %d %s", response.Code, response.Body.String())
 	}
 	app.refreshCustomModels(context.Background())

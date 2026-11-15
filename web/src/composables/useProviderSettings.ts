@@ -402,11 +402,18 @@ export function useProviderSettings({ client, error, stateSync, modelCatalog }: 
   let setupsRevision = 0
   let catalogRevision = ''
   let unsubscribeModels: (() => void) | undefined
+  function acceptModelSettings(models: ModelSettings) {
+    const [epoch, revision] = models.settingsRevision?.split(':') ?? []
+    const [previousEpoch, previousRevision] = settings.value.settingsRevision?.split(':') ?? []
+    if (epoch && epoch === previousEpoch && Number(revision) < Number(previousRevision)) return
+    settingsRevision++
+    settings.value = models
+  }
   async function readModelSettings(signal?: AbortSignal) {
     const revision = ++settingsRevision
     const models = await api<ModelSettings>('/model-config', { signal })
     if (signal?.aborted || revision !== settingsRevision) return
-    settings.value = models
+    acceptModelSettings(models)
   }
   async function readProviderSetups(signal?: AbortSignal) {
     const revision = ++setupsRevision
@@ -462,7 +469,7 @@ export function useProviderSettings({ client, error, stateSync, modelCatalog }: 
     settingsBusy.value = true
     settingsError.value = ''
     try {
-      await api('/provider-config', { method: editingProvider.value ? 'PUT' : 'POST', signal: request.signal, body: JSON.stringify({
+      const saved = await api<ModelSettings>('/provider-config', { method: editingProvider.value ? 'PUT' : 'POST', signal: request.signal, body: JSON.stringify({
         key: form.key, name: form.name.trim(), proxyId: form.proxyId, revision: editingProvider.value ? providerDraftVersion.value : undefined,
         provider: form.kind === 'custom' ? form.apiFormat : 'catalog',
         headers: form.kind === 'custom' ? Object.fromEntries(form.headers.map(header => [header.name.trim(), header.value])) : undefined,
@@ -474,6 +481,8 @@ export function useProviderSettings({ client, error, stateSync, modelCatalog }: 
         resourceName: form.resourceName.trim(), deploymentId: form.deploymentId.trim(), apiVersion: form.apiVersion.trim(),
         ids: manualModelIDs.value || deploymentModelSelection.value ? chosenModels.value : [],
       }) })
+      if (request.signal.aborted) return
+      acceptModelSettings(saved)
       if (revision === draftRevision) {
         resetModelDraft()
         modelFormOpen.value = false

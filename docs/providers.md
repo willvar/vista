@@ -8,6 +8,9 @@ The WebUI connection list comes from [provider setups](../internal/modelcatalog/
 
 Connections have independent IDs. Credentials, discovery, editing, defaults, and disconnection are connection-scoped, even when URLs or model IDs match. Read APIs report credential presence rather than secret values.
 
+Successful `POST` / `PUT /api/provider-config` responses return the same credential-redacted settings snapshot and `settingsRevision` as `GET /api/model-config`.
+The editor accepts that snapshot before closing; older responses cannot replace newer settings received through synchronization.
+
 A custom connection selects one conversation API format for all its models:
 
 | Format | Implementation |
@@ -53,6 +56,10 @@ These derived values feed the composer, automatic selection, and Worker request 
 Discovery cannot replace API formats, endpoints, authentication, or request headers.
 
 Discovery schedules are implemented separately: custom/Zen every minute, Copilot every five minutes, local services every 30 seconds. Temporary discovery errors retain the latest successful inventory. Editing a connection invalidates obsolete discovery responses. See [custom](../internal/server/custom_models.go), [Copilot](../internal/server/copilot_models.go), and [local](../internal/server/local_models.go) discovery.
+
+Directory caches use a [metadata-only model type](../internal/modelcatalog/inventory.go): IDs, names, advertised per-model protocols, capabilities, and token limits. Runtime models combine those facts with current connection addresses, credentials, proxy selections and user options. Proxy, routing and prompt-cache option edits apply to new runs using the retained inventory, without waiting for a successful refresh. Changing service/account access invalidates that inventory; responses started before any connection edit remain obsolete. Saved per-model restrictions stay with their anchor and do not restrict newly discovered siblings. Existing runs retain their acquired network snapshots.
+
+Cache capabilities are selected independently of transport routing. See [prompt caching](./prompt-caching.md) for the multi-provider policy and configuration.
 
 ## Importing connections
 

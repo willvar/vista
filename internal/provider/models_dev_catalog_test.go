@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"os"
@@ -50,6 +51,50 @@ func modelsDevDownloadClient(t *testing.T, revision, ompSource, modelsDevSource 
 		}
 		return &http.Response{StatusCode: 200, Body: io.NopCloser(bytes.NewReader(body)), Header: make(http.Header)}, nil
 	})}
+}
+
+func TestModelsDevCatalogAcceptsMoreThan256Providers(t *testing.T) {
+	const providerCount = 328
+	var source map[string]any
+	if err := json.Unmarshal([]byte(modelsDevTestSource), &source); err != nil {
+		t.Fatal(err)
+	}
+	models := source["opencode"].(map[string]any)["models"]
+	source = map[string]any{}
+	for i := range providerCount {
+		id := fmt.Sprintf("provider-%03d", i)
+		source[id] = map[string]any{"id": id, "models": models}
+	}
+	data, err := json.Marshal(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	original := CurrentOMPCatalog()
+	t.Cleanup(original.Activate)
+	next, err := FetchModelCatalog(context.Background(), modelsDevDownloadClient(t, original.Info().Revision, "unused", string(data)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if CurrentOMPCatalog() != original || len(next.data.ModelsDev.Providers) != providerCount || next.data.ModelsDev.ModelCount != 4*providerCount {
+		t.Fatalf("large models.dev catalog lost providers/models or changed active metadata: %+v", next.Info())
+	}
+	dir := t.TempDir()
+	if err := next.Save(dir); err != nil {
+		t.Fatal(err)
+	}
+	if err := LoadOMPCatalog(dir); err != nil {
+		t.Fatal(err)
+	}
+	if CurrentOMPCatalog().Info() != next.Info() {
+		t.Fatal("large models.dev catalog did not survive save/reload")
+	}
+	for i := range providerCount {
+		id := fmt.Sprintf("provider-%03d", i)
+		row, ok := OMPModelMetadata(id, "gpt-6.1-sol")
+		if !ok || row.Name != "New Sol name" || row.ContextWindow != 1050000 {
+			t.Fatalf("lost models.dev metadata after reload: %s %+v", id, row)
+		}
+	}
 }
 
 func TestModelCatalogUsesExplicitModelsDevControlsAndPreservesOMPRoutes(t *testing.T) {
