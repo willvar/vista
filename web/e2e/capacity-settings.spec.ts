@@ -1,3 +1,4 @@
+import { openAboutAdvanced } from './settings-navigation'
 import { test, expect } from './fixtures'
 
 test('selecting custom without changing limits survives background metrics and configuration updates', async ({ page, vista }) => {
@@ -5,8 +6,9 @@ test('selecting custom without changing limits survives background metrics and c
   const metrics = page.waitForResponse(response => new URL(response.url()).pathname === '/api/events' && new URL(response.url()).searchParams.get('metrics') === '1')
   await page.locator('.settings-nav').getByRole('link', { name: 'About Vista', exact: true }).click()
   await metrics
+  await openAboutAdvanced(page, 'Memory and capacity')
   const region = page.getByRole('region', { name: 'Memory and capacity', exact: true })
-  const save = region.getByRole('button', { name: 'Save changes', exact: true })
+  const save = page.locator('.about-advanced-modal .ui-modal-footer').getByRole('button', { name: 'Save changes', exact: true })
   await expect(region.getByRole('status')).toContainText('/ 2048 MiB')
   await region.getByRole('combobox', { name: 'Capacity preset', exact: true }).click()
   await page.locator('.ui-select-dropdown:visible .ui-select-item-option').filter({ hasText: /^Custom$/ }).click()
@@ -24,15 +26,17 @@ test('selecting custom without changing limits survives background metrics and c
   await expect(region.getByRole('spinbutton', { name: 'Concurrent executions', exact: true })).toHaveValue('4')
   await expect(save).toBeEnabled()
   await save.click()
+  await expect(save).not.toHaveAttribute('aria-busy', 'true')
   await expect(save).toBeDisabled()
   await expect(region.getByRole('spinbutton', { name: 'Per-conversation limit (MiB)', exact: true })).toHaveValue('1024')
   expect(await vista.api('/memory-config')).toEqual({ budgetMiB: 2048, workerMiB: 1024, concurrentRuns: 4 })
 })
 
-test('capacity presets and custom limits save, synchronize and preserve an unsaved editor', async ({ page, vista }, testInfo) => {
+test('capacity presets and custom limits save, synchronize and preserve an unsaved editor @responsive', async ({ page, vista }, testInfo) => {
   await page.goto(vista.origin + '/settings/about')
+  await openAboutAdvanced(page, 'Memory and capacity')
   const region = page.getByRole('region', { name: 'Memory and capacity', exact: true })
-  const save = region.getByRole('button', { name: 'Save changes', exact: true })
+  const save = page.locator('.about-advanced-modal .ui-modal-footer').getByRole('button', { name: 'Save changes', exact: true })
   const choose = async (label: string) => {
     await region.getByRole('combobox', { name: 'Capacity preset', exact: true }).click()
     await page.locator('.ui-select-dropdown:visible .ui-select-item-option').filter({ hasText: new RegExp('^' + label + '$') }).click()
@@ -42,6 +46,7 @@ test('capacity presets and custom limits save, synchronize and preserve an unsav
   await choose('1 GiB')
   await expect(region.getByRole('spinbutton', { name: 'Per-conversation limit (MiB)', exact: true })).toHaveValue('768')
   await save.click()
+  await expect(save).not.toHaveAttribute('aria-busy', 'true')
   await expect(save).toBeDisabled()
   expect(await vista.api('/memory-config')).toEqual({ budgetMiB: 1024, workerMiB: 768, concurrentRuns: 2 })
   await choose('Custom')
@@ -59,9 +64,11 @@ test('capacity presets and custom limits save, synchronize and preserve an unsav
   await expect(worker).toHaveValue('1536')
   await expect(concurrent).toHaveValue('3')
   await save.click()
+  await expect(save).not.toHaveAttribute('aria-busy', 'true')
   await expect(save).toBeDisabled()
   expect(await vista.api('/memory-config')).toEqual({ budgetMiB: 3072, workerMiB: 1536, concurrentRuns: 3 })
   await page.reload()
+  await openAboutAdvanced(page, 'Memory and capacity')
   await expect(budget).toHaveValue('3072')
   await expect(concurrent).toHaveValue('3')
   await region.scrollIntoViewIfNeeded()
@@ -79,4 +86,17 @@ test('capacity presets and custom limits save, synchronize and preserve an unsav
   await expect(worker).toHaveValue('768')
   await expect(budget).toHaveValue('1024')
   await expect(save).toBeDisabled()
+  await page.getByRole('tab', { name: 'Service configuration', exact: true }).click()
+  const service = page.getByRole('region', { name: 'Service configuration', exact: true })
+  const port = service.getByRole('spinbutton', { name: 'Listening port', exact: true })
+  const nextPort = String(Number(await port.inputValue()) === 65535 ? 65534 : Number(await port.inputValue()) + 1)
+  await port.fill(nextPort)
+  await save.click()
+  const confirmation = page.getByRole('dialog', { name: 'Save and restart', exact: true })
+  await expect(confirmation).toBeVisible()
+  await expect(page.locator('.about-advanced-modal .ui-modal-close')).toBeDisabled()
+  await page.locator('.ui-modal-wrap:visible').last().click({ position: { x: 5, y: 5 } })
+  await expect(confirmation).toBeHidden()
+  await expect(page.locator('.about-advanced-modal')).toBeVisible()
+  await expect(port).toHaveValue(nextPort)
 })

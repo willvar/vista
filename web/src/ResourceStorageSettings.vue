@@ -121,9 +121,9 @@ const cards = computed(() => [
     <div class="storage-actions">
       <v-button :disabled="busy || !status.stats?.cleanableCount" @click="showClean"><template #icon><IconTrash aria-hidden="true" /></template>{{ t('resourceStorageClean') }}</v-button>
     </div>
-    <div v-if="!cleanOpen" class="storage-progress" role="status" aria-live="polite">
+    <div v-if="!cleanOpen && (busy || cleanResult && !error)" class="storage-progress" role="status" aria-live="polite">
       <template v-if="busy"><v-spin /><span>{{ t(status.action === 'clean' ? 'resourceStorageCleaning' : 'resourceStorageScanning') }}<template v-if="status.action === 'clean' && status.deletedCount"> {{ t('resourceStorageFreed', { count: status.deletedCount, size: size(status.deletedBytes) }) }}</template></span></template>
-      <span v-else-if="(status.action === 'clean' || status.deletedCount) && !error">{{ t('resourceStorageFreed', { count: status.deletedCount, size: size(status.deletedBytes) }) }}</span>
+      <span v-else>{{ cleanResult }}</span>
     </div>
     <small v-if="status.stats" class="storage-description">{{ t('resourceStorageScannedAt', { time: formatDateTime(status.stats.scannedAt, locale) }) }}</small>
     <v-alert v-if="error && !cleanOpen" type="error" show-icon :message="error" />
@@ -146,6 +146,7 @@ const cards = computed(() => [
 .storage-card>small,small.storage-description{font-size:var(--font-size-small)}
 .storage-card>strong{font-size:24px;font-weight:bold;overflow-wrap:anywhere}
 .storage-actions{display:flex;flex-wrap:wrap;gap:10px}
+.storage-actions>.ui-btn{max-width:100%;height:auto;min-height:var(--control-height);white-space:normal}
 .storage-progress{display:flex;align-items:center;gap:10px;min-height:24px;color:var(--text-secondary)}
 .clean-confirmation{margin:0 0 1rem;overflow-wrap:anywhere}
 @media(max-width:600px){.storage-cards{grid-template-columns:1fr}.storage-card{display:grid;grid-template-columns:1fr auto;align-items:center;padding:14px}.storage-card>strong{grid-column:2;grid-row:1/3}.storage-card>small{grid-column:1}}

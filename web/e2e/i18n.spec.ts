@@ -140,7 +140,7 @@ for (const { browser, locale, reply } of cases) {
       for (const theme of ['light', 'dark']) {
         await page.emulateMedia({ colorScheme: theme as 'light' | 'dark' })
         await expect(page.locator('html')).toHaveAttribute('data-theme', theme)
-        for (const section of ['general', 'models', 'mcp', 'skills', 'storage', 'about', 'search']) {
+        for (const section of ['general', 'models', 'network', 'mcp', 'skills', 'storage', 'about', 'search']) {
           await openSettingsSection(page, section)
           const geometry = await page.locator('.settings-page').evaluate(element => ({
             page: document.documentElement.scrollWidth - innerWidth,
@@ -148,9 +148,16 @@ for (const { browser, locale, reply } of cases) {
             left: element.getBoundingClientRect().left, right: element.getBoundingClientRect().right, width: innerWidth,
           }))
           expect(geometry.page).toBeLessThanOrEqual(2)
-          expect(geometry.overflow).toBeLessThanOrEqual(2)
+          expect(geometry.overflow, `${locale} ${theme} ${section}`).toBeLessThanOrEqual(2)
           expect(geometry.left).toBeGreaterThanOrEqual(-1)
           expect(geometry.right).toBeLessThanOrEqual(geometry.width + 1)
+          if (section === 'network') {
+            await page.getByRole('button', { name: text.networkAdd, exact: true }).click()
+            const profile = page.getByRole('dialog', { name: text.networkAdd, exact: true })
+            await expect(profile.getByRole('button', { name: text.saveChanges, exact: true })).toBeDisabled()
+            expect(await profile.evaluate(element => element.scrollWidth - element.clientWidth)).toBeLessThanOrEqual(2)
+            await profile.getByRole('button', { name: text.cancel === '取消' ? /^取\s*消$/ : text.cancel, exact: true }).click()
+          }
         }
         const name = text.editSearchKey.replace('{name}', 'Exa')
         await page.locator('.search-credentials').getByRole('button', { name, exact: true }).click()

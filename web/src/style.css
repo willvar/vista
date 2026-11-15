@@ -474,7 +474,8 @@ a {
   justify-content: space-between;
   gap: .75rem;
 }
-.agent-instructions-heading label { margin: 0; }
+.agent-instructions-heading label,.agent-instructions-heading h3 { margin: 0; }
+.agent-instructions-heading h3 { font-size: 16px; }
 .agent-instructions-heading .ui-btn { flex: none; }
 .instructions-editor-wrap { overflow: hidden; }
 .instructions-editor-modal.ui-modal {
@@ -1866,10 +1867,6 @@ body {
   text-align: center;
   text-wrap: balance;
 }
-.about-settings-content>.debug-mode-setting {
-  padding: 16px 0;
-  border-bottom: 1px solid var(--border);
-}
 .about-build-info {
   display: grid;
   grid-template-columns: fit-content(45%) minmax(0, 1fr);
@@ -1904,13 +1901,13 @@ body {
   background: var(--hover);
 }
 .settings-content .general-setting+.general-setting,
-.personalization-settings-content>.delegation-depth-form,
-.personalization-settings-content>.automatic-title-setting,
+.personalization-settings-content>.delegation-depth-setting,
+.appearance-settings-content>.automatic-title-setting,
 .personalization-settings-content>.memory-settings {
   padding-top: 24px;
   border-top: 1px solid var(--border-subtle);
 }
-.personalization-settings-content>.delegation-depth-form,
+.personalization-settings-content>.delegation-depth-setting,
 .personalization-settings-content>.agent-instructions-form {
   margin-top: 0;
 }

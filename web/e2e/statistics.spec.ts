@@ -283,6 +283,9 @@ test('token comparisons change reference with scale, reveal exact totals without
   await total.evaluate(element=>(element as HTMLElement).blur())
   await page.keyboard.press('Tab')
   await total.focus()
+  await expect(total).toBeFocused()
+  // A pending hover dismissal must not close a later keyboard-opened popup.
+  await page.waitForTimeout(250)
   await expect(total).toHaveAttribute('aria-expanded','true')
   await expect(details.locator('.statistics-exact-tokens')).toHaveText('120,000,000 词元')
   await page.keyboard.press('Escape')

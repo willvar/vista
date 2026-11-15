@@ -92,7 +92,7 @@ const composerLevel = ref(2)
     <section data-testid="selects">
       <h2>Selects</h2>
       <Select v-model:value="selected" :options="options" placeholder="Choose an option" allow-clear aria-label="Options" />
-      <Select v-model:value="searchSelected" :options="options" placeholder="Search options" show-search aria-label="Search options" />
+      <Select v-model:value="searchSelected" :options="options" placeholder="Search options" show-search allow-clear aria-label="Search options" />
       <Select v-model:value="tags" mode="tags" :options="options" allow-clear aria-label="Tags" />
       <Select value="a" :options="options" allow-clear disabled aria-label="Disabled options" />
     </section>

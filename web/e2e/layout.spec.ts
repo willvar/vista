@@ -154,8 +154,19 @@ for (const modal of [
     await content.evaluate(element => { element.scrollTop = element.scrollHeight })
     expect(await header.boundingBox(), 'Header remains fixed while page content scrolls').toEqual(headerBefore)
     if (modal.route === '/settings/personalization') {
-      for (const form of ['.agent-instructions-form', '.delegation-depth-form']) {
-        await expectControlReachable(content.locator(form).getByRole('button', { name: 'Save changes', exact: true }))
+      for (const editor of [
+        { section: '.agent-instructions-form', open: 'Full-screen editor', title: 'Global instructions' },
+        { section: '.delegation-depth-setting', open: 'Edit', title: 'Delegation depth' },
+      ]) {
+        const open = content.locator(editor.section).getByRole('button', { name: editor.open, exact: true })
+        await expectControlReachable(open)
+        await open.click()
+        const dialog = page.getByRole('dialog', { name: editor.title, exact: true })
+        await expect(dialog).toBeVisible()
+        await settleLayout(page)
+        await expectControlReachable(dialog.getByRole('button', { name: 'Save changes', exact: true }))
+        await page.keyboard.press('Escape')
+        await expect(dialog).toBeHidden()
       }
     }
     if (modal.route === '/settings/general') {

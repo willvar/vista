@@ -1,7 +1,8 @@
+import { openAboutAdvanced } from './settings-navigation'
 import { test, expect } from './fixtures'
 import type { UserAgentSettings } from '../src/client/types'
 
-test('UA presets preview exact headers and custom changes reach a resident Worker', async ({ page, vista }, testInfo) => {
+test('UA presets preview exact headers and custom changes reach a resident Worker @responsive', async ({ page, vista }, testInfo) => {
   const initial = await vista.api('/user-agent') as UserAgentSettings
   expect(initial.preset).toBe('vista')
   const version = (await vista.api('/status')).version.replace(/^v/, '')
@@ -19,12 +20,21 @@ test('UA presets preview exact headers and custom changes reach a resident Worke
   await send('First request', initial.value)
   const workerPID = (await vista.api('/status')).workerMetrics.find((worker: { sessionId: string }) => worker.sessionId === session.id)?.pid
   expect(workerPID).toBeGreaterThan(0)
+  const reads: string[] = []
+  page.on('request', request => { if (request.method() === 'GET' && /\/api\/(?:user-agent|server-config)$/.test(new URL(request.url()).pathname)) reads.push(new URL(request.url()).pathname) })
   await page.goto(vista.origin + '/settings/about')
+  await expect(page.locator('.about-brand')).toBeVisible()
+  await expect(page.locator('.settings-page .tabler-icon-adjustments')).toHaveCount(1)
+  await expect(page.locator('.settings-page .user-agent-setting, .settings-page .memory-settings, .settings-page .server-config-setting, .settings-page .debug-mode-setting')).toHaveCount(0)
+  expect(reads).toEqual([])
+  const advanced = await openAboutAdvanced(page)
+  await expect(advanced.getByRole('tab', { name: 'Debug mode', exact: true })).toBeVisible()
+  await expect.poll(() => reads.sort()).toEqual(['/api/server-config', '/api/user-agent'])
   const region = page.getByRole('region', { name: 'User-Agent', exact: true })
   await expect(region.locator(':scope > p').first()).toContainText('Login, token exchange, and special channels keep their own client identities.')
   await expect(region.locator('.user-agent-preview>span')).toHaveText('General request preview')
   const preview = region.locator('.user-agent-preview code')
-  const save = region.getByRole('button', { name: 'Save changes', exact: true })
+  const save = page.locator('.about-advanced-modal .ui-modal-footer').getByRole('button', { name: 'Save changes', exact: true })
   await expect(preview).toHaveText('User-Agent: ' + initial.value)
   await expect(save).toBeDisabled()
   for (const preset of initial.presets) {
@@ -35,6 +45,7 @@ test('UA presets preview exact headers and custom changes reach a resident Worke
   // Preview alone has not modified the saved selection.
   expect((await vista.api('/user-agent')).preset).toBe('vista')
   await save.click()
+  await expect(save).not.toHaveAttribute('aria-busy', 'true')
   await expect(save).toBeDisabled()
   await expect(region).toHaveAttribute('aria-busy', 'false')
   const selected = initial.presets.at(-1)!
@@ -42,21 +53,23 @@ test('UA presets preview exact headers and custom changes reach a resident Worke
   await send('Preset request', selected.value)
   await region.getByRole('combobox', { name: 'Preset', exact: true }).click()
   await page.locator('.ui-select-dropdown:visible .ui-select-item-option').filter({ hasText: /^Custom$/ }).click()
-  await expect(save).toBeDisabled()
+  await expect(save).toBeEnabled()
   const input = region.getByRole('textbox', { name: 'Custom UA', exact: true })
   await input.fill('客户端/1')
-  await expect(save).toBeDisabled()
+  await expect(save).toBeEnabled()
   await expect(region.locator('[data-field-path=custom] .schema-error')).toBeVisible()
   const custom = 'MyClient/2.0 (' + 'details; '.repeat(50) + 'test)'
   await input.fill(custom)
   await expect(preview).toHaveText('User-Agent: ' + custom)
   await save.click()
+  await expect(save).not.toHaveAttribute('aria-busy', 'true')
   await expect(save).toBeDisabled()
   await expect(region).toHaveAttribute('aria-busy', 'false')
   await send('Custom request', custom)
   const currentPID = (await vista.api('/status')).workerMetrics.find((worker: { sessionId: string }) => worker.sessionId === session.id)?.pid
   expect(currentPID).toBe(workerPID)
   await page.reload()
+  await openAboutAdvanced(page)
   await expect(input).toHaveValue(custom)
   await expect(preview).toHaveText('User-Agent: ' + custom)
   await page.emulateMedia({ colorScheme: 'dark' })
@@ -68,26 +81,45 @@ test('UA presets preview exact headers and custom changes reach a resident Worke
 
 test('UA save errors retain the draft and allow retry', async ({ page, vista }) => {
   let rejected = false
+  let release!: () => void
+  const held = new Promise<void>(resolve => { release = resolve })
   await page.route('**/api/user-agent', async route => {
     if (route.request().method() === 'PUT' && !rejected) {
       rejected = true
       await route.fulfill({ status: 500, body: 'could not save User-Agent settings' })
+    } else if (route.request().method() === 'PUT') {
+      const response = await route.fetch()
+      await held
+      await route.fulfill({ response })
     } else await route.continue()
   })
   await page.goto(vista.origin + '/settings/about')
+  await openAboutAdvanced(page)
   const region = page.getByRole('region', { name: 'User-Agent', exact: true })
   await region.getByRole('combobox', { name: 'Preset', exact: true }).click()
   await page.getByRole('option', { name: 'Custom', exact: true }).click()
   const input = region.getByRole('textbox', { name: 'Custom UA', exact: true })
   await input.fill('RetainedClient/1')
-  const save = region.getByRole('button', { name: 'Save changes', exact: true })
+  const save = page.locator('.about-advanced-modal .ui-modal-footer').getByRole('button', { name: 'Save changes', exact: true })
   await save.click()
   await expect(region.getByRole('alert')).toContainText('could not save User-Agent settings')
   await expect(input).toHaveValue('RetainedClient/1')
   expect((await vista.api('/user-agent')).preset).toBe('vista')
-  await save.click()
+  try {
+    await save.click()
+    await expect(region).toHaveAttribute('aria-busy', 'true')
+    await expect(page.locator('.about-advanced-modal .ui-modal-close')).toBeDisabled()
+    await page.locator('.ui-modal-wrap:visible').last().click({ position: { x: 5, y: 5 } })
+    await page.keyboard.press('Escape')
+    await expect(page.locator('.about-advanced-modal')).toBeVisible()
+    await expect(input).toHaveValue('RetainedClient/1')
+  } finally { release() }
   await expect(save).toBeDisabled()
   await expect(region).toHaveAttribute('aria-busy', 'false')
   await expect(region.getByRole('alert')).toHaveCount(0)
   expect((await vista.api('/user-agent')).value).toBe('RetainedClient/1')
+  await page.locator('.ui-modal-wrap:visible').last().click({ position: { x: 5, y: 5 } })
+  await expect(page.locator('.about-advanced-modal')).toHaveCount(0)
+  await expect(page).toHaveURL(/\/settings\/about$/)
+  await expect(page.locator('.settings-page').getByRole('button', { name: 'Advanced settings', exact: true })).toBeFocused()
 })

@@ -2,7 +2,7 @@
 import { computed, defineAsyncComponent, h, nextTick, reactive, onMounted, onUnmounted, ref, watch } from 'vue'
 import { onBeforeRouteLeave, onBeforeRouteUpdate, useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
-import { IconChevronRight, IconPalette, IconUser, IconPlugConnected, IconInfoCircle, IconSearch, IconLink, IconBook2, IconSun, IconMoon, IconDeviceDesktop, IconDatabase, IconAlertCircle, IconMaximize, IconMinimize, IconPlus, IconFileImport, IconRefresh, IconRobot, IconRobotFace, IconUsers, IconCompass, IconTool, IconMessage, IconFolderOpen, IconFolder, IconFileText } from '@tabler/icons-vue'
+import { IconChevronRight, IconPalette, IconUser, IconPlugConnected, IconInfoCircle, IconSearch, IconLink, IconBook2, IconSun, IconMoon, IconDeviceDesktop, IconDatabase, IconAlertCircle, IconMaximize, IconMinimize, IconPlus, IconFileImport, IconRefresh, IconRobot, IconRobotFace, IconUsers, IconCompass, IconTool, IconMessage, IconFolderOpen, IconFolder, IconFileText, IconPencil, IconAdjustments } from '@tabler/icons-vue'
 import { Empty as VEmpty, Alert as VAlert, Button as VButton, Input as VInput, Modal as VModal, Select as VSelect, Switch as VSwitch, Tooltip as VTooltip } from '../ui'
 import WorkspaceModal from '../WorkspaceModal.vue'
 import ConfirmPopover from '../ConfirmPopover.vue'
@@ -15,11 +15,9 @@ import ResourceStorageSettings from '../ResourceStorageSettings.vue'
 import ProviderLogin from '../ProviderLogin.vue'
 import ConfigurationImport from '../ConfigurationImport.vue'
 import OMPCatalogSettings from '../OMPCatalogSettings.vue'
-import CapacitySettings from '../CapacitySettings.vue'
-import UserAgentSettings from '../UserAgentSettings.vue'
+import AboutAdvancedSettings from '../AboutAdvancedSettings.vue'
 import ResetVistaSettings from '../ResetVistaSettings.vue'
 import RestartVistaSettings from '../RestartVistaSettings.vue'
-import ServerConfigSettings from '../ServerConfigSettings.vue'
 import SchemaForm from '../SchemaForm.vue'
 import NetworkSettings from '../NetworkSettings.vue'
 import ProxySelection from '../ProxySelection.vue'
@@ -100,12 +98,13 @@ const networkModalOpen = ref(false)
 const storageModalOpen = ref(false)
 const resetModalOpen = ref(false)
 const restartModalOpen = ref(false)
-const portChangeModalOpen = ref(false)
 const statisticsModalOpen = ref(false)
 const providerImportOpen = ref(false)
 const providerImport = ref<InstanceType<typeof ConfigurationImport>>()
 const importedCount = ref(0)
 const instructionsEditorOpen = ref(false)
+const delegationEditorOpen = ref(false)
+const aboutAdvancedOpen = ref(false)
 const instructionsDocument = computed<Record<string, unknown>>({ get: () => ({ instructions: agentInstructions.value }), set: value => { if (typeof value.instructions === 'string') agentInstructions.value = value.instructions } })
 const instructionsSchema = computed(() => ({ type: 'object' as const, additionalProperties: false, required: ['instructions'], properties: { instructions: { type: 'string' as const, title: t('globalInstructions') } } }))
 const instructionsUISchema = computed(() => ({ type: 'Control' as const, scope: '#/properties/instructions', options: { multi: true, rows: 24, placeholder: t('globalInstructionsPlaceholder') } }))
@@ -114,9 +113,9 @@ const {
   languagePreference, languageChoice, languageOptions, regionOptions, settingsBusy, settingsError,
   showUnrecognizedModels, visibilityBusy, setShowUnrecognizedModels,
   providerDisconnectTarget, providerDisconnectError, settings,
-  agentInstructions, agentInstructionsPath,
+  agentInstructions,
   maxDelegationDepth,
-  agentSettingsDraft, agentSettingsSchema, agentSettingsResetKey,
+  agentSettingsDraft, agentSettingsSchema,
   agentSettingsResetKeys, canSaveAgentField,
   agentSettingsBusy, agentSettingsLoading, agentSettingsError, agentSettingsSaved,
   loadAgentSettings, saveAgentSettings, modelDraft, modelFormOpen, chosenModels,
@@ -170,8 +169,7 @@ const agentFieldValidity = reactive({ instructions: true, delegationDepth: true,
 const agentFieldSchemas = computed(() => Object.fromEntries(['instructions', 'delegationDepth', 'automaticTitles'].map(field => [field, {
   type: 'object', additionalProperties: false, required: [field], properties: { [field]: agentSettingsSchema.value.properties![field] },
 }])))
-const instructionsInlineUI = computed(() => ({ type: 'Control' as const, scope: '#/properties/instructions', options: { multi: true, rows: 9, placeholder: t('globalInstructionsPlaceholder') } }))
-const delegationUISchema = { type: 'Control' as const, scope: '#/properties/delegationDepth', options: { descriptionIds: 'delegation-depth-intro delegation-depth-hint' } }
+const delegationUISchema = { type: 'Control' as const, scope: '#/properties/delegationDepth' }
 const delegationDocument = computed<Record<string, unknown>>({ get: () => ({ delegationDepth: agentSettingsDraft.value.delegationDepth }), set: value => { agentSettingsDraft.value = { ...agentSettingsDraft.value, delegationDepth: value.delegationDepth } } })
 const titlesDocument = computed<Record<string, unknown>>({ get: () => ({ automaticTitles: agentSettingsDraft.value.automaticTitles }), set: value => { agentSettingsDraft.value = { ...agentSettingsDraft.value, automaticTitles: value.automaticTitles }; void saveAgentSettings('automaticTitles') } })
 
@@ -201,6 +199,8 @@ async function closeProviderForm() {
 watch(() => route.fullPath, () => {
   importedCount.value = 0
   instructionsEditorOpen.value = false
+  delegationEditorOpen.value = false
+  aboutAdvancedOpen.value = false
   providerDisconnectTarget.value = null
   proxyBindingTarget.value = undefined
   cancelModelForm()
@@ -212,8 +212,9 @@ watch(() => route.fullPath, () => {
 <template>
 <WorkspaceModal ref="modal" :open="true" width="max-content" :title="settingsTitle" :page-class="settingsIndex ? 'settings-page settings-index' : 'settings-page'"
   :close-label="t('closeSettings')" :back-label="t(settingsIndex ? 'backToConversation' : 'backToSettings')"
-  :keyboard="!providerDisconnectTarget && !modelFormOpen && !providerImportOpen && !mcpModalOpen && !skillModalOpen && !memoryModalOpen && !searchModalOpen && !networkModalOpen && !providerDiscardOpen && !proxyBindingTarget && !storageModalOpen && !resetModalOpen && !restartModalOpen && !portChangeModalOpen && !statisticsModalOpen && !instructionsEditorOpen" @cancel="backToWorkspace" @back="back">
+  :keyboard="!providerDisconnectTarget && !modelFormOpen && !providerImportOpen && !mcpModalOpen && !skillModalOpen && !memoryModalOpen && !searchModalOpen && !networkModalOpen && !providerDiscardOpen && !proxyBindingTarget && !storageModalOpen && !resetModalOpen && !restartModalOpen && !statisticsModalOpen && !instructionsEditorOpen && !delegationEditorOpen && !aboutAdvancedOpen" @cancel="backToWorkspace" @back="back">
         <template #header-actions>
+            <v-button v-if="route.name === 'settings-about'" variant="text" class="icon-button" :aria-label="t('advancedSettings')" :title="t('advancedSettings')" @click="aboutAdvancedOpen = true"><template #icon><IconAdjustments aria-hidden="true" /></template></v-button>
             <v-button v-if="canImport" variant="text" class="icon-button" :aria-label="t(importTitleKey)" :title="t(importTitleKey)" :disabled="importKind === 'providers' ? settingsBusy : headerAction?.disabled" @click="importedCount = 0; providerImport?.show()"><template #icon><IconFileImport aria-hidden="true" /></template></v-button>
             <v-button v-if="headerAction" variant="text" class="icon-button" :aria-label="t(headerAction.label)" :title="t(headerAction.label)" :disabled="headerAction.disabled" :loading="headerAction.loading" @click="headerAction.run()">
               <template #icon><IconPlus v-if="route.name === 'settings' || route.name === 'settings-mcp' || route.name === 'settings-network'" aria-hidden="true" /><IconReload v-else-if="route.name === 'settings-statistics'" aria-hidden="true" /><IconRefresh v-else aria-hidden="true" /></template>
@@ -238,13 +239,18 @@ watch(() => route.fullPath, () => {
           </div>
           <div class="model-selection-setting general-setting"><label for="model-selection-mode">{{ t('selectionMode') }}</label><v-select id="model-selection-mode" v-model:value="modelSelectionMode" :options="selectionModeOptions" :disabled="!preferencesReady" :aria-label="t('selectionMode')" /><p>{{ t('selectionModeSettingsHint') }}</p></div>
           <ModelSelectionStats v-if="modelSelectionMode === 'auto'" />
+          <div class="automatic-title-setting general-setting">
+            <v-alert v-if="agentSettingsError" type="error" role="alert" :message="agentSettingsError" />
+            <SchemaForm id="title-settings" v-model="titlesDocument" :schema="agentFieldSchemas.automaticTitles" :disabled="agentSettingsLoading || agentSettingsBusy"
+              :reset-key="agentSettingsResetKeys.automaticTitles" @validity="agentFieldValidity.automaticTitles = $event" />
+          </div>
         </div>
         <div v-if="route.name === 'settings-personalization'" class="settings-content personalization-settings-content">
           <v-alert v-if="agentSettingsError" type="error" role="alert" :message="agentSettingsError" />
           <v-alert v-if="agentSettingsSaved" type="success" role="status" :message="t('agentSettingsSaved')" />
-          <form class="agent-instructions-form" :aria-label="t('personalizationSettings')" @submit.prevent="agentFieldValidity.instructions && saveAgentSettings('instructions')">
+          <section class="agent-instructions-form" aria-labelledby="global-instructions-heading">
             <div class="general-setting">
-              <div class="agent-instructions-heading"><strong>{{ t('globalInstructions') }}</strong><v-button :disabled="agentSettingsLoading || agentSettingsBusy || !agentFieldValidity.instructions" @click="instructionsEditorOpen = true"><IconMaximize aria-hidden="true" />{{ t('fullscreenEdit') }}</v-button></div>
+              <div class="agent-instructions-heading"><h3 id="global-instructions-heading">{{ t('globalInstructions') }}</h3><v-button :disabled="agentSettingsLoading || agentSettingsBusy" @click="instructionsEditorOpen = true"><IconMaximize aria-hidden="true" />{{ t('fullscreenEdit') }}</v-button></div>
               <figure id="global-instructions-hint" class="personalization-figure instructions-figure" :aria-label="t('instructionsFigureLabel')">
                 <div class="instructions-figure-heading"><span>{{ t('instructionsFramework') }}</span><small>{{ t('instructionsGlobalScope') }}</small></div>
                 <div class="instructions-workflow">
@@ -255,11 +261,8 @@ watch(() => route.fullPath, () => {
                   <div class="personalization-figure-node"><IconMessage aria-hidden="true" /><span>{{ t('instructionsRespond') }}</span></div>
                 </div>
               </figure>
-              <SchemaForm id="agent-settings" v-model="instructionsDocument" :schema="agentFieldSchemas.instructions" :uischema="instructionsInlineUI"
-                :disabled="agentSettingsLoading || agentSettingsBusy || instructionsEditorOpen" :reset-key="agentSettingsResetKeys.instructions"
-                @validity="agentFieldValidity.instructions = $event" />
+
             </div>
-            <div class="agent-instructions-footer"><v-button type="submit" variant="primary" :loading="agentSettingsBusy" :disabled="!agentFieldValidity.instructions || !canSaveAgentField('instructions')">{{ t('saveChanges') }}</v-button></div>
             <aside class="instructions-local-example" aria-labelledby="instructions-local-heading">
               <div id="instructions-local-heading" class="instructions-local-heading">{{ t('instructionsDirectoryTitle') }}</div>
               <div class="instructions-local-flow">
@@ -275,9 +278,10 @@ watch(() => route.fullPath, () => {
               </div>
               <p class="instructions-local-scope">{{ t('instructionsLocalScope') }}</p>
             </aside>
-          </form>
+          </section>
           <MemorySettings @modal-open="memoryModalOpen = $event" />
-          <form class="delegation-depth-form" :aria-label="t('delegationDepth')" @submit.prevent="agentFieldValidity.delegationDepth && saveAgentSettings('delegationDepth')">
+          <section class="delegation-depth-setting general-setting" aria-labelledby="delegation-heading">
+            <div class="agent-instructions-heading"><h3 id="delegation-heading">{{ t('delegationDepth') }}</h3><v-button :disabled="agentSettingsLoading || agentSettingsBusy" @click="delegationEditorOpen = true"><IconPencil aria-hidden="true" />{{ t('edit') }}</v-button></div>
             <div class="general-setting">
               <p id="delegation-depth-intro">{{ t('delegationDepthIntro') }}</p>
               <figure id="delegation-depth-hint" class="delegation-depth-figure" :aria-label="t('delegationDepthHint', { max: maxDelegationDepth })">
@@ -300,15 +304,9 @@ watch(() => route.fullPath, () => {
                 </div>
                 <figcaption>{{ t('delegationDepthImpact') }}</figcaption>
               </figure>
-              <SchemaForm id="delegation-settings" v-model="delegationDocument" :schema="agentFieldSchemas.delegationDepth" :uischema="delegationUISchema" :disabled="agentSettingsLoading || agentSettingsBusy"
-                :reset-key="agentSettingsResetKeys.delegationDepth" @validity="agentFieldValidity.delegationDepth = $event" />
             </div>
-            <div class="agent-instructions-footer"><v-button type="submit" variant="primary" :loading="agentSettingsBusy" :disabled="!agentFieldValidity.delegationDepth || !canSaveAgentField('delegationDepth')">{{ t('saveChanges') }}</v-button></div>
-          </form>
-          <div class="automatic-title-setting general-setting">
-            <SchemaForm id="title-settings" v-model="titlesDocument" :schema="agentFieldSchemas.automaticTitles" :disabled="agentSettingsLoading || agentSettingsBusy"
-              :reset-key="agentSettingsResetKeys.automaticTitles" @validity="agentFieldValidity.automaticTitles = $event" />
-          </div>
+          </section>
+
         </div>
         <div v-if="route.name === 'settings'" class="settings-content">
           <div v-if="settings.models.length" class="settings-toolbar"><p>{{ t('manageProvidersHint') }}</p></div>
@@ -332,10 +330,6 @@ watch(() => route.fullPath, () => {
             <p class="about-tagline">{{ t('vistaTagline') }}</p>
           </div>
           <OMPCatalogSettings ref="sectionActions" :client="workspace.client" />
-          <UserAgentSettings :client="workspace.client" />
-          <CapacitySettings :client="workspace.client" :status="serverStatus" />
-          <ServerConfigSettings @modal-open="portChangeModalOpen = $event" />
-          <div class="debug-mode-setting general-setting"><div><label for="debug-mode">{{ t('debugMode') }}</label><p id="debug-mode-hint">{{ t('debugModeHint') }}</p></div><v-switch id="debug-mode" v-model:checked="debugMode" :aria-label="t('debugMode')" aria-describedby="debug-mode-hint" /></div>
           <ResetVistaSettings v-if="debugMode" @modal-open="resetModalOpen = $event" />
           <RestartVistaSettings @modal-open="restartModalOpen = $event" />
           <dl v-if="serverStatus" class="about-build-info">
@@ -355,12 +349,24 @@ watch(() => route.fullPath, () => {
         </div>
         </div>
       </WorkspaceModal>
-  <v-modal :open="instructionsEditorOpen" :title="t('globalInstructions')" :footer="null" :closable="false" :z-index="1200" width="100%"
+  <AboutAdvancedSettings :open="aboutAdvancedOpen" :client="workspace.client" :status="serverStatus" v-model:debug-mode="debugMode" @cancel="aboutAdvancedOpen = false" />
+  <v-modal :open="instructionsEditorOpen" :title="t('globalInstructions')" :closable="false" :close-disabled="agentSettingsBusy" :keyboard="!agentSettingsBusy" :mask-closable="!agentSettingsBusy" :z-index="1200" width="100%"
     class="instructions-editor-modal" wrap-class-name="instructions-editor-wrap" destroy-on-hidden :initial-focus-el="instructionsFocus"
     @cancel="instructionsEditorOpen = false">
-    <template #header-actions><v-button @click="instructionsEditorOpen = false"><IconMinimize aria-hidden="true" />{{ t('exitFullscreenEdit') }}</v-button></template>
+    <template #header-actions><v-button :disabled="agentSettingsBusy" @click="instructionsEditorOpen = false"><IconMinimize aria-hidden="true" />{{ t('exitFullscreenEdit') }}</v-button></template>
+    <v-alert v-if="agentSettingsError" type="error" role="alert" :message="agentSettingsError" />
+    <v-alert v-if="agentSettingsSaved" type="success" role="status" :message="t('agentSettingsSaved')" />
+    <template #footer><v-button variant="primary" :loading="agentSettingsBusy" :disabled="!agentFieldValidity.instructions || !canSaveAgentField('instructions')" @click="saveAgentSettings('instructions')">{{ t('saveChanges') }}</v-button></template>
     <SchemaForm id="fullscreen-agent-instructions" v-model="instructionsDocument" :schema="instructionsSchema" :uischema="instructionsUISchema" class="instructions-editor-input"
-      :disabled="agentSettingsLoading || agentSettingsBusy" :reset-key="agentSettingsResetKey" />
+      :disabled="agentSettingsLoading || agentSettingsBusy" :reset-key="agentSettingsResetKeys.instructions" @validity="agentFieldValidity.instructions = $event" />
+  </v-modal>
+  <v-modal :open="delegationEditorOpen" :title="t('delegationDepth')" centered :z-index="1200" width="min(480px, calc(100vw - 2rem))" :footer="null" :close-disabled="agentSettingsBusy" :keyboard="!agentSettingsBusy" :mask-closable="!agentSettingsBusy" destroy-on-hidden @cancel="delegationEditorOpen = false">
+    <form class="delegation-depth-form" :aria-label="t('delegationDepth')" @submit.prevent="agentFieldValidity.delegationDepth && saveAgentSettings('delegationDepth')">
+      <v-alert v-if="agentSettingsError" type="error" role="alert" :message="agentSettingsError" />
+      <v-alert v-if="agentSettingsSaved" type="success" role="status" :message="t('agentSettingsSaved')" />
+      <SchemaForm id="delegation-settings" v-model="delegationDocument" :schema="agentFieldSchemas.delegationDepth" :uischema="delegationUISchema" :disabled="agentSettingsLoading || agentSettingsBusy" :reset-key="agentSettingsResetKeys.delegationDepth" @validity="agentFieldValidity.delegationDepth = $event" />
+      <div class="agent-instructions-footer"><v-button type="submit" variant="primary" :loading="agentSettingsBusy" :disabled="!agentFieldValidity.delegationDepth || !canSaveAgentField('delegationDepth')">{{ t('saveChanges') }}</v-button></div>
+    </form>
   </v-modal>
   <v-modal :open="modelFormOpen" centered :z-index="1200" width="min(640px, calc(100vw - 2rem))"
     class="provider-connection-modal" :title="editingProvider ? t('editProviderConnection') : t('connectProvider')"

@@ -1,4 +1,4 @@
-import { openSettingsSection } from './settings-navigation'
+import { closeSettings, openSettingsSection } from './settings-navigation'
 import { createHash } from 'node:crypto'
 import { test, expect } from './fixtures'
 
@@ -138,6 +138,19 @@ test('originals survive compaction and closing, and become cleanable only after 
   await expect(cards.nth(0)).toContainText('0 files')
   await expect(clean).toBeDisabled()
   expect(statusReads).toBe(readsBeforeCompletion)
+  await openSettingsSection(page, 'general')
+  await openSettingsSection(page, 'storage')
+  await expect(cards.nth(0)).toContainText('0 files')
+  await expect(page.locator('.storage-progress')).toHaveCount(0)
+  await closeSettings(page)
+  if (testInfo.project.name !== 'desktop') await page.getByRole('button', { name: 'Open sessions', exact: true }).click()
+  await page.getByRole('button', { name: 'Settings', exact: true }).click()
+  await openSettingsSection(page, 'storage')
+  await expect(cards.nth(0)).toContainText('0 files')
+  await expect(page.locator('.storage-progress')).toHaveCount(0)
+  expect(cleanRequests).toBe(2)
+  expect((await vista.api('/resource-storage')).deletedCount).toBe(1)
   await page.reload()
   await expect(cards.nth(0)).toContainText('0 files')
+  await expect(page.locator('.storage-progress')).toHaveCount(0)
 })

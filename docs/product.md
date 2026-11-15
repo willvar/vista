@@ -43,7 +43,7 @@ Use these principles when changing the product:
 - Temporary model-service failures can retry the same request up to three times without repeating completed tools. Waiting is visible and cancellable, and survives page reloads. Known authentication, quota and protocol errors, and failures after output has started remain terminal. After a failure, Continue execution sends a continuation in the same conversation using the retained history; it preserves unsent drafts. See [request recovery](./architecture.md#model-request-recovery) for eligibility and wait limits.
 - A model may finish normally without a final text reply, including after delivering results through tools. Vista completes the usual input and required-task checks and shows that execution ended without text; it does not add an assistant message or treat this as proof that the requested outcome is correct. Request and protocol errors remain failures.
 - Automatic model selection offers Fast and Quality modes; manual selection chooses a connection/model and available reasoning setting. Settings changes during execution apply to subsequent runs.
-- Automatic conversation titles are enabled by default and can be disabled in Personalization. When enabled, a separate model request generates the first title without tools or an explicit reasoning effort; it may fail independently. When disabled, new conversations display a localized default name followed by their creation time in `YYYYMMDDHHmmss` form, such as “New Session-20261025174143”. The timestamp uses the client’s local time. Existing and manually assigned titles are preserved.
+- Automatic conversation titles are enabled by default and can be disabled at the bottom of Appearance. When enabled, a separate model request generates the first title without tools or an explicit reasoning effort; it may fail independently. When disabled, new conversations display a localized default name followed by their creation time in `YYYYMMDDHHmmss` form, such as “New Session-20261025174143”. The timestamp uses the client’s local time. Existing and manually assigned titles are preserved.
 
 See [architecture](./architecture.md) and [process lifecycle](./process-lifecycle.md) for runtime ownership.
 
@@ -61,7 +61,7 @@ Completed model turns and tool results survive later messages and Worker restart
 
 Images use shared original files with conversation-owned references. New attachments or explicit resource reads activate visual input for the next supported request; earlier images are not automatically resent. Closing retains ownership; deleting a conversation releases its links, and fully unreferenced files can be cleaned manually. See [resources](./resources.md).
 
-About Vista provides memory presets and custom total, per-conversation and execution-concurrency limits. It shows measured resident usage; reaching the budget refuses new heavy work, and exceeding a Worker limit interrupts that conversation. These are soft guards rather than an OS memory ceiling; external tool processes use additional memory.
+About Vista’s Advanced settings provides memory presets and custom total, per-conversation and execution-concurrency limits. It shows measured resident usage; reaching the budget refuses new heavy work, and exceeding a Worker limit interrupts that conversation. These are soft guards rather than an OS memory ceiling; external tool processes use additional memory.
 
 Editing and withdrawing sent messages roll back conversation/model history only. Files, shell effects, and remote changes remain. See [message rollback](./message-revert.md).
 
@@ -128,16 +128,15 @@ Typed settings APIs resolve bundles internally for runtime consumers and keep th
 About Vista presents these sections in order:
 
 1. Brand, version, and introduction.
-2. The existing model catalog and client identity controls.
-3. Memory and capacity controls.
-4. Service configuration for the listening port.
-5. The Debug mode toggle.
-6. Full reset, visible only in Debug mode.
-7. Restart Vista, visible whether or not Debug mode is enabled.
-8. Build information.
+2. The model catalog.
+3. Full reset, visible only in Debug mode.
+4. Restart Vista, visible whether or not Debug mode is enabled.
+5. Build information.
+
+The adjustments button in the top right opens **Advanced settings** in a secondary dialog with vertical tabs on the left for client identity (User-Agent), memory and capacity, service configuration, and Debug mode. These editors load only while the dialog is open. Switching tabs retains every draft; an invalid draft locks the other tabs until corrected; **Save changes** applies all changed tabs, including Debug mode. Invalid fields open their tab before any write, and dismissing unsaved changes requires confirmation. A port change is confirmed before saving any tab and is submitted last; a failed section keeps its draft for retry, while earlier successful sections remain saved.
 
 Service configuration edits the listening port, an integer from 1 to 65535.
-Changing it uses **Save and restart** with a separate confirmation showing the impact on active tasks and managed background processes.
+When **Save changes** includes a port change, a separate **Save and restart** confirmation shows the impact on active tasks and managed background processes.
 Before saving, an independent successor binds the target port on the configured IPv4 listening address and keeps that socket through startup. If reservation fails, the current instance and saved configuration remain unchanged, and the form preserves the draft and displays the error.
 A revision conflict aborts the reservation instead of overwriting another edit. Unchanged listening ports can be saved without a restart.
 After acceptance, the old tab stays open with the new address and an explicit **Open Vista in a new tab** link. Direct HTTP access keeps the browser's hostname and changes its port; HTTPS proxy access retains the public origin, and proxy upstream changes remain deployment work. Reset navigation follows the same browser-origin rule. Acceptance is not readiness; a bounded, credential-free readiness image check confirms that the entry serves HTTP. Lost responses and timeouts remain unconfirmed and never automatically repeat a lifecycle mutation.

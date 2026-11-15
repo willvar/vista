@@ -1,6 +1,8 @@
 import { expect, type Page } from '@playwright/test'
 
 export async function openSettingsSection(page: Page, section: string) {
+  const advanced = page.locator('.about-advanced-modal:visible')
+  if (await advanced.count()) await advanced.locator('.ui-modal-close').click()
   const settings = page.locator('.settings-page')
   await expect(settings).toBeVisible()
   const back = settings.locator('.ui-modal-back:visible')
@@ -14,6 +16,8 @@ export async function openSettingsSection(page: Page, section: string) {
 }
 
 export async function closeSettings(page: Page) {
+  const advanced = page.locator('.about-advanced-modal:visible')
+  if (await advanced.count()) await advanced.locator('.ui-modal-close').click()
   const settings = page.locator('.settings-page')
   await expect(settings).toBeVisible()
   const back = settings.locator('.ui-modal-back:visible')
@@ -23,4 +27,22 @@ export async function closeSettings(page: Page) {
   }
   await settings.locator('.ui-modal-close:visible, .ui-modal-back:visible').click()
   await expect(settings).toHaveCount(0)
+}
+
+export async function openAboutAdvanced(page: Page, tab?: string) {
+  await page.locator('.settings-page').getByRole('button', { name: 'Advanced settings', exact: true }).click()
+  const dialog = page.getByRole('dialog', { name: 'Advanced settings', exact: true })
+  await expect(dialog).toBeVisible()
+  if (tab) {
+    await dialog.getByRole('tab', { name: tab, exact: true }).click()
+    await expect(dialog.getByRole('tab', { name: tab, exact: true })).toHaveAttribute('aria-selected', 'true')
+  }
+  return dialog
+}
+
+export async function saveAboutAdvanced(page: Page) {
+  const save = page.locator('.about-advanced-modal .ui-modal-footer').getByRole('button', { name: 'Save changes', exact: true })
+  await save.click()
+  await expect(save).not.toHaveAttribute('aria-busy', 'true')
+  await expect(save).toBeDisabled()
 }

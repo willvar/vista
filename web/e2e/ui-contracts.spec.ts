@@ -1,3 +1,4 @@
+import { openAboutAdvanced } from './settings-navigation'
 import { test, expect } from './fixtures'
 
 test.beforeEach(async ({ vista }) => {
@@ -30,7 +31,9 @@ test('ordinary selects reject typing without filtering and still support keyboar
     ['statistics', ['statistics-period']],
   ] as const) {
     await page.goto(`${vista.origin}/settings/${route}`)
+    if (route === 'about') await openAboutAdvanced(page)
     for (const id of ids) {
+      if (route === 'about' && id.startsWith('capacity')) await page.getByRole('tab', { name: 'Memory and capacity', exact: true }).click()
       const select = page.locator(`#${id}`)
       await expect(select).toBeEnabled()
       await expect(select).not.toBeEditable()
@@ -193,6 +196,7 @@ test('switches distinguish off and on in both themes and keep the native state s
     await page.goto(vista.origin)
     await page.evaluate(theme => localStorage.setItem('vista-appearance', theme), theme)
     await page.goto(vista.origin + '/settings/about')
+    await openAboutAdvanced(page, 'Debug mode')
     const input = page.getByRole('switch', { name: 'Debug mode', exact: true })
     const track = page.locator('.debug-mode-setting .ui-switch-track')
     const off = theme === 'light' ? 'rgba(0, 0, 0, 0.25)' : 'rgba(255, 255, 255, 0.25)'

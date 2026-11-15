@@ -3,8 +3,8 @@ import { closeSettings } from './settings-navigation'
 
 const sections = [
   ['general', 'Appearance'], ['personalization', 'Personalization'],
-  ['models', 'Model connections'], ['search', 'Web queries'], ['mcp', 'MCP'],
-  ['skills', 'Skill library'], ['statistics', 'Usage'], ['storage', 'Storage'], ['about', 'About Vista'],
+  ['models', 'Service connections'], ['search', 'Model web access'], ['mcp', 'MCP'],
+  ['skills', 'Skill library'], ['network', 'Network configuration'], ['statistics', 'Usage'], ['storage', 'Storage'], ['about', 'About Vista'],
 ] as const
 
 test.beforeEach(async ({ vista }) => {
@@ -23,7 +23,7 @@ test('settings entry and category returns preserve the conversation and draft', 
   const settings = page.locator('.settings-page')
   const nav = settings.locator('.settings-nav')
   await expect(nav).toBeVisible()
-  await expect(nav.getByRole('link')).toHaveCount(sections.length)
+  await expect(nav.getByRole('link')).toHaveText(sections.map(([, label]) => label))
   if (mobile) {
     await expect(settings.locator('.ui-modal-title')).toHaveText('Settings')
     await expect(settings.locator('.settings-content')).toHaveCount(0)
@@ -36,6 +36,10 @@ test('settings entry and category returns preserve the conversation and draft', 
     await expect(page).toHaveURL(url => url.pathname === `/settings/${path}` && url.searchParams.get('session') === session.id)
     await expect(settings.locator('.ui-modal-title')).toHaveText(label)
     await expect(settings.locator('.settings-content')).toBeVisible()
+    if (path === 'mcp') {
+      await expect(settings.locator('.network-policy-summary')).toHaveCount(0)
+      await expect(settings.locator('.mcp-settings').getByRole('link', { name: 'Network configuration', exact: true })).toHaveCount(0)
+    }
     if (mobile) {
       await expect(nav).toBeHidden()
       await expect(settings.locator('.ui-modal-title')).toBeFocused()
@@ -67,7 +71,7 @@ test('direct settings links, reload, browser history and viewport changes keep n
   const query = `?session=${session.id}`
   await page.goto(`${vista.origin}/settings/models${query}`)
   await page.reload()
-  await expect(page.locator('.settings-page .ui-modal-title')).toHaveText('Model connections')
+  await expect(page.locator('.settings-page .ui-modal-title')).toHaveText('Service connections')
   if (page.viewportSize()!.width > 830) await page.setViewportSize({ width: 390, height: 844 })
   await page.getByRole('button', { name: 'Back to settings', exact: true }).click()
   await expect(page).toHaveURL(`${vista.origin}/settings${query}`)

@@ -1,13 +1,14 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, onUnmounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { JsonSchema, ControlElement, VerticalLayout } from '@jsonforms/core'
-import { Alert as VAlert, Button as VButton } from './ui'
+import { Alert as VAlert } from './ui'
 import SchemaForm from './SchemaForm.vue'
 import type { FormIssue } from './schema/validation'
 import type { VistaClient } from './client/vista'
 import type { MemoryConfig, ServerStatus } from './client/types'
-const props = defineProps<{ client: VistaClient; status: ServerStatus | null }>()
+const props = defineProps<{ client: VistaClient; status: ServerStatus | null; disabled?: boolean }>()
+const emit = defineEmits<{ busy: [busy: boolean]; submit: [] }>()
 const { t } = useI18n({ useScope: 'global' })
 const presets: MemoryConfig[] = [
   { budgetMiB: 512, workerMiB: 384, concurrentRuns: 1 },
@@ -20,9 +21,11 @@ const preset = ref<number | string>(2048)
 const saved = ref<MemoryConfig>()
 const draft = ref<MemoryConfig>({ budgetMiB: 2048, workerMiB: 1024, concurrentRuns: 4 })
 const busy = ref(false), error = ref(''), editorValid = ref(false), editorDirty = ref(false), editorEpoch = ref(0)
+watch(busy, value => emit('busy', value), { flush: 'sync' })
+onUnmounted(() => emit('busy', false))
 const equal = (a: MemoryConfig, b: MemoryConfig) => a.budgetMiB === b.budgetMiB && a.workerMiB === b.workerMiB && a.concurrentRuns === b.concurrentRuns
 const presetFor = (value: MemoryConfig) => presets.find(item => equal(item, value))?.budgetMiB ?? 'custom'
-const dirty = computed(() => !!saved.value && !equal(saved.value, draft.value))
+const dirty = computed(() => !!saved.value && (editorDirty.value || !equal(saved.value, draft.value)))
 const schema = computed<JsonSchema>(() => ({ type: 'object', additionalProperties: false, required: ['budgetMiB', 'workerMiB', 'concurrentRuns'], properties: {
   budgetMiB: { type: 'integer', title: `${t('memoryBudget')} (MiB)`, minimum: 256, maximum: 1048576 },
   workerMiB: { type: 'integer', title: `${t('memoryWorkerLimit')} (MiB)`, minimum: 128, maximum: 1048576 },
@@ -55,24 +58,25 @@ const presetUISchema = computed<ControlElement>(() => ({ type: 'Control', scope:
   enumLabels: Object.fromEntries([...presets.map(item => [item.budgetMiB, item.budgetMiB < 1024 ? `${item.budgetMiB} MiB` : `${item.budgetMiB / 1024} GiB`]), ['custom', t('custom')]]),
 } }))
 async function save() {
-  if (!editorValid.value || !dirty.value || busy.value) return
+  if (!dirty.value) return true
+  if (!editorValid.value || busy.value || !saved.value) return false
   busy.value = true; error.value = ''
-  try { receive(await props.client.request<MemoryConfig>('/memory-config', { method: 'PUT', body: JSON.stringify(draft.value) }), true) }
-  catch (cause) { error.value = String(cause) }
+  try { receive(await props.client.request<MemoryConfig>('/memory-config', { method: 'PUT', body: JSON.stringify(draft.value) }), true); return true }
+  catch (cause) { error.value = String(cause); return false }
   finally { busy.value = false }
 }
+defineExpose({ dirty, valid: editorValid, ready: computed(() => !!saved.value), save })
 </script>
 <template>
   <section class="memory-settings" aria-labelledby="memory-settings-heading">
     <h3 id="memory-settings-heading">{{ t('memorySettings') }}</h3>
     <p>{{ t('memorySettingsHint') }}</p>
     <div v-if="status?.capacity" class="memory-usage" role="status">{{ t('memoryUsage', { used: Math.ceil(status.capacity.residentBytes / 1048576), limit: status.capacity.config.budgetMiB }) }}</div>
-    <form @submit.prevent="save">
-      <SchemaForm v-if="saved" id="capacity-preset" v-model="presetDocument" :schema="presetSchema" :uischema="presetUISchema" :disabled="busy" :reset-key="editorEpoch" />
-      <SchemaForm v-if="saved" id="capacity-config" v-model="document" :schema="schema" :uischema="uischema" :validate="validLimits" :disabled="busy" :reset-key="editorEpoch"
+    <form @submit.prevent="emit('submit')">
+      <SchemaForm v-if="saved" id="capacity-preset" v-model="presetDocument" :schema="presetSchema" :uischema="presetUISchema" :disabled="busy || disabled" :reset-key="editorEpoch" />
+      <SchemaForm v-if="saved" id="capacity-config" v-model="document" :schema="schema" :uischema="uischema" :validate="validLimits" :disabled="busy || disabled" :reset-key="editorEpoch"
         @validity="editorValid = $event" @dirty="editorDirty = $event" />
       <v-alert v-if="error" type="error" :message="error" role="alert" />
-      <v-button type="submit" :disabled="!dirty || !editorValid" :loading="busy">{{ t('saveChanges') }}</v-button>
     </form>
   </section>
 </template>

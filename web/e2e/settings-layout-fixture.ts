@@ -19,7 +19,7 @@ export const test = base.extend<{ mockOrigin: string }, { settingsResponses: Rec
         await expect.poll(async () => (await vista.api('/resource-storage')).phase).toBe('idle')
         const paths = ['/preferences', '/agent-settings', '/models', '/status', '/sessions?open=true',
           '/model-config', '/provider-config', '/model-catalog', '/mcp-config', '/skills',
-          '/resource-storage', '/search-config', '/server-config', '/user-agent']
+          '/resource-storage', '/search-config', '/server-config', '/user-agent', '/network-config']
         await Promise.all(paths.map(async path => { values[path] = await vista.api(path) }))
       })
       return values

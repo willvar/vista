@@ -1,4 +1,4 @@
-import { closeSettings, openSettingsSection } from './settings-navigation'
+import { closeSettings, openAboutAdvanced, saveAboutAdvanced, openSettingsSection } from './settings-navigation'
 import { test, expect } from './fixtures'
 
 for (const locale of ['zh-CN', 'fr-FR']) {
@@ -157,8 +157,10 @@ test.describe('first launch without a provider', () => {
     await expect(modal.getByRole('button', { name: 'Connect provider', exact: true })).toBeVisible()
     await page.screenshot({ path: testInfo.outputPath('model-connections-without-provider.png'), animations: 'disabled' })
     await openSettingsSection(page, 'about')
-    await modal.getByRole('switch', { name: 'Debug mode', exact: true }).click()
-    await expect(modal.getByRole('switch', { name: 'Debug mode', exact: true })).toBeChecked()
+    const advanced = await openAboutAdvanced(page, 'Debug mode')
+    await advanced.getByRole('switch', { name: 'Debug mode', exact: true }).click()
+    await saveAboutAdvanced(page)
+    await expect(advanced.getByRole('switch', { name: 'Debug mode', exact: true })).toBeChecked()
     await openSettingsSection(page, 'models')
     await expect(page).toHaveURL(/\/settings\/models(?:\?.*)?$/)
 

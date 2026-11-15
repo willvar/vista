@@ -142,6 +142,7 @@ a.ui-btn { text-decoration: none; }
 .ui-tabs-nav { display: flex; position: relative; gap: 28px; margin-bottom: 16px; border-bottom: 1px solid var(--border-subtle); }
 .ui-tabs-tab { flex: none; padding: 10px 0; border: 0; background: transparent; color: var(--muted); font: inherit; cursor: pointer; }
 .ui-tabs-tab[data-selected] { color: var(--accent); }
+.ui-tabs-tab:disabled { color: var(--faint); cursor: not-allowed; }
 .ui-tabs-indicator { --transition-duration: .3s; --transition-timing-function: ease; width: var(--width); height: 2px; bottom: 0; background: var(--accent); }
 .ui-pagination { display: flex; align-items: center; gap: 6px; margin: 0; padding: 0; }
 .ui-pagination button { display: inline-grid; place-items: center; min-width: 32px; height: 32px; padding: 0 6px; border: 1px solid transparent; border-radius: 6px; background: transparent; color: var(--text); font: inherit; cursor: pointer; }

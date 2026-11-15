@@ -13,7 +13,7 @@ const responsiveFiles = [
   'sidebar-width', 'worker-status',
 ]
 const responsiveTitles: Record<string, string> = {
-  'agent-settings': 'full-screen instructions|Appearance and Personalization remain usable',
+  'agent-settings': 'full-screen instructions|Appearance and Personalization remain usable|Personalization saves delegation|automatic titles toggle',
   'compaction': 'short referenced summaries|an automatic summary appears|manual compaction preserves chat and draft|interrupted manual compaction',
   'execution-flow': 'execution messages appear|interleaved main and child|long chronological execution|new execution steps|expanded execution history|continuous history prepares|historical full text|earlier history uses one loading indicator|current action, timing|stopping a run|new runs clear|write_file diffs|truncated file and search|usage totals|multi-megabyte process logs|switching monitored processes|token usage uses',
   'iteration': 'independent selection, voluntary feedback',
@@ -48,10 +48,13 @@ const groups: Record<string, string[]> = {
   mcp: ['mcp-settings', 'extension-import', 'settings-batch'],
   search: ['search-settings'],
   network: ['network-settings', 'provider-setup', 'codex-login', 'search-settings', 'mcp-settings', 'settings-navigation', 'state-sync', 'modal-header'],
-  about: ['capacity-settings', 'model-catalog', 'reset-settings', 'resource-storage', 'user-agent'],
+  controls: ['controls'],
+  about: ['about-advanced', 'capacity-settings', 'model-catalog', 'reset-settings', 'resource-storage', 'user-agent', 'ui-contracts', 'onboarding', 'execution-flow'],
   statistics: ['statistics'],
 }
 const consumers: [RegExp, string[]][] = [
+  [/^web\/src\/ui\/TabbedModal\.vue$/, ['about']],
+  [/^web\/src\/ui\/Tabs\.vue$/, ['controls', 'about', 'models', 'conversation']],
   [/^web\/src\/ui\/Collapsible\.vue$/, ['conversation', 'models', 'skills', 'mcp']],
   [/^internal\/(?:network|codexauth|copilotauth|useragent)\/|^internal\/server\/(?:network_config|provider_network)|^web\/src\/(?:Network|ProxySelection|client\/network|composables\/useNetwork)/, ['network', 'models', 'search', 'mcp', 'conversation']],
   [/^web\/src\/(?:pages\/ConversationPage|Conversation|Message|Run|Trace|TimelineItem|Context|PendingInputs|QuestionForm|BackgroundProcesses|WorkerStatus)|^web\/src\/(?:client\/queries|state\/(?:conversation|checklist|mainOutputs|runTrace|quotedReply|jobs|failureAnalysis)|composables\/use(?:Conversation|Presentation|FullOutput|RunHistory|ScrollbarDrag))|^internal\/(?:agent|worker|workerproto|provider|modeltrace|tool)\//, ['conversation']],

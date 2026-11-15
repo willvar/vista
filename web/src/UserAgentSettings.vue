@@ -1,20 +1,23 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { RuleEffect, type JsonSchema, type UISchemaElement } from '@jsonforms/core'
 import { Alert as VAlert, Button as VButton } from './ui'
 import SchemaForm from './SchemaForm.vue'
 import type { VistaClient } from './client/vista'
 import type { UserAgentSettings } from './client/types'
-const props = defineProps<{ client: VistaClient }>()
+const props = defineProps<{ client: VistaClient; disabled?: boolean }>()
+const emit = defineEmits<{ busy: [busy: boolean]; submit: [] }>()
 const { t } = useI18n({ useScope: 'global' })
 const settings = ref<UserAgentSettings>()
 const preset = ref('vista'), custom = ref('')
-const loading = ref(true), saving = ref(false), error = ref(''), editorValid = ref(false), editorEpoch = ref(0)
+const loading = ref(true), saving = ref(false), error = ref(''), editorValid = ref(false), editorDirty = ref(false), editorEpoch = ref(0)
+watch(saving, value => emit('busy', value), { flush: 'sync' })
+onUnmounted(() => emit('busy', false))
 const controller = new AbortController()
 onUnmounted(() => controller.abort())
 const preview = computed(() => preset.value === 'custom' ? custom.value.trim() : settings.value?.presets.find(item => item.id === preset.value)?.value || '')
-const dirty = computed(() => !!settings.value && (preset.value !== settings.value.preset || custom.value.trim() !== settings.value.custom))
+const dirty = computed(() => !!settings.value && (editorDirty.value || preset.value !== settings.value.preset || custom.value.trim() !== settings.value.custom))
 const schema = computed<JsonSchema>(() => ({ type: 'object', additionalProperties: false, required: ['preset', 'custom'], properties: {
   preset: { type: 'string', title: t('userAgentPreset'), enum: [...settings.value?.presets.map(item => item.id) ?? [], 'custom'] },
   custom: { type: 'string', title: t('userAgentCustomValue'), maxLength: settings.value?.maxLength ?? 512, pattern: '^[\\x20-\\x7e]*$' },
@@ -32,14 +35,18 @@ async function load() {
   finally { loading.value = false }
 }
 async function save() {
-  if (!dirty.value || !editorValid.value || saving.value) return
+  if (!dirty.value) return true
+  if (!editorValid.value || saving.value || !settings.value) return false
   saving.value = true; error.value = ''
   try {
     const value = await props.client.request<UserAgentSettings>('/user-agent', { method: 'PUT', body: JSON.stringify({ preset: preset.value, custom: custom.value.trim() }), signal: controller.signal })
-    if (!controller.signal.aborted) receive(value)
-  } catch (cause) { if (!controller.signal.aborted) error.value = cause instanceof Error ? cause.message : String(cause) }
+    if (controller.signal.aborted) return false
+    receive(value)
+    return true
+  } catch (cause) { if (!controller.signal.aborted) error.value = cause instanceof Error ? cause.message : String(cause); return false }
   finally { saving.value = false }
 }
+defineExpose({ dirty, valid: computed(() => !!settings.value && editorValid.value), ready: computed(() => !!settings.value && !loading.value), save })
 onMounted(load)
 </script>
 <template>
@@ -47,13 +54,12 @@ onMounted(load)
     <strong id="user-agent-heading">User-Agent</strong>
     <p>{{ t('userAgentHint') }}</p>
     <p v-if="loading" role="status">{{ t('userAgentLoading') }}</p>
-    <form v-else-if="settings" @submit.prevent="save">
-      <SchemaForm id="user-agent-config" v-model="document" :schema="schema" :uischema="uischema" :disabled="saving" :reset-key="editorEpoch" @validity="editorValid = $event" />
+    <form v-else-if="settings" @submit.prevent="emit('submit')">
+      <SchemaForm id="user-agent-config" v-model="document" :schema="schema" :uischema="uischema" :disabled="saving || disabled" :reset-key="editorEpoch" @validity="editorValid = $event" @dirty="editorDirty = $event" />
       <div class="user-agent-preview"><span>{{ t('userAgentPreview') }}</span><code aria-live="polite">User-Agent: {{ preview }}</code></div>
-      <v-button class="user-agent-save" type="submit" :loading="saving" :disabled="!dirty || !editorValid">{{ t('saveChanges') }}</v-button>
     </form>
     <v-alert v-if="error" type="error" role="alert" :message="error" />
-    <v-button v-if="error && !settings && !loading" @click="load">{{ t('retry') }}</v-button>
+    <v-button v-if="error && !settings && !loading" :disabled="disabled" @click="load">{{ t('retry') }}</v-button>
   </section>
 </template>
 <style scoped>

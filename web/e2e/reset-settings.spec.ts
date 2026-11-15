@@ -1,15 +1,36 @@
+import { openAboutAdvanced, saveAboutAdvanced } from './settings-navigation'
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { test, expect } from './fixtures'
 
+test('restart warning keeps task recovery and process limits readable', { tag: '@responsive' }, async ({ page, vista }) => {
+  await page.goto(vista.origin + '/settings/about')
+  await page.locator('.restart-vista-setting').getByRole('button', { name: 'Restart Vista', exact: true }).click()
+  const dialog = page.getByRole('dialog', { name: 'Restart Vista?', exact: true })
+  await expect(dialog).toContainText('Unfinished agent tasks continue from saved context afterward')
+  await expect(dialog).toContainText('Background processes are not restored.')
+  const bounds = await dialog.evaluate(element => {
+    const rect = element.getBoundingClientRect()
+    return { left: rect.left, right: rect.right, top: rect.top, bottom: rect.bottom, width: innerWidth, height: innerHeight }
+  })
+  expect(bounds.left).toBeGreaterThanOrEqual(0)
+  expect(bounds.right).toBeLessThanOrEqual(bounds.width)
+  expect(bounds.top).toBeGreaterThanOrEqual(0)
+  expect(bounds.bottom).toBeLessThanOrEqual(bounds.height)
+  await dialog.getByRole('button', { name: 'Cancel', exact: true }).click()
+  await expect(dialog).not.toBeVisible()
+})
+
 test('reset is debug-only, requires confirmation, and retains a visible retry after failure', async ({ page, vista }, testInfo) => {
   await page.goto(vista.origin + '/settings/about')
+  await openAboutAdvanced(page, 'Debug mode')
   const entry = page.locator('.reset-vista-setting')
   const debug = page.getByRole('switch', { name: 'Debug mode', exact: true })
   await expect(entry).toHaveCount(0)
   await debug.click()
+  await saveAboutAdvanced(page)
+  await page.locator('.about-advanced-modal .ui-modal-close').click()
   await expect(entry).toBeVisible()
-  expect(await entry.evaluate(element => element.previousElementSibling?.classList.contains('debug-mode-setting'))).toBe(true)
   let calls = 0
   await page.route('**/api/reset', async route => {
     calls++
@@ -23,6 +44,8 @@ test('reset is debug-only, requires confirmation, and retains a visible retry af
   await expect(restart).toHaveClass(/ui-btn-dangerous/)
   await restart.click()
   const restartDialog = page.getByRole('dialog', { name: 'Restart Vista?', exact: true })
+  await expect(restartDialog).toContainText('Unfinished agent tasks continue from saved context afterward')
+  await expect(restartDialog).toContainText('Background processes are not restored.')
   await expect(restartDialog.getByRole('button', { name: 'Restart Vista', exact: true })).toHaveClass(/ui-btn-primary.*ui-btn-dangerous/)
   await restartDialog.getByRole('button', { name: 'Cancel', exact: true }).click()
   const dialog = page.getByRole('dialog', { name: 'Reset Vista?', exact: true })
@@ -59,7 +82,10 @@ test('reset is debug-only, requires confirmation, and retains a visible retry af
   expect(bounds.bottom).toBeLessThanOrEqual(bounds.height)
   await page.screenshot({ path: testInfo.outputPath('reset-confirmation.png'), animations: 'disabled' })
   await dialog.getByRole('button', { name: 'Cancel', exact: true }).click()
+  await openAboutAdvanced(page, 'Debug mode')
   await debug.click()
+  await saveAboutAdvanced(page)
+  await page.locator('.about-advanced-modal .ui-modal-close').click()
   await expect(entry).toHaveCount(0)
 })
 
@@ -89,12 +115,15 @@ test.describe('full reset', () => {
     const outside = join(vista.workspacePath, 'keep.txt')
     writeFileSync(outside, 'user file')
     await page.goto(vista.origin + '/settings/about')
+  await openAboutAdvanced(page, 'Debug mode')
     await page.evaluate(() => {
       localStorage.setItem('vista-session-draft:old', 'old private draft')
       sessionStorage.setItem('vista-question:old:run', 'old answer')
       localStorage.setItem('unrelated-app', 'keep')
     })
     await page.getByRole('switch', { name: 'Debug mode', exact: true }).click()
+    await saveAboutAdvanced(page)
+    await page.locator('.about-advanced-modal .ui-modal-close').click()
     await page.locator('.reset-vista-setting').getByRole('button', { name: 'Reset Vista', exact: true }).click()
     const dialog = page.getByRole('dialog', { name: 'Reset Vista?', exact: true })
     // Hold only the browser response so the progress state can be checked even
@@ -143,6 +172,7 @@ test.describe('full reset', () => {
     expect(browser.cookie).not.toContain('vista-debug-mode=true')
     expect(browser.cookie).not.toContain('vista-reset-pending')
     await page.goto(vista.origin + '/settings/about')
+  await openAboutAdvanced(page, 'Debug mode')
     await expect(page.getByRole('switch', { name: 'Debug mode', exact: true })).not.toBeChecked()
     await expect(page.locator('.reset-vista-setting')).toHaveCount(0)
   })

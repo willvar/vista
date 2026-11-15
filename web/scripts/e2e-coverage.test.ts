@@ -29,6 +29,11 @@ test('shared or unknown source changes conservatively select the whole browser s
   }
   assert.equal(browserSelection(files, true), undefined)
 })
+test('tabbed dialogs keep their first consumer and existing tabs retain diagnostic consumers', () => {
+  const available = ['about-advanced.spec.ts', 'capacity-settings.spec.ts', 'controls.spec.ts', 'model-diagnostics.spec.ts', 'selection-stats.spec.ts', 'statistics.spec.ts']
+  assert.deepEqual(browserScope(['web/src/ui/TabbedModal.vue'], available), { full: false, files: available.slice(0, 2) })
+  assert.deepEqual(browserScope(['web/src/ui/Tabs.vue'], available), { full: false, files: available.slice(0, 5) })
+})
 test('network and authorization adapters retain their application consumers', () => {
   const available = ['codex-login.spec.ts', 'provider-setup.spec.ts', 'search-settings.spec.ts', 'mcp-settings.spec.ts', 'provider-output.spec.ts', 'modal-header.spec.ts', 'statistics.spec.ts']
   for (const path of ['internal/network/client.go', 'internal/codexauth/auth.go', 'internal/copilotauth/auth.go', 'internal/useragent/useragent.go']) {

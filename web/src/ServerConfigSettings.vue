@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onUnmounted, ref } from 'vue'
+import { computed, onUnmounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { ControlElement } from '@jsonforms/core'
 import { Alert as VAlert, Button as VButton, Modal as VModal } from './ui'
@@ -8,13 +8,16 @@ import SchemaForm from './SchemaForm.vue'
 import { VistaAPIError } from './client/vista'
 import type { ServerConfig } from './client/types'
 import { useWorkspace } from './composables/useWorkspace'
+const props = defineProps<{ disabled?: boolean }>()
 const { t } = useI18n({ useScope: 'global' })
 const { client, stateSync, serverStatus } = useWorkspace()
-const emit = defineEmits<{ 'modal-open': [open: boolean] }>()
+const emit = defineEmits<{ 'modal-open': [open: boolean]; busy: [busy: boolean]; submit: [] }>()
 const settings = ref<ServerConfig>()
 const draft = ref<Record<string, unknown>>({}), base = ref<Record<string, unknown>>()
 const baseRevision = ref('')
 const loading = ref(true), saving = ref(false), error = ref(''), saved = ref(false), discardOpen = ref(false), confirmOpen = ref(false)
+watch(saving, value => emit('busy', value), { flush: 'sync' })
+onUnmounted(() => emit('busy', false))
 const editorValid = ref(false), editorDirty = ref(false), editorEpoch = ref(0)
 const phase = ref<'editing' | 'waiting' | 'ready' | 'unconfirmed'>('editing')
 const targetAddress = ref('')
@@ -46,8 +49,19 @@ const unsubscribe = stateSync.subscribe(['server-config'], async (_, signal, poi
 function clearProbe() { clearTimeout(probeTimer); clearTimeout(probeDeadline); probeTimer = undefined; probeDeadline = undefined; if (probeImage) { probeImage.onload = null; probeImage.onerror = null; probeImage = undefined } }
 onUnmounted(() => { unsubscribe(); lifetime.abort(); readGeneration++; probeGeneration++; clearProbe(); emit('modal-open', false) })
 function discard() { if (settings.value && !saving.value) { resetDraft(settings.value); saved.value = false; error.value = ''; discardOpen.value = false } }
-function showConfirm() { confirmOpen.value = true; emit('modal-open', true) }
-function closeConfirm() { if (saving.value) return; confirmOpen.value = false; emit('modal-open', false) }
+let resolveConfirmation: ((confirmed: boolean) => void) | undefined
+function confirmSave(): Promise<boolean> {
+  if (!portChanges.value) return Promise.resolve(true)
+  confirmOpen.value = true; emit('modal-open', true)
+  return new Promise(resolve => { resolveConfirmation = resolve })
+}
+function finishConfirm(confirmed: boolean) {
+  if (saving.value) return
+  confirmOpen.value = false; emit('modal-open', false)
+  resolveConfirmation?.(confirmed); resolveConfirmation = undefined
+}
+function closeConfirm() { finishConfirm(false) }
+onUnmounted(() => { resolveConfirmation?.(false); resolveConfirmation = undefined })
 function probeTarget() {
   clearProbe(); const generation = ++probeGeneration, deadline = Date.now() + 45_000
   const attempt = () => {
@@ -69,9 +83,9 @@ function localError(cause: unknown) {
   }
   return cause instanceof Error ? cause.message : String(cause)
 }
-async function save(confirmed = false) {
-  if (!canSave.value) return
-  if (portChanges.value && !confirmed) { showConfirm(); return }
+async function save() {
+  if (!dirty.value && !pending.value) return true
+  if (!canSave.value) return false
   const switching = portChanges.value, port = Number(draft.value.port)
   saving.value = true; error.value = ''; saved.value = false
   if (switching) {
@@ -85,19 +99,22 @@ async function save(confirmed = false) {
       method: 'PUT', body: JSON.stringify({ config: draft.value, revision: baseRevision.value, ...(switching ? { confirmRestart: true } : {}) }),
       signal: AbortSignal.any([lifetime.signal, AbortSignal.timeout(15_000)]),
     })
-    if (lifetime.signal.aborted) return
+    if (lifetime.signal.aborted) return false
     if ('restarting' in value) {
       const target = new URL(value.address)
       if (!value.accepted || value.port !== port || target.protocol !== 'http:' || Number(target.port || '80') !== port) throw new Error(t('portChangeUnconfirmed'))
       probeTarget()
     } else { receive(value, true); saved.value = !conflict.value }
+    return true
   } catch (cause) {
-    if (lifetime.signal.aborted) return
+    if (lifetime.signal.aborted) return false
     error.value = localError(cause)
     if (switching && !(cause instanceof VistaAPIError)) { phase.value = 'unconfirmed'; probeTarget() }
     else if (cause instanceof VistaAPIError && cause.status === 409 && (!cause.code || cause.code === 'configuration_changed')) await readConfiguration()
+    return false
   } finally { saving.value = false; confirmOpen.value = false; emit('modal-open', false) }
 }
+defineExpose({ dirty: computed(() => dirty.value || pending.value), valid: computed(() => editorValid.value && !conflict.value), ready: computed(() => !!settings.value && !loading.value && phase.value === 'editing'), save, confirmSave })
 </script>
 <template>
   <section class="server-config-setting" aria-labelledby="server-config-heading" :aria-busy="loading || saving">
@@ -110,13 +127,12 @@ async function save(confirmed = false) {
     </template>
     <template v-else>
       <p v-if="loading && !settings" role="status">{{ t('serverConfigLoading') }}</p>
-      <form v-if="settings" @submit.prevent="save()">
+      <form v-if="settings" @submit.prevent="emit('submit')">
         <div v-if="settings.runningPort" class="server-config-status">{{ t('serverConfigRunning', { port: settings.runningPort }) }}</div>
-        <SchemaForm id="server-config" v-model="draft" :schema="settings.schema" :uischema="uischema" :disabled="saving || loading" :reset-key="editorEpoch" @validity="editorValid = $event" @dirty="editorDirty = $event; $event && (saved = false)" />
+        <SchemaForm id="server-config" v-model="draft" :schema="settings.schema" :uischema="uischema" :disabled="saving || loading || props.disabled" :reset-key="editorEpoch" @validity="editorValid = $event" @dirty="editorDirty = $event; $event && (saved = false)" />
         <v-alert v-if="conflict" type="warning" role="alert" :message="t('serverConfigConflict')" />
         <div class="server-config-actions">
-          <v-button type="submit" variant="primary" :loading="saving" :disabled="!canSave">{{ t(portChanges ? 'portChangeConfirm' : 'saveChanges') }}</v-button>
-          <ConfirmPopover v-if="dirty || conflict" :show="discardOpen" :message="t('serverConfigDiscard')" :cancel-text="t('cancel')" :confirm-text="t('serverConfigReload')" :busy="saving" popover-class="server-config-discard" @update:show="discardOpen = $event" @confirm="discard"><template #trigger><v-button type="button" :disabled="saving">{{ t('serverConfigReload') }}</v-button></template></ConfirmPopover>
+          <ConfirmPopover v-if="dirty || conflict" :show="discardOpen" :message="t('serverConfigDiscard')" :cancel-text="t('cancel')" :confirm-text="t('serverConfigReload')" :busy="saving" popover-class="server-config-discard" @update:show="discardOpen = $event" @confirm="discard"><template #trigger><v-button type="button" :disabled="saving || props.disabled">{{ t('serverConfigReload') }}</v-button></template></ConfirmPopover>
         </div>
         <v-alert v-if="saved" type="success" role="status" :message="t('serverConfigSaved')" />
         <p v-if="pending" role="status">{{ t('serverConfigPending', { port: settings.config.port }) }}</p>
@@ -124,13 +140,13 @@ async function save(confirmed = false) {
       </form>
     </template>
     <v-alert v-if="error" type="error" role="alert" :message="error" />
-    <v-button v-if="error && !loading && phase === 'editing'" type="button" @click="readConfiguration()">{{ t('retry') }}</v-button>
+    <v-button v-if="error && !loading && phase === 'editing'" type="button" :disabled="saving || props.disabled" @click="readConfiguration()">{{ t('retry') }}</v-button>
   </section>
   <v-modal :open="confirmOpen" :title="t('portChangeConfirm')" :footer="null" :closable="!saving" :keyboard="!saving" :mask-closable="!saving" centered :z-index="1200" width="min(520px, calc(100vw - 2rem))" @cancel="closeConfirm">
     <p>{{ t('portChangeWarning', { port: draft.port }) }}</p>
     <p v-if="serverStatus">{{ t('restartVistaActive', { sessions: serverStatus.sessions.running, processes: serverStatus.managedBackgroundProcesses }) }}</p>
     <p v-else>{{ t('restartVistaCountsUnknown') }}</p>
-    <div class="actions"><v-button :disabled="saving" @click="closeConfirm">{{ t('cancel') }}</v-button><v-button variant="primary" :loading="saving" :disabled="!canSave" @click="save(true)">{{ t('portChangeConfirm') }}</v-button></div>
+    <div class="actions"><v-button :disabled="saving" @click="closeConfirm">{{ t('cancel') }}</v-button><v-button variant="primary" :loading="saving" :disabled="!canSave" @click="finishConfirm(true)">{{ t('portChangeConfirm') }}</v-button></div>
   </v-modal>
 </template>
 <style scoped>

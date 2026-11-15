@@ -1,5 +1,5 @@
 import { installMockStateStream } from './state-stream-fixture'
-import { closeSettings, openSettingsSection } from './settings-navigation'
+import { closeSettings, openAboutAdvanced, saveAboutAdvanced, openSettingsSection } from './settings-navigation'
 import { test as base, expect, type Locator, type Page } from '@playwright/test'
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { resolve } from 'node:path'
@@ -2348,7 +2348,7 @@ test('token usage uses compact K and M values with exact hover counts in English
 })
 
 
-test('debug mode defaults off and settings persist both diagnostic entrances across reloads', async ({ page, mockOrigin }, testInfo) => {
+test('debug mode defaults off and settings persist both diagnostic entrances across reloads @responsive', async ({ page, mockOrigin }, testInfo) => {
   test.setTimeout(60_000)
   const fixture = await mockExecution(page, mockOrigin, agentIdentityEvents())
   const trace = page.locator(`.run-trace[data-run-id="${fixture.runId}"]`)
@@ -2358,12 +2358,12 @@ test('debug mode defaults off and settings persist both diagnostic entrances acr
   const main = trace.locator('.trace-task-group[data-task-id="main"]')
   const title = nodeTitle(main, fixture.runId, 'tool/main/read-main')
   const settings = page.locator('.settings-page:visible')
-  const toggle = settings.getByRole('switch', { name: 'Debug mode', exact: true })
+  const toggle = page.getByRole('dialog', { name: 'Advanced settings', exact: true }).getByRole('switch', { name: 'Debug mode', exact: true })
   const openAction = async (name: string) => {
     const mobile = page.locator('.mobile-sessions-trigger:visible')
     if (await mobile.count()) await mobile.click()
     await page.locator('.sidebar-navigation:visible').getByRole('button', { name: new RegExp(name + '$') }).click()
-    if (name === 'Settings') await openSettingsSection(page, 'about')
+    if (name === 'Settings') { await openSettingsSection(page, 'about'); await openAboutAdvanced(page, 'Debug mode') }
   }
   const checkLayout = async (element: Locator) => {
     const layout = await element.evaluate(element => {
@@ -2406,12 +2406,12 @@ test('debug mode defaults off and settings persist both diagnostic entrances acr
   await toggle.scrollIntoViewIfNeeded()
   await checkLayout(toggle)
   await toggle.click()
+  await saveAboutAdvanced(page)
   await expect(toggle).toBeChecked()
   expect(await page.evaluate(() => localStorage.getItem('vista-debug-mode'))).toBe('true')
   await page.screenshot({ path: testInfo.outputPath('debug-mode-settings-enabled.png'), animations: 'disabled' })
   await closeSettings(page)
   await checkEntrances(true)
-  if (testInfo.project.name !== 'desktop') await main.locator('button.ui-thought-chain-node-header').click()
   await expect(main.locator('pre.trace-output'), 'Debug preferences keep normal execution output expanded').toHaveText('Independent result from main.')
   await checkManager(true)
   await page.reload()
@@ -2431,6 +2431,7 @@ test('debug mode defaults off and settings persist both diagnostic entrances acr
   await openAction('Settings')
   await expect(toggle).toBeChecked()
   await toggle.click()
+  await saveAboutAdvanced(page)
   await expect(toggle).not.toBeChecked()
   expect(await page.evaluate(() => localStorage.getItem('vista-debug-mode'))).toBe('false')
   await closeSettings(page)
