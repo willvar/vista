@@ -12,6 +12,8 @@ import (
 
 	"github.com/google/uuid"
 	"vista/internal/workerproto"
+
+	"gorm.io/gorm"
 )
 
 const (
@@ -35,12 +37,12 @@ type Memory struct {
 }
 
 func (s *Store) Memories(ctx context.Context) ([]Memory, error) {
-	return readMemories(ctx, s.db)
+	return readMemories(ctx, s.orm)
 }
 
 func (s *Store) MemoryCount(ctx context.Context) (int, error) {
 	var total int
-	err := s.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM memories").Scan(&total)
+	err := s.orm.WithContext(ctx).Raw("SELECT COUNT(*) FROM memories").Row().Scan(&total)
 	return total, err
 }
 
@@ -50,13 +52,13 @@ type MemoryPage struct {
 }
 
 func (s *Store) MemoryPage(ctx context.Context, page Pagination) (MemoryPage, error) {
-	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+	tx, err := s.begin(ctx, &sql.TxOptions{ReadOnly: true})
 	if err != nil {
 		return MemoryPage{}, err
 	}
 	defer tx.Rollback()
 	var total int
-	if err := tx.QueryRowContext(ctx, "SELECT COUNT(*) FROM memories").Scan(&total); err != nil {
+	if err := tx.WithContext(ctx).Raw("SELECT COUNT(*) FROM memories").Row().Scan(&total); err != nil {
 		return MemoryPage{}, err
 	}
 	result := MemoryPage{Pagination: page.WithTotal(total)}
@@ -64,29 +66,14 @@ func (s *Store) MemoryPage(ctx context.Context, page Pagination) (MemoryPage, er
 	return result, err
 }
 
-func readMemories(ctx context.Context, db interface {
-	QueryContext(context.Context, string, ...any) (*sql.Rows, error)
-}, pagination ...int) ([]Memory, error) {
-	query := `SELECT id,text,created_at,updated_at FROM memories ORDER BY created_at,id`
-	var args []any
+func readMemories(ctx context.Context, db *gorm.DB, pagination ...int) ([]Memory, error) {
+	query := db.WithContext(ctx).Table("memories").Order("created_at,id")
 	if len(pagination) == 2 {
-		query += " LIMIT ? OFFSET ?"
-		args = []any{pagination[0], pagination[1]}
+		query = query.Limit(pagination[0]).Offset(pagination[1])
 	}
-	rows, err := db.QueryContext(ctx, query, args...)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
 	items := []Memory{}
-	for rows.Next() {
-		var item Memory
-		if err := rows.Scan(&item.ID, &item.Text, &item.CreatedAt, &item.UpdatedAt); err != nil {
-			return nil, err
-		}
-		items = append(items, item)
-	}
-	return items, rows.Err()
+	err := query.Find(&items).Error
+	return items, err
 }
 
 func ValidateMemoryChange(change workerproto.MemoryChange) error {
@@ -162,14 +149,14 @@ func (s *Store) changeMemory(ctx context.Context, sessionID, runID string, chang
 	} else {
 		change.Text = edits[0].Text
 	}
-	tx, err := s.db.BeginTx(ctx, nil)
+	tx, err := s.begin(ctx, nil)
 	if err != nil {
 		return nil, err
 	}
 	defer tx.Rollback()
 	if sessionID != "" {
 		var status string
-		if err := tx.QueryRowContext(ctx, `SELECT status FROM runs WHERE id=? AND session_id=?`, runID, sessionID).Scan(&status); err != nil {
+		if err := tx.WithContext(ctx).Raw(`SELECT status FROM runs WHERE id=? AND session_id=?`, runID, sessionID).Row().Scan(&status); err != nil {
 			return nil, err
 		}
 		if status != "running" {
@@ -219,7 +206,7 @@ func (s *Store) changeMemory(ctx context.Context, sessionID, runID string, chang
 	// transient UNIQUE violations. IDs and creation times stay unchanged.
 	for _, edit := range edits {
 		if edit.Action != "add" {
-			if _, err := tx.ExecContext(ctx, `DELETE FROM memories WHERE id=?`, edit.ID); err != nil {
+			if _, err := execSQL(ctx, tx, `DELETE FROM memories WHERE id=?`, edit.ID); err != nil {
 				return nil, err
 			}
 		}
@@ -227,7 +214,7 @@ func (s *Store) changeMemory(ctx context.Context, sessionID, runID string, chang
 	for _, edit := range edits {
 		if edit.Action != "remove" {
 			item := final[edit.ID]
-			if _, err := tx.ExecContext(ctx, `INSERT INTO memories(id,text,created_at,updated_at) VALUES(?,?,?,?)`, item.ID, item.Text, item.CreatedAt, item.UpdatedAt); err != nil {
+			if _, err := execSQL(ctx, tx, `INSERT INTO memories(id,text,created_at,updated_at) VALUES(?,?,?,?)`, item.ID, item.Text, item.CreatedAt, item.UpdatedAt); err != nil {
 				return nil, err
 			}
 		}
@@ -241,7 +228,7 @@ func (s *Store) changeMemory(ctx context.Context, sessionID, runID string, chang
 		}
 		event = &saved
 	}
-	if err := tx.Commit(); err != nil {
+	if err := tx.Commit().Error; err != nil {
 		return nil, err
 	}
 	return event, nil

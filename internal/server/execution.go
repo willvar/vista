@@ -3,7 +3,6 @@ package server
 import (
 	"bufio"
 	"context"
-	"database/sql"
 	"encoding/json"
 	"errors"
 	"log"
@@ -14,6 +13,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+
 	modelcfg "vista/internal/model"
 	"vista/internal/modelcatalog"
 	"vista/internal/modeltrace"
@@ -184,7 +184,7 @@ func (a *App) submitMessage(w http.ResponseWriter, r *http.Request, sessionID st
 		}
 	}
 	_, runningErr := a.store.RunningRunID(r.Context(), sessionID)
-	if runningErr != nil && !errors.Is(runningErr, sql.ErrNoRows) {
+	if runningErr != nil && !errors.Is(runningErr, store.ErrNotFound) {
 		http.Error(w, "could not check active execution", 500)
 		return
 	}
@@ -398,7 +398,7 @@ func (a *App) dispatchWorker(ctx context.Context, id string, command workerproto
 	w.runMu.Lock()
 	defer w.runMu.Unlock()
 	runID, err := a.store.RunningRunID(ctx, id)
-	if errors.Is(err, sql.ErrNoRows) || err == nil && runID != command.RunID {
+	if errors.Is(err, store.ErrNotFound) || err == nil && runID != command.RunID {
 		return nil // Already canceled; keep the saved user message.
 	}
 	if err != nil {
@@ -537,7 +537,7 @@ func (a *App) launchQueuedInput(sessionID string) {
 	if _, err := a.store.RunningRunID(a.ctx, sessionID); err == nil {
 		a.admissionMu.Unlock()
 		return
-	} else if !errors.Is(err, sql.ErrNoRows) {
+	} else if !errors.Is(err, store.ErrNotFound) {
 		a.admissionMu.Unlock()
 		return
 	}

@@ -79,7 +79,7 @@ func (s *Store) displayMessages(ctx context.Context, sessionID string, cursor in
 	}
 	query += " LIMIT ?"
 	args = append(args, limit)
-	rows, err := s.reader().QueryContext(ctx, query, args...)
+	rows, err := s.orm.WithContext(ctx).Raw(query, args...).Rows()
 	if err != nil {
 		return nil, err
 	}

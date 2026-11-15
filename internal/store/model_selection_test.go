@@ -403,14 +403,14 @@ func TestSelectionEstimateIncludesHistoryNonASCIIAndImages(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	tx, err := s.db.BeginTx(ctx, nil)
+	tx, err := s.begin(ctx, nil)
 	if err != nil {
 		unlock()
 		t.Fatal(err)
 	}
 	err = s.writeImages(ctx, tx, "session", "message_resources", "message_id", "message", []Image{image})
 	if err == nil {
-		err = tx.Commit()
+		err = tx.Commit().Error
 	}
 	tx.Rollback()
 	unlock()

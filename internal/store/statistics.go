@@ -2,10 +2,11 @@ package store
 
 import (
 	"context"
-	"database/sql"
 	"errors"
 	"time"
 	_ "time/tzdata" // IANA zones also work on Windows without a system zone database.
+
+	"gorm.io/gorm"
 )
 
 // Retention matches the longest period available in the statistics view.
@@ -38,7 +39,7 @@ type Statistics struct {
 
 func (s *Store) initStatistics() error {
 	ctx := context.Background()
-	tx, err := s.db.BeginTx(ctx, nil)
+	tx, err := s.begin(ctx, nil)
 	if err != nil {
 		return err
 	}
@@ -49,14 +50,14 @@ func (s *Store) initStatistics() error {
 		`CREATE TABLE IF NOT EXISTS token_usage (id TEXT PRIMARY KEY, minute INTEGER NOT NULL, tokens INTEGER)`,
 		`CREATE INDEX IF NOT EXISTS token_usage_by_minute ON token_usage(minute)`,
 	} {
-		if _, err = tx.ExecContext(ctx, query); err != nil {
+		if _, err = execSQL(ctx, tx, query); err != nil {
 			return err
 		}
 	}
 	now := time.Now().UTC()
 	// One migration only: later usage is collected at provider dispatch, rather
 	// than projected again from model_result. Deleted history is not recoverable.
-	result, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO statistics_meta(key,value) VALUES('usage_since',?)`, now.Format(time.RFC3339))
+	result, err := execSQL(ctx, tx, `INSERT OR IGNORE INTO statistics_meta(key,value) VALUES('usage_since',?)`, now.Format(time.RFC3339))
 	if err != nil {
 		return err
 	}
@@ -65,7 +66,7 @@ func (s *Store) initStatistics() error {
 		return err
 	}
 	if inserted > 0 {
-		_, err = tx.ExecContext(ctx, `INSERT OR IGNORE INTO token_usage(id,minute,tokens)
+		_, err = execSQL(ctx, tx, `INSERT OR IGNORE INTO token_usage(id,minute,tokens)
  SELECT 'legacy:'||session_id||':'||sequence, CAST(strftime('%s',created_at) AS INTEGER)/60,
  CASE WHEN json_type(data,'$.modelResult.usage.inputTokens')='integer'
  AND json_type(data,'$.modelResult.usage.outputTokens')='integer'
@@ -78,22 +79,19 @@ func (s *Store) initStatistics() error {
 			return err
 		}
 	}
-	if _, err = tx.ExecContext(ctx, `INSERT OR IGNORE INTO statistics_meta(key,value) VALUES('activity_since',?)`, now.Format(time.RFC3339)); err != nil {
+	if _, err = execSQL(ctx, tx, `INSERT OR IGNORE INTO statistics_meta(key,value) VALUES('activity_since',?)`, now.Format(time.RFC3339)); err != nil {
 		return err
 	}
-	if err = pruneStatistics(ctx, tx, now); err != nil {
-		return err
-	}
-	return tx.Commit()
+	return tx.Commit().Error
 }
 
-func pruneStatistics(ctx context.Context, tx *sql.Tx, now time.Time) error {
+func pruneStatistics(ctx context.Context, tx *gorm.DB, now time.Time) error {
 	cutoff := now.UTC().AddDate(0, 0, -StatisticsRetentionDays).Unix() / 60
 	for _, query := range []string{
 		`DELETE FROM activity_minutes WHERE minute<?`,
 		`DELETE FROM token_usage WHERE minute<?`,
 	} {
-		if _, err := tx.ExecContext(ctx, query, cutoff); err != nil {
+		if _, err := execSQL(ctx, tx, query, cutoff); err != nil {
 			return err
 		}
 	}
@@ -103,28 +101,28 @@ func pruneStatistics(ctx context.Context, tx *sql.Tx, now time.Time) error {
 // ResetStatistics leaves conversation history and its one-time migration marker
 // intact so reopening the database cannot re-import the cleared usage.
 func (s *Store) ResetStatistics(ctx context.Context, now time.Time) error {
-	tx, err := s.db.BeginTx(ctx, nil)
+	tx, err := s.begin(ctx, nil)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
 	for _, query := range []string{`DELETE FROM activity_minutes`, `DELETE FROM token_usage`} {
-		if _, err = tx.ExecContext(ctx, query); err != nil {
+		if _, err = execSQL(ctx, tx, query); err != nil {
 			return err
 		}
 	}
 	for _, key := range []string{"activity_since", "usage_since"} {
-		if _, err = tx.ExecContext(ctx, `INSERT INTO statistics_meta(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value`, key, now.UTC().Format(time.RFC3339)); err != nil {
+		if _, err = execSQL(ctx, tx, `INSERT INTO statistics_meta(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value`, key, now.UTC().Format(time.RFC3339)); err != nil {
 			return err
 		}
 	}
 	// Reports are buffered in clients at minute granularity. Start activity at
 	// the next full minute so a delayed report or the reset click cannot restore
 	// pre-reset activity, including when it comes from another client.
-	if _, err = tx.ExecContext(ctx, `INSERT INTO statistics_meta(key,value) VALUES('activity_reset_minute',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value`, now.Unix()/60); err != nil {
+	if _, err = execSQL(ctx, tx, `INSERT INTO statistics_meta(key,value) VALUES('activity_reset_minute',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value`, now.Unix()/60); err != nil {
 		return err
 	}
-	return tx.Commit()
+	return tx.Commit().Error
 }
 
 // RecordActivity deduplicates UTC minutes across clients. Reports contain only
@@ -139,13 +137,13 @@ func (s *Store) RecordActivity(ctx context.Context, minutes []int64, now time.Ti
 			return false, ErrInvalidActivity
 		}
 	}
-	tx, err := s.db.BeginTx(ctx, nil)
+	tx, err := s.begin(ctx, nil)
 	if err != nil {
 		return false, err
 	}
 	defer tx.Rollback()
 	var resetMinute int64
-	if err = tx.QueryRowContext(ctx, `SELECT COALESCE((SELECT CAST(value AS INTEGER) FROM statistics_meta WHERE key='activity_reset_minute'),-1)`).Scan(&resetMinute); err != nil {
+	if err = tx.WithContext(ctx).Raw(`SELECT COALESCE((SELECT CAST(value AS INTEGER) FROM statistics_meta WHERE key='activity_reset_minute'),-1)`).Row().Scan(&resetMinute); err != nil {
 		return false, err
 	}
 	changed := false
@@ -153,7 +151,7 @@ func (s *Store) RecordActivity(ctx context.Context, minutes []int64, now time.Ti
 		if minute <= resetMinute {
 			continue
 		}
-		result, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO activity_minutes(minute) VALUES(?)`, minute)
+		result, err := execSQL(ctx, tx, `INSERT OR IGNORE INTO activity_minutes(minute) VALUES(?)`, minute)
 		if err != nil {
 			return false, err
 		}
@@ -166,19 +164,19 @@ func (s *Store) RecordActivity(ctx context.Context, minutes []int64, now time.Ti
 	if err = pruneStatistics(ctx, tx, now); err != nil {
 		return false, err
 	}
-	return changed, tx.Commit()
+	return changed, tx.Commit().Error
 }
 
 func (s *Store) RecordTokenUsage(ctx context.Context, id string, tokens *int64, now time.Time) (bool, error) {
 	if id == "" || len(id) > 128 || tokens != nil && (*tokens < 0 || *tokens > 2_000_000_000) {
 		return false, errors.New("invalid token usage")
 	}
-	tx, err := s.db.BeginTx(ctx, nil)
+	tx, err := s.begin(ctx, nil)
 	if err != nil {
 		return false, err
 	}
 	defer tx.Rollback()
-	result, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO token_usage(id,minute,tokens) VALUES(?,?,?)`, id, now.Unix()/60, tokens)
+	result, err := execSQL(ctx, tx, `INSERT OR IGNORE INTO token_usage(id,minute,tokens) VALUES(?,?,?)`, id, now.Unix()/60, tokens)
 	if err != nil {
 		return false, err
 	}
@@ -189,7 +187,7 @@ func (s *Store) RecordTokenUsage(ctx context.Context, id string, tokens *int64, 
 	if err = pruneStatistics(ctx, tx, now); err != nil {
 		return false, err
 	}
-	return count > 0, tx.Commit()
+	return count > 0, tx.Commit().Error
 }
 
 func (s *Store) Statistics(ctx context.Context, days int, zone string, now time.Time) (Statistics, error) {
@@ -213,17 +211,17 @@ func (s *Store) Statistics(ctx context.Context, days int, zone string, now time.
 		stats.Days = append(stats.Days, StatisticsDay{Date: key})
 	}
 	// One read transaction keeps chart series and totals on the same snapshot.
-	tx, err := s.db.BeginTx(ctx, nil)
+	tx, err := s.begin(ctx, nil)
 	if err != nil {
 		return stats, err
 	}
 	defer tx.Rollback()
 	for key, target := range map[string]*string{"activity_since": &stats.ActivitySince, "usage_since": &stats.UsageSince} {
-		if err = tx.QueryRowContext(ctx, `SELECT value FROM statistics_meta WHERE key=?`, key).Scan(target); err != nil {
+		if err = tx.WithContext(ctx).Raw(`SELECT value FROM statistics_meta WHERE key=?`, key).Row().Scan(target); err != nil {
 			return stats, err
 		}
 	}
-	rows, err := tx.QueryContext(ctx, `SELECT minute FROM activity_minutes WHERE minute>=? AND minute<?`, start.Unix()/60, min(end.Unix()/60, now.Unix()/60+1))
+	rows, err := tx.WithContext(ctx).Raw(`SELECT minute FROM activity_minutes WHERE minute>=? AND minute<?`, start.Unix()/60, min(end.Unix()/60, now.Unix()/60+1)).Rows()
 	if err != nil {
 		return stats, err
 	}
@@ -275,7 +273,7 @@ func (s *Store) Statistics(ctx context.Context, days int, zone string, now time.
 			}
 		}
 	}
-	rows, err = tx.QueryContext(ctx, `SELECT minute,COALESCE(SUM(tokens),0),COUNT(*),SUM(tokens IS NULL) FROM token_usage WHERE minute>=? AND minute<? GROUP BY minute`, start.Unix()/60, min(end.Unix()/60, now.Unix()/60+1))
+	rows, err = tx.WithContext(ctx).Raw(`SELECT minute,COALESCE(SUM(tokens),0),COUNT(*),SUM(tokens IS NULL) FROM token_usage WHERE minute>=? AND minute<? GROUP BY minute`, start.Unix()/60, min(end.Unix()/60, now.Unix()/60+1)).Rows()
 	if err != nil {
 		return stats, err
 	}
@@ -303,5 +301,5 @@ func (s *Store) Statistics(ctx context.Context, days int, zone string, now time.
 			stats.ActiveDays++
 		}
 	}
-	return stats, tx.Commit()
+	return stats, tx.Commit().Error
 }

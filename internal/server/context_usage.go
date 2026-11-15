@@ -1,11 +1,11 @@
 package server
 
 import (
-	"database/sql"
 	"errors"
 	"net/http"
 
 	"vista/internal/agent"
+	"vista/internal/store"
 	"vista/internal/workerproto"
 )
 
@@ -23,7 +23,7 @@ func (a *App) contextUsage(w http.ResponseWriter, r *http.Request, sessionID str
 		sequence = events[0].Sequence
 	}
 	runID, err := a.store.RunningRunID(ctx, sessionID)
-	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+	if err != nil && !errors.Is(err, store.ErrNotFound) {
 		http.Error(w, "could not load current execution", 500)
 		return
 	}

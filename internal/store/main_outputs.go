@@ -30,19 +30,19 @@ func (s *Store) MainOutputs(ctx context.Context, sessionID, runID string, before
 	if before < 0 {
 		return nil, ErrRunEventRange
 	}
-	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+	tx, err := s.begin(ctx, &sql.TxOptions{ReadOnly: true})
 	if err != nil {
 		return nil, err
 	}
 	defer tx.Rollback()
 	var status string
-	if err := tx.QueryRowContext(ctx, "SELECT status FROM runs WHERE session_id=? AND id=?", sessionID, runID).Scan(&status); err != nil {
-		if err == sql.ErrNoRows {
+	if err := tx.WithContext(ctx).Raw("SELECT status FROM runs WHERE session_id=? AND id=?", sessionID, runID).Row().Scan(&status); err != nil {
+		if err == ErrNotFound {
 			err = ErrNotFound
 		}
 		return nil, err
 	}
-	rows, err := tx.QueryContext(ctx, `WITH run_chunks AS (
+	rows, err := tx.WithContext(ctx).Raw(`WITH run_chunks AS (
  SELECT * FROM model_output_chunks WHERE session_id=? AND run_id=?
 ), visible AS (
  SELECT sequence, ROW_NUMBER() OVER (ORDER BY sequence) AS position
@@ -86,7 +86,7 @@ func (s *Store) MainOutputs(ctx context.Context, sessionID, runID string, before
  WHERE COALESCE(json_extract(e.data,'$.depth'),0)=0
  AND COALESCE(NULLIF(json_extract(e.data,'$.taskId'),''),'main')='main'
  AND (?=0 OR o.sequence<?)
- ORDER BY o.sequence DESC LIMIT 100`, sessionID, runID, sessionID, sessionID, runID, status, sessionID, before, before)
+ ORDER BY o.sequence DESC LIMIT 100`, sessionID, runID, sessionID, sessionID, runID, status, sessionID, before, before).Rows()
 	if err != nil {
 		return nil, err
 	}

@@ -2,7 +2,6 @@ package store
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
 	"errors"
 	"strings"
@@ -42,10 +41,10 @@ func ValidateChecklist(items []ChecklistItem) error {
 // A run without a checklist never inherits another run's items.
 func (s *Store) RunChecklist(ctx context.Context, sessionID, runID string) ([]ChecklistItem, error) {
 	var raw []byte
-	err := s.db.QueryRowContext(ctx, `SELECT CAST(data AS BLOB) FROM events
+	err := s.orm.WithContext(ctx).Raw(`SELECT CAST(data AS BLOB) FROM events
  WHERE session_id=? AND kind='checklist' AND json_extract(data,'$.runId')=?
- ORDER BY sequence DESC LIMIT 1`, sessionID, runID).Scan(&raw)
-	if errors.Is(err, sql.ErrNoRows) {
+ ORDER BY sequence DESC LIMIT 1`, sessionID, runID).Row().Scan(&raw)
+	if errors.Is(err, ErrNotFound) {
 		return []ChecklistItem{}, nil
 	}
 	if err != nil {
@@ -64,13 +63,13 @@ func (s *Store) ReplaceChecklist(ctx context.Context, sessionID, runID string, i
 	if err := ValidateChecklist(items); err != nil {
 		return nil, err
 	}
-	tx, err := s.db.BeginTx(ctx, nil)
+	tx, err := s.begin(ctx, nil)
 	if err != nil {
 		return nil, err
 	}
 	defer tx.Rollback()
 	var active int
-	if err := tx.QueryRowContext(ctx, "SELECT COUNT(*) FROM runs WHERE id=? AND session_id=? AND status='running'", runID, sessionID).Scan(&active); err != nil {
+	if err := tx.WithContext(ctx).Raw("SELECT COUNT(*) FROM runs WHERE id=? AND session_id=? AND status='running'", runID, sessionID).Row().Scan(&active); err != nil {
 		return nil, err
 	}
 	if active == 0 {
@@ -80,7 +79,7 @@ func (s *Store) ReplaceChecklist(ctx context.Context, sessionID, runID string, i
 	if err != nil {
 		return nil, err
 	}
-	if err := tx.Commit(); err != nil {
+	if err := tx.Commit().Error; err != nil {
 		return nil, err
 	}
 	return &event, nil

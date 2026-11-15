@@ -2,7 +2,6 @@ package server
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
 	"errors"
 	"io"
@@ -48,7 +47,7 @@ func (a *App) pullInterjection(ctx context.Context, sessionID, runID string, com
 
 func inputHTTPError(w http.ResponseWriter, err error) {
 	switch {
-	case errors.Is(err, sql.ErrNoRows):
+	case errors.Is(err, store.ErrNotFound):
 		http.Error(w, "pending input not found", http.StatusNotFound)
 	case errors.Is(err, store.ErrInputConsumed), errors.Is(err, store.ErrClosed):
 		http.Error(w, err.Error(), http.StatusConflict)

@@ -154,7 +154,7 @@ func TestFailedResourceTransactionAndInterruptedUploadAreManuallyCleanable(t *te
 	if err != nil {
 		t.Fatal(err)
 	}
-	tx, err := s.db.BeginTx(ctx, nil)
+	tx, err := s.begin(ctx, nil)
 	if err != nil {
 		unlock()
 		t.Fatal(err)
@@ -196,7 +196,7 @@ func TestResourceCleanupSerializesWithReferenceCommit(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	tx, err := s.db.BeginTx(ctx, nil)
+	tx, err := s.begin(ctx, nil)
 	if err != nil {
 		unlock()
 		t.Fatal(err)
@@ -215,7 +215,7 @@ func TestResourceCleanupSerializesWithReferenceCommit(t *testing.T) {
 		t.Fatalf("cleanup crossed an uncommitted reference: %v", err)
 	case <-time.After(30 * time.Millisecond):
 	}
-	err = tx.Commit()
+	err = tx.Commit().Error
 	unlock()
 	if err != nil {
 		t.Fatal(err)

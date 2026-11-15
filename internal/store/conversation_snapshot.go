@@ -66,7 +66,7 @@ func (s *Store) checkpoint(ctx context.Context, id string) (SyncCheckpoint, erro
 
 func (s *Store) readView(ctx context.Context, fn func(*Store) error) error {
 	return s.orm.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		view := &Store{db: s.db, orm: tx, readTx: tx.Statement.ConnPool}
+		view := &Store{orm: tx, library: s.library}
 		return fn(view)
 	})
 }

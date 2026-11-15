@@ -2,7 +2,6 @@ package server
 
 import (
 	"context"
-	"database/sql"
 	"errors"
 	"log"
 	"net/http"
@@ -104,7 +103,7 @@ func revertHTTPError(w http.ResponseWriter, err error) {
 	switch {
 	case errors.Is(err, store.ErrBusy):
 		http.Error(w, err.Error(), http.StatusConflict)
-	case errors.Is(err, sql.ErrNoRows), errors.Is(err, store.ErrNotFound):
+	case errors.Is(err, store.ErrNotFound), errors.Is(err, store.ErrNotFound):
 		http.Error(w, "message no longer exists", http.StatusNotFound)
 	default:
 		http.Error(w, "Could not roll back conversation: "+err.Error(), http.StatusInternalServerError)

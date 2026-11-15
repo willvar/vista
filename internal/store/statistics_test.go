@@ -333,7 +333,7 @@ func TestStatisticsRetentionMatchesLongestView(t *testing.T) {
 				total := int64(10)
 				_, err = s.RecordTokenUsage(ctx, "current", &total, now)
 			default:
-				err = s.initStatistics()
+				err = s.recoverStartupState(ctx)
 			}
 			if err != nil {
 				t.Fatal(err)

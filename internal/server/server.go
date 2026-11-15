@@ -2,7 +2,6 @@ package server
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -632,7 +631,7 @@ func (a *App) session(w http.ResponseWriter, r *http.Request) {
 		defer unlock()
 	}
 	item, err := a.store.Get(r.Context(), id.String())
-	if errors.Is(err, sql.ErrNoRows) {
+	if errors.Is(err, store.ErrNotFound) {
 		http.NotFound(w, r)
 		return
 	}
@@ -804,7 +803,7 @@ func (a *App) session(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		artifact, err := a.store.GetArtifact(r.Context(), item.ID, artifactID.String())
-		if errors.Is(err, sql.ErrNoRows) {
+		if errors.Is(err, store.ErrNotFound) {
 			http.NotFound(w, r)
 			return
 		}
@@ -834,7 +833,7 @@ func (a *App) session(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		job, jobErr := a.store.GetJob(r.Context(), item.ID, jobID.String())
-		if errors.Is(jobErr, sql.ErrNoRows) {
+		if errors.Is(jobErr, store.ErrNotFound) {
 			http.NotFound(w, r)
 			return
 		}
@@ -937,7 +936,7 @@ func (a *App) session(w http.ResponseWriter, r *http.Request) {
 			switch bits[1] {
 			case "checkpoint":
 				point, err := a.store.Checkpoint(r.Context(), item.ID)
-				if errors.Is(err, sql.ErrNoRows) {
+				if errors.Is(err, store.ErrNotFound) {
 					http.NotFound(w, r)
 					return
 				}
@@ -986,7 +985,7 @@ func (a *App) session(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		runID, lookupErr := a.store.RunningRunID(r.Context(), item.ID)
-		if errors.Is(lookupErr, sql.ErrNoRows) {
+		if errors.Is(lookupErr, store.ErrNotFound) {
 			http.Error(w, "session is idle", 409)
 			return
 		}

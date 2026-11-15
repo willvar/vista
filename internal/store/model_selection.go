@@ -12,8 +12,9 @@ import (
 	"unicode/utf8"
 
 	"github.com/google/uuid"
-	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
+
+	"gorm.io/gorm"
 )
 
 // Preferences belongs to a persistent local identity, not a browser or session.
@@ -246,11 +247,7 @@ func (s *Store) initModelSelectionSchema() error {
 	if err := s.orm.AutoMigrate(&preferenceRow{}, &runSelectionRow{}, &feedbackRow{}, &ModelObservation{}, &observationReceipt{}, &attemptRow{}, &modelConnectionHealth{}, &sessionTierSelectionRow{}); err != nil {
 		return err
 	}
-	// A server restart ends previous executions. Interrupted first attempts count
-	// as attempts, so a failing connection cannot stay forever "untried".
-	return s.orm.Model(&attemptRow{}).Where("pending_id <> ?", "").Updates(map[string]any{
-		"attempts": gorm.Expr("attempts + 1"), "pending_id": "", "outcome": "interrupted",
-	}).Error
+	return nil
 }
 
 func preferences(tx *gorm.DB) (Preferences, error) {
@@ -325,7 +322,7 @@ func (s *Store) PatchSessionSelection(ctx context.Context, id string, patch Sess
 		var current sessionRow
 		if err := tx.Where("id=?", id).Take(&current).Error; err != nil {
 			if errors.Is(err, gorm.ErrRecordNotFound) {
-				return sql.ErrNoRows
+				return ErrNotFound
 			}
 			return err
 		}
@@ -422,7 +419,7 @@ func (s *Store) BindSessionSelection(ctx context.Context, id, modelKey, effort s
 		var current sessionRow
 		if err := tx.Where("id=?", id).Take(&current).Error; err != nil {
 			if errors.Is(err, gorm.ErrRecordNotFound) {
-				return sql.ErrNoRows
+				return ErrNotFound
 			}
 			return err
 		}
@@ -479,7 +476,7 @@ func (s *Store) SetReplyFeedback(ctx context.Context, userID, sessionID, message
 		var message struct{ ID, RunID, ModelID, Role, CreatedAt string }
 		if err := tx.Table("messages").Select("id, run_id, model_id, role, created_at").Where("id = ? AND session_id = ?", messageID, sessionID).Take(&message).Error; err != nil {
 			if errors.Is(err, gorm.ErrRecordNotFound) {
-				return sql.ErrNoRows
+				return ErrNotFound
 			}
 			return err
 		}

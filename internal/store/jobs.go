@@ -39,7 +39,7 @@ func (s *Store) RecordJob(ctx context.Context, job Job) (*Event, error) {
 	if job.Bytes < 0 || len(job.Error) > 512 {
 		return nil, errors.New("invalid job result")
 	}
-	tx, err := s.db.BeginTx(ctx, nil)
+	tx, err := s.begin(ctx, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -50,7 +50,7 @@ func (s *Store) RecordJob(ctx context.Context, job Job) (*Event, error) {
 			return nil, err
 		}
 		job.CreatedAt = time.Now().UTC().Format(time.RFC3339Nano)
-		if _, err := tx.ExecContext(ctx, `INSERT INTO jobs(id,session_id,run_id,directory,command,output_path,status,created_at) VALUES(?,?,?,?,?,?,?,?)`, job.ID, job.SessionID, job.RunID, job.Directory, job.Command, job.OutputPath, job.Status, job.CreatedAt); err != nil {
+		if _, err := execSQL(ctx, tx, `INSERT INTO jobs(id,session_id,run_id,directory,command,output_path,status,created_at) VALUES(?,?,?,?,?,?,?,?)`, job.ID, job.SessionID, job.RunID, job.Directory, job.Command, job.OutputPath, job.Status, job.CreatedAt); err != nil {
 			return nil, err
 		}
 	} else {
@@ -60,14 +60,14 @@ func (s *Store) RecordJob(ctx context.Context, job Job) (*Event, error) {
 		if job.Status != "running" {
 			job.FinishedAt = time.Now().UTC().Format(time.RFC3339Nano)
 		}
-		if err := tx.QueryRowContext(ctx, "SELECT created_at,status FROM jobs WHERE id=? AND session_id=? AND run_id=?", job.ID, job.SessionID, job.RunID).Scan(&job.CreatedAt, &previousStatus); err != nil {
-			if errors.Is(err, sql.ErrNoRows) {
+		if err := tx.WithContext(ctx).Raw("SELECT created_at,status FROM jobs WHERE id=? AND session_id=? AND run_id=?", job.ID, job.SessionID, job.RunID).Row().Scan(&job.CreatedAt, &previousStatus); err != nil {
+			if errors.Is(err, ErrNotFound) {
 				return nil, nil
 			}
 			return nil, err
 		}
 		var result sql.Result
-		result, err = tx.ExecContext(ctx, `UPDATE jobs SET status=?,bytes=?,exit_code=?,complete=?,error=?,finished_at=? WHERE id=? AND session_id=? AND run_id=? AND status IN ('starting','running')`, job.Status, job.Bytes, job.ExitCode, job.Complete, job.Error, nullableTime(job.FinishedAt), job.ID, job.SessionID, job.RunID)
+		result, err = execSQL(ctx, tx, `UPDATE jobs SET status=?,bytes=?,exit_code=?,complete=?,error=?,finished_at=? WHERE id=? AND session_id=? AND run_id=? AND status IN ('starting','running')`, job.Status, job.Bytes, job.ExitCode, job.Complete, job.Error, nullableTime(job.FinishedAt), job.ID, job.SessionID, job.RunID)
 		if err == nil {
 			var changed int64
 			changed, err = result.RowsAffected()
@@ -95,7 +95,7 @@ func (s *Store) RecordJob(ctx context.Context, job Job) (*Event, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err := tx.Commit(); err != nil {
+	if err := tx.Commit().Error; err != nil {
 		return nil, err
 	}
 	return &event, nil
@@ -109,7 +109,7 @@ func nullableTime(value string) any {
 }
 
 func (s *Store) Jobs(ctx context.Context, sessionID string) ([]Job, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT id,session_id,run_id,directory,command,output_path,status,bytes,exit_code,complete,error,created_at,COALESCE(finished_at,'') FROM jobs WHERE session_id=? ORDER BY status IN ('starting','running') DESC,created_at DESC,id DESC LIMIT 200`, sessionID)
+	rows, err := s.orm.WithContext(ctx).Raw(`SELECT id,session_id,run_id,directory,command,output_path,status,bytes,exit_code,complete,error,created_at,COALESCE(finished_at,'') FROM jobs WHERE session_id=? ORDER BY status IN ('starting','running') DESC,created_at DESC,id DESC LIMIT 200`, sessionID).Rows()
 	if err != nil {
 		return nil, err
 	}
@@ -146,7 +146,7 @@ func (s *Store) Jobs(ctx context.Context, sessionID string) ([]Job, error) {
 
 func (s *Store) GetJob(ctx context.Context, sessionID, jobID string) (Job, error) {
 	var job Job
-	err := s.db.QueryRowContext(ctx, `SELECT id,session_id,run_id,directory,command,output_path,status,bytes,exit_code,complete,error,created_at,COALESCE(finished_at,'') FROM jobs WHERE session_id=? AND id=?`, sessionID, jobID).Scan(&job.ID, &job.SessionID, &job.RunID, &job.Directory, &job.Command, &job.OutputPath, &job.Status, &job.Bytes, &job.ExitCode, &job.Complete, &job.Error, &job.CreatedAt, &job.FinishedAt)
+	err := s.orm.WithContext(ctx).Raw(`SELECT id,session_id,run_id,directory,command,output_path,status,bytes,exit_code,complete,error,created_at,COALESCE(finished_at,'') FROM jobs WHERE session_id=? AND id=?`, sessionID, jobID).Row().Scan(&job.ID, &job.SessionID, &job.RunID, &job.Directory, &job.Command, &job.OutputPath, &job.Status, &job.Bytes, &job.ExitCode, &job.Complete, &job.Error, &job.CreatedAt, &job.FinishedAt)
 	if err != nil {
 		return job, err
 	}
@@ -164,7 +164,7 @@ func (s *Store) InterruptJobs(ctx context.Context, sessionID, reason string) ([]
 	if len(reason) > 512 {
 		reason = reason[:512]
 	}
-	tx, err := s.db.BeginTx(ctx, nil)
+	tx, err := s.begin(ctx, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -175,7 +175,7 @@ func (s *Store) InterruptJobs(ctx context.Context, sessionID, reason string) ([]
 		query += " AND session_id=?"
 		args = append(args, sessionID)
 	}
-	rows, err := tx.QueryContext(ctx, query, args...)
+	rows, err := tx.WithContext(ctx).Raw(query, args...).Rows()
 	if err != nil {
 		return nil, err
 	}
@@ -196,19 +196,19 @@ func (s *Store) InterruptJobs(ctx context.Context, sessionID, reason string) ([]
 	events := make([]Event, 0, len(jobs))
 	for _, job := range jobs {
 		var data []byte
-		if err := tx.QueryRowContext(ctx, `SELECT data FROM events WHERE session_id=? AND kind='job' AND json_extract(data,'$.id')=? ORDER BY sequence DESC LIMIT 1`, job.SessionID, job.ID).Scan(&data); err == nil {
+		if err := tx.WithContext(ctx).Raw(`SELECT data FROM events WHERE session_id=? AND kind='job' AND json_extract(data,'$.id')=? ORDER BY sequence DESC LIMIT 1`, job.SessionID, job.ID).Row().Scan(&data); err == nil {
 			var previous Job
 			if err := json.Unmarshal(data, &previous); err != nil {
 				return nil, err
 			}
 			job.StartedAt, job.ExpiresAt = previous.StartedAt, previous.ExpiresAt
-		} else if !errors.Is(err, sql.ErrNoRows) {
+		} else if !errors.Is(err, ErrNotFound) {
 			return nil, err
 		}
 		job.Status, job.Error = "interrupted", reason
 		job.TerminationReason = "interrupted"
 		job.FinishedAt = time.Now().UTC().Format(time.RFC3339Nano)
-		if _, err := tx.ExecContext(ctx, `UPDATE jobs SET status='interrupted',error=?,finished_at=? WHERE id=?`, reason, job.FinishedAt, job.ID); err != nil {
+		if _, err := execSQL(ctx, tx, `UPDATE jobs SET status='interrupted',error=?,finished_at=? WHERE id=?`, reason, job.FinishedAt, job.ID); err != nil {
 			return nil, err
 		}
 		if err := restoreOutputLink(ctx, tx, job.SessionID, "job", job.ID, &job.CallID, &job.TaskID, &job.ParentTaskID); err != nil {
@@ -220,7 +220,7 @@ func (s *Store) InterruptJobs(ctx context.Context, sessionID, reason string) ([]
 		}
 		events = append(events, event)
 	}
-	if err := tx.Commit(); err != nil {
+	if err := tx.Commit().Error; err != nil {
 		return nil, err
 	}
 	return events, nil

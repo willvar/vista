@@ -2,11 +2,12 @@ package store
 
 import (
 	"context"
-	"database/sql"
 	"errors"
 	"strings"
 	"time"
 	"unicode/utf8"
+
+	"gorm.io/gorm"
 )
 
 var ErrNotRunning = errors.New("session has no running execution")
@@ -29,26 +30,26 @@ func (s *Store) QueueInputWithDiagnostics(ctx context.Context, sessionID, inputI
 	if err := ValidateImages(images); err != nil {
 		return QueuedInput{}, Event{}, err
 	}
-	tx, err := s.db.BeginTx(ctx, nil)
+	tx, err := s.begin(ctx, nil)
 	if err != nil {
 		return QueuedInput{}, Event{}, err
 	}
 	defer tx.Rollback()
 	var open int
-	if err := tx.QueryRowContext(ctx, "SELECT is_open FROM sessions WHERE id=?", sessionID).Scan(&open); err != nil {
+	if err := tx.WithContext(ctx).Raw("SELECT is_open FROM sessions WHERE id=?", sessionID).Row().Scan(&open); err != nil {
 		return QueuedInput{}, Event{}, err
 	}
 	if open == 0 {
 		return QueuedInput{}, Event{}, ErrClosed
 	}
 	var runID string
-	if err := tx.QueryRowContext(ctx, "SELECT id FROM runs WHERE session_id=? AND status='running'", sessionID).Scan(&runID); errors.Is(err, sql.ErrNoRows) {
+	if err := tx.WithContext(ctx).Raw("SELECT id FROM runs WHERE session_id=? AND status='running'", sessionID).Row().Scan(&runID); errors.Is(err, ErrNotFound) {
 		return QueuedInput{}, Event{}, ErrNotRunning
 	} else if err != nil {
 		return QueuedInput{}, Event{}, err
 	}
 	var compacting bool
-	if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM events e JOIN runs r ON r.id=json_extract(e.data,'$.runId') WHERE e.session_id=? AND e.kind='context_status' AND r.id=? AND r.status='running' AND json_extract(e.data,'$.manual')=1)`, sessionID, runID).Scan(&compacting); err != nil {
+	if err := tx.WithContext(ctx).Raw(`SELECT EXISTS(SELECT 1 FROM events e JOIN runs r ON r.id=json_extract(e.data,'$.runId') WHERE e.session_id=? AND e.kind='context_status' AND r.id=? AND r.status='running' AND json_extract(e.data,'$.manual')=1)`, sessionID, runID).Row().Scan(&compacting); err != nil {
 		return QueuedInput{}, Event{}, err
 	}
 	if compacting {
@@ -68,7 +69,7 @@ func (s *Store) QueueInputWithDiagnostics(ctx context.Context, sessionID, inputI
 		input.SelectionTier = modelKey[3]
 	}
 	// Keep writing the retired column for compatibility with existing databases.
-	if _, err := tx.ExecContext(ctx, "INSERT INTO queued_inputs(id,session_id,run_id,model_key,reasoning_effort,selection_mode,selection_tier,mode,status,content,image_count,created_at,debug) VALUES(?,?,?,?,?,?,?,'now',?,?,?,?,?)", input.ID, input.SessionID, input.RunID, input.ModelKey, input.ReasoningEffort, input.SelectionMode, input.SelectionTier, input.Status, input.Content, input.ImageCount, input.CreatedAt, input.Debug); err != nil {
+	if _, err := execSQL(ctx, tx, "INSERT INTO queued_inputs(id,session_id,run_id,model_key,reasoning_effort,selection_mode,selection_tier,mode,status,content,image_count,created_at,debug) VALUES(?,?,?,?,?,?,?,'now',?,?,?,?,?)", input.ID, input.SessionID, input.RunID, input.ModelKey, input.ReasoningEffort, input.SelectionMode, input.SelectionTier, input.Status, input.Content, input.ImageCount, input.CreatedAt, input.Debug); err != nil {
 		return QueuedInput{}, Event{}, err
 	}
 	if err := s.writeImages(ctx, tx, sessionID, "queued_input_resources", "input_id", input.ID, images); err != nil {
@@ -78,7 +79,7 @@ func (s *Store) QueueInputWithDiagnostics(ctx context.Context, sessionID, inputI
 	if err != nil {
 		return QueuedInput{}, Event{}, err
 	}
-	if err := tx.Commit(); err != nil {
+	if err := tx.Commit().Error; err != nil {
 		return QueuedInput{}, Event{}, err
 	}
 	return input, event, nil
@@ -100,21 +101,21 @@ func (s *Store) DeliverInput(ctx context.Context, sessionID, runID, inputID, mes
 			return nil, errors.New("invalid completed reply")
 		}
 	}
-	tx, err := s.db.BeginTx(ctx, nil)
+	tx, err := s.begin(ctx, nil)
 	if err != nil {
 		return nil, err
 	}
 	defer tx.Rollback()
 	var input QueuedInput
-	err = tx.QueryRowContext(ctx, "SELECT id,session_id,run_id,model_key,reasoning_effort,selection_mode,selection_tier,status,content,image_count,created_at,debug FROM queued_inputs WHERE id=? AND session_id=?", inputID, sessionID).Scan(&input.ID, &input.SessionID, &input.RunID, &input.ModelKey, &input.ReasoningEffort, &input.SelectionMode, &input.SelectionTier, &input.Status, &input.Content, &input.ImageCount, &input.CreatedAt, &input.Debug)
-	if errors.Is(err, sql.ErrNoRows) || (err == nil && (input.RunID != runID || input.Status != "queued")) {
+	err = tx.WithContext(ctx).Raw("SELECT id,session_id,run_id,model_key,reasoning_effort,selection_mode,selection_tier,status,content,image_count,created_at,debug FROM queued_inputs WHERE id=? AND session_id=?", inputID, sessionID).Row().Scan(&input.ID, &input.SessionID, &input.RunID, &input.ModelKey, &input.ReasoningEffort, &input.SelectionMode, &input.SelectionTier, &input.Status, &input.Content, &input.ImageCount, &input.CreatedAt, &input.Debug)
+	if errors.Is(err, ErrNotFound) || (err == nil && (input.RunID != runID || input.Status != "queued")) {
 		return nil, nil
 	}
 	if err != nil {
 		return nil, err
 	}
 	var active int
-	if err := tx.QueryRowContext(ctx, "SELECT COUNT(*) FROM runs WHERE id=? AND session_id=? AND status='running'", runID, sessionID).Scan(&active); err != nil {
+	if err := tx.WithContext(ctx).Raw("SELECT COUNT(*) FROM runs WHERE id=? AND session_id=? AND status='running'", runID, sessionID).Row().Scan(&active); err != nil {
 		return nil, err
 	}
 	if active == 0 {
@@ -128,23 +129,23 @@ func (s *Store) DeliverInput(ctx context.Context, sessionID, runID, inputID, mes
 		}
 	}
 	var sequence int64
-	if err := tx.QueryRowContext(ctx, "SELECT COALESCE(MAX(sequence),0)+1 FROM events WHERE session_id=?", sessionID).Scan(&sequence); err != nil {
+	if err := tx.WithContext(ctx).Raw("SELECT COALESCE(MAX(sequence),0)+1 FROM events WHERE session_id=?", sessionID).Row().Scan(&sequence); err != nil {
 		return nil, err
 	}
 	message := Message{ID: messageID, SessionID: sessionID, RunID: runID, Sequence: sequence, Role: "user", Content: input.Content, CreatedAt: time.Now().UTC().Format(time.RFC3339Nano)}
-	if _, err := tx.ExecContext(ctx, "INSERT INTO messages(id,session_id,run_id,sequence,role,content,created_at) VALUES(?,?,?,?,?,?,?)", message.ID, message.SessionID, message.RunID, message.Sequence, message.Role, message.Content, message.CreatedAt); err != nil {
+	if _, err := execSQL(ctx, tx, "INSERT INTO messages(id,session_id,run_id,sequence,role,content,created_at) VALUES(?,?,?,?,?,?,?)", message.ID, message.SessionID, message.RunID, message.Sequence, message.Role, message.Content, message.CreatedAt); err != nil {
 		return nil, err
 	}
-	if _, err := tx.ExecContext(ctx, "INSERT INTO message_resources(message_id,position,hash,name) SELECT ?,position,hash,name FROM queued_input_resources WHERE input_id=?", message.ID, input.ID); err != nil {
+	if _, err := execSQL(ctx, tx, "INSERT INTO message_resources(message_id,position,hash,name) SELECT ?,position,hash,name FROM queued_input_resources WHERE input_id=?", message.ID, input.ID); err != nil {
 		return nil, err
 	}
-	if err := tx.QueryRowContext(ctx, "SELECT COUNT(*),COALESCE(SUM(r.bytes),0) FROM message_resources JOIN resources r USING(hash) WHERE message_id=?", message.ID).Scan(&message.ImageCount, &message.ImageBytes); err != nil {
+	if err := tx.WithContext(ctx).Raw("SELECT COUNT(*),COALESCE(SUM(r.bytes),0) FROM message_resources JOIN resources r USING(hash) WHERE message_id=?", message.ID).Row().Scan(&message.ImageCount, &message.ImageBytes); err != nil {
 		return nil, err
 	}
-	if _, err := tx.ExecContext(ctx, "DELETE FROM queued_input_resources WHERE input_id=?", input.ID); err != nil {
+	if _, err := execSQL(ctx, tx, "DELETE FROM queued_input_resources WHERE input_id=?", input.ID); err != nil {
 		return nil, err
 	}
-	if _, err := tx.ExecContext(ctx, "UPDATE queued_inputs SET status='delivered' WHERE id=?", inputID); err != nil {
+	if _, err := execSQL(ctx, tx, "UPDATE queued_inputs SET status='delivered' WHERE id=?", inputID); err != nil {
 		return nil, err
 	}
 	if _, err := appendEvent(ctx, tx, sessionID, "message", message); err != nil {
@@ -153,22 +154,22 @@ func (s *Store) DeliverInput(ctx context.Context, sessionID, runID, inputID, mes
 	if _, err := appendEvent(ctx, tx, sessionID, "input_delivered", map[string]string{"id": inputID, "runId": runID}); err != nil {
 		return nil, err
 	}
-	if err := tx.Commit(); err != nil {
+	if err := tx.Commit().Error; err != nil {
 		return nil, err
 	}
 	return &message, nil
 }
 
-func appendCompletedReply(ctx context.Context, tx *sql.Tx, sessionID, runID string, reply CompletedReply) error {
+func appendCompletedReply(ctx context.Context, tx *gorm.DB, sessionID, runID string, reply CompletedReply) error {
 	var persisted int
-	if err := tx.QueryRowContext(ctx, "SELECT COALESCE(MAX(offset+length),0) FROM model_output_chunks WHERE session_id=? AND run_id=? AND turn=?", sessionID, runID, reply.Output.Turn).Scan(&persisted); err != nil {
+	if err := tx.WithContext(ctx).Raw("SELECT COALESCE(MAX(offset+length),0) FROM model_output_chunks WHERE session_id=? AND run_id=? AND turn=?", sessionID, runID, reply.Output.Turn).Row().Scan(&persisted); err != nil {
 		return err
 	}
 	if persisted != reply.Output.Bytes {
 		return errors.New("full model output is incomplete")
 	}
 	var exists bool
-	if err := tx.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM messages WHERE session_id=? AND run_id=? AND role='assistant' AND output_turn=?)", sessionID, runID, reply.Output.Turn).Scan(&exists); err != nil {
+	if err := tx.WithContext(ctx).Raw("SELECT EXISTS(SELECT 1 FROM messages WHERE session_id=? AND run_id=? AND role='assistant' AND output_turn=?)", sessionID, runID, reply.Output.Turn).Row().Scan(&exists); err != nil {
 		return err
 	}
 	if exists {
@@ -176,16 +177,16 @@ func appendCompletedReply(ctx context.Context, tx *sql.Tx, sessionID, runID stri
 	}
 	message := Message{ID: reply.ID, SessionID: sessionID, RunID: runID, Role: "assistant", Content: reply.Content,
 		OutputTurn: reply.Output.Turn, OutputBytes: reply.Output.Bytes, CreatedAt: time.Now().UTC().Format(time.RFC3339Nano)}
-	if err := tx.QueryRowContext(ctx, "SELECT COALESCE(MAX(sequence),0)+1 FROM events WHERE session_id=?", sessionID).Scan(&message.Sequence); err != nil {
+	if err := tx.WithContext(ctx).Raw("SELECT COALESCE(MAX(sequence),0)+1 FROM events WHERE session_id=?", sessionID).Row().Scan(&message.Sequence); err != nil {
 		return err
 	}
-	if err := tx.QueryRowContext(ctx, "SELECT COALESCE(MAX(sequence),0) FROM messages WHERE session_id=? AND run_id=? AND role='assistant'", sessionID, runID).Scan(&message.ResultsAfter); err != nil {
+	if err := tx.WithContext(ctx).Raw("SELECT COALESCE(MAX(sequence),0) FROM messages WHERE session_id=? AND run_id=? AND role='assistant'", sessionID, runID).Row().Scan(&message.ResultsAfter); err != nil {
 		return err
 	}
-	if err := tx.QueryRowContext(ctx, "SELECT provider_id,model_id,model_key FROM runs WHERE id=? AND session_id=?", runID, sessionID).Scan(&message.Provider, &message.ModelID, &message.ModelKey); err != nil {
+	if err := tx.WithContext(ctx).Raw("SELECT provider_id,model_id,model_key FROM runs WHERE id=? AND session_id=?", runID, sessionID).Row().Scan(&message.Provider, &message.ModelID, &message.ModelKey); err != nil {
 		return err
 	}
-	if _, err := tx.ExecContext(ctx, "INSERT INTO messages(id,session_id,run_id,sequence,role,content,created_at,provider_id,model_id,model_key,output_turn,output_bytes) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)", message.ID, message.SessionID, message.RunID, message.Sequence, message.Role, message.Content, message.CreatedAt, message.Provider, message.ModelID, message.ModelKey, message.OutputTurn, message.OutputBytes); err != nil {
+	if _, err := execSQL(ctx, tx, "INSERT INTO messages(id,session_id,run_id,sequence,role,content,created_at,provider_id,model_id,model_key,output_turn,output_bytes) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)", message.ID, message.SessionID, message.RunID, message.Sequence, message.Role, message.Content, message.CreatedAt, message.Provider, message.ModelID, message.ModelKey, message.OutputTurn, message.OutputBytes); err != nil {
 		return err
 	}
 	_, err := appendEvent(ctx, tx, sessionID, "message", message)
@@ -194,8 +195,8 @@ func appendCompletedReply(ctx context.Context, tx *sql.Tx, sessionID, runID stri
 
 func (s *Store) NextQueuedInput(ctx context.Context, sessionID string) (*QueuedInput, error) {
 	var input QueuedInput
-	err := s.db.QueryRowContext(ctx, "SELECT q.id,q.session_id,q.run_id,q.model_key,q.reasoning_effort,q.selection_mode,q.selection_tier,q.status,q.content,q.image_count,q.created_at,q.debug FROM queued_inputs q JOIN sessions s ON s.id=q.session_id WHERE q.session_id=? AND q.status='queued' AND s.pending_kind<>'question' ORDER BY q.created_at,q.id LIMIT 1", sessionID).Scan(&input.ID, &input.SessionID, &input.RunID, &input.ModelKey, &input.ReasoningEffort, &input.SelectionMode, &input.SelectionTier, &input.Status, &input.Content, &input.ImageCount, &input.CreatedAt, &input.Debug)
-	if errors.Is(err, sql.ErrNoRows) {
+	err := s.orm.WithContext(ctx).Raw("SELECT q.id,q.session_id,q.run_id,q.model_key,q.reasoning_effort,q.selection_mode,q.selection_tier,q.status,q.content,q.image_count,q.created_at,q.debug FROM queued_inputs q JOIN sessions s ON s.id=q.session_id WHERE q.session_id=? AND q.status='queued' AND s.pending_kind<>'question' ORDER BY q.created_at,q.id LIMIT 1", sessionID).Row().Scan(&input.ID, &input.SessionID, &input.RunID, &input.ModelKey, &input.ReasoningEffort, &input.SelectionMode, &input.SelectionTier, &input.Status, &input.Content, &input.ImageCount, &input.CreatedAt, &input.Debug)
+	if errors.Is(err, ErrNotFound) {
 		return nil, nil
 	}
 	if err != nil {
@@ -205,13 +206,13 @@ func (s *Store) NextQueuedInput(ctx context.Context, sessionID string) (*QueuedI
 }
 
 func (s *Store) BeginQueuedRun(ctx context.Context, sessionID, inputID, runID, messageID string, selectedModelKey ...string) (*Message, error) {
-	tx, err := s.db.BeginTx(ctx, nil)
+	tx, err := s.begin(ctx, nil)
 	if err != nil {
 		return nil, err
 	}
 	defer tx.Rollback()
 	var input QueuedInput
-	err = tx.QueryRowContext(ctx, "SELECT id,session_id,run_id,model_key,reasoning_effort,selection_mode,selection_tier,status,content,image_count,created_at,debug FROM queued_inputs WHERE id=? AND session_id=?", inputID, sessionID).Scan(&input.ID, &input.SessionID, &input.RunID, &input.ModelKey, &input.ReasoningEffort, &input.SelectionMode, &input.SelectionTier, &input.Status, &input.Content, &input.ImageCount, &input.CreatedAt, &input.Debug)
+	err = tx.WithContext(ctx).Raw("SELECT id,session_id,run_id,model_key,reasoning_effort,selection_mode,selection_tier,status,content,image_count,created_at,debug FROM queued_inputs WHERE id=? AND session_id=?", inputID, sessionID).Row().Scan(&input.ID, &input.SessionID, &input.RunID, &input.ModelKey, &input.ReasoningEffort, &input.SelectionMode, &input.SelectionTier, &input.Status, &input.Content, &input.ImageCount, &input.CreatedAt, &input.Debug)
 	if err != nil {
 		return nil, err
 	}
@@ -223,7 +224,7 @@ func (s *Store) BeginQueuedRun(ctx context.Context, sessionID, inputID, runID, m
 	}
 	var open, running int
 	var pendingKind string
-	if err := tx.QueryRowContext(ctx, "SELECT is_open,pending_kind FROM sessions WHERE id=?", sessionID).Scan(&open, &pendingKind); err != nil {
+	if err := tx.WithContext(ctx).Raw("SELECT is_open,pending_kind FROM sessions WHERE id=?", sessionID).Row().Scan(&open, &pendingKind); err != nil {
 		return nil, err
 	}
 	if open == 0 {
@@ -232,45 +233,45 @@ func (s *Store) BeginQueuedRun(ctx context.Context, sessionID, inputID, runID, m
 	if pendingKind == "question" {
 		return nil, ErrBusy
 	}
-	if err := tx.QueryRowContext(ctx, "SELECT COUNT(*) FROM runs WHERE session_id=? AND status='running'", sessionID).Scan(&running); err != nil {
+	if err := tx.WithContext(ctx).Raw("SELECT COUNT(*) FROM runs WHERE session_id=? AND status='running'", sessionID).Row().Scan(&running); err != nil {
 		return nil, err
 	}
 	if running != 0 {
 		return nil, ErrBusy
 	}
-	if _, err := tx.ExecContext(ctx, "UPDATE sessions SET pending_kind='',pending_content='',pending_run_id='' WHERE id=?", sessionID); err != nil {
+	if _, err := execSQL(ctx, tx, "UPDATE sessions SET pending_kind='',pending_content='',pending_run_id='' WHERE id=?", sessionID); err != nil {
 		return nil, err
 	}
 	if input.ModelKey != "" {
-		if _, err := tx.ExecContext(ctx, "UPDATE sessions SET model_key=? WHERE id=?", input.ModelKey, sessionID); err != nil {
+		if _, err := execSQL(ctx, tx, "UPDATE sessions SET model_key=? WHERE id=?", input.ModelKey, sessionID); err != nil {
 			return nil, err
 		}
 	}
 	at := time.Now().UTC().Format(time.RFC3339Nano)
-	if _, err := tx.ExecContext(ctx, "INSERT INTO runs(id,session_id,status,created_at) VALUES(?,?,'running',?)", runID, sessionID, at); err != nil {
+	if _, err := execSQL(ctx, tx, "INSERT INTO runs(id,session_id,status,created_at) VALUES(?,?,'running',?)", runID, sessionID, at); err != nil {
 		return nil, err
 	}
 	var sequence int64
-	if err := tx.QueryRowContext(ctx, "SELECT COALESCE(MAX(sequence),0)+1 FROM events WHERE session_id=?", sessionID).Scan(&sequence); err != nil {
+	if err := tx.WithContext(ctx).Raw("SELECT COALESCE(MAX(sequence),0)+1 FROM events WHERE session_id=?", sessionID).Row().Scan(&sequence); err != nil {
 		return nil, err
 	}
 	message := Message{ID: messageID, SessionID: sessionID, RunID: runID, Sequence: sequence, Role: "user", Content: input.Content, CreatedAt: at}
-	if _, err := tx.ExecContext(ctx, "INSERT INTO messages(id,session_id,run_id,sequence,role,content,created_at) VALUES(?,?,?,?,?,?,?)", message.ID, message.SessionID, message.RunID, message.Sequence, message.Role, message.Content, message.CreatedAt); err != nil {
+	if _, err := execSQL(ctx, tx, "INSERT INTO messages(id,session_id,run_id,sequence,role,content,created_at) VALUES(?,?,?,?,?,?,?)", message.ID, message.SessionID, message.RunID, message.Sequence, message.Role, message.Content, message.CreatedAt); err != nil {
 		return nil, err
 	}
-	if _, err := tx.ExecContext(ctx, "INSERT INTO message_resources(message_id,position,hash,name) SELECT ?,position,hash,name FROM queued_input_resources WHERE input_id=?", message.ID, input.ID); err != nil {
+	if _, err := execSQL(ctx, tx, "INSERT INTO message_resources(message_id,position,hash,name) SELECT ?,position,hash,name FROM queued_input_resources WHERE input_id=?", message.ID, input.ID); err != nil {
 		return nil, err
 	}
-	if err := tx.QueryRowContext(ctx, "SELECT COUNT(*),COALESCE(SUM(r.bytes),0) FROM message_resources JOIN resources r USING(hash) WHERE message_id=?", message.ID).Scan(&message.ImageCount, &message.ImageBytes); err != nil {
+	if err := tx.WithContext(ctx).Raw("SELECT COUNT(*),COALESCE(SUM(r.bytes),0) FROM message_resources JOIN resources r USING(hash) WHERE message_id=?", message.ID).Row().Scan(&message.ImageCount, &message.ImageBytes); err != nil {
 		return nil, err
 	}
-	if _, err := tx.ExecContext(ctx, "DELETE FROM queued_input_resources WHERE input_id=?", input.ID); err != nil {
+	if _, err := execSQL(ctx, tx, "DELETE FROM queued_input_resources WHERE input_id=?", input.ID); err != nil {
 		return nil, err
 	}
-	if _, err := tx.ExecContext(ctx, "UPDATE queued_inputs SET status='delivered',run_id=? WHERE id=?", runID, inputID); err != nil {
+	if _, err := execSQL(ctx, tx, "UPDATE queued_inputs SET status='delivered',run_id=? WHERE id=?", runID, inputID); err != nil {
 		return nil, err
 	}
-	if _, err := tx.ExecContext(ctx, "UPDATE queued_inputs SET run_id=? WHERE session_id=? AND status='queued'", runID, sessionID); err != nil {
+	if _, err := execSQL(ctx, tx, "UPDATE queued_inputs SET run_id=? WHERE session_id=? AND status='queued'", runID, sessionID); err != nil {
 		return nil, err
 	}
 	if _, err := appendEvent(ctx, tx, sessionID, "message", message); err != nil {
@@ -279,7 +280,7 @@ func (s *Store) BeginQueuedRun(ctx context.Context, sessionID, inputID, runID, m
 	if _, err := appendEvent(ctx, tx, sessionID, "input_delivered", map[string]string{"id": inputID, "runId": runID}); err != nil {
 		return nil, err
 	}
-	if err := tx.Commit(); err != nil {
+	if err := tx.Commit().Error; err != nil {
 		return nil, err
 	}
 	return &message, nil
@@ -289,7 +290,7 @@ func (s *Store) MarkQueuedInputs(ctx context.Context, sessionID, runID, status s
 	if status != "interrupted" && status != "capacity_rejected" {
 		return errors.New("invalid queued input status")
 	}
-	tx, err := s.db.BeginTx(ctx, nil)
+	tx, err := s.begin(ctx, nil)
 	if err != nil {
 		return err
 	}
@@ -297,10 +298,10 @@ func (s *Store) MarkQueuedInputs(ctx context.Context, sessionID, runID, status s
 	if err := markQueuedInTx(ctx, tx, sessionID, runID, status); err != nil {
 		return err
 	}
-	return tx.Commit()
+	return tx.Commit().Error
 }
 
-func markQueuedInTx(ctx context.Context, tx *sql.Tx, sessionID, runID, status string) error {
+func markQueuedInTx(ctx context.Context, tx *gorm.DB, sessionID, runID, status string) error {
 	// Pause only the inputs already waiting at this boundary. New submissions
 	// remain deliverable; text and attachments stay available for resumption.
 	if status == "interrupted" || status == "capacity_rejected" {
@@ -308,7 +309,7 @@ func markQueuedInTx(ctx context.Context, tx *sql.Tx, sessionID, runID, status st
 	}
 	query := "SELECT id FROM queued_inputs WHERE session_id=? AND status='queued'"
 	args := []any{sessionID}
-	rows, err := tx.QueryContext(ctx, query, args...)
+	rows, err := tx.WithContext(ctx).Raw(query, args...).Rows()
 	if err != nil {
 		return err
 	}
@@ -327,7 +328,7 @@ func markQueuedInTx(ctx context.Context, tx *sql.Tx, sessionID, runID, status st
 	}
 	rows.Close()
 	for _, id := range ids {
-		if _, err := tx.ExecContext(ctx, "UPDATE queued_inputs SET status=? WHERE id=?", status, id); err != nil {
+		if _, err := execSQL(ctx, tx, "UPDATE queued_inputs SET status=? WHERE id=?", status, id); err != nil {
 			return err
 		}
 		if _, err := appendEvent(ctx, tx, sessionID, "input_status", map[string]string{"id": id, "status": status}); err != nil {
@@ -339,12 +340,12 @@ func markQueuedInTx(ctx context.Context, tx *sql.Tx, sessionID, runID, status st
 
 // The session flag summarizes pending inputs for the UI; individual statuses
 // decide delivery. An empty queue must not leave future submissions paused.
-func syncInputQueueState(ctx context.Context, tx *sql.Tx, sessionID string) error {
+func syncInputQueueState(ctx context.Context, tx *gorm.DB, sessionID string) error {
 	var paused bool
-	if err := tx.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM queued_inputs WHERE session_id=? AND status='paused')", sessionID).Scan(&paused); err != nil {
+	if err := tx.WithContext(ctx).Raw("SELECT EXISTS(SELECT 1 FROM queued_inputs WHERE session_id=? AND status='paused')", sessionID).Row().Scan(&paused); err != nil {
 		return err
 	}
-	result, err := tx.ExecContext(ctx, "UPDATE sessions SET input_queue_paused=? WHERE id=? AND input_queue_paused<>?", paused, sessionID, paused)
+	result, err := execSQL(ctx, tx, "UPDATE sessions SET input_queue_paused=? WHERE id=? AND input_queue_paused<>?", paused, sessionID, paused)
 	if err != nil {
 		return err
 	}
@@ -357,7 +358,7 @@ func syncInputQueueState(ctx context.Context, tx *sql.Tx, sessionID string) erro
 }
 
 func (s *Store) RecentInputs(ctx context.Context, sessionID string) ([]QueuedInput, error) {
-	rows, err := s.db.QueryContext(ctx, "SELECT id,session_id,run_id,model_key,reasoning_effort,selection_mode,selection_tier,status,content,image_count,created_at,debug FROM queued_inputs WHERE session_id=? AND (status IN ('queued','paused') OR id IN (SELECT id FROM queued_inputs WHERE session_id=? AND status NOT IN ('queued','paused') ORDER BY created_at DESC,id DESC LIMIT 20)) ORDER BY created_at,id", sessionID, sessionID)
+	rows, err := s.orm.WithContext(ctx).Raw("SELECT id,session_id,run_id,model_key,reasoning_effort,selection_mode,selection_tier,status,content,image_count,created_at,debug FROM queued_inputs WHERE session_id=? AND (status IN ('queued','paused') OR id IN (SELECT id FROM queued_inputs WHERE session_id=? AND status NOT IN ('queued','paused') ORDER BY created_at DESC,id DESC LIMIT 20)) ORDER BY created_at,id", sessionID, sessionID).Rows()
 	if err != nil {
 		return nil, err
 	}
@@ -375,18 +376,18 @@ func (s *Store) RecentInputs(ctx context.Context, sessionID string) ([]QueuedInp
 
 func (s *Store) NextInterjection(ctx context.Context, sessionID, runID string) (*QueuedInput, error) {
 	var input QueuedInput
-	err := s.db.QueryRowContext(ctx, `SELECT q.id,q.session_id,q.run_id,q.model_key,q.reasoning_effort,q.selection_mode,q.selection_tier,q.status,q.content,q.image_count,q.created_at,q.debug
+	err := s.orm.WithContext(ctx).Raw(`SELECT q.id,q.session_id,q.run_id,q.model_key,q.reasoning_effort,q.selection_mode,q.selection_tier,q.status,q.content,q.image_count,q.created_at,q.debug
  FROM queued_inputs q JOIN runs r ON r.id=q.run_id
  WHERE q.session_id=? AND q.run_id=? AND q.status='queued' AND r.status='running'
- ORDER BY q.created_at,q.id LIMIT 1`, sessionID, runID).Scan(&input.ID, &input.SessionID, &input.RunID, &input.ModelKey, &input.ReasoningEffort, &input.SelectionMode, &input.SelectionTier, &input.Status, &input.Content, &input.ImageCount, &input.CreatedAt, &input.Debug)
-	if errors.Is(err, sql.ErrNoRows) {
+ ORDER BY q.created_at,q.id LIMIT 1`, sessionID, runID).Row().Scan(&input.ID, &input.SessionID, &input.RunID, &input.ModelKey, &input.ReasoningEffort, &input.SelectionMode, &input.SelectionTier, &input.Status, &input.Content, &input.ImageCount, &input.CreatedAt, &input.Debug)
+	if errors.Is(err, ErrNotFound) {
 		return nil, nil
 	}
 	return &input, err
 }
 
 func (s *Store) QueuedInputImages(ctx context.Context, sessionID, inputID string) ([]Image, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT r.hash,r.media_type,r.bytes,i.name FROM queued_input_resources i JOIN resources r ON r.hash=i.hash JOIN queued_inputs q ON q.id=i.input_id WHERE q.session_id=? AND q.id=? ORDER BY i.position`, sessionID, inputID)
+	rows, err := s.orm.WithContext(ctx).Raw(`SELECT r.hash,r.media_type,r.bytes,i.name FROM queued_input_resources i JOIN resources r ON r.hash=i.hash JOIN queued_inputs q ON q.id=i.input_id WHERE q.session_id=? AND q.id=? ORDER BY i.position`, sessionID, inputID).Rows()
 	if err != nil {
 		return nil, err
 	}
@@ -400,7 +401,7 @@ func (s *Store) QueuedInputImages(ctx context.Context, sessionID, inputID string
 // UpdateInput and delivery each own a database transaction, so an acknowledged
 // edit or withdrawal cannot race a Worker into executing an older copy.
 func (s *Store) UpdateInput(ctx context.Context, sessionID, inputID, content string) (QueuedInput, Event, error) {
-	tx, err := s.db.BeginTx(ctx, nil)
+	tx, err := s.begin(ctx, nil)
 	if err != nil {
 		return QueuedInput{}, Event{}, err
 	}
@@ -417,30 +418,30 @@ func (s *Store) UpdateInput(ctx context.Context, sessionID, inputID, content str
 		return QueuedInput{}, Event{}, errors.New("input must have text or an image; text is limited to 8192 bytes")
 	}
 	var running string
-	err = tx.QueryRowContext(ctx, "SELECT id FROM runs WHERE session_id=? AND status='running'", sessionID).Scan(&running)
+	err = tx.WithContext(ctx).Raw("SELECT id FROM runs WHERE session_id=? AND status='running'", sessionID).Row().Scan(&running)
 	if err == nil {
 		input.RunID = running
-	} else if !errors.Is(err, sql.ErrNoRows) {
+	} else if !errors.Is(err, ErrNotFound) {
 		return QueuedInput{}, Event{}, err
 	}
-	if _, err := tx.ExecContext(ctx, "UPDATE queued_inputs SET content=?,run_id=? WHERE id=?", input.Content, input.RunID, input.ID); err != nil {
+	if _, err := execSQL(ctx, tx, "UPDATE queued_inputs SET content=?,run_id=? WHERE id=?", input.Content, input.RunID, input.ID); err != nil {
 		return QueuedInput{}, Event{}, err
 	}
 	event, err := appendEvent(ctx, tx, sessionID, "input_updated", input)
 	if err != nil {
 		return QueuedInput{}, Event{}, err
 	}
-	return input, event, tx.Commit()
+	return input, event, tx.Commit().Error
 }
 
-func readInput(ctx context.Context, tx *sql.Tx, sessionID, inputID string) (QueuedInput, error) {
+func readInput(ctx context.Context, tx *gorm.DB, sessionID, inputID string) (QueuedInput, error) {
 	var input QueuedInput
-	err := tx.QueryRowContext(ctx, "SELECT id,session_id,run_id,model_key,reasoning_effort,selection_mode,selection_tier,status,content,image_count,created_at,debug FROM queued_inputs WHERE id=? AND session_id=?", inputID, sessionID).Scan(&input.ID, &input.SessionID, &input.RunID, &input.ModelKey, &input.ReasoningEffort, &input.SelectionMode, &input.SelectionTier, &input.Status, &input.Content, &input.ImageCount, &input.CreatedAt, &input.Debug)
+	err := tx.WithContext(ctx).Raw("SELECT id,session_id,run_id,model_key,reasoning_effort,selection_mode,selection_tier,status,content,image_count,created_at,debug FROM queued_inputs WHERE id=? AND session_id=?", inputID, sessionID).Row().Scan(&input.ID, &input.SessionID, &input.RunID, &input.ModelKey, &input.ReasoningEffort, &input.SelectionMode, &input.SelectionTier, &input.Status, &input.Content, &input.ImageCount, &input.CreatedAt, &input.Debug)
 	return input, err
 }
 
 func (s *Store) RemoveInput(ctx context.Context, sessionID, inputID string, withdraw bool) (QueuedInput, []Image, Event, error) {
-	tx, err := s.db.BeginTx(ctx, nil)
+	tx, err := s.begin(ctx, nil)
 	if err != nil {
 		return QueuedInput{}, nil, Event{}, err
 	}
@@ -454,7 +455,7 @@ func (s *Store) RemoveInput(ctx context.Context, sessionID, inputID string, with
 	}
 	images := []Image{}
 	if withdraw {
-		rows, err := tx.QueryContext(ctx, "SELECT r.hash,r.media_type,r.bytes,i.name FROM queued_input_resources i JOIN resources r ON r.hash=i.hash WHERE input_id=? ORDER BY position", input.ID)
+		rows, err := tx.WithContext(ctx).Raw("SELECT r.hash,r.media_type,r.bytes,i.name FROM queued_input_resources i JOIN resources r ON r.hash=i.hash WHERE input_id=? ORDER BY position", input.ID).Rows()
 		if err != nil {
 			return QueuedInput{}, nil, Event{}, err
 		}
@@ -476,10 +477,10 @@ func (s *Store) RemoveInput(ctx context.Context, sessionID, inputID string, with
 	if withdraw {
 		input.Status = "withdrawn"
 	}
-	if _, err := tx.ExecContext(ctx, "UPDATE queued_inputs SET status=? WHERE id=?", input.Status, input.ID); err != nil {
+	if _, err := execSQL(ctx, tx, "UPDATE queued_inputs SET status=? WHERE id=?", input.Status, input.ID); err != nil {
 		return QueuedInput{}, nil, Event{}, err
 	}
-	if _, err := tx.ExecContext(ctx, "DELETE FROM queued_input_resources WHERE input_id=?", input.ID); err != nil {
+	if _, err := execSQL(ctx, tx, "DELETE FROM queued_input_resources WHERE input_id=?", input.ID); err != nil {
 		return QueuedInput{}, nil, Event{}, err
 	}
 	event, err := appendEvent(ctx, tx, sessionID, "input_status", map[string]string{"id": input.ID, "status": input.Status})
@@ -489,35 +490,35 @@ func (s *Store) RemoveInput(ctx context.Context, sessionID, inputID string, with
 	if err := syncInputQueueState(ctx, tx, sessionID); err != nil {
 		return QueuedInput{}, nil, Event{}, err
 	}
-	return input, images, event, tx.Commit()
+	return input, images, event, tx.Commit().Error
 }
 
 func (s *Store) ResumeInputs(ctx context.Context, sessionID string) (Event, error) {
-	tx, err := s.db.BeginTx(ctx, nil)
+	tx, err := s.begin(ctx, nil)
 	if err != nil {
 		return Event{}, err
 	}
 	defer tx.Rollback()
 	var open int
-	if err := tx.QueryRowContext(ctx, "SELECT is_open FROM sessions WHERE id=?", sessionID).Scan(&open); err != nil {
+	if err := tx.WithContext(ctx).Raw("SELECT is_open FROM sessions WHERE id=?", sessionID).Row().Scan(&open); err != nil {
 		return Event{}, err
 	}
 	if open == 0 {
 		return Event{}, ErrClosed
 	}
-	if _, err := tx.ExecContext(ctx, "UPDATE sessions SET input_queue_paused=0 WHERE id=?", sessionID); err != nil {
+	if _, err := execSQL(ctx, tx, "UPDATE sessions SET input_queue_paused=0 WHERE id=?", sessionID); err != nil {
 		return Event{}, err
 	}
-	if _, err := tx.ExecContext(ctx, "UPDATE queued_inputs SET status='queued' WHERE session_id=? AND status='paused'", sessionID); err != nil {
+	if _, err := execSQL(ctx, tx, "UPDATE queued_inputs SET status='queued' WHERE session_id=? AND status='paused'", sessionID); err != nil {
 		return Event{}, err
 	}
 	// Rebind interjections when a resumed queue joins an execution started later.
-	if _, err := tx.ExecContext(ctx, "UPDATE queued_inputs SET run_id=(SELECT id FROM runs WHERE session_id=? AND status='running') WHERE session_id=? AND status='queued' AND EXISTS(SELECT 1 FROM runs WHERE session_id=? AND status='running')", sessionID, sessionID, sessionID); err != nil {
+	if _, err := execSQL(ctx, tx, "UPDATE queued_inputs SET run_id=(SELECT id FROM runs WHERE session_id=? AND status='running') WHERE session_id=? AND status='queued' AND EXISTS(SELECT 1 FROM runs WHERE session_id=? AND status='running')", sessionID, sessionID, sessionID); err != nil {
 		return Event{}, err
 	}
 	event, err := appendEvent(ctx, tx, sessionID, "input_queue_state", map[string]bool{"paused": false})
 	if err != nil {
 		return Event{}, err
 	}
-	return event, tx.Commit()
+	return event, tx.Commit().Error
 }

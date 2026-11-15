@@ -8,13 +8,15 @@ import (
 	"time"
 
 	"vista/internal/workerproto"
+
+	"gorm.io/gorm"
 )
 
 func (s *Store) ContextCheckpoint(ctx context.Context, sessionID string) (*workerproto.ContextCheckpoint, error) {
 	var raw []byte
 	var sequence int64
-	err := s.db.QueryRowContext(ctx, `SELECT sequence,json_extract(data,'$.checkpoint') FROM events WHERE session_id=? AND kind='context_notice' AND json_extract(data,'$.depth')=0 AND json_type(data,'$.checkpoint')='object' ORDER BY sequence DESC LIMIT 1`, sessionID).Scan(&sequence, &raw)
-	if errors.Is(err, sql.ErrNoRows) {
+	err := s.orm.WithContext(ctx).Raw(`SELECT sequence,json_extract(data,'$.checkpoint') FROM events WHERE session_id=? AND kind='context_notice' AND json_extract(data,'$.depth')=0 AND json_type(data,'$.checkpoint')='object' ORDER BY sequence DESC LIMIT 1`, sessionID).Row().Scan(&sequence, &raw)
+	if errors.Is(err, ErrNotFound) {
 		return nil, nil
 	}
 	if err != nil {
@@ -27,15 +29,15 @@ func (s *Store) ContextCheckpoint(ctx context.Context, sessionID string) (*worke
 }
 
 func (s *Store) CompactionStatus(ctx context.Context, sessionID string) (*workerproto.CompactionStatus, error) {
-	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+	tx, err := s.begin(ctx, &sql.TxOptions{ReadOnly: true})
 	if err != nil {
 		return nil, err
 	}
 	defer tx.Rollback()
 	var raw []byte
 	var sequence int64
-	err = tx.QueryRowContext(ctx, `SELECT sequence, CASE WHEN kind='context_status' THEN data ELSE json_extract(data,'$.context') END FROM events WHERE session_id=? AND (kind='context_status' OR (kind='context_notice' AND json_extract(data,'$.depth')=0 AND json_type(data,'$.context')='object')) ORDER BY sequence DESC LIMIT 1`, sessionID).Scan(&sequence, &raw)
-	if errors.Is(err, sql.ErrNoRows) {
+	err = tx.WithContext(ctx).Raw(`SELECT sequence, CASE WHEN kind='context_status' THEN data ELSE json_extract(data,'$.context') END FROM events WHERE session_id=? AND (kind='context_status' OR (kind='context_notice' AND json_extract(data,'$.depth')=0 AND json_type(data,'$.context')='object')) ORDER BY sequence DESC LIMIT 1`, sessionID).Row().Scan(&sequence, &raw)
+	if errors.Is(err, ErrNotFound) {
 		return nil, nil
 	}
 	if err != nil {
@@ -48,8 +50,8 @@ func (s *Store) CompactionStatus(ctx context.Context, sessionID string) (*worker
 	status.Sequence = sequence
 	if status.Phase == "compacting" || status.Phase == "failed" || status.Manual && status.Phase == "compacted" {
 		var runStatus string
-		err := tx.QueryRowContext(ctx, `SELECT status FROM runs WHERE id=? AND session_id=?`, status.RunID, sessionID).Scan(&runStatus)
-		if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		err := tx.WithContext(ctx).Raw(`SELECT status FROM runs WHERE id=? AND session_id=?`, status.RunID, sessionID).Row().Scan(&runStatus)
+		if err != nil && !errors.Is(err, ErrNotFound) {
 			return nil, err
 		}
 		if runStatus == "running" && status.Manual && status.Phase == "compacted" {
@@ -75,53 +77,53 @@ func (s *Store) CompactionStatus(ctx context.Context, sessionID string) (*worker
 // A maintenance run uses the same atomic execution lock without inventing a
 // conversation message or changing the user's pending question/selection.
 func (s *Store) BeginCompaction(ctx context.Context, sessionID, runID string) (int64, *Event, error) {
-	tx, err := s.db.BeginTx(ctx, nil)
+	tx, err := s.begin(ctx, nil)
 	if err != nil {
 		return 0, nil, err
 	}
 	defer tx.Rollback()
 	var open int
-	if err := tx.QueryRowContext(ctx, "SELECT is_open FROM sessions WHERE id=?", sessionID).Scan(&open); err != nil {
+	if err := tx.WithContext(ctx).Raw("SELECT is_open FROM sessions WHERE id=?", sessionID).Row().Scan(&open); err != nil {
 		return 0, nil, err
 	}
 	if open == 0 {
 		return 0, nil, ErrClosed
 	}
 	var busy bool
-	if err := tx.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM runs WHERE session_id=? AND status='running')", sessionID).Scan(&busy); err != nil {
+	if err := tx.WithContext(ctx).Raw("SELECT EXISTS(SELECT 1 FROM runs WHERE session_id=? AND status='running')", sessionID).Row().Scan(&busy); err != nil {
 		return 0, nil, err
 	}
 	if busy {
 		return 0, nil, ErrBusy
 	}
 	var through int64
-	if err := tx.QueryRowContext(ctx, "SELECT COALESCE(MAX(sequence),0) FROM messages WHERE session_id=?", sessionID).Scan(&through); err != nil {
+	if err := tx.WithContext(ctx).Raw("SELECT COALESCE(MAX(sequence),0) FROM messages WHERE session_id=?", sessionID).Row().Scan(&through); err != nil {
 		return 0, nil, err
 	}
 	if through == 0 {
 		return 0, nil, errors.New("no conversation history to compact")
 	}
-	if _, err := tx.ExecContext(ctx, "INSERT INTO runs(id,session_id,status,created_at) VALUES(?,?,'running',?)", runID, sessionID, time.Now().UTC().Format(time.RFC3339Nano)); err != nil {
+	if _, err := execSQL(ctx, tx, "INSERT INTO runs(id,session_id,status,created_at) VALUES(?,?,'running',?)", runID, sessionID, time.Now().UTC().Format(time.RFC3339Nano)); err != nil {
 		return 0, nil, err
 	}
 	event, err := appendEvent(ctx, tx, sessionID, "context_status", workerproto.CompactionStatus{RunID: runID, Phase: "compacting", Manual: true})
 	if err != nil {
 		return 0, nil, err
 	}
-	if err := tx.Commit(); err != nil {
+	if err := tx.Commit().Error; err != nil {
 		return 0, nil, err
 	}
 	return through, &event, nil
 }
 
-func isCompaction(ctx context.Context, tx *sql.Tx, sessionID, runID string) (bool, error) {
+func isCompaction(ctx context.Context, tx *gorm.DB, sessionID, runID string) (bool, error) {
 	var manual bool
-	err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM events WHERE session_id=? AND kind='context_status' AND json_extract(data,'$.runId')=? AND json_extract(data,'$.manual')=1)`, sessionID, runID).Scan(&manual)
+	err := tx.WithContext(ctx).Raw(`SELECT EXISTS(SELECT 1 FROM events WHERE session_id=? AND kind='context_status' AND json_extract(data,'$.runId')=? AND json_extract(data,'$.manual')=1)`, sessionID, runID).Row().Scan(&manual)
 	return manual, err
 }
 
 func (s *Store) FinishCompaction(ctx context.Context, sessionID, runID, status, message string) (*Event, error) {
-	tx, err := s.db.BeginTx(ctx, nil)
+	tx, err := s.begin(ctx, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -137,17 +139,17 @@ func (s *Store) FinishCompaction(ctx context.Context, sessionID, runID, status, 
 	if err != nil {
 		return nil, err
 	}
-	return event, tx.Commit()
+	return event, tx.Commit().Error
 }
 
-func finishCompactionInTx(ctx context.Context, tx *sql.Tx, sessionID, runID, status, message string) (*Event, error) {
+func finishCompactionInTx(ctx context.Context, tx *gorm.DB, sessionID, runID, status, message string) (*Event, error) {
 	if status != "succeeded" && status != "failed" && status != "interrupted" {
 		return nil, errors.New("invalid compaction result")
 	}
 	// The acknowledged checkpoint is the commit point, including a cancellation
 	// that races with the final Worker frame.
 	var committed bool
-	err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM events WHERE session_id=? AND kind='context_notice' AND json_extract(data,'$.runId')=? AND json_type(data,'$.checkpoint')='object')`, sessionID, runID).Scan(&committed)
+	err := tx.WithContext(ctx).Raw(`SELECT EXISTS(SELECT 1 FROM events WHERE session_id=? AND kind='context_notice' AND json_extract(data,'$.runId')=? AND json_type(data,'$.checkpoint')='object')`, sessionID, runID).Row().Scan(&committed)
 	if err != nil {
 		return nil, err
 	}
@@ -156,7 +158,7 @@ func finishCompactionInTx(ctx context.Context, tx *sql.Tx, sessionID, runID, sta
 	} else if status == "succeeded" {
 		return nil, errors.New("compaction finished without a checkpoint")
 	}
-	result, err := tx.ExecContext(ctx, "UPDATE runs SET status=?,finished_at=? WHERE id=? AND session_id=? AND status='running'", status, time.Now().UTC().Format(time.RFC3339Nano), runID, sessionID)
+	result, err := execSQL(ctx, tx, "UPDATE runs SET status=?,finished_at=? WHERE id=? AND session_id=? AND status='running'", status, time.Now().UTC().Format(time.RFC3339Nano), runID, sessionID)
 	if err != nil {
 		return nil, err
 	}

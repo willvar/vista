@@ -34,7 +34,7 @@ func (s *Store) ResourceStorage(ctx context.Context) (ResourceStorage, error) {
 
 func (s *Store) resourceStorageLocked(ctx context.Context) (ResourceStorage, error) {
 	var result ResourceStorage
-	rows, err := s.db.QueryContext(ctx, `SELECT hash FROM session_resources UNION SELECT hash FROM message_resources UNION SELECT hash FROM queued_input_resources`)
+	rows, err := s.orm.WithContext(ctx).Raw(`SELECT hash FROM session_resources UNION SELECT hash FROM message_resources UNION SELECT hash FROM queued_input_resources`).Rows()
 	if err != nil {
 		return result, err
 	}
@@ -85,7 +85,7 @@ func (s *Store) CleanResources(ctx context.Context, progress func(int, int64)) (
 		}
 		var used bool
 		if file.Hash != "" {
-			err = s.db.QueryRowContext(ctx, "SELECT "+resourceReferenced, file.Hash, file.Hash, file.Hash).Scan(&used)
+			err = s.orm.WithContext(ctx).Raw("SELECT "+resourceReferenced, file.Hash, file.Hash, file.Hash).Row().Scan(&used)
 		}
 		if err == nil && !used {
 			err = file.Remove()
@@ -96,7 +96,7 @@ func (s *Store) CleanResources(ctx context.Context, progress func(int, int64)) (
 				err = nil
 			}
 			if err == nil && file.Hash != "" {
-				_, err = s.db.ExecContext(ctx, "DELETE FROM resources WHERE hash=?", file.Hash)
+				_, err = execSQL(ctx, s.orm, "DELETE FROM resources WHERE hash=?", file.Hash)
 			}
 		}
 		unlock()

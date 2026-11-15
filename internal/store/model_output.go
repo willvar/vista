@@ -35,7 +35,7 @@ func (s *Store) AppendModelDelta(ctx context.Context, sessionID, runID string, t
 	if len(taskIDs) > 2 || turn <= 0 || depth < 0 || depth > agentconfig.MaxDelegationDepth || content == "" || len(content) > 2048 || !utf8.ValidString(content) {
 		return nil, errors.New("invalid model text fragment")
 	}
-	tx, err := s.db.BeginTx(ctx, nil)
+	tx, err := s.begin(ctx, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -49,7 +49,7 @@ func (s *Store) AppendModelDelta(ctx context.Context, sessionID, runID string, t
 		return nil, err
 	}
 	var offset int64
-	if err := tx.QueryRowContext(ctx, "SELECT COALESCE(MAX(offset+length),0) FROM model_output_chunks WHERE session_id=? AND run_id=? AND turn=?", sessionID, runID, turn).Scan(&offset); err != nil {
+	if err := tx.WithContext(ctx).Raw("SELECT COALESCE(MAX(offset+length),0) FROM model_output_chunks WHERE session_id=? AND run_id=? AND turn=?", sessionID, runID, turn).Row().Scan(&offset); err != nil {
 		return nil, err
 	}
 	data := map[string]any{"runId": runID, "turn": turn, "depth": depth, "content": content, "offset": offset}
@@ -63,10 +63,10 @@ func (s *Store) AppendModelDelta(ctx context.Context, sessionID, runID string, t
 	if err != nil {
 		return nil, err
 	}
-	if _, err := tx.ExecContext(ctx, "INSERT INTO model_output_chunks(session_id,run_id,turn,offset,length,event_sequence) VALUES(?,?,?,?,?,?)", sessionID, runID, turn, offset, len(content), event.Sequence); err != nil {
+	if _, err := execSQL(ctx, tx, "INSERT INTO model_output_chunks(session_id,run_id,turn,offset,length,event_sequence) VALUES(?,?,?,?,?,?)", sessionID, runID, turn, offset, len(content), event.Sequence); err != nil {
 		return nil, err
 	}
-	if err := tx.Commit(); err != nil {
+	if err := tx.Commit().Error; err != nil {
 		return nil, err
 	}
 	return &event, nil
@@ -86,20 +86,20 @@ func (s *Store) readModelOutput(ctx context.Context, sessionID, runID string, tu
 	if turn <= 0 || offset < 0 || limit < 1 || limit > MaxModelOutputPageBytes {
 		return ModelOutputPage{}, ErrModelOutputRange
 	}
-	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+	tx, err := s.begin(ctx, &sql.TxOptions{ReadOnly: true})
 	if err != nil {
 		return ModelOutputPage{}, err
 	}
 	defer tx.Rollback()
 	var exists bool
-	if err := tx.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM runs WHERE id=? AND session_id=?)", runID, sessionID).Scan(&exists); err != nil {
+	if err := tx.WithContext(ctx).Raw("SELECT EXISTS(SELECT 1 FROM runs WHERE id=? AND session_id=?)", runID, sessionID).Row().Scan(&exists); err != nil {
 		return ModelOutputPage{}, err
 	}
 	if !exists {
 		return ModelOutputPage{}, ErrNotFound
 	}
 	page := ModelOutputPage{RunID: runID, Turn: turn, Offset: offset, NextOffset: offset}
-	if err := tx.QueryRowContext(ctx, "SELECT COALESCE(MAX(offset+length),0),COALESCE(MAX(event_sequence),0) FROM model_output_chunks WHERE session_id=? AND run_id=? AND turn=?", sessionID, runID, turn).Scan(&page.AvailableBytes, &page.LastSequence); err != nil {
+	if err := tx.WithContext(ctx).Raw("SELECT COALESCE(MAX(offset+length),0),COALESCE(MAX(event_sequence),0) FROM model_output_chunks WHERE session_id=? AND run_id=? AND turn=?", sessionID, runID, turn).Row().Scan(&page.AvailableBytes, &page.LastSequence); err != nil {
 		return ModelOutputPage{}, err
 	}
 	if page.AvailableBytes == 0 {
@@ -108,24 +108,24 @@ func (s *Store) readModelOutput(ctx context.Context, sessionID, runID string, tu
 	if full {
 		limit = int(page.AvailableBytes)
 	}
-	if err := tx.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM messages WHERE session_id=? AND run_id=? AND output_turn=? AND output_bytes=?)", sessionID, runID, turn, page.AvailableBytes).Scan(&page.Complete); err != nil {
+	if err := tx.WithContext(ctx).Raw("SELECT EXISTS(SELECT 1 FROM messages WHERE session_id=? AND run_id=? AND output_turn=? AND output_bytes=?)", sessionID, runID, turn, page.AvailableBytes).Row().Scan(&page.Complete); err != nil {
 		return ModelOutputPage{}, err
 	}
 	if !page.Complete {
-		if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM events WHERE session_id=? AND kind='agent_task'
+		if err := tx.WithContext(ctx).Raw(`SELECT EXISTS(SELECT 1 FROM events WHERE session_id=? AND kind='agent_task'
    AND json_extract(data,'$.runId')=? AND json_extract(data,'$.task.status')='succeeded'
    AND json_extract(data,'$.task.report.runId')=? AND json_extract(data,'$.task.report.turn')=?
-   AND json_extract(data,'$.task.report.bytes')=?)`, sessionID, runID, runID, turn, page.AvailableBytes).Scan(&page.Complete); err != nil {
+   AND json_extract(data,'$.task.report.bytes')=?)`, sessionID, runID, runID, turn, page.AvailableBytes).Row().Scan(&page.Complete); err != nil {
 			return ModelOutputPage{}, err
 		}
 	}
 	if offset > page.AvailableBytes {
 		return ModelOutputPage{}, ErrModelOutputRange
 	}
-	rows, err := tx.QueryContext(ctx, `SELECT c.offset,c.length,e.data FROM model_output_chunks c
+	rows, err := tx.WithContext(ctx).Raw(`SELECT c.offset,c.length,e.data FROM model_output_chunks c
  JOIN events e ON e.session_id=c.session_id AND e.sequence=c.event_sequence
  WHERE c.session_id=? AND c.run_id=? AND c.turn=? AND c.offset+c.length>?
- ORDER BY c.offset`, sessionID, runID, turn, offset)
+ ORDER BY c.offset`, sessionID, runID, turn, offset).Rows()
 	if err != nil {
 		return ModelOutputPage{}, err
 	}

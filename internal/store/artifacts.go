@@ -28,7 +28,7 @@ func (s *Store) RecordArtifact(ctx context.Context, artifact Artifact) (*Event, 
 	if artifact.ID == "" || artifact.SessionID == "" || artifact.RunID == "" || artifact.OutputPath == "" || artifact.Bytes < 0 || len(artifact.Error) > 512 {
 		return nil, errors.New("invalid artifact record")
 	}
-	tx, err := s.db.BeginTx(ctx, nil)
+	tx, err := s.begin(ctx, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -39,22 +39,22 @@ func (s *Store) RecordArtifact(ctx context.Context, artifact Artifact) (*Event, 
 			return nil, err
 		}
 		artifact.CreatedAt = time.Now().UTC().Format(time.RFC3339Nano)
-		if _, err := tx.ExecContext(ctx, "INSERT INTO artifacts(id,session_id,run_id,output_path,status,created_at) VALUES(?,?,?,?,?,?)", artifact.ID, artifact.SessionID, artifact.RunID, artifact.OutputPath, artifact.Status, artifact.CreatedAt); err != nil {
+		if _, err := execSQL(ctx, tx, "INSERT INTO artifacts(id,session_id,run_id,output_path,status,created_at) VALUES(?,?,?,?,?,?)", artifact.ID, artifact.SessionID, artifact.RunID, artifact.OutputPath, artifact.Status, artifact.CreatedAt); err != nil {
 			return nil, err
 		}
 	} else {
 		if artifact.Status != "succeeded" && artifact.Status != "failed" {
 			return nil, errors.New("invalid artifact status")
 		}
-		if err := tx.QueryRowContext(ctx, "SELECT created_at FROM artifacts WHERE id=? AND session_id=? AND run_id=?", artifact.ID, artifact.SessionID, artifact.RunID).Scan(&artifact.CreatedAt); err != nil {
-			if errors.Is(err, sql.ErrNoRows) {
+		if err := tx.WithContext(ctx).Raw("SELECT created_at FROM artifacts WHERE id=? AND session_id=? AND run_id=?", artifact.ID, artifact.SessionID, artifact.RunID).Row().Scan(&artifact.CreatedAt); err != nil {
+			if errors.Is(err, ErrNotFound) {
 				return nil, nil
 			}
 			return nil, err
 		}
 		artifact.FinishedAt = time.Now().UTC().Format(time.RFC3339Nano)
 		var result sql.Result
-		result, err = tx.ExecContext(ctx, "UPDATE artifacts SET status=?,bytes=?,complete=?,error=?,finished_at=? WHERE id=? AND session_id=? AND run_id=? AND status='started'", artifact.Status, artifact.Bytes, artifact.Complete, artifact.Error, artifact.FinishedAt, artifact.ID, artifact.SessionID, artifact.RunID)
+		result, err = execSQL(ctx, tx, "UPDATE artifacts SET status=?,bytes=?,complete=?,error=?,finished_at=? WHERE id=? AND session_id=? AND run_id=? AND status='started'", artifact.Status, artifact.Bytes, artifact.Complete, artifact.Error, artifact.FinishedAt, artifact.ID, artifact.SessionID, artifact.RunID)
 		if err == nil {
 			var changed int64
 			changed, err = result.RowsAffected()
@@ -73,7 +73,7 @@ func (s *Store) RecordArtifact(ctx context.Context, artifact Artifact) (*Event, 
 	if err != nil {
 		return nil, err
 	}
-	if err := tx.Commit(); err != nil {
+	if err := tx.Commit().Error; err != nil {
 		return nil, err
 	}
 	return &event, nil
@@ -81,7 +81,7 @@ func (s *Store) RecordArtifact(ctx context.Context, artifact Artifact) (*Event, 
 
 func (s *Store) GetArtifact(ctx context.Context, sessionID, artifactID string) (Artifact, error) {
 	var item Artifact
-	err := s.db.QueryRowContext(ctx, "SELECT id,session_id,run_id,output_path,status,bytes,complete,error,created_at,COALESCE(finished_at,'') FROM artifacts WHERE session_id=? AND id=?", sessionID, artifactID).Scan(&item.ID, &item.SessionID, &item.RunID, &item.OutputPath, &item.Status, &item.Bytes, &item.Complete, &item.Error, &item.CreatedAt, &item.FinishedAt)
+	err := s.orm.WithContext(ctx).Raw("SELECT id,session_id,run_id,output_path,status,bytes,complete,error,created_at,COALESCE(finished_at,'') FROM artifacts WHERE session_id=? AND id=?", sessionID, artifactID).Row().Scan(&item.ID, &item.SessionID, &item.RunID, &item.OutputPath, &item.Status, &item.Bytes, &item.Complete, &item.Error, &item.CreatedAt, &item.FinishedAt)
 	if err != nil {
 		return item, err
 	}
@@ -92,7 +92,7 @@ func (s *Store) GetArtifact(ctx context.Context, sessionID, artifactID string) (
 }
 
 func (s *Store) Artifacts(ctx context.Context, sessionID string) ([]Artifact, error) {
-	rows, err := s.db.QueryContext(ctx, "SELECT id,session_id,run_id,output_path,status,bytes,complete,error,created_at,COALESCE(finished_at,'') FROM artifacts WHERE session_id=? ORDER BY created_at DESC,id DESC LIMIT 200", sessionID)
+	rows, err := s.orm.WithContext(ctx).Raw("SELECT id,session_id,run_id,output_path,status,bytes,complete,error,created_at,COALESCE(finished_at,'') FROM artifacts WHERE session_id=? ORDER BY created_at DESC,id DESC LIMIT 200", sessionID).Rows()
 	if err != nil {
 		return nil, err
 	}
@@ -129,7 +129,7 @@ func (s *Store) Artifacts(ctx context.Context, sessionID string) ([]Artifact, er
 func (s *Store) ArtifactPaths(ctx context.Context, sessionID string) ([]string, error) {
 	paths := []string{}
 	for _, table := range []string{"artifacts", "jobs"} {
-		rows, err := s.db.QueryContext(ctx, "SELECT output_path FROM "+table+" WHERE session_id=?", sessionID)
+		rows, err := s.orm.WithContext(ctx).Raw("SELECT output_path FROM "+table+" WHERE session_id=?", sessionID).Rows()
 		if err != nil {
 			return nil, err
 		}
@@ -147,7 +147,7 @@ func (s *Store) ArtifactPaths(ctx context.Context, sessionID string) ([]string, 
 		}
 		rows.Close()
 	}
-	rows, err := s.db.QueryContext(ctx, `SELECT DISTINCT CASE WHEN kind='context_notice' THEN json_extract(data,'$.checkpoint.path') ELSE json_extract(data,'$.history.path') END FROM events WHERE session_id=? AND ((kind='context_notice' AND json_type(data,'$.checkpoint.path')='text') OR (kind='model_history' AND json_type(data,'$.history.path')='text'))`, sessionID)
+	rows, err := s.orm.WithContext(ctx).Raw(`SELECT DISTINCT CASE WHEN kind='context_notice' THEN json_extract(data,'$.checkpoint.path') ELSE json_extract(data,'$.history.path') END FROM events WHERE session_id=? AND ((kind='context_notice' AND json_type(data,'$.checkpoint.path')='text') OR (kind='model_history' AND json_type(data,'$.history.path')='text'))`, sessionID).Rows()
 	if err != nil {
 		return nil, err
 	}
@@ -169,7 +169,7 @@ func (s *Store) InterruptArtifacts(ctx context.Context, sessionID, reason string
 	if len(reason) > 512 {
 		reason = reason[:512]
 	}
-	tx, err := s.db.BeginTx(ctx, nil)
+	tx, err := s.begin(ctx, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -180,7 +180,7 @@ func (s *Store) InterruptArtifacts(ctx context.Context, sessionID, reason string
 		query += " AND session_id=?"
 		args = append(args, sessionID)
 	}
-	rows, err := tx.QueryContext(ctx, query, args...)
+	rows, err := tx.WithContext(ctx).Raw(query, args...).Rows()
 	if err != nil {
 		return nil, err
 	}
@@ -205,7 +205,7 @@ func (s *Store) InterruptArtifacts(ctx context.Context, sessionID, reason string
 		if info, err := os.Lstat(item.OutputPath); err == nil && info.Mode().IsRegular() {
 			item.Bytes = info.Size()
 		}
-		if _, err := tx.ExecContext(ctx, "UPDATE artifacts SET status='failed',bytes=?,error=?,finished_at=? WHERE id=?", item.Bytes, reason, item.FinishedAt, item.ID); err != nil {
+		if _, err := execSQL(ctx, tx, "UPDATE artifacts SET status='failed',bytes=?,error=?,finished_at=? WHERE id=?", item.Bytes, reason, item.FinishedAt, item.ID); err != nil {
 			return nil, err
 		}
 		if err := restoreOutputLink(ctx, tx, item.SessionID, "artifact", item.ID, &item.CallID, &item.TaskID, &item.ParentTaskID); err != nil {
@@ -217,7 +217,7 @@ func (s *Store) InterruptArtifacts(ctx context.Context, sessionID, reason string
 		}
 		events = append(events, event)
 	}
-	if err := tx.Commit(); err != nil {
+	if err := tx.Commit().Error; err != nil {
 		return nil, err
 	}
 	return events, nil

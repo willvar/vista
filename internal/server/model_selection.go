@@ -2,7 +2,6 @@ package server
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
 	"errors"
 	"io"
@@ -208,7 +207,7 @@ func (a *App) messageFeedback(w http.ResponseWriter, r *http.Request, sessionID,
 		return
 	}
 	value, err := a.store.SetReplyFeedback(r.Context(), prefs.UserID, sessionID, messageID, feedbackValue)
-	if errors.Is(err, sql.ErrNoRows) {
+	if errors.Is(err, store.ErrNotFound) {
 		http.NotFound(w, r)
 		return
 	}

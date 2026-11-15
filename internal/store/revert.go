@@ -2,7 +2,6 @@ package store
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
 	"errors"
 	"strings"
@@ -12,7 +11,7 @@ import (
 
 func (s *Store) RevertTarget(ctx context.Context, sessionID, messageID string) (Message, error) {
 	var sequence int64
-	err := s.db.QueryRowContext(ctx, `SELECT sequence FROM messages WHERE session_id=? AND id=? AND role='user'`, sessionID, messageID).Scan(&sequence)
+	err := s.orm.WithContext(ctx).Raw(`SELECT sequence FROM messages WHERE session_id=? AND id=? AND role='user'`, sessionID, messageID).Row().Scan(&sequence)
 	if err != nil {
 		return Message{}, err
 	}
@@ -24,21 +23,21 @@ func (s *Store) RevertTarget(ctx context.Context, sessionID, messageID string) (
 // messages are removed. Deleted context/checkpoint/output refs cannot be read
 // through model history tools or resurrected by a replacement Worker.
 func (s *Store) Revert(ctx context.Context, sessionID, messageID string, sequence int64, retain ...resources.Ref) (Event, error) {
-	tx, err := s.db.BeginTx(ctx, nil)
+	tx, err := s.begin(ctx, nil)
 	if err != nil {
 		return Event{}, err
 	}
 	defer tx.Rollback()
 	var exists bool
-	if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM messages WHERE session_id=? AND id=? AND sequence=? AND role='user')`, sessionID, messageID, sequence).Scan(&exists); err != nil {
+	if err := tx.WithContext(ctx).Raw(`SELECT EXISTS(SELECT 1 FROM messages WHERE session_id=? AND id=? AND sequence=? AND role='user')`, sessionID, messageID, sequence).Row().Scan(&exists); err != nil {
 		return Event{}, err
 	}
 	if !exists {
-		return Event{}, sql.ErrNoRows
+		return Event{}, ErrNotFound
 	}
 	for _, ref := range retain {
 		var owned bool
-		if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM session_resources sr JOIN resources r ON r.hash=sr.hash WHERE sr.session_id=? AND r.hash=? AND r.media_type=? AND r.bytes=?)`, sessionID, ref.Hash, ref.MediaType, ref.Bytes).Scan(&owned); err != nil {
+		if err := tx.WithContext(ctx).Raw(`SELECT EXISTS(SELECT 1 FROM session_resources sr JOIN resources r ON r.hash=sr.hash WHERE sr.session_id=? AND r.hash=? AND r.media_type=? AND r.bytes=?)`, sessionID, ref.Hash, ref.MediaType, ref.Bytes).Row().Scan(&owned); err != nil {
 			return Event{}, err
 		}
 		if !owned {
@@ -46,11 +45,11 @@ func (s *Store) Revert(ctx context.Context, sessionID, messageID string, sequenc
 		}
 	}
 	var affectedRun string
-	if err := tx.QueryRowContext(ctx, `SELECT run_id FROM messages WHERE id=? AND session_id=?`, messageID, sessionID).Scan(&affectedRun); err != nil {
+	if err := tx.WithContext(ctx).Raw(`SELECT run_id FROM messages WHERE id=? AND session_id=?`, messageID, sessionID).Row().Scan(&affectedRun); err != nil {
 		return Event{}, err
 	}
 	var running bool
-	if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM runs WHERE session_id=? AND status='running') OR EXISTS(SELECT 1 FROM jobs WHERE session_id=? AND status IN ('starting','running')) OR EXISTS(SELECT 1 FROM agent_tasks WHERE session_id=? AND status='started')`, sessionID, sessionID, sessionID).Scan(&running); err != nil {
+	if err := tx.WithContext(ctx).Raw(`SELECT EXISTS(SELECT 1 FROM runs WHERE session_id=? AND status='running') OR EXISTS(SELECT 1 FROM jobs WHERE session_id=? AND status IN ('starting','running')) OR EXISTS(SELECT 1 FROM agent_tasks WHERE session_id=? AND status='started')`, sessionID, sessionID, sessionID).Row().Scan(&running); err != nil {
 		return Event{}, err
 	}
 	if running {
@@ -58,8 +57,8 @@ func (s *Store) Revert(ctx context.Context, sessionID, messageID string, sequenc
 	}
 	var pending *PendingReply
 	var pendingRaw []byte
-	err = tx.QueryRowContext(ctx, `SELECT CAST(e.data AS BLOB) FROM events e WHERE e.session_id=? AND e.kind='run_finished' AND e.sequence=(SELECT MAX(sequence) FROM messages WHERE session_id=? AND sequence<?)`, sessionID, sessionID, sequence).Scan(&pendingRaw)
-	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+	err = tx.WithContext(ctx).Raw(`SELECT CAST(e.data AS BLOB) FROM events e WHERE e.session_id=? AND e.kind='run_finished' AND e.sequence=(SELECT MAX(sequence) FROM messages WHERE session_id=? AND sequence<?)`, sessionID, sessionID, sequence).Row().Scan(&pendingRaw)
+	if err != nil && !errors.Is(err, ErrNotFound) {
 		return Event{}, err
 	}
 	if err == nil {
@@ -83,19 +82,19 @@ func (s *Store) Revert(ctx context.Context, sessionID, messageID string, sequenc
 		`DELETE FROM agent_tasks WHERE session_id=? AND NOT EXISTS(SELECT 1 FROM events e WHERE e.session_id=agent_tasks.session_id AND e.kind='agent_task' AND json_extract(e.data,'$.runId')=agent_tasks.run_id AND json_extract(e.data,'$.task.id')=agent_tasks.task_id AND e.sequence<?)`,
 		`DELETE FROM messages WHERE session_id=? AND sequence>=?`,
 	} {
-		if _, err := tx.ExecContext(ctx, q, sessionID, sequence); err != nil {
+		if _, err := execSQL(ctx, tx, q, sessionID, sequence); err != nil {
 			return Event{}, err
 		}
 	}
 	// Pending inputs are tied to the discarded future; do not resume them after
 	// a rewind, including inputs attached to a partially retained execution.
-	if _, err := tx.ExecContext(ctx, `DELETE FROM queued_inputs WHERE session_id=?`, sessionID); err != nil {
+	if _, err := execSQL(ctx, tx, `DELETE FROM queued_inputs WHERE session_id=?`, sessionID); err != nil {
 		return Event{}, err
 	}
-	if _, err := tx.ExecContext(ctx, `DELETE FROM runtime_events WHERE session_id=?`, sessionID); err != nil {
+	if _, err := execSQL(ctx, tx, `DELETE FROM runtime_events WHERE session_id=?`, sessionID); err != nil {
 		return Event{}, err
 	}
-	if _, err := tx.ExecContext(ctx, `DELETE FROM events WHERE session_id=? AND sequence>=? AND sequence<? AND kind NOT IN ('session_renamed','session_title','session_selection','reply_language')`, sessionID, sequence, event.Sequence); err != nil {
+	if _, err := execSQL(ctx, tx, `DELETE FROM events WHERE session_id=? AND sequence>=? AND sequence<? AND kind NOT IN ('session_renamed','session_title','session_selection','reply_language')`, sessionID, sequence, event.Sequence); err != nil {
 		return Event{}, err
 	}
 	// Keep earlier tool imports/rereads as well as formal attachments. A
@@ -111,18 +110,18 @@ func (s *Store) Revert(ctx context.Context, sessionID, messageID string, sequenc
 			args = append(args, ref.Hash)
 		}
 	}
-	if _, err := tx.ExecContext(ctx, prune, args...); err != nil {
+	if _, err := execSQL(ctx, tx, prune, args...); err != nil {
 		return Event{}, err
 	}
-	if _, err := tx.ExecContext(ctx, `DELETE FROM runs WHERE session_id=? AND NOT EXISTS(SELECT 1 FROM messages WHERE run_id=runs.id)`, sessionID); err != nil {
+	if _, err := execSQL(ctx, tx, `DELETE FROM runs WHERE session_id=? AND NOT EXISTS(SELECT 1 FROM messages WHERE run_id=runs.id)`, sessionID); err != nil {
 		return Event{}, err
 	}
 	// Earlier tasks may have completed during the discarded tail. Rebuild their
 	// report projection from the retained event instead of keeping future data.
-	if _, err := tx.ExecContext(ctx, `UPDATE agent_tasks SET data=(SELECT data FROM events e WHERE e.session_id=agent_tasks.session_id AND e.kind='agent_task' AND json_extract(e.data,'$.runId')=agent_tasks.run_id AND json_extract(e.data,'$.task.id')=agent_tasks.task_id ORDER BY e.sequence DESC LIMIT 1) WHERE session_id=?`, sessionID); err != nil {
+	if _, err := execSQL(ctx, tx, `UPDATE agent_tasks SET data=(SELECT data FROM events e WHERE e.session_id=agent_tasks.session_id AND e.kind='agent_task' AND json_extract(e.data,'$.runId')=agent_tasks.run_id AND json_extract(e.data,'$.task.id')=agent_tasks.task_id ORDER BY e.sequence DESC LIMIT 1) WHERE session_id=?`, sessionID); err != nil {
 		return Event{}, err
 	}
-	rows, err := tx.QueryContext(ctx, `SELECT CAST(data AS BLOB) FROM agent_tasks WHERE session_id=? AND json_extract(data,'$.task.status')='started'`, sessionID)
+	rows, err := tx.WithContext(ctx).Raw(`SELECT CAST(data AS BLOB) FROM agent_tasks WHERE session_id=? AND json_extract(data,'$.task.status')='started'`, sessionID).Rows()
 	if err != nil {
 		return Event{}, err
 	}
@@ -145,7 +144,7 @@ func (s *Store) Revert(ctx context.Context, sessionID, messageID string, sequenc
 	if err != nil {
 		return Event{}, err
 	}
-	if _, err := tx.ExecContext(ctx, `UPDATE agent_tasks SET status=CASE WHEN json_extract(data,'$.task.status')='started' THEN 'interrupted' ELSE json_extract(data,'$.task.status') END, data=CASE WHEN json_extract(data,'$.task.status')='started' THEN json_set(data,'$.task.status','interrupted') ELSE data END WHERE session_id=?`, sessionID); err != nil {
+	if _, err := execSQL(ctx, tx, `UPDATE agent_tasks SET status=CASE WHEN json_extract(data,'$.task.status')='started' THEN 'interrupted' ELSE json_extract(data,'$.task.status') END, data=CASE WHEN json_extract(data,'$.task.status')='started' THEN json_set(data,'$.task.status','interrupted') ELSE data END WHERE session_id=?`, sessionID); err != nil {
 		return Event{}, err
 	}
 	for _, result := range interrupted {
@@ -157,7 +156,7 @@ func (s *Store) Revert(ctx context.Context, sessionID, messageID string, sequenc
 			return Event{}, err
 		}
 	}
-	changed, err := tx.ExecContext(ctx, `UPDATE runs SET status='interrupted',finished_at=? WHERE id=? AND session_id=?`, event.CreatedAt, affectedRun, sessionID)
+	changed, err := execSQL(ctx, tx, `UPDATE runs SET status='interrupted',finished_at=? WHERE id=? AND session_id=?`, event.CreatedAt, affectedRun, sessionID)
 	if err != nil {
 		return Event{}, err
 	}
@@ -179,8 +178,8 @@ func (s *Store) Revert(ctx context.Context, sessionID, messageID string, sequenc
 			return Event{}, err
 		}
 	}
-	if _, err := tx.ExecContext(ctx, `UPDATE sessions SET pending_kind=?,pending_content=?,pending_run_id=?,input_queue_paused=0,read_sequence=MIN(read_sequence,COALESCE((SELECT MAX(sequence) FROM messages WHERE session_id=? AND role='assistant'),0)) WHERE id=?`, pendingKind, pendingContent, pendingRun, sessionID, sessionID); err != nil {
+	if _, err := execSQL(ctx, tx, `UPDATE sessions SET pending_kind=?,pending_content=?,pending_run_id=?,input_queue_paused=0,read_sequence=MIN(read_sequence,COALESCE((SELECT MAX(sequence) FROM messages WHERE session_id=? AND role='assistant'),0)) WHERE id=?`, pendingKind, pendingContent, pendingRun, sessionID, sessionID); err != nil {
 		return Event{}, err
 	}
-	return event, tx.Commit()
+	return event, tx.Commit().Error
 }

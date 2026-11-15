@@ -11,6 +11,8 @@ import (
 
 	"vista/internal/resources"
 	"vista/internal/workerproto"
+
+	"gorm.io/gorm"
 )
 
 const MaxImageBytes = resources.MaxImageBytes
@@ -46,7 +48,7 @@ func (s *Store) lockImages(ctx context.Context, images []Image) (func(), error) 
 	return s.library.Lock(ctx)
 }
 
-func (s *Store) writeImages(ctx context.Context, tx *sql.Tx, sessionID, table, column, id string, images []Image) error {
+func (s *Store) writeImages(ctx context.Context, tx *gorm.DB, sessionID, table, column, id string, images []Image) error {
 	if err := ValidateImages(images); err != nil {
 		return err
 	}
@@ -60,7 +62,7 @@ func (s *Store) writeImages(ctx context.Context, tx *sql.Tx, sessionID, table, c
 			}
 		} else {
 			var exists int
-			err := tx.QueryRowContext(ctx, "SELECT count(*) FROM resources r JOIN session_resources sr ON sr.hash=r.hash WHERE sr.session_id=? AND r.hash=? AND r.bytes=? AND r.media_type=?", sessionID, hash, size, image.MediaType).Scan(&exists)
+			err := tx.WithContext(ctx).Raw("SELECT count(*) FROM resources r JOIN session_resources sr ON sr.hash=r.hash WHERE sr.session_id=? AND r.hash=? AND r.bytes=? AND r.media_type=?", sessionID, hash, size, image.MediaType).Row().Scan(&exists)
 			if err != nil {
 				return err
 			}
@@ -68,13 +70,13 @@ func (s *Store) writeImages(ctx context.Context, tx *sql.Tx, sessionID, table, c
 				return errors.New("image resource is not owned by this Session")
 			}
 		}
-		if _, err := tx.ExecContext(ctx, "INSERT INTO resources(hash,media_type,bytes,created_at) VALUES(?,?,?,?) ON CONFLICT(hash) DO NOTHING", hash, image.MediaType, size, time.Now().UTC().Format(time.RFC3339Nano)); err != nil {
+		if _, err := execSQL(ctx, tx, "INSERT INTO resources(hash,media_type,bytes,created_at) VALUES(?,?,?,?) ON CONFLICT(hash) DO NOTHING", hash, image.MediaType, size, time.Now().UTC().Format(time.RFC3339Nano)); err != nil {
 			return err
 		}
-		if _, err := tx.ExecContext(ctx, "INSERT INTO session_resources(session_id,hash,name) VALUES(?,?,?) ON CONFLICT DO NOTHING", sessionID, hash, image.Name); err != nil {
+		if _, err := execSQL(ctx, tx, "INSERT INTO session_resources(session_id,hash,name) VALUES(?,?,?) ON CONFLICT DO NOTHING", sessionID, hash, image.Name); err != nil {
 			return err
 		}
-		if _, err := tx.ExecContext(ctx, "INSERT INTO "+table+"("+column+",position,hash,name) VALUES(?,?,?,?)", id, position, hash, image.Name); err != nil {
+		if _, err := execSQL(ctx, tx, "INSERT INTO "+table+"("+column+",position,hash,name) VALUES(?,?,?,?)", id, position, hash, image.Name); err != nil {
 			return err
 		}
 	}
@@ -95,9 +97,9 @@ func readResourceRows(rows *sql.Rows) ([]resources.Ref, error) {
 }
 
 func (s *Store) MessageResources(ctx context.Context, sessionID, messageID string) ([]resources.Ref, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT r.hash,r.media_type,r.bytes,i.name FROM message_resources i
+	rows, err := s.orm.WithContext(ctx).Raw(`SELECT r.hash,r.media_type,r.bytes,i.name FROM message_resources i
  JOIN resources r ON r.hash=i.hash JOIN messages m ON m.id=i.message_id
- WHERE m.session_id=? AND m.id=? ORDER BY i.position`, sessionID, messageID)
+ WHERE m.session_id=? AND m.id=? ORDER BY i.position`, sessionID, messageID).Rows()
 	if err != nil {
 		return nil, err
 	}
@@ -141,7 +143,7 @@ func (s *Store) MessageImage(ctx context.Context, sessionID, messageID string, p
 		return Image{}, err
 	}
 	if position < 0 || position >= len(refs) {
-		return Image{}, sql.ErrNoRows
+		return Image{}, ErrNotFound
 	}
 	images, err := s.ResolveImages(ctx, refs[position:position+1])
 	if err != nil {
@@ -152,14 +154,14 @@ func (s *Store) MessageImage(ctx context.Context, sessionID, messageID string, p
 
 func (s *Store) SessionResource(ctx context.Context, sessionID, hash string) (resources.Ref, error) {
 	var ref resources.Ref
-	err := s.db.QueryRowContext(ctx, `SELECT r.hash,r.media_type,r.bytes,COALESCE((SELECT i.name FROM message_resources i JOIN messages m ON m.id=i.message_id WHERE m.session_id=? AND i.hash=r.hash ORDER BY m.sequence DESC LIMIT 1),sr.name)
- FROM resources r JOIN session_resources sr ON sr.hash=r.hash WHERE sr.session_id=? AND r.hash=?`, sessionID, sessionID, hash).Scan(&ref.Hash, &ref.MediaType, &ref.Bytes, &ref.Name)
+	err := s.orm.WithContext(ctx).Raw(`SELECT r.hash,r.media_type,r.bytes,COALESCE((SELECT i.name FROM message_resources i JOIN messages m ON m.id=i.message_id WHERE m.session_id=? AND i.hash=r.hash ORDER BY m.sequence DESC LIMIT 1),sr.name)
+ FROM resources r JOIN session_resources sr ON sr.hash=r.hash WHERE sr.session_id=? AND r.hash=?`, sessionID, sessionID, hash).Row().Scan(&ref.Hash, &ref.MediaType, &ref.Bytes, &ref.Name)
 	return ref, err
 }
 
 func (s *Store) SessionResources(ctx context.Context, sessionID string, after string, limit int) ([]resources.Ref, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT r.hash,r.media_type,r.bytes,COALESCE((SELECT i.name FROM message_resources i JOIN messages m ON m.id=i.message_id WHERE m.session_id=? AND i.hash=r.hash ORDER BY m.sequence DESC LIMIT 1),sr.name)
- FROM resources r JOIN session_resources sr ON sr.hash=r.hash WHERE sr.session_id=? AND (?='' OR r.hash>?) ORDER BY r.hash LIMIT ?`, sessionID, sessionID, after, after, limit)
+	rows, err := s.orm.WithContext(ctx).Raw(`SELECT r.hash,r.media_type,r.bytes,COALESCE((SELECT i.name FROM message_resources i JOIN messages m ON m.id=i.message_id WHERE m.session_id=? AND i.hash=r.hash ORDER BY m.sequence DESC LIMIT 1),sr.name)
+ FROM resources r JOIN session_resources sr ON sr.hash=r.hash WHERE sr.session_id=? AND (?='' OR r.hash>?) ORDER BY r.hash LIMIT ?`, sessionID, sessionID, after, after, limit).Rows()
 	if err != nil {
 		return nil, err
 	}
@@ -182,13 +184,13 @@ func (s *Store) AttachResource(ctx context.Context, sessionID string, ref resour
 	if !info.Mode().IsRegular() || info.Size() != ref.Bytes {
 		return errors.New("resource file is unavailable")
 	}
-	tx, err := s.db.BeginTx(ctx, nil)
+	tx, err := s.begin(ctx, nil)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
 	var open bool
-	if err = tx.QueryRowContext(ctx, "SELECT is_open FROM sessions WHERE id=?", sessionID).Scan(&open); err != nil {
+	if err = tx.WithContext(ctx).Raw("SELECT is_open FROM sessions WHERE id=?", sessionID).Row().Scan(&open); err != nil {
 		return err
 	}
 	if !open {
@@ -203,10 +205,10 @@ func (s *Store) AttachResource(ctx context.Context, sessionID string, ref resour
 			return ErrNotFound
 		}
 	}
-	if _, err = tx.ExecContext(ctx, "INSERT INTO resources(hash,media_type,bytes,created_at) VALUES(?,?,?,?) ON CONFLICT(hash) DO NOTHING", ref.Hash, ref.MediaType, ref.Bytes, time.Now().UTC().Format(time.RFC3339Nano)); err != nil {
+	if _, err = execSQL(ctx, tx, "INSERT INTO resources(hash,media_type,bytes,created_at) VALUES(?,?,?,?) ON CONFLICT(hash) DO NOTHING", ref.Hash, ref.MediaType, ref.Bytes, time.Now().UTC().Format(time.RFC3339Nano)); err != nil {
 		return err
 	}
-	if _, err = tx.ExecContext(ctx, "INSERT INTO session_resources(session_id,hash,name) VALUES(?,?,?) ON CONFLICT DO NOTHING", sessionID, ref.Hash, ref.Name); err != nil {
+	if _, err = execSQL(ctx, tx, "INSERT INTO session_resources(session_id,hash,name) VALUES(?,?,?) ON CONFLICT DO NOTHING", sessionID, ref.Hash, ref.Name); err != nil {
 		return err
 	}
 	if source != nil {
@@ -214,5 +216,5 @@ func (s *Store) AttachResource(ctx context.Context, sessionID string, ref resour
 			return err
 		}
 	}
-	return tx.Commit()
+	return tx.Commit().Error
 }

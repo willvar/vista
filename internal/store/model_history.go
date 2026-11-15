@@ -2,7 +2,6 @@ package store
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
 	"errors"
 
@@ -26,7 +25,7 @@ func (s *Store) RecordModelHistory(ctx context.Context, sessionID string, result
 	if (result.Status == "runtime") != (result.History.EventID != "") {
 		return nil, errors.New("invalid runtime history identity")
 	}
-	tx, err := s.db.BeginTx(ctx, nil)
+	tx, err := s.begin(ctx, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -37,17 +36,16 @@ func (s *Store) RecordModelHistory(ctx context.Context, sessionID string, result
 	}
 	if result.Status == "runtime" {
 		copy := *result.History
-		if err := tx.QueryRowContext(ctx, `SELECT sequence FROM runtime_events WHERE session_id=? AND event_id=? AND recipient='main'`, sessionID, copy.EventID).Scan(&copy.Index); err != nil {
+		if err := tx.WithContext(ctx).Raw(`SELECT sequence FROM runtime_events WHERE session_id=? AND event_id=? AND recipient='main'`, sessionID, copy.EventID).Row().Scan(&copy.Index); err != nil {
 			return nil, err
 		}
 		result.History = &copy
 	}
 	var existing Event
 	existing.SessionID = sessionID
-	err = tx.QueryRowContext(ctx, `SELECT sequence,kind,CAST(data AS BLOB),created_at FROM events
+	err = tx.WithContext(ctx).Raw(`SELECT sequence,kind,CAST(data AS BLOB),created_at FROM events
  WHERE session_id=? AND kind='model_history' AND json_extract(data,'$.runId')=? AND (?<>'' OR json_extract(data,'$.turn')=?)
- AND json_extract(data,'$.status')=? AND COALESCE(json_extract(data,'$.history.index'),0)=? AND COALESCE(json_extract(data,'$.history.eventId'),'')=?`,
-		sessionID, result.RunID, result.History.EventID, result.Turn, result.Status, result.History.Index, result.History.EventID).Scan(&existing.Sequence, &existing.Kind, &existing.Data, &existing.CreatedAt)
+ AND json_extract(data,'$.status')=? AND COALESCE(json_extract(data,'$.history.index'),0)=? AND COALESCE(json_extract(data,'$.history.eventId'),'')=?`, sessionID, result.RunID, result.History.EventID, result.Turn, result.Status, result.History.Index, result.History.EventID).Row().Scan(&existing.Sequence, &existing.Kind, &existing.Data, &existing.CreatedAt)
 	if err == nil {
 		var saved workerproto.Result
 		if err := json.Unmarshal(existing.Data, &saved); err != nil {
@@ -58,7 +56,7 @@ func (s *Store) RecordModelHistory(ctx context.Context, sessionID string, result
 		}
 		return &existing, nil
 	}
-	if !errors.Is(err, sql.ErrNoRows) {
+	if !errors.Is(err, ErrNotFound) {
 		return nil, err
 	}
 	if result.History.EventID != "" {
@@ -71,7 +69,7 @@ func (s *Store) RecordModelHistory(ctx context.Context, sessionID string, result
 	if err != nil {
 		return nil, err
 	}
-	return &event, tx.Commit()
+	return &event, tx.Commit().Error
 }
 
 type ContextEntry struct {
@@ -89,7 +87,7 @@ func (s *Store) ContextEntries(ctx context.Context, sessionID string, checkpoint
 	if checkpoint != nil {
 		throughMessage, throughEvent = checkpoint.ThroughSequence, checkpoint.Sequence
 	}
-	rows, err := s.db.QueryContext(ctx, `SELECT sequence,kind,data FROM (
+	rows, err := s.orm.WithContext(ctx).Raw(`SELECT sequence,kind,data FROM (
  SELECT m.sequence,'message' AS kind,json_object('id',m.id,'runId',m.run_id,'role',m.role,'content',m.content,'outputTurn',m.output_turn,'outputBytes',m.output_bytes,
    'questionCallId',json_extract(input_event.data,'$.questionCallId')) AS data
  FROM messages m LEFT JOIN events input_event ON input_event.session_id=m.session_id AND input_event.sequence=m.sequence AND input_event.kind='message'
@@ -101,7 +99,7 @@ func (s *Store) ContextEntries(ctx context.Context, sessionID string, checkpoint
        AND NOT EXISTS(SELECT 1 FROM events f WHERE f.session_id=m.session_id AND f.sequence=m.sequence AND f.kind='run_finished' AND json_extract(f.data,'$.status')='failed')))))
  UNION ALL
  SELECT sequence,kind,data FROM events WHERE session_id=? AND kind='model_history' AND sequence>? AND (?=0 OR sequence<?)
- ) ORDER BY sequence`, sessionID, throughMessage, before, before, sessionID, throughEvent, before, before)
+ ) ORDER BY sequence`, sessionID, throughMessage, before, before, sessionID, throughEvent, before, before).Rows()
 	if err != nil {
 		return nil, err
 	}

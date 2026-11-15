@@ -2,11 +2,11 @@ package server
 
 import (
 	"context"
-	"database/sql"
 	"errors"
 	"log"
 
 	"github.com/google/uuid"
+
 	"vista/internal/platform"
 	"vista/internal/store"
 )
@@ -25,7 +25,7 @@ func (a *App) launchRuntimeContinuation(sessionID string) {
 	if !ready {
 		return
 	}
-	if _, err := a.store.RunningRunID(a.ctx, sessionID); !errors.Is(err, sql.ErrNoRows) {
+	if _, err := a.store.RunningRunID(a.ctx, sessionID); !errors.Is(err, store.ErrNotFound) {
 		return
 	}
 	pending, err := a.store.HasPendingRuntimeEvents(a.ctx, sessionID)

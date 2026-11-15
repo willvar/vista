@@ -2,7 +2,6 @@ package server
 
 import (
 	"context"
-	"database/sql"
 	"errors"
 	"log"
 	"time"
@@ -13,6 +12,7 @@ import (
 	"vista/internal/provider"
 	"vista/internal/replylanguage"
 	"vista/internal/sessiontitle"
+	"vista/internal/store"
 	"vista/internal/workerproto"
 )
 
@@ -38,7 +38,7 @@ func (a *App) generateSessionTitle(sessionID, messageID string, model modelcfg.M
 		if diagnostics[0].Enabled {
 			defer func() {
 				// A title request may finish after the conversation was deleted.
-				if _, err := a.store.Get(context.Background(), sessionID); errors.Is(err, sql.ErrNoRows) {
+				if _, err := a.store.Get(context.Background(), sessionID); errors.Is(err, store.ErrNotFound) {
 					_ = modeltrace.DeleteSession(a.dir, sessionID)
 				}
 			}()

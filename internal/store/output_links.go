@@ -2,9 +2,9 @@ package store
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
 	"errors"
+	"gorm.io/gorm"
 )
 
 // Lifecycle events own task/call links and process lifetime/exit metadata.
@@ -20,15 +20,15 @@ type outputLink struct {
 	ParentTaskID      string `json:"parentTaskId"`
 }
 
-func restoreOutputLink(ctx context.Context, tx *sql.Tx, sessionID, kind, id string, callID, taskID, parentTaskID *string) error {
+func restoreOutputLink(ctx context.Context, tx *gorm.DB, sessionID, kind, id string, callID, taskID, parentTaskID *string) error {
 	if *callID != "" && *taskID != "" && (*parentTaskID != "" || *taskID == "main") {
 		return nil
 	}
 	var data []byte
-	err := tx.QueryRowContext(ctx, `SELECT data FROM events WHERE session_id=? AND kind=? AND json_extract(data,'$.id')=?
+	err := tx.WithContext(ctx).Raw(`SELECT data FROM events WHERE session_id=? AND kind=? AND json_extract(data,'$.id')=?
   AND (COALESCE(json_extract(data,'$.callId'),'')!='' OR COALESCE(json_extract(data,'$.taskId'),'')!='')
-  ORDER BY sequence DESC LIMIT 1`, sessionID, kind, id).Scan(&data)
-	if errors.Is(err, sql.ErrNoRows) {
+  ORDER BY sequence DESC LIMIT 1`, sessionID, kind, id).Row().Scan(&data)
+	if errors.Is(err, ErrNotFound) {
 		return nil
 	}
 	if err != nil {

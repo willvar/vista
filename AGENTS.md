@@ -22,6 +22,12 @@ Background synchronization must preserve active editors and reject stale respons
 Automatically updated views have no routine refresh button. Retain a manual check only when automatic checks are infrequent and users have a clear need to force one immediately (for example, model catalog updates). Import reads, explicit cleanup, authorization and error retries remain deliberate actions.
 Verify request counts, payload contents and size as well as visible updates, including cross-client changes and recovery.
 
+## SQLite Store
+
+- Use GORM for ordinary CRUD and parameterized SQL for complex queries and SQLite-specific operations, within the same GORM session or transaction. The underlying `sql.DB` owns connections and SQLite setup; business reads and writes stay on the GORM execution path.
+- Pass the caller's context and transaction to helpers. Keep state changes and their durable events atomic, and read snapshots on the transaction-local Store. Expose Store error identities to consumers while retaining cancellation and underlying error identity.
+- Keep fresh database initialization at the current complete schema, with one ordered initialization entry and only necessary existing-database compatibility. Run startup reconciliation and retention independently of schema changes. Preserve user data and existing one-time backfill markers; do not accumulate migrations for every unpublished development state.
+
 ## Documentation
 
 Vista supports its own development. Product documentation serves users; development documentation primarily serves agents. Prefer executable commands, code entry points, and interface/state/data constraints over tutorials and duplicated inventories.

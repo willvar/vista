@@ -32,6 +32,10 @@
 
 Server 负责 SQLite 写入和会话内事件序号。Worker 通过本地管道发送结果，工具启动、子任务启动／终态及检查点等边界等待持久化确认。浏览器接收已持久化事件，按序号去重 SSE 重放。模型正文分块保存，工具和进程产物按需读取。见[进程生命周期](./process-lifecycle.zh-CN.md)。
 
+SQLite 继续作为单主机的持久化存储。普通 CRUD 与参数化的复杂查询、SQLite 专用 SQL 共用 GORM 会话和事务执行路径，底层 `sql.DB` 负责连接初始化与关闭。辅助函数沿用调用方的上下文和事务，快照 Store 的全部读取也使用同一事务。`store.ErrNotFound` 统一表示记录缺失，兼容底层 SQL 的对应错误；ORM 单条记录查询转换自身的缺失错误。条件更新影响零行时仍按该操作的业务含义处理。SQL 诊断省略绑定参数值。
+
+新库直接初始化当前完整的基础结构，由一个结构初始化入口执行必要的已有数据库补齐和带标记的统计回填，保留已有数据。每次启动的尝试状态恢复与统计保留期清理独立于结构初始化执行；Worker 的只读打开不执行初始化或恢复。
+
 [目录解析](../internal/appdirs/dirs.go)使用 `os.UserConfigDir()/vista`。主配置 `config.json`、静态凭据文件 `key.json`、全局 `AGENTS.md`、`skills/`、独立的账号授权目录，以及生成的 `omp-models.json`／`model-catalog-status.json` 位于该根目录。SQLite、实例记录、锁、日志、输出及资源原件位于 `state/`。生成的模型目录文件仍不在 `state/` 内，也不属于用户设置。
 
 `GET /api/status` 提供版本、缓存的可执行文件 SHA-256、Go 源码提交及 dirty 状态、服务所在系统及版本。`internal/buildinfo.Version` 默认为 `dev`，Makefile 可指定发布版本。不注入构建时间，二进制哈希在启动时计算，不回写可执行文件。

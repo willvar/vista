@@ -2,13 +2,14 @@ package store
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"sort"
 	"strings"
 	"time"
+
+	"gorm.io/gorm"
 
 	"vista/internal/agentconfig"
 	"vista/internal/question"
@@ -18,7 +19,7 @@ import (
 var ErrBusy = errors.New("session already has a running execution")
 var ErrClosed = errors.New("session is closed")
 
-func appendEvent(ctx context.Context, tx *sql.Tx, sessionID, kind string, data any) (Event, error) {
+func appendEvent(ctx context.Context, tx *gorm.DB, sessionID, kind string, data any) (Event, error) {
 	encoded, err := json.Marshal(data)
 	if err != nil {
 		return Event{}, err
@@ -31,15 +32,15 @@ func appendEvent(ctx context.Context, tx *sql.Tx, sessionID, kind string, data a
 		return Event{}, fmt.Errorf("%s event exceeds %d KiB", kind, limit>>10)
 	}
 	var sequence int64
-	if err = tx.QueryRowContext(ctx, "SELECT COALESCE(MAX(sequence),0)+1 FROM events WHERE session_id=?", sessionID).Scan(&sequence); err != nil {
+	if err = tx.WithContext(ctx).Raw("SELECT COALESCE(MAX(sequence),0)+1 FROM events WHERE session_id=?", sessionID).Row().Scan(&sequence); err != nil {
 		return Event{}, err
 	}
 	e := Event{SessionID: sessionID, Sequence: sequence, Kind: kind, Data: encoded, CreatedAt: time.Now().UTC().Format(time.RFC3339Nano)}
-	_, err = tx.ExecContext(ctx, "INSERT INTO events(session_id,sequence,kind,data,created_at) VALUES(?,?,?,?,?)", e.SessionID, e.Sequence, e.Kind, []byte(e.Data), e.CreatedAt)
+	_, err = execSQL(ctx, tx, "INSERT INTO events(session_id,sequence,kind,data,created_at) VALUES(?,?,?,?,?)", e.SessionID, e.Sequence, e.Kind, []byte(e.Data), e.CreatedAt)
 	return e, err
 }
 func (s *Store) AppendRunEvent(ctx context.Context, sessionID, runID, kind string, data any, taskIDs ...string) (*Event, error) {
-	tx, err := s.db.BeginTx(ctx, nil)
+	tx, err := s.begin(ctx, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -56,7 +57,7 @@ func (s *Store) AppendRunEvent(ctx context.Context, sessionID, runID, kind strin
 	if err != nil {
 		return nil, err
 	}
-	if err := tx.Commit(); err != nil {
+	if err := tx.Commit().Error; err != nil {
 		return nil, err
 	}
 	return &e, nil
@@ -84,7 +85,7 @@ func (s *Store) RecordModelRequestEvent(ctx context.Context, sessionID string, r
 	if use == nil || use.Provider == "" || use.ID == "" || len(use.Provider) > 64 || len(use.ID) > 200 || len(use.Key) > 64 || len(use.ReasoningEffort) > 64 || (use.Purpose != "" && use.Purpose != "summary") || request.Depth < 0 || request.Depth > agentconfig.MaxDelegationDepth {
 		return nil, errors.New("invalid model request identity")
 	}
-	tx, err := s.db.BeginTx(ctx, nil)
+	tx, err := s.begin(ctx, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -94,7 +95,7 @@ func (s *Store) RecordModelRequestEvent(ctx context.Context, sessionID string, r
 		return nil, err
 	}
 	if request.Depth == 0 && (request.TaskID == "" || request.TaskID == "main") && use.Purpose == "" {
-		if _, err := tx.ExecContext(ctx, "UPDATE runs SET provider_id=?,model_id=?,model_key=? WHERE id=? AND session_id=?", use.Provider, use.ID, use.Key, request.RunID, sessionID); err != nil {
+		if _, err := execSQL(ctx, tx, "UPDATE runs SET provider_id=?,model_id=?,model_key=? WHERE id=? AND session_id=?", use.Provider, use.ID, use.Key, request.RunID, sessionID); err != nil {
 			return nil, err
 		}
 	}
@@ -124,14 +125,14 @@ func (s *Store) RecordModelRequestEvent(ctx context.Context, sessionID string, r
 	if err != nil {
 		return nil, err
 	}
-	if err := tx.Commit(); err != nil {
+	if err := tx.Commit().Error; err != nil {
 		return nil, err
 	}
 	return &event, nil
 }
 func (s *Store) RunningRunID(ctx context.Context, sessionID string) (string, error) {
 	var id string
-	err := s.db.QueryRowContext(ctx, "SELECT id FROM runs WHERE session_id=? AND status='running'", sessionID).Scan(&id)
+	err := s.orm.WithContext(ctx).Raw("SELECT id FROM runs WHERE session_id=? AND status='running'", sessionID).Row().Scan(&id)
 	return id, err
 }
 func (s *Store) BeginRun(ctx context.Context, sessionID, runID, messageID, content string, modelKey ...string) (Message, Event, error) {
@@ -157,14 +158,14 @@ func (s *Store) beginRun(ctx context.Context, sessionID, runID, messageID, conte
 	if err := ValidateImages(images); err != nil {
 		return Message{}, Event{}, err
 	}
-	tx, err := s.db.BeginTx(ctx, nil)
+	tx, err := s.begin(ctx, nil)
 	if err != nil {
 		return Message{}, Event{}, err
 	}
 	defer tx.Rollback()
 	var open int
 	var pendingKind, pendingRunID, pendingContent string
-	if err = tx.QueryRowContext(ctx, "SELECT is_open,pending_kind,pending_run_id,pending_content FROM sessions WHERE id=?", sessionID).Scan(&open, &pendingKind, &pendingRunID, &pendingContent); err != nil {
+	if err = tx.WithContext(ctx).Raw("SELECT is_open,pending_kind,pending_run_id,pending_content FROM sessions WHERE id=?", sessionID).Row().Scan(&open, &pendingKind, &pendingRunID, &pendingContent); err != nil {
 		return Message{}, Event{}, err
 	}
 	if open == 0 {
@@ -189,26 +190,26 @@ func (s *Store) beginRun(ctx context.Context, sessionID, runID, messageID, conte
 		}
 	}
 	var count int
-	if err = tx.QueryRowContext(ctx, "SELECT COUNT(*) FROM runs WHERE session_id=? AND status='running'", sessionID).Scan(&count); err != nil {
+	if err = tx.WithContext(ctx).Raw("SELECT COUNT(*) FROM runs WHERE session_id=? AND status='running'", sessionID).Row().Scan(&count); err != nil {
 		return Message{}, Event{}, err
 	}
 	if count > 0 {
 		return Message{}, Event{}, ErrBusy
 	}
-	if _, err := tx.ExecContext(ctx, "UPDATE sessions SET pending_kind='',pending_content='',pending_run_id='' WHERE id=?", sessionID); err != nil {
+	if _, err := execSQL(ctx, tx, "UPDATE sessions SET pending_kind='',pending_content='',pending_run_id='' WHERE id=?", sessionID); err != nil {
 		return Message{}, Event{}, err
 	}
 	if len(modelKey) > 0 && modelKey[0] != "" {
-		if _, err := tx.ExecContext(ctx, "UPDATE sessions SET model_key=? WHERE id=?", modelKey[0], sessionID); err != nil {
+		if _, err := execSQL(ctx, tx, "UPDATE sessions SET model_key=? WHERE id=?", modelKey[0], sessionID); err != nil {
 			return Message{}, Event{}, err
 		}
 	}
 	at := time.Now().UTC().Format(time.RFC3339Nano)
-	if _, err = tx.ExecContext(ctx, "INSERT INTO runs(id,session_id,status,created_at) VALUES(?,?,'running',?)", runID, sessionID, at); err != nil {
+	if _, err = execSQL(ctx, tx, "INSERT INTO runs(id,session_id,status,created_at) VALUES(?,?,'running',?)", runID, sessionID, at); err != nil {
 		return Message{}, Event{}, err
 	}
 	var next int64
-	if err = tx.QueryRowContext(ctx, "SELECT COALESCE(MAX(sequence),0)+1 FROM events WHERE session_id=?", sessionID).Scan(&next); err != nil {
+	if err = tx.WithContext(ctx).Raw("SELECT COALESCE(MAX(sequence),0)+1 FROM events WHERE session_id=?", sessionID).Row().Scan(&next); err != nil {
 		return Message{}, Event{}, err
 	}
 	m := Message{ID: messageID, SessionID: sessionID, RunID: runID, Sequence: next, Role: "user", Content: content, QuestionCallID: questionCallID, ImageCount: len(images), CreatedAt: at}
@@ -219,7 +220,7 @@ func (s *Store) beginRun(ctx context.Context, sessionID, runID, messageID, conte
 			m.ImageBytes += int(image.Bytes)
 		}
 	}
-	if _, err = tx.ExecContext(ctx, "INSERT INTO messages(id,session_id,run_id,sequence,role,content,created_at) VALUES(?,?,?,?,?,?,?)", m.ID, m.SessionID, m.RunID, m.Sequence, m.Role, m.Content, m.CreatedAt); err != nil {
+	if _, err = execSQL(ctx, tx, "INSERT INTO messages(id,session_id,run_id,sequence,role,content,created_at) VALUES(?,?,?,?,?,?,?)", m.ID, m.SessionID, m.RunID, m.Sequence, m.Role, m.Content, m.CreatedAt); err != nil {
 		return Message{}, Event{}, err
 	}
 	if err := s.writeImages(ctx, tx, sessionID, "message_resources", "message_id", m.ID, images); err != nil {
@@ -232,7 +233,7 @@ func (s *Store) beginRun(ctx context.Context, sessionID, runID, messageID, conte
 	if e.Sequence != m.Sequence {
 		return Message{}, Event{}, fmt.Errorf("message/event sequence mismatch")
 	}
-	if err = tx.Commit(); err != nil {
+	if err = tx.Commit().Error; err != nil {
 		return Message{}, Event{}, err
 	}
 	return m, e, nil
@@ -242,12 +243,12 @@ func (s *Store) beginRun(ctx context.Context, sessionID, runID, messageID, conte
 // is stored. A manual title makes the session ineligible for automatic naming.
 func (s *Store) FirstMessageTitleCandidate(ctx context.Context, sessionID, messageID string) (string, bool, error) {
 	var prompt string
-	err := s.db.QueryRowContext(ctx, `SELECT m.content FROM messages m JOIN sessions s ON s.id=m.session_id
+	err := s.orm.WithContext(ctx).Raw(`SELECT m.content FROM messages m JOIN sessions s ON s.id=m.session_id
  WHERE m.session_id=? AND m.id=? AND m.role='user' AND s.title='New session'
  AND NOT EXISTS(SELECT 1 FROM events e WHERE e.session_id=s.id AND e.kind='session_renamed')
  AND m.sequence=(SELECT MIN(sequence) FROM messages WHERE session_id=s.id AND role='user')
- LIMIT 1`, sessionID, messageID).Scan(&prompt)
-	if errors.Is(err, sql.ErrNoRows) {
+ LIMIT 1`, sessionID, messageID).Row().Scan(&prompt)
+	if errors.Is(err, ErrNotFound) {
 		return "", false, nil
 	}
 	return prompt, err == nil, err
@@ -256,12 +257,12 @@ func (s *Store) FirstMessageTitleCandidate(ctx context.Context, sessionID, messa
 // SetGeneratedTitle only replaces the untouched placeholder and records an
 // event so an open conversation can refresh its sidebar immediately.
 func (s *Store) SetGeneratedTitle(ctx context.Context, sessionID, messageID, title string) (*Event, error) {
-	tx, err := s.db.BeginTx(ctx, nil)
+	tx, err := s.begin(ctx, nil)
 	if err != nil {
 		return nil, err
 	}
 	defer tx.Rollback()
-	result, err := tx.ExecContext(ctx, `UPDATE sessions SET title=? WHERE id=? AND title='New session' AND NOT EXISTS(SELECT 1 FROM events WHERE session_id=? AND kind='session_renamed') AND EXISTS(SELECT 1 FROM messages WHERE session_id=? AND id=? AND role='user' AND sequence=(SELECT MIN(sequence) FROM messages WHERE session_id=? AND role='user'))`, title, sessionID, sessionID, sessionID, messageID, sessionID)
+	result, err := execSQL(ctx, tx, `UPDATE sessions SET title=? WHERE id=? AND title='New session' AND NOT EXISTS(SELECT 1 FROM events WHERE session_id=? AND kind='session_renamed') AND EXISTS(SELECT 1 FROM messages WHERE session_id=? AND id=? AND role='user' AND sequence=(SELECT MIN(sequence) FROM messages WHERE session_id=? AND role='user'))`, title, sessionID, sessionID, sessionID, messageID, sessionID)
 	if err != nil {
 		return nil, err
 	}
@@ -273,7 +274,7 @@ func (s *Store) SetGeneratedTitle(ctx context.Context, sessionID, messageID, tit
 	if err != nil {
 		return nil, err
 	}
-	if err := tx.Commit(); err != nil {
+	if err := tx.Commit().Error; err != nil {
 		return nil, err
 	}
 	return &event, nil
@@ -297,7 +298,7 @@ func (s *Store) FinishRunWithPending(ctx context.Context, sessionID, runID, mess
 	if len(output) > 1 || (len(output) == 1 && (status != "succeeded" || output[0].Turn <= 0 || output[0].Bytes <= 0)) {
 		return nil, errors.New("invalid full model output reference")
 	}
-	tx, err := s.db.BeginTx(ctx, nil)
+	tx, err := s.begin(ctx, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -311,10 +312,10 @@ func (s *Store) FinishRunWithPending(ctx context.Context, sessionID, runID, mess
 		if err != nil {
 			return nil, err
 		}
-		return event, tx.Commit()
+		return event, tx.Commit().Error
 	}
 	at := time.Now().UTC().Format(time.RFC3339Nano)
-	result, err := tx.ExecContext(ctx, "UPDATE runs SET status=?,finished_at=? WHERE id=? AND session_id=? AND status='running'", status, at, runID, sessionID)
+	result, err := execSQL(ctx, tx, "UPDATE runs SET status=?,finished_at=? WHERE id=? AND session_id=? AND status='running'", status, at, runID, sessionID)
 	if err != nil {
 		return nil, err
 	}
@@ -333,7 +334,7 @@ func (s *Store) FinishRunWithPending(ctx context.Context, sessionID, runID, mess
 		status = "failed"
 		pending = nil
 		content = "Run ended without confirmed results for one or more tools"
-		if _, err := tx.ExecContext(ctx, "UPDATE runs SET status='failed' WHERE id=?", runID); err != nil {
+		if _, err := execSQL(ctx, tx, "UPDATE runs SET status='failed' WHERE id=?", runID); err != nil {
 			return nil, err
 		}
 	}
@@ -346,14 +347,14 @@ func (s *Store) FinishRunWithPending(ctx context.Context, sessionID, runID, mess
 			if err != nil {
 				return nil, err
 			}
-			if _, err := tx.ExecContext(ctx, "UPDATE sessions SET pending_kind=?,pending_content=?,pending_run_id=? WHERE id=?", pending.Kind, storedContent, pending.RunID, sessionID); err != nil {
+			if _, err := execSQL(ctx, tx, "UPDATE sessions SET pending_kind=?,pending_content=?,pending_run_id=? WHERE id=?", pending.Kind, storedContent, pending.RunID, sessionID); err != nil {
 				return nil, err
 			}
 		}
 	}
 	if len(output) == 1 && status == "succeeded" {
 		var persisted int
-		if err := tx.QueryRowContext(ctx, "SELECT COALESCE(MAX(offset+length),0) FROM model_output_chunks WHERE session_id=? AND run_id=? AND turn=?", sessionID, runID, output[0].Turn).Scan(&persisted); err != nil {
+		if err := tx.WithContext(ctx).Raw("SELECT COALESCE(MAX(offset+length),0) FROM model_output_chunks WHERE session_id=? AND run_id=? AND turn=?", sessionID, runID, output[0].Turn).Row().Scan(&persisted); err != nil {
 			return nil, err
 		}
 		if persisted != output[0].Bytes {
@@ -363,20 +364,20 @@ func (s *Store) FinishRunWithPending(ctx context.Context, sessionID, runID, mess
 	var message *Message
 	if content != "" && status != "interrupted" {
 		var next int64
-		if err = tx.QueryRowContext(ctx, "SELECT COALESCE(MAX(sequence),0)+1 FROM events WHERE session_id=?", sessionID).Scan(&next); err != nil {
+		if err = tx.WithContext(ctx).Raw("SELECT COALESCE(MAX(sequence),0)+1 FROM events WHERE session_id=?", sessionID).Row().Scan(&next); err != nil {
 			return nil, err
 		}
 		m := Message{ID: messageID, SessionID: sessionID, RunID: runID, Sequence: next, Role: "assistant", Content: content, CreatedAt: at, Failure: status == "failed"}
-		if err := tx.QueryRowContext(ctx, "SELECT COALESCE(MAX(sequence),0) FROM messages WHERE session_id=? AND run_id=? AND role='assistant'", sessionID, runID).Scan(&m.ResultsAfter); err != nil {
+		if err := tx.WithContext(ctx).Raw("SELECT COALESCE(MAX(sequence),0) FROM messages WHERE session_id=? AND run_id=? AND role='assistant'", sessionID, runID).Row().Scan(&m.ResultsAfter); err != nil {
 			return nil, err
 		}
 		if status == "succeeded" && len(output) == 1 {
 			m.OutputTurn, m.OutputBytes = output[0].Turn, output[0].Bytes
 		}
-		if err = tx.QueryRowContext(ctx, "SELECT provider_id,model_id,model_key FROM runs WHERE id=?", runID).Scan(&m.Provider, &m.ModelID, &m.ModelKey); err != nil {
+		if err = tx.WithContext(ctx).Raw("SELECT provider_id,model_id,model_key FROM runs WHERE id=?", runID).Row().Scan(&m.Provider, &m.ModelID, &m.ModelKey); err != nil {
 			return nil, err
 		}
-		if _, err = tx.ExecContext(ctx, "INSERT INTO messages(id,session_id,run_id,sequence,role,content,created_at,provider_id,model_id,model_key,output_turn,output_bytes) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)", m.ID, m.SessionID, m.RunID, m.Sequence, m.Role, m.Content, m.CreatedAt, m.Provider, m.ModelID, m.ModelKey, m.OutputTurn, m.OutputBytes); err != nil {
+		if _, err = execSQL(ctx, tx, "INSERT INTO messages(id,session_id,run_id,sequence,role,content,created_at,provider_id,model_id,model_key,output_turn,output_bytes) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)", m.ID, m.SessionID, m.RunID, m.Sequence, m.Role, m.Content, m.CreatedAt, m.Provider, m.ModelID, m.ModelKey, m.OutputTurn, m.OutputBytes); err != nil {
 			return nil, err
 		}
 		message = &m
@@ -403,14 +404,14 @@ func (s *Store) FinishRunWithPending(ctx context.Context, sessionID, runID, mess
 			return nil, err
 		}
 	}
-	if err = tx.Commit(); err != nil {
+	if err = tx.Commit().Error; err != nil {
 		return nil, err
 	}
 	return &e, nil
 }
 
 func (s *Store) InterruptRunning(ctx context.Context, sessionID string, reason ...string) ([]Event, error) {
-	tx, err := s.db.BeginTx(ctx, nil)
+	tx, err := s.begin(ctx, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -424,7 +425,7 @@ func (s *Store) InterruptRunning(ctx context.Context, sessionID string, reason .
 		query += " AND session_id=?"
 		args = append(args, sessionID)
 	}
-	rows, err := tx.QueryContext(ctx, query, args...)
+	rows, err := tx.WithContext(ctx).Raw(query, args...).Rows()
 	if err != nil {
 		return nil, err
 	}
@@ -467,7 +468,7 @@ func (s *Store) InterruptRunning(ctx context.Context, sessionID string, reason .
 			continue
 		}
 		at := time.Now().UTC().Format(time.RFC3339Nano)
-		if _, err = tx.ExecContext(ctx, "UPDATE runs SET status='interrupted',finished_at=? WHERE id=?", at, x.id); err != nil {
+		if _, err = execSQL(ctx, tx, "UPDATE runs SET status='interrupted',finished_at=? WHERE id=?", at, x.id); err != nil {
 			return nil, err
 		}
 		unknown, err := appendUnknownTools(ctx, tx, x.session, x.id)
@@ -487,15 +488,15 @@ func (s *Store) InterruptRunning(ctx context.Context, sessionID string, reason .
 			return nil, err
 		}
 	}
-	if err = tx.Commit(); err != nil {
+	if err = tx.Commit().Error; err != nil {
 		return nil, err
 	}
 	return events, nil
 }
 
-func appendUnknownTools(ctx context.Context, tx *sql.Tx, sessionID, runID string, onlyTask ...string) (int, error) {
+func appendUnknownTools(ctx context.Context, tx *gorm.DB, sessionID, runID string, onlyTask ...string) (int, error) {
 	var start int64
-	if err := tx.QueryRowContext(ctx, `SELECT COALESCE((SELECT MIN(sequence) FROM messages WHERE session_id=? AND run_id=? AND role='user'),(SELECT MIN(sequence) FROM events WHERE session_id=? AND json_extract(data,'$.runId')=?),0)`, sessionID, runID, sessionID, runID).Scan(&start); err != nil {
+	if err := tx.WithContext(ctx).Raw(`SELECT COALESCE((SELECT MIN(sequence) FROM messages WHERE session_id=? AND run_id=? AND role='user'),(SELECT MIN(sequence) FROM events WHERE session_id=? AND json_extract(data,'$.runId')=?),0)`, sessionID, runID, sessionID, runID).Row().Scan(&start); err != nil {
 		return 0, err
 	}
 	query := `SELECT sequence,data FROM events e WHERE session_id=? AND kind='tool' AND sequence>=?
@@ -505,7 +506,7 @@ func appendUnknownTools(ctx context.Context, tx *sql.Tx, sessionID, runID string
 		query += " AND json_extract(e.data,'$.taskId')=?"
 		args = append(args, onlyTask[0])
 	}
-	rows, err := tx.QueryContext(ctx, query+" ORDER BY sequence", args...)
+	rows, err := tx.WithContext(ctx).Raw(query+" ORDER BY sequence", args...).Rows()
 	if err != nil {
 		return 0, err
 	}
@@ -587,7 +588,7 @@ func (s *Store) EventsThrough(ctx context.Context, sessionID string, after, thro
 		args = append(args, through)
 	}
 	query += " ORDER BY sequence LIMIT ?"
-	rows, err := s.reader().QueryContext(ctx, query, append(args, limit)...)
+	rows, err := s.orm.WithContext(ctx).Raw(query, append(args, limit)...).Rows()
 	if err != nil {
 		return nil, err
 	}
@@ -614,7 +615,7 @@ func (s *Store) EventsBefore(ctx context.Context, sessionID string, before int64
 	}
 	query += " ORDER BY sequence DESC LIMIT ?"
 	args = append(args, limit)
-	rows, err := s.reader().QueryContext(ctx, query, args...)
+	rows, err := s.orm.WithContext(ctx).Raw(query, args...).Rows()
 	if err != nil {
 		return nil, err
 	}
@@ -650,7 +651,7 @@ func (s *Store) ModelResultEvents(ctx context.Context, sessionID string, runIDs 
 	for _, id := range runIDs {
 		args = append(args, id)
 	}
-	rows, err := s.reader().QueryContext(ctx, query, args...)
+	rows, err := s.orm.WithContext(ctx).Raw(query, args...).Rows()
 	if err != nil {
 		return nil, err
 	}
@@ -669,7 +670,7 @@ func (s *Store) MessagesAfter(ctx context.Context, sessionID string, after int64
 	if limit < 1 || limit > 200 {
 		return nil, errors.New("invalid message page size")
 	}
-	rows, err := s.reader().QueryContext(ctx, "SELECT id,run_id,sequence,role,content,created_at,provider_id,model_id,model_key,output_turn,output_bytes,(SELECT COUNT(*) FROM message_resources WHERE message_id=messages.id),(SELECT COALESCE(SUM(r.bytes),0) FROM message_resources JOIN resources r USING(hash) WHERE message_id=messages.id),EXISTS(SELECT 1 FROM events e WHERE e.session_id=messages.session_id AND e.sequence=messages.sequence AND e.kind='run_finished' AND json_extract(e.data,'$.status')='failed') FROM messages WHERE session_id=? AND sequence>? ORDER BY sequence LIMIT ?", sessionID, after, limit)
+	rows, err := s.orm.WithContext(ctx).Raw("SELECT id,run_id,sequence,role,content,created_at,provider_id,model_id,model_key,output_turn,output_bytes,(SELECT COUNT(*) FROM message_resources WHERE message_id=messages.id),(SELECT COALESCE(SUM(r.bytes),0) FROM message_resources JOIN resources r USING(hash) WHERE message_id=messages.id),EXISTS(SELECT 1 FROM events e WHERE e.session_id=messages.session_id AND e.sequence=messages.sequence AND e.kind='run_finished' AND json_extract(e.data,'$.status')='failed') FROM messages WHERE session_id=? AND sequence>? ORDER BY sequence LIMIT ?", sessionID, after, limit).Rows()
 	if err != nil {
 		return nil, err
 	}
@@ -697,7 +698,7 @@ func (s *Store) MessagesBefore(ctx context.Context, sessionID string, before int
 	}
 	query += " ORDER BY sequence DESC LIMIT ?"
 	args = append(args, limit)
-	rows, err := s.reader().QueryContext(ctx, query, args...)
+	rows, err := s.orm.WithContext(ctx).Raw(query, args...).Rows()
 	if err != nil {
 		return nil, err
 	}
