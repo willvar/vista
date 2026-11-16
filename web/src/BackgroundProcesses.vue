@@ -8,6 +8,8 @@ import { useEscapeDismiss } from './composables/useEscape'
 import type { Job } from './client/types'
 import { jobActive, jobStatusKey } from './state/jobs'
 import BackgroundProcessOutput from './BackgroundProcessOutput.vue'
+import TraceResultCard from './TraceResultCard.vue'
+import PlainTextOutput from './PlainTextOutput.vue'
 import { formatDateTime } from './ui/datetime.ts'
 
 const props = defineProps<{ sessionId: string; jobs: Job[] }>()
@@ -124,7 +126,7 @@ onUnmounted(() => { cancelRequests(); clearInterval(clock); for (const action of
       <template v-if="job">
         <div class="process-heading"><span class="process-state" :class="{ active: jobActive(job), failed: job.status === 'failed' }"><IconTerminal2 aria-hidden="true" />{{ t(jobStatusKey(job)) }}</span><Button v-if="jobActive(job)" danger :aria-label="t(stopping.has(job.id) ? 'processStopping' : 'stopProcess')" :loading="stopping.has(job.id)" :disabled="stopping.has(job.id)" @click="stop"><IconPlayerStop v-if="!stopping.has(job.id)" aria-hidden="true" />{{ t(stopping.has(job.id) ? 'processStopping' : 'stopProcess') }}</Button></div>
         <div class="process-info">
-        <pre class="process-command">{{ job.command }}</pre>
+        <div class="process-command"><TraceResultCard :title="t('traceOpShell')" :text="job.command"><PlainTextOutput :content="job.command" /></TraceResultCard></div>
         <dl class="process-details">
           <div class="process-directory"><dt>{{ t('processDirectory') }}</dt><dd>{{ job.directory }}</dd></div>
           <div><dt>{{ t('processStartedAt') }}</dt><dd>{{ time(job.startedAt || job.createdAt) }}</dd></div>
@@ -150,12 +152,13 @@ onUnmounted(() => { cancelRequests(); clearInterval(clock); for (const action of
 .process-state{display:flex;align-items:center;gap:.45rem;font-size:13px;color:var(--muted)}
 .process-state.active{color:var(--accent)}.process-state.failed{color:var(--danger)}
 .process-info{display:flex;flex-direction:column;gap:.6rem;flex:0 1 auto;min-height:2rem;max-height:17rem;overflow:auto}
-.process-command{margin:0;padding:.6rem .75rem;background:var(--surface-subtle);border-radius:8px;white-space:pre-wrap;overflow:auto;overflow-wrap:anywhere;max-height:5rem;flex:none;font:13px/1.6 var(--font-mono,monospace)}
+.process-command{flex:none}
+.process-command :deep(.trace-result-viewport:not(.trace-result-enlarged)){max-height:5rem}
 .process-details{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:.4rem 1.5rem;margin:0;flex:none;font-size:12px;line-height:1.6;max-height:10rem;overflow:auto}
 .process-details>div{display:flex;gap:.6rem;min-width:0}
 .process-details dt{color:var(--muted);flex:none}.process-details dd{margin:0;min-width:0;overflow-wrap:anywhere;font-variant-numeric:tabular-nums}
 .process-directory{grid-column:1/-1}
 .process-error{margin:0;color:var(--danger);font-size:12px;white-space:pre-wrap;overflow-wrap:anywhere;max-height:4.5rem;overflow:auto;flex:none}
-@media(max-width:600px){.background-process-monitor{height:calc(100dvh - 8rem);gap:.5rem}.process-details{grid-template-columns:1fr;gap:.2rem;max-height:11rem}.process-command{max-height:4rem}}
-@media(max-height:520px){.background-process-monitor{height:calc(100dvh - 6rem);gap:.35rem}.process-info{min-height:1rem;max-height:5rem;gap:.35rem}.process-details{grid-template-columns:repeat(2,minmax(0,1fr));max-height:none;gap:0 .75rem}.process-command{max-height:2.5rem;padding:.2rem .5rem}}
+@media(max-width:600px){.background-process-monitor{height:calc(100dvh - 8rem);gap:.5rem}.process-details{grid-template-columns:1fr;gap:.2rem;max-height:11rem}.process-command :deep(.trace-result-viewport:not(.trace-result-enlarged)){max-height:4rem}}
+@media(max-height:520px){:global(.background-process-modal .ui-modal-container){padding:8px}:global(.background-process-modal .ui-modal-header){margin-bottom:8px}.background-process-monitor{height:calc(100dvh - 6rem);gap:.35rem}.process-info{min-height:44px;max-height:5rem;gap:.35rem}.process-details{grid-template-columns:repeat(2,minmax(0,1fr));max-height:none;gap:0 .75rem}.process-command :deep(.trace-result-viewport:not(.trace-result-enlarged)){max-height:2.5rem}}
 </style>

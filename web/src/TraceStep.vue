@@ -7,6 +7,8 @@ import type { TraceNodeView as Node } from './ui/traceTypes'
 import type { RunTraceNode } from './state/runTrace'
 import { compactTraceText, reasoningDisplayText } from './state/runTrace'
 import { renderMarkdown } from './ui/markdown'
+import TraceResultCard from './TraceResultCard.vue'
+import PlainTextOutput from './PlainTextOutput.vue'
 
 const props = defineProps<{
   item: Node; expanded: boolean; loading: boolean; failure?: string; nodeId: (key: string) => string
@@ -33,8 +35,11 @@ function toggle() { if (collapsible.value) emit('expand', props.expanded ? [] : 
           <IconChevronRight v-if="collapsible" class="ui-thought-chain-node-collapse-icon" :class="{ expanded }" aria-hidden="true" />
         </component>
         <div v-if="!collapsible || expanded" :id="`${nodeId(item.key)}-content`" class="trace-step-details">
-        <pre v-if="inputText && longInput" class="trace-input-full" :class="{ 'trace-input-code': item.input?.command }">{{ inputText }}</pre>
         <div v-if="item.description" class="ui-thought-chain-node-description">{{ item.description }}</div>
+        <div v-if="inputText && longInput && item.input?.command" class="trace-command-card">
+          <TraceResultCard :title="t('traceOpShell')" :text="inputText"><PlainTextOutput class="trace-input-full" :content="inputText" /></TraceResultCard>
+        </div>
+        <pre v-else-if="inputText && longInput" class="trace-input-full">{{ inputText }}</pre>
         <div class="ui-thought-chain-node-content trace-step-content">
           <small v-if="loading" class="trace-step-loading" role="status">{{ t('traceStepLoading') }}</small>
           <div v-if="failure" class="trace-step-error"><small role="alert">{{ t('traceStepUnavailable') }}</small><Button @click="emit('retry', item)">{{ t('retry') }}</Button></div>
@@ -63,8 +68,9 @@ button.ui-thought-chain-node-header:hover{color:var(--text)}
 .ui-thought-chain-node-header>.ui-thought-chain-node-collapse-icon{align-self:center;margin-top:0}
 .ui-thought-chain-node-description{margin:.25rem 0 0;font-size:13px;color:var(--muted);line-height:1.6}
 .trace-input-preview{min-width:0;overflow-wrap:anywhere;font-size:14px;font-weight:400;color:var(--text-secondary)}
-.trace-input-full{margin:.5rem 0 0;white-space:pre-wrap;overflow-wrap:anywhere;font-family:inherit;font-size:14px;line-height:1.65;color:var(--text-secondary)}
-.trace-input-code{font-family:var(--font-family-code,monospace)}
+.trace-command-card{margin-top:.5rem}
+.trace-input-full:not(.trace-output){margin:.5rem 0 0;white-space:pre-wrap;overflow-wrap:anywhere;font-family:inherit;font-size:14px;line-height:1.65;color:var(--text-secondary)}
+.trace-input-code{font-family:var(--font-mono,monospace)}
 .trace-step-content{color:var(--muted)}.trace-step-loading{font-size:15px;color:var(--text-secondary)}.trace-step-error{display:flex;align-items:center;gap:.5rem;font-size:15px}
 @media(prefers-reduced-motion:reduce){.ui-thought-chain-node-collapse-icon{transition:none}}
 </style>

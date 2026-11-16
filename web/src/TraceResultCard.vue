@@ -51,26 +51,3 @@ watch(enlarged, async open => {
     <div v-if="enlarged" ref="enlargedViewport" class="trace-result-viewport trace-result-enlarged" :class="{ 'trace-result-text': kind === 'text' }" tabindex="0" :aria-label="title"><slot /></div>
   </Modal>
 </template>
-
-<style scoped>
-.trace-result-card{min-width:0;max-width:100%;border:1px solid var(--border);border-radius:8px;overflow:hidden;background:var(--surface);color:var(--text)}
-.trace-result-heading{display:flex;align-items:center;justify-content:space-between;gap:.75rem;padding:.45rem .65rem .45rem .75rem;border-bottom:1px solid var(--border);background:var(--code-bg)}
-.trace-result-caption{display:flex;align-items:baseline;flex-wrap:wrap;gap:.2rem .75rem;flex:1;min-width:0;font-size:14px;line-height:1.5;overflow-wrap:anywhere}
-.trace-result-caption strong{font-weight:500}.trace-result-caption small{font-size:12px;color:var(--muted)}
-.trace-result-actions{display:flex;align-items:center;gap:2px;flex:none}
-.trace-result-actions :deep(.reply-action){display:inline-flex;align-items:center;justify-content:center;flex:none;width:30px;height:30px;min-width:30px;padding:0;border:0;border-radius:6px;background:transparent;color:var(--muted);font-size:16px;line-height:1;cursor:pointer}
-.trace-result-actions :deep(.reply-action:hover:not(:disabled)){color:var(--accent);background:var(--hover)}
-.trace-result-actions :deep(.reply-action:focus-visible){outline:var(--focus-outline,2px solid var(--accent));outline-offset:2px}
-.trace-result-actions :deep(.reply-action:disabled){opacity:.45;cursor:not-allowed}
-.trace-result-actions :deep(.tabler-icon){width:17px;height:17px}
-.trace-result-viewport{box-sizing:border-box;min-width:0;max-width:100%;max-height:min(24rem,40dvh);padding:.75rem;overflow:auto;scrollbar-gutter:stable;overscroll-behavior:auto;overflow-wrap:anywhere;font-size:14px;line-height:1.7}
-.trace-result-viewport:focus-visible{outline:var(--focus-outline,2px solid var(--accent));outline-offset:-2px}
-.trace-result-text{background:var(--code-bg)}
-.trace-result-text :deep(.trace-output){font-family:var(--font-mono,monospace);font-size:14px;line-height:1.7;color:var(--text-secondary)}
-.trace-result-viewport :deep(.markdown){font-size:14px;color:var(--text);line-height:1.7}
-.trace-result-viewport :deep(.markdown>:first-child){margin-top:0}.trace-result-viewport :deep(.markdown>:last-child){margin-bottom:0}
-.trace-result-viewport :deep(.markdown pre){max-height:none}
-.trace-result-enlarged{flex:1;max-height:none;min-height:0}
-@media(max-width:600px){.trace-result-heading{gap:.5rem;padding:.35rem .4rem .35rem .6rem}.trace-result-actions :deep(.reply-action){width:34px;height:34px;min-width:34px}.trace-result-viewport{padding:.6rem}}
-@media(max-height:520px){.trace-result-heading{padding-block:.25rem}.trace-result-viewport{max-height:40dvh}.trace-result-enlarged{max-height:none}}
-</style>
