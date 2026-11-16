@@ -47,6 +47,9 @@ export function useConversationScroll(options: {
   function clearMeasurements() { if (measurements.size) { measurements.clear(); measurementRevision.value++ } }
   let generation = 0
   let input = false
+  let inputAtEnd = false
+  let inputOffset = 0
+  let inputEnd = 0
   let smoothCommand = false
   let idleTimer: ReturnType<typeof setTimeout> | undefined
   let width = 0
@@ -65,6 +68,12 @@ export function useConversationScroll(options: {
   function takeControl() {
     cancelLocation()
     const offset = element.value?.scrollTop || 0, range = rangeAt(offset)
+    if (!input) {
+      updatePosition()
+      inputAtEnd = atEnd.value
+      inputOffset = offset
+      inputEnd = Math.max(0, (element.value?.scrollHeight || 0) - (element.value?.clientHeight || 0))
+    }
     if (presented.value && ready(range.start, range.end)) lastReady = anchorAt(offset)
     jumpPhase.value = null
     input = true
@@ -88,12 +97,13 @@ export function useConversationScroll(options: {
   }
   function settle() {
     clearTimeout(idleTimer)
+    const reachedEnd = input && inputAtEnd
     input = false
     motion.value = false
     if (locked.value) return
-    const viewport = element.value
-    following.value = !!viewport && viewport.scrollHeight - viewport.clientHeight - viewport.scrollTop <= 3
-    void nextTick(() => { measureVisible(); maybeEarlier() })
+    updatePosition()
+    following.value = reachedEnd || atEnd.value
+    void nextTick(() => { measureVisible(); syncEnd(); maybeEarlier() })
   }
   const scrollbar = useScrollbarDrag(element, takeControl, () => { queueMicrotask(settle) })
   const { dragging } = scrollbar
@@ -242,6 +252,11 @@ export function useConversationScroll(options: {
     const viewport = element.value
     atEnd.value = !viewport || viewport.scrollHeight - viewport.clientHeight - viewport.scrollTop <= 3
   }
+  function syncEnd() {
+    if (following.value && !loading.value && !paused.value && jumpPhase.value !== 'preparing') {
+      virtualizer.value.scrollToEnd({ behavior: smoothCommand ? 'smooth' : 'auto' })
+    }
+  }
   const showJumpToLatest = computed(() => presented.value && !jumpPhase.value && !atEnd.value)
   const totalSize = computed(() => virtualizer.value.getTotalSize())
   // The Vue adapter updates options before the DOM commits. Finish TanStack's
@@ -261,12 +276,19 @@ export function useConversationScroll(options: {
   }
   function onScroll() {
     updatePosition()
+    const offset = element.value?.scrollTop || 0
+    if (input && offset !== inputOffset) {
+      // Keep the gesture's original end across layout changes; only actual
+      // movement away from it can cancel the reached-end intent.
+      inputAtEnd = atEnd.value || offset > inputOffset && offset >= inputEnd - 3
+      inputOffset = offset
+    }
     if (preparation.value) {
       if (!applying) virtualizer.value.scrollToOffset(offsetFor(preparation.value.from))
       else if (preparation.value.locate) finishPreparation(preparation.value)
       return
     }
-    const offset = element.value?.scrollTop || 0, range = rangeAt(offset)
+    const range = rangeAt(offset)
     if (presented.value && (paused.value || jumpPhase.value) && !ready(range.start, range.end)) prepareDestination(offset)
     if (input) scheduleIdle()
     maybeEarlier()
@@ -414,9 +436,7 @@ export function useConversationScroll(options: {
         if (widthChanged) measureVisible()
         // Composer and execution controls also change the viewport's height.
         // Keep the user's bottom-follow intent through those layout changes.
-        if (following.value && !loading.value && !paused.value && jumpPhase.value !== 'preparing') {
-          virtualizer.value.scrollToEnd({ behavior: smoothCommand ? 'smooth' : 'auto' })
-        }
+        syncEnd()
         updatePosition()
       })
     })
