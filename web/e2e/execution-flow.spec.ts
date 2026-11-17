@@ -8,7 +8,7 @@ import type { Artifact, Job, Message, ModelResultView, RunOverview, Session, Str
 import { coreSnapshot } from './conversation-fixture'
 import { scrollConversationTo, scrollToConversationEntry } from './conversation-scroll'
 import { buildRunTrace } from '../src/state/runTrace'
-import { startFrontend, startSourceFrontend } from './frontend-server'
+import { controlAssets, startFrontend, startSourceFrontend } from './frontend-server'
 const replaySources = new WeakMap<Page, StreamEvent[]>()
 
 // Chromium's Unix socket needs a short profile directory, still inside this checkout.
@@ -34,6 +34,12 @@ const test = base.extend<{}, { mockOrigin: string }>({
 })
 const sourceTest = test.extend<{}, { mockOrigin: string }>({
   mockOrigin: [async ({}, use) => executionFrontend(use, true), { scope: 'worker' }],
+})
+const scrollTest = base.extend<{}, { mockOrigin: string }>({
+  mockOrigin: [async ({}, use) => {
+    const server = await startFrontend({ directory: controlAssets })
+    try { await use(server.origin) } finally { await server.close() }
+  }, { scope: 'worker' }],
 })
 
 type ChecklistItem = { text: string; status: 'pending'|'in_progress'|'done'|'blocked' }
@@ -1031,6 +1037,51 @@ test('jump to latest prepares pending output and reaches its actual bottom', { t
   await expect(ending).toBeVisible()
   expect(fixture.unexpected).toEqual([])
   await page.screenshot({ path: testInfo.outputPath('jump-latest-hydrated.png'), animations: 'disabled' })
+})
+
+scrollTest('jump to latest retains its end target when a row is measured after the scroll write', { tag: '@responsive' }, async ({ page, mockOrigin }) => {
+  await page.goto(`${mockOrigin}/?conversation-scroll`)
+  const viewport = page.locator('.scroll-contract-viewport')
+  await expect(viewport).toHaveAttribute('aria-busy', 'false')
+  await page.getByRole('button', { name: 'Read earlier', exact: true }).click()
+  await expect.poll(() => viewport.evaluate(element => element.scrollTop)).toBeLessThanOrEqual(3)
+  await expect(viewport).toHaveAttribute('aria-busy', 'false')
+  const size = page.viewportSize()!
+  await page.setViewportSize({ ...size, width: Math.max(320, size.width - 160) })
+  await page.getByRole('button', { name: 'Jump with late measurement', exact: true }).click()
+  await expect(page.getByTestId('late-growth')).toHaveText('199')
+  await expect.poll(() => viewport.evaluate(element => element.scrollHeight - element.scrollTop - element.clientHeight)).toBeLessThanOrEqual(3)
+  await expect(viewport).toHaveAttribute('aria-busy', 'false')
+  await expect(page.getByTestId('following')).toHaveText('true')
+  await expect(page.getByTestId('jump-visible')).toHaveText('false')
+})
+
+scrollTest('jump completion follows actual arrival rather than following intent', { tag: '@responsive' }, async ({ page, mockOrigin }) => {
+  await page.emulateMedia({ reducedMotion: 'no-preference' })
+  await page.goto(`${mockOrigin}/?conversation-scroll&delayed-arrival`)
+  const viewport = page.locator('.scroll-contract-viewport')
+  await expect(viewport).toHaveAttribute('aria-busy', 'false')
+  await page.getByRole('button', { name: 'Read earlier', exact: true }).click()
+  await expect.poll(() => viewport.evaluate(element => element.scrollTop)).toBeLessThanOrEqual(3)
+  await expect(viewport).toHaveAttribute('aria-busy', 'false')
+  await page.getByRole('button', { name: 'Jump with delayed arrival', exact: true }).click()
+  await expect.poll(async () => Number(await page.getByTestId('arrival-distance').textContent())).toBeGreaterThan(3)
+  await expect(page.getByTestId('arrival-jump-visible')).toHaveText('false')
+  await expect.poll(() => viewport.evaluate(element => element.scrollHeight - element.scrollTop - element.clientHeight)).toBeLessThanOrEqual(3)
+  await expect(page.getByTestId('jump-visible')).toHaveText('false')
+})
+
+scrollTest('a jump cannot finish at an unprepared bottom target', { tag: '@responsive' }, async ({ page, mockOrigin }) => {
+  await page.goto(`${mockOrigin}/?conversation-scroll&pending-target`)
+  const viewport = page.locator('.scroll-contract-viewport')
+  await expect(viewport).toHaveAttribute('aria-busy', 'false')
+  await expect.poll(() => viewport.evaluate(element => element.scrollHeight - element.scrollTop - element.clientHeight)).toBeLessThanOrEqual(3)
+  await page.getByRole('button', { name: 'Jump with pending target', exact: true }).click()
+  await expect(viewport).toHaveAttribute('aria-busy', 'true')
+  await page.getByRole('button', { name: 'Finish target preparation', exact: true }).click()
+  await expect(viewport).toHaveAttribute('aria-busy', 'false')
+  await expect.poll(() => viewport.evaluate(element => element.scrollHeight - element.scrollTop - element.clientHeight)).toBeLessThanOrEqual(3)
+  await expect(page.getByTestId('jump-visible')).toHaveText('false')
 })
 
 test('layout notifications between input and scrolling cannot restore bottom following', { tag: '@responsive' }, async ({ page, mockOrigin }) => {

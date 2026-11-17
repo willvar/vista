@@ -199,7 +199,6 @@ export function useConversationScroll(options: {
     updatePosition()
     following.value = pending.follow || atEnd.value
     lastReady = anchorAt(element.value?.scrollTop || 0)
-    if (jumpPhase.value === 'scrolling' && following.value) jumpPhase.value = null
     maybeEarlier()
   }
   function updatePreparation() {
@@ -228,7 +227,8 @@ export function useConversationScroll(options: {
         if (preparation.value?.id !== pending.id) return
         applying = true
         if (pending.locate) virtualizer.value.scrollToIndex(indices.value.get(pending.target.key)!, { align: 'start' })
-        else virtualizer.value.scrollToOffset(pending.follow ? Math.max(0, virtualizer.value.getTotalSize() - (element.value?.clientHeight || 0)) : offsetFor(pending.target))
+        else if (pending.follow) virtualizer.value.scrollToEnd()
+        else virtualizer.value.scrollToOffset(offsetFor(pending.target))
         await nextTick(); await frame(); await frame()
         if (preparation.value?.id !== pending.id) return
         finishPreparation(pending)
@@ -241,7 +241,7 @@ export function useConversationScroll(options: {
       return
     }
     lastReady = anchorAt(element.value?.scrollTop || 0)
-    if (jumpPhase.value === 'scrolling' && virtualizer.value.getDistanceFromEnd() <= 3) jumpPhase.value = null
+    updatePosition()
   }
   watch([presented, paused, following, jumpPhase, preparation, locating, indices, options.missing,
     readRevision, measurementRevision,
@@ -251,6 +251,11 @@ export function useConversationScroll(options: {
   function updatePosition() {
     const viewport = element.value
     atEnd.value = !viewport || viewport.scrollHeight - viewport.clientHeight - viewport.scrollTop <= 3
+    // Arrival is a DOM fact, not follow intent or an earlier cached offset.
+    if (viewport && !loading.value && jumpPhase.value === 'scrolling' && atEnd.value) {
+      const range = rangeAt(viewport.scrollTop)
+      if (ready(range.start, range.end)) jumpPhase.value = null
+    }
   }
   function syncEnd() {
     if (following.value && !loading.value && !paused.value && jumpPhase.value !== 'preparing') {
