@@ -8,7 +8,7 @@ import { displayBodyVersion } from '../state/mainOutputs.ts'
 import { quoteStoragePrefix, sentMessageBody } from '../state/quotedReply.ts'
 import type { VistaClient } from '../client/vista'
 import type { EventStreamOptions } from '../client/sse'
-import type { Artifact, Job, CompactionStatus, Message, ModelCatalog, OutputView, PendingReply, Session, StreamEvent } from '../client/types'
+import type { Artifact, Job, CompactionStatus, ConversationSnapshot, QueuedInput, Message, ModelCatalog, OutputView, PendingReply, Session, StreamEvent } from '../client/types'
 
 function deferred<T>() {
   let resolve!: (value: T) => void
@@ -19,6 +19,75 @@ function deferred<T>() {
 const session = (id: string): Session => ({ id, title: id, modelKey: 'example', open: true, running: true, executing: false, createdAt: '' })
 const message = (id: string, sequence: number, runId: string, role = 'user'): Message => ({ id, sequence, runId, role, content: id, createdAt: '' })
 const questionPending = (runId = 'question-run'): PendingReply => ({ runId, kind: 'question', content: 'Pick a choice', questions: [{ question: 'Pick a choice', options: [{ label: 'A' }, { label: 'B' }] }] })
+
+function queueSnapshot(id: string, queuedInputs: QueuedInput[], throughSequence = 1): ConversationSnapshot {
+  return { session: { ...session(id), pendingInputCount: queuedInputs.length, inputQueuePaused: queuedInputs.some(item => item.status === 'paused') },
+    queuedInputs, throughSequence, messages: [], events: [], hasOlder: false, hasOlderEvents: false }
+}
+
+
+for (const first of ['confirmation', 'delivery']) {
+  test(`queued send keeps immediate feedback without resurrection when ${first} arrives first`, async t => {
+    const post = deferred<unknown>()
+    const input = { id: 'pending', status: 'queued', content: 'Follow-up' }
+    const event: StreamEvent = { sequence: 2, kind: 'input_queued', data: input }
+    const { conversation, streams, busy } = fixture(t, (path, options) =>
+      path.endsWith('/messages') && options?.method === 'POST' ? post.promise : undefined)
+    await conversation.selectSession(session('a'))
+    conversation.draft.value = input.content
+    const sending = conversation.send()
+    assert.equal(busy.value, true)
+    if (first === 'confirmation') {
+      post.resolve({ input, event }); await sending
+      assert.equal(busy.value, false, 'HTTP completion must release the existing sender busy state')
+      assert.equal(conversation.pendingInputs.value.length, 1, 'Accepted input appears without waiting for SSE')
+      assert.equal(conversation.lastEvent.value, 1, 'An acknowledgement cannot skip stream records')
+    }
+    streams.get('a')!.onEvent(event)
+    streams.get('a')!.onEvent({ sequence: 3, kind: 'message', data: { ...message('delivered', 3, 'run'), content: input.content } })
+    streams.get('a')!.onEvent({ sequence: 4, kind: 'input_delivered', data: { id: input.id, runId: 'run' } })
+    if (first === 'delivery') { post.resolve({ input, event }); await sending }
+    assert.equal(conversation.pendingInputs.value.length, 0)
+    assert.equal(conversation.messages.value.filter(item => item.id === 'delivered').length, 1)
+    assert.equal(conversation.draft.value, '')
+    assert.equal(busy.value, false)
+  })
+}
+
+for (const action of ['edit', 'delete', 'withdraw'] as const) {
+  test(`a confirmed queue ${action} cannot be undone by older SSE`, async t => {
+    const input = { id: 'pending', status: 'queued', content: 'Original' }
+    const updated = { ...input, content: 'Confirmed edit', status: action === 'edit' ? 'queued' : action === 'delete' ? 'deleted' : 'withdrawn' }
+    const confirmed: StreamEvent = { sequence: 4, kind: action === 'edit' ? 'input_updated' : 'input_status', data: updated }
+    const { conversation, streams } = fixture(t, (path, options) => {
+      if (path.endsWith('/snapshot')) return Promise.resolve({ session: { ...session('a'), pendingInputCount: 1 }, queuedInputs: [input], throughSequence: 2,
+        messages: [], events: [{ sequence: 2, kind: 'input_queued', data: input }], hasOlder: false, hasOlderEvents: false })
+      if (path.includes('/inputs/pending') && options?.method) return Promise.resolve({ input: updated, event: confirmed, images: [] })
+    })
+    await conversation.selectSession(session('a'))
+    const oldDraft = conversation.draft.value
+    assert.equal(await conversation.mutateInput(input, action, { content: updated.content }), true)
+    const assertConfirmed = () => assert.deepEqual(conversation.pendingInputs.value.map(item => item.content), action === 'edit' ? [updated.content] : [])
+    assertConfirmed()
+    assert.equal(conversation.lastEvent.value, 2)
+    streams.get('a')!.onEvent({ sequence: 3, kind: 'input_updated', data: { ...input, content: 'Older remote edit' } })
+    assertConfirmed()
+    streams.get('a')!.onEvent(confirmed)
+    assertConfirmed()
+    if (action === 'withdraw') assert.equal(conversation.draft.value, `${oldDraft}\n\n${updated.content}`, 'SSE replay cannot restore a withdrawn draft twice')
+  })
+}
+
+test('newer queue events preserve unrelated pending inputs from the transaction snapshot', async t => {
+  const old = { id: 'old', status: 'queued', content: 'Old pending input' }
+  const { conversation, streams } = fixture(t, path => path.endsWith('/snapshot') ? Promise.resolve({
+    session: { ...session('a'), pendingInputCount: 1 }, queuedInputs: [old], throughSequence: 100,
+    messages: [], events: [], hasOlder: false, hasOlderEvents: true,
+  }) : undefined)
+  await conversation.selectSession(session('a'))
+  streams.get('a')!.onEvent({ sequence: 101, kind: 'input_queued', data: { id: 'new', status: 'queued', content: 'New input' } })
+  assert.deepEqual(conversation.pendingInputs.value.map(item => item.id), ['old', 'new'])
+})
 
 test('continuing a failed task preserves drafts and history and sends only once', async t => {
   const pending = deferred<unknown>()
@@ -111,9 +180,9 @@ function fixture(t: TestContext, response?: (path: string, options?: RequestInit
       if (path.endsWith('/snapshot')) {
         const base = path.slice(0, -'/snapshot'.length)
         const [messages, events] = await Promise.all([client.request<Message[]>(`${base}/messages`), client.request<StreamEvent[]>(`${base}/event-page`)])
-        return { session: { ...conversation.selected.value, latestReplySequence: Math.max(0, ...messages.filter(message => message.role === 'assistant').map(message => message.sequence)) },
+        return { session: { ...conversation.selected.value, pendingInputCount: 0, inputQueuePaused: false, latestReplySequence: Math.max(0, ...messages.filter(message => message.role === 'assistant').map(message => message.sequence)) },
           throughSequence: Math.max(0, ...messages.map(message => message.sequence), ...events.map(event => event.sequence)),
-          messages, events, hasOlder: messages.length === 100, hasOlderEvents: events.length === 100 } as T
+          messages, events, hasOlder: messages.length === 100, queuedInputs: [], hasOlderEvents: events.length === 100 } as T
       }
       if (path.endsWith('/context')) return null as T
       if (path.endsWith('/messages')) return [message(path.split('/')[2] + '-history', 1, 'history', 'assistant')] as T
@@ -162,7 +231,7 @@ test('a verified snapshot stays available through stream failure and resets befo
   const next = f.conversation.selectSession(session('b'))
   assert.equal(f.conversation.snapshotReady.value, false)
   assert.deepEqual(f.conversation.messages.value, [])
-  pending.resolve({ session: session('b'), throughSequence: 0, messages: [], events: [], hasOlder: false, hasOlderEvents: false })
+  pending.resolve({ session: session('b'), throughSequence: 0, messages: [], events: [], hasOlder: false, queuedInputs: [], hasOlderEvents: false })
   await next
   assert.equal(f.conversation.snapshotReady.value, true)
   f.conversation.clearSession()
@@ -172,7 +241,7 @@ test('a verified snapshot stays available through stream failure and resets befo
 test('opening a conversation restores the saved manual model from its authoritative snapshot', async t => {
   const persisted: Session = { ...session('a'), selectionMode: 'manual', selectionTier: 'quality', manualModelKey: 'other' }
   const f = fixture(t, path => path === '/sessions/a/snapshot' ? Promise.resolve({ session: persisted,
-    throughSequence: 0, messages: [], events: [], hasOlder: false, hasOlderEvents: false }) : undefined)
+    throughSequence: 0, messages: [], events: [], hasOlder: false, queuedInputs: [], hasOlderEvents: false }) : undefined)
   f.modelCatalog.value.models.push({ key: 'other', id: 'other-model', provider: 'openai-chat', recognized: true })
   await f.conversation.selectSession({ ...session('a'), selectionMode: 'auto', selectionTier: 'speed' })
   assert.equal(f.conversation.selectionMode.value, 'manual')
@@ -192,7 +261,7 @@ for (const edit of ['mode and tier', 'manual model'] as const) {
       f.conversation.chooseSelectionMode('auto')
       f.conversation.chooseSelectionTier('quality')
     } else f.conversation.chooseModel('other')
-    pending.resolve({ session: initial, throughSequence: 0, messages: [], events: [], hasOlder: false, hasOlderEvents: false })
+    pending.resolve({ session: initial, throughSequence: 0, messages: [], events: [], hasOlder: false, queuedInputs: [], hasOlderEvents: false })
     await opening
     assert.equal(f.conversation.selectionMode.value, edit === 'mode and tier' ? 'auto' : 'manual')
     assert.equal(f.conversation.selectionTier.value, edit === 'mode and tier' ? 'quality' : 'speed')
@@ -214,7 +283,7 @@ test('sending while the opening snapshot is pending preserves the submitted sele
   f.conversation.draft.value = 'Use the displayed choice'
   await f.conversation.send()
   pending.resolve({ session: { ...session('a'), selectionMode: 'manual', selectionTier: 'speed' },
-    throughSequence: 0, messages: [], events: [], hasOlder: false, hasOlderEvents: false })
+    throughSequence: 0, messages: [], events: [], hasOlder: false, queuedInputs: [], hasOlderEvents: false })
   await opening
   assert.equal(submitted.selectionMode, 'auto')
   assert.equal(submitted.selectionTier, 'quality')
@@ -242,7 +311,7 @@ for (const choice of ['auto', 'manual'] as const) for (const timing of ['before 
     const submission = f.conversation.submitQuestion('question-run', answers)
     const resolveSnapshot = async () => {
       snapshot.resolve({ session: { ...session('a'), selectionMode: 'manual', selectionTier: 'speed', manualModelKey: 'example', pendingReply: questionPending() },
-        throughSequence: 0, messages: [], events: [], hasOlder: false, hasOlderEvents: false })
+        throughSequence: 0, messages: [], events: [], hasOlder: false, queuedInputs: [], hasOlderEvents: false })
       await opening
     }
     if (timing === 'before response') await resolveSnapshot()
@@ -415,7 +484,7 @@ for (const fail of [false, true]) {
     const loading = deferred<void>()
     let signal: AbortSignal | null | undefined
     const { conversation, busy, error } = fixture(t, (path, options) => {
-      if (path !== '/sessions/a/inputs') return
+      if (path !== '/sessions/a/snapshot') return
       signal = options?.signal
       loading.resolve()
       return load.promise
@@ -428,7 +497,7 @@ for (const fail of [false, true]) {
     busy.value = true
     assert.equal(signal?.aborted, true)
     if (fail) load.reject(new Error('old A failure'))
-    else load.resolve([{ id: 'old-a-input', status: 'queued', content: 'old' }])
+    else load.resolve(queueSnapshot('a', [{ id: 'old-a-input', status: 'queued', content: 'old' }]))
     await oldSelection
     assert.equal(conversation.selected.value?.id, 'b')
     assert.deepEqual(conversation.messages.value.map(item => item.id), ['b-history'])
@@ -514,7 +583,7 @@ test('selecting the same session again still rejects the previous generation', a
   let requests = 0
   let oldSignal: AbortSignal | null | undefined
   const { conversation, busy, error } = fixture(t, (path, options) => {
-    if (path !== '/sessions/a/inputs' || ++requests !== 1) return
+    if (path !== '/sessions/a/snapshot' || ++requests !== 1) return
     oldSignal = options?.signal
     loading.resolve()
     return oldInputs.promise
@@ -525,7 +594,7 @@ test('selecting the same session again still rejects the previous generation', a
   conversation.draft.value = 'new generation draft'
   busy.value = true
   error.value = 'current generation error'
-  oldInputs.resolve([{ id: 'old-generation-input', status: 'queued', content: 'old' }])
+  oldInputs.resolve(queueSnapshot('a', [{ id: 'old-generation-input', status: 'queued', content: 'old' }]))
   await firstLoad
   assert.equal(oldSignal?.aborted, true)
   assert.equal(conversation.draft.value, 'new generation draft')
@@ -552,7 +621,7 @@ test('snapshot restores root execution while preserving recent child tokens and 
   const child: StreamEvent = { sequence: 100, kind: 'model_delta', data: { runId: 'run-a', taskId: 'child', parentTaskId: 'main', depth: 1, turn: 2, content: 'Preserve recent tokens' } }
   const { conversation, sessions, streams } = fixture(t, path => {
     if (path === '/sessions/a/snapshot') return Promise.resolve({ session: { ...session('a'), executing: true }, throughSequence: 100,
-      messages: [message('user-a', 1, 'run-a')], events: [rootModel, rootTool, child], hasOlder: false, hasOlderEvents: true })
+      messages: [message('user-a', 1, 'run-a')], events: [rootModel, rootTool, child], hasOlder: false, queuedInputs: [], hasOlderEvents: true })
     if (path.endsWith('/runs/run-a/overview')) return Promise.resolve({ modelCalls: 50, throughSequence: 110, startedAt: '', events: [rootModel, rootTool, future] })
   })
   sessions.value[0]!.executing = true
@@ -770,8 +839,8 @@ test('hiding the only selected model clears selection across mode changes and re
 
 test('queued inputs are not clipped and withdrawing appends to the existing draft', async t => {
   const { conversation } = fixture(t, (path, options) => {
-    if (path.endsWith('/inputs')) return Promise.resolve(Array.from({ length: 30 }, (_, index) => ({ id: 'pending-' + index, status: 'queued', content: 'Pending ' + index })))
-    if (path.endsWith('/withdraw') && options?.method === 'POST') return Promise.resolve({ input: { id: 'pending-0', status: 'withdrawn', content: 'Restored note' }, images: [] })
+    if (path.endsWith('/snapshot')) return Promise.resolve(queueSnapshot('a', Array.from({ length: 30 }, (_, index) => ({ id: 'pending-' + index, status: 'queued', content: 'Pending ' + index }))))
+    if (path.endsWith('/withdraw') && options?.method === 'POST') return Promise.resolve({ input: { id: 'pending-0', status: 'withdrawn', content: 'Restored note' }, event: { sequence: 2, kind: 'input_status', data: { id: 'pending-0', status: 'withdrawn' } }, images: [] })
   })
   await conversation.selectSession(session('a'))
   assert.equal(conversation.pendingInputs.value.length, 30)
@@ -784,9 +853,9 @@ test('queued inputs are not clipped and withdrawing appends to the existing draf
 test('withdrawing a multi-image input retains all images alongside an existing attachment draft', async t => {
   const input = { id: 'pictures', status: 'queued', content: '', imageCount: 4 }
   const { conversation, error, client } = fixture(t, (path, options) => {
-    if (path.endsWith('/inputs')) return Promise.resolve([input])
+    if (path === '/sessions/a/snapshot') return Promise.resolve(queueSnapshot('a', [input]))
     if (path.endsWith('/withdraw') && options?.method === 'POST') return Promise.resolve({
-      input: { ...input, status: 'withdrawn' },
+      input: { ...input, status: 'withdrawn' }, event: { sequence: 2, kind: 'input_status', data: { id: input.id, status: 'withdrawn' } },
       images: Array.from({ length: 4 }, (_, index) => ({ mediaType: 'image/png', hash: String(index).repeat(64), name: `original-${index}.png` })),
     })
   })
@@ -812,9 +881,9 @@ for (const fail of [false, true]) {
     const image = deferred<Blob>(), started = deferred<void>()
     const input = { id: 'pictures', status: 'queued', content: 'Image note', imageCount: 1 }
     const { conversation, client, error } = fixture(t, (path, options) => {
-      if (path.endsWith('/inputs')) return Promise.resolve([input])
+      if (path === '/sessions/a/snapshot') return Promise.resolve(queueSnapshot('a', [input]))
       if (path.endsWith('/withdraw') && options?.method === 'POST') return Promise.resolve({
-        input: { ...input, status: 'withdrawn' }, images: [{ mediaType: 'image/png', hash: 'a'.repeat(64), name: 'original.png' }],
+        input: { ...input, status: 'withdrawn' }, event: { sequence: 2, kind: 'input_status', data: { id: input.id, status: 'withdrawn' } }, images: [{ mediaType: 'image/png', hash: 'a'.repeat(64), name: 'original.png' }],
       })
     })
     let signal: AbortSignal | undefined
@@ -851,18 +920,19 @@ test('feedback belongs to the reply and can be changed and removed without chang
 })
 
 
-test('late input snapshot cannot resurrect a pending message already delivered by SSE', async t => {
-  const delayed = deferred<unknown>()
-  let reads = 0
+test('auxiliary refresh never reads or replaces the transaction-owned input queue', async t => {
   const queued = { id: 'pending', status: 'queued', content: 'Deliver once' }
+  let reads = 0
   const { conversation, streams } = fixture(t, path => {
-    if (path.endsWith('/inputs')) return ++reads === 1 ? Promise.resolve([queued]) : delayed.promise
+    if (path.endsWith('/snapshot')) return Promise.resolve(queueSnapshot('a', [queued]))
+    if (path.endsWith('/inputs')) { reads++; throw new Error('Queue must come from the transaction snapshot') }
   })
   await conversation.selectSession(session('a'))
+  assert.equal(conversation.pendingInputs.value.length, 1)
   const refresh = conversation.refreshConversation()
   streams.get('a')!.onEvent({ sequence: 2, kind: 'input_delivered', data: { id: 'pending', runId: 'run' } })
-  delayed.resolve([queued])
   await refresh
+  assert.equal(reads, 0)
   assert.equal(conversation.pendingInputs.value.length, 0)
 })
 
@@ -1231,7 +1301,7 @@ test('failure analysis restores persisted selection when routing uses the earlie
   let submitted: Record<string, unknown> = {}
   const f = fixture(t, (path, options) => {
     if (path === '/sessions/analysis/snapshot') return Promise.resolve({ session: persisted,
-      throughSequence: 0, messages: [], events: [], hasOlder: false, hasOlderEvents: false })
+      throughSequence: 0, messages: [], events: [], hasOlder: false, queuedInputs: [], hasOlderEvents: false })
     if (options?.method !== 'POST') return
     if (path === '/sessions') return Promise.resolve(created)
     if (path === '/sessions/analysis/messages') {
@@ -1257,7 +1327,7 @@ test('a rejected diagnostic first message keeps its automatic retry choice despi
   const created: Session = { ...session('analysis'), selectionMode: 'manual', selectionTier: 'speed' }
   const f = fixture(t, (path, options) => {
     if (path === '/sessions/analysis/snapshot') return Promise.resolve({ session: created,
-      throughSequence: 0, messages: [], events: [], hasOlder: false, hasOlderEvents: false })
+      throughSequence: 0, messages: [], events: [], hasOlder: false, queuedInputs: [], hasOlderEvents: false })
     if (options?.method !== 'POST') return
     if (path === '/sessions') return Promise.resolve(created)
     if (path === '/sessions/analysis/messages') return Promise.reject(new Error('capacity unavailable'))
@@ -1346,7 +1416,7 @@ test('the initial automatic send carries mode and tier while keeping remembered 
   const { conversation, saved } = fixture(t, (path, options) => {
     if (path === '/sessions/first/snapshot') return Promise.resolve({
       session: { ...session('first'), selectionMode: 'manual', selectionTier: 'speed' },
-      throughSequence: 0, messages: [], events: [], hasOlder: false, hasOlderEvents: false,
+      throughSequence: 0, messages: [], events: [], hasOlder: false, queuedInputs: [], hasOlderEvents: false,
     })
     if (options?.method !== 'POST') return
     if (path === '/sessions') return Promise.resolve(session('first'))
@@ -1981,7 +2051,7 @@ test('a remote rollback reloads history while preserving the current draft', asy
   let reverted = false
   const original = { ...message('original', 2, 'run') }
   const { conversation, streams } = fixture(t, path => path.endsWith('/snapshot') ? Promise.resolve({ session: session('a'),
-    throughSequence: reverted ? 30 : 2, revertedSequence: reverted ? 30 : 0, messages: reverted ? [] : [original], events: [], hasOlder: false, hasOlderEvents: false }) : undefined)
+    throughSequence: reverted ? 30 : 2, revertedSequence: reverted ? 30 : 0, messages: reverted ? [] : [original], events: [], hasOlder: false, queuedInputs: [], hasOlderEvents: false }) : undefined)
   await conversation.selectSession(session('a'))
   conversation.draft.value = 'My draft'
   const oldStream = streams.get('a')!
@@ -2002,7 +2072,7 @@ test('snapshot recovery preserves composer state and a send acknowledgement newe
   const { conversation, streams } = fixture(t, (path, options) => {
     if (path.endsWith('/snapshot')) {
       if (++reads === 2) { started.resolve(); return rebuilding.promise }
-      return Promise.resolve({ session: session('a'), throughSequence: 2, messages: original, events: [], hasOlder: false, hasOlderEvents: false })
+      return Promise.resolve({ session: session('a'), throughSequence: 2, messages: original, events: [], hasOlder: false, queuedInputs: [], hasOlderEvents: false })
     }
     if (path.endsWith('/messages') && options?.method === 'POST') return Promise.resolve({ runId: 'new', message: message('new-user', 10, 'new') })
     if (path.includes('/runs/old/main-outputs')) { indexes++; return Promise.resolve([]) }
@@ -2020,7 +2090,7 @@ test('snapshot recovery preserves composer state and a send acknowledgement newe
   conversation.attachedImages.value = [image]
   conversation.chooseModel('example')
   conversation.selectedReasoning.value = 'high'
-  rebuilding.resolve({ session: session('a'), throughSequence: 2, messages: original, events: [], hasOlder: false, hasOlderEvents: false })
+  rebuilding.resolve({ session: session('a'), throughSequence: 2, messages: original, events: [], hasOlder: false, queuedInputs: [], hasOlderEvents: false })
   await streams.get('a')!.beforeConnect!()
   await nextTick()
   assert.deepEqual(conversation.messages.value.map(item => item.id), ['u', 'a', 'new-user'])
@@ -2049,7 +2119,7 @@ test('a late recovery snapshot cannot modify another conversation or the same co
     const repairing = old.beforeConnect!()
     await conversation.selectSession(session(nextID))
     conversation.draft.value = 'Current draft'
-    pending.resolve({ session: session('a'), throughSequence: 99, messages: [message('stale', 99, 'stale')], events: [], hasOlder: false, hasOlderEvents: false })
+    pending.resolve({ session: session('a'), throughSequence: 99, messages: [message('stale', 99, 'stale')], events: [], hasOlder: false, queuedInputs: [], hasOlderEvents: false })
     await repairing
     assert.equal(conversation.selected.value?.id, nextID)
     assert.equal(conversation.draft.value, 'Current draft')
@@ -2061,7 +2131,7 @@ test('recovery retains browsed history and the latest tail without acknowledging
   let reads = 0, receipts = 0
   const { conversation, streams } = fixture(t, (path, options) => {
     if (path.endsWith('/snapshot')) return Promise.resolve({ session: { ...session('a'), latestReplySequence: reads++ ? 500 : 400 }, throughSequence: reads > 1 ? 500 : 400,
-      messages: Array.from({ length: 100 }, (_, i) => message(`latest-${i}`, (reads > 1 ? 401 : 301) + i, 'r', 'assistant')), events: [], hasOlder: true, hasOlderEvents: false })
+      messages: Array.from({ length: 100 }, (_, i) => message(`latest-${i}`, (reads > 1 ? 401 : 301) + i, 'r', 'assistant')), events: [], hasOlder: true, queuedInputs: [], hasOlderEvents: false })
     if (path.includes('/messages?before=')) {
       const before = Number(path.split('before=')[1])
       return Promise.resolve(Array.from({ length: 100 }, (_, i) => message(`older-${before}-${i}`, before - 100 + i, 'r', 'assistant')))
@@ -2257,4 +2327,82 @@ test('body hydration cannot label an older snapshot with a later completed SSE v
   emit(6, 'model_result', {}, 2)
   await settle()
   assert.equal(Buffer.byteLength(history.items.value.find(row => row.runId === 'tail-race' && row.outputTurn === 1)?.content ?? ''), Buffer.byteLength(full))
+})
+
+for (const action of ['edit', 'delete', 'withdraw'] as const) {
+  test(`queue ${action} confirmation survives an older recovery snapshot and retires at stream coverage`, async t => {
+    const input = { id: 'pending', status: 'queued', content: 'Original' }
+    const result = { ...input, content: 'Confirmed', status: action === 'edit' ? 'queued' : action === 'delete' ? 'deleted' : 'withdrawn' }
+    const event: StreamEvent = { sequence: 4, kind: action === 'edit' ? 'input_updated' : 'input_status', data: result }
+    const rebuilding = deferred<unknown>(), started = deferred<void>()
+    let reads = 0
+    const { conversation, streams } = fixture(t, (path, options) => {
+      if (path.endsWith('/snapshot')) {
+        if (++reads === 1) return Promise.resolve(queueSnapshot('a', [input], 2))
+        started.resolve(); return rebuilding.promise
+      }
+      if (path.includes('/inputs/pending') && options?.method) return Promise.resolve({ input: result, event, images: [] })
+    })
+    await conversation.selectSession(session('a'))
+    conversation.resynchronize(); await started.promise
+    assert.equal(await conversation.mutateInput(input, action, { content: result.content }), true)
+    const assertConfirmed = () => assert.deepEqual(conversation.pendingInputs.value.map(item => item.content), action === 'edit' ? [result.content] : [])
+    assertConfirmed()
+    const draft = conversation.draft.value
+    rebuilding.resolve(queueSnapshot('a', [input], 2))
+    await streams.get('a')!.beforeConnect!()
+    assertConfirmed()
+    assert.equal(conversation.inputConfirmations.value.length, 1)
+    streams.get('a')!.onCheckpoint!({ throughSequence: 2, session: queueSnapshot('a', [input], 2).session })
+    assert.equal(conversation.synchronization.value.phase, 'ready', 'Do not compare a future HTTP projection with an older checkpoint')
+    streams.get('a')!.onEvent({ sequence: 3, kind: 'input_updated', data: { ...input, content: 'Older remote edit' } })
+    assertConfirmed()
+    streams.get('a')!.onEvent(event)
+    assertConfirmed()
+    assert.deepEqual(conversation.inputConfirmations.value, [])
+    assert.equal(conversation.draft.value, draft)
+    await conversation.selectSession(session('b'))
+    assert.deepEqual(conversation.inputConfirmations.value, [])
+    assert.deepEqual(conversation.pendingInputs.value, [])
+  })
+}
+
+for (const later of ['content', 'pause'] as const) {
+  test(`late edit acknowledgement cannot overwrite newer ${later}`, async t => {
+    const input = { id: 'pending', status: 'queued', content: 'Original' }
+    const edited = { ...input, content: 'My edit' }
+    const response = deferred<unknown>()
+    const { conversation, streams } = fixture(t, (path, options) => {
+      if (path.endsWith('/snapshot')) return Promise.resolve(queueSnapshot('a', [input]))
+      if (options?.method === 'PATCH') return response.promise
+    })
+    await conversation.selectSession(session('a'))
+    const editing = conversation.mutateInput(input, 'edit', { content: edited.content })
+    streams.get('a')!.onEvent({ sequence: 2, kind: 'input_updated', data: edited })
+    streams.get('a')!.onEvent({ sequence: 3, kind: later === 'content' ? 'input_updated' : 'input_status',
+      data: later === 'content' ? { ...input, content: 'New remote edit' } : { id: input.id, status: 'paused' } })
+    response.resolve({ input: edited, event: { sequence: 2, kind: 'input_updated', data: edited } })
+    assert.equal(await editing, true)
+    assert.equal(conversation.pendingInputs.value[0]!.content, later === 'content' ? 'New remote edit' : edited.content)
+    assert.equal(conversation.pendingInputs.value[0]!.status, later === 'pause' ? 'paused' : 'queued')
+    assert.deepEqual(conversation.inputConfirmations.value, [])
+  })
+}
+
+test('a covered input acknowledgement does not overwrite a newer workspace summary', async t => {
+  const post = deferred<unknown>()
+  const input = { id: 'pending', status: 'queued', content: 'Already consumed' }
+  const event: StreamEvent = { sequence: 2, kind: 'input_queued', data: input }
+  const { conversation, sessions, streams } = fixture(t, (path, options) =>
+    path.endsWith('/messages') && options?.method === 'POST' ? post.promise : undefined)
+  await conversation.selectSession(session('a'))
+  conversation.draft.value = input.content
+  const sending = conversation.send()
+  streams.get('a')!.onEvent(event)
+  streams.get('a')!.onEvent({ sequence: 3, kind: 'input_delivered', data: { id: input.id } })
+  sessions.value = sessions.value.map(item => item.id === 'a' ? { ...item, pendingInputCount: 1, inputQueuePaused: true } : item)
+  post.resolve({ input, event }); await sending
+  assert.equal(sessions.value.find(item => item.id === 'a')!.pendingInputCount, 1)
+  assert.equal(conversation.selected.value!.inputQueuePaused, true)
+  assert.deepEqual(conversation.pendingInputs.value, [])
 })

@@ -139,6 +139,11 @@ It includes current execution/pending state, the latest formal reply sequence, b
 Older root progress outside the recent event page is included separately from its pagination boundary.
 Full outputs, execution indexes, feedback, and context estimates load independently and cannot gate the SSE subscription.
 
+The same transaction supplies `queuedInputs`: every current queued/paused input, with only its ID, status, text and optional image count, not terminal history or delivery configuration.
+Queue HTTP confirmations and SSE records use one reducer; confirmations newer than stream coverage are projected in sequence over the canonical queue and retired when events or a snapshot cover them.
+This preserves immediate accepted-operation feedback without letting older events, replies or recovery snapshots revive delivered/deleted inputs; confirmations never advance the conversation cursor or repeat withdrawal draft/attachment restoration.
+The existing HTTP submission busy state is unchanged; there is no second synchronization loading phase or separate queue refresh, and same-boundary checkpoints compare canonical queue count/pause state rather than future HTTP projections.
+
 SSE `record` frames carry `afterSequence`, the preceding delivered boundary, so a missing frame can be detected without assuming contiguous stored sequences after rollback.
 Separate `sync` frames report committed state after initial catch-up, every 15 seconds, and after execution completion or rollback.
 Records through each checkpoint are sent first; the checkpoint never advances the browser's applied cursor.

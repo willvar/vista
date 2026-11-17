@@ -1,12 +1,12 @@
 import type { Page } from '@playwright/test'
-import type { ConversationSnapshot, Message, Session, StreamEvent } from '../src/client/types'
+import type { ConversationSnapshot, Message, QueuedInput, Session, StreamEvent } from '../src/client/types'
 
 // A mock core read must describe the same saved state as its message/events
 // endpoints. Tests with delayed loads should delay this whole view together.
-export function coreSnapshot(session: Session, messages: Message[] = [], events: StreamEvent[] = []): ConversationSnapshot {
-  return { session: { ...session, latestReplySequence: Math.max(0, ...messages.filter(message => message.role === 'assistant').map(message => message.sequence)) },
+export function coreSnapshot(session: Session, messages: Message[] = [], events: StreamEvent[] = [], inputs: QueuedInput[] = []): ConversationSnapshot {
+  return { session: { ...session, pendingInputCount: inputs.filter(item => ['queued', 'paused'].includes(item.status)).length, latestReplySequence: Math.max(0, ...messages.filter(message => message.role === 'assistant').map(message => message.sequence)) },
     throughSequence: Math.max(0, ...messages.map(message => message.sequence), ...events.map(event => event.sequence)),
-    messages, events, hasOlder: false, hasOlderEvents: false }
+    messages, events, queuedInputs: inputs.filter(item => ['queued', 'paused'].includes(item.status)), hasOlder: false, hasOlderEvents: false }
 }
 
 // Keep fixture streams open with valid checkpoints. Deliberate mutations can

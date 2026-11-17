@@ -357,6 +357,23 @@ func syncInputQueueState(ctx context.Context, tx *gorm.DB, sessionID string) err
 	return err
 }
 
+// PendingInput is the current composer's projection, not delivery configuration
+// or retained input history. Read it on the transaction-local snapshot Store.
+type PendingInput struct {
+	ID         string `json:"id"`
+	Status     string `json:"status"`
+	Content    string `json:"content"`
+	ImageCount int    `json:"imageCount,omitempty"`
+}
+
+func (s *Store) PendingInputs(ctx context.Context, sessionID string) ([]PendingInput, error) {
+	out := []PendingInput{}
+	err := s.orm.WithContext(ctx).Table("queued_inputs").Select("id,status,content,image_count").
+		Where("session_id = ? AND status IN ?", sessionID, []string{"queued", "paused"}).
+		Order("created_at,id").Find(&out).Error
+	return out, err
+}
+
 func (s *Store) RecentInputs(ctx context.Context, sessionID string) ([]QueuedInput, error) {
 	rows, err := s.orm.WithContext(ctx).Raw("SELECT id,session_id,run_id,model_key,reasoning_effort,selection_mode,selection_tier,status,content,image_count,created_at,debug FROM queued_inputs WHERE session_id=? AND (status IN ('queued','paused') OR id IN (SELECT id FROM queued_inputs WHERE session_id=? AND status NOT IN ('queued','paused') ORDER BY created_at DESC,id DESC LIMIT 20)) ORDER BY created_at,id", sessionID, sessionID).Rows()
 	if err != nil {

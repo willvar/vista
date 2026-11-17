@@ -1,6 +1,7 @@
 import type { Artifact, Job, Message, ModelDraft, ModelInfo, ModelResultView, OutputView, QueuedInput, RunProgress, Session, StreamEvent } from '../client/types'
 import { jobActive } from './jobs.ts'
 import { reduceMainOutputEvent, type MainOutputRecord } from './mainOutputs.ts'
+import { isInputQueueEvent, projectInputQueue, reduceInputQueue } from './inputQueue.ts'
 
 export type ReplyTraceSegment = {
   key: string
@@ -63,6 +64,8 @@ export type ConversationState = {
   modelResults: ModelResultView[]
   modelOutput: Record<string, OutputView>
   queuedInputs: QueuedInput[]
+  inputQueuePaused: boolean
+  inputConfirmations: StreamEvent[]
   activeRunID: string
   activeRunSequence: number
   runProgress: RunProgress | null
@@ -81,7 +84,7 @@ export type ConversationState = {
 export function createConversationState(selected: Session | null = null): ConversationState {
   return {
     selected, messages: [], processEvents: [], modelDrafts: [], mainOutputs: [], modelResults: [], modelOutput: {},
-    queuedInputs: [], activeRunID: '', activeRunSequence: 0,
+    queuedInputs: [], inputQueuePaused: !!selected?.inputQueuePaused, inputConfirmations: [], activeRunID: '', activeRunSequence: 0,
     runProgress: null, runClock: null, summaryStart: null, jobs: [], artifacts: [], modelByRun: {},
     lastEvent: 0, latestMessageSequence: 0, hasOlder: false, hasNewer: false, finishedRuns: {},
   }
@@ -145,6 +148,9 @@ export function runResults(runId: string, messages: readonly Message[], modelRes
 export function reduceConversationEvent(state: ConversationState, event: StreamEvent): ConversationState {
   if (event.sequence <= state.lastEvent) return state
   let next: ConversationState = { ...state, lastEvent: event.sequence }
+  if (state.inputConfirmations[0] && state.inputConfirmations[0].sequence <= event.sequence) {
+    next.inputConfirmations = state.inputConfirmations.filter(item => item.sequence > event.sequence)
+  }
   const data = event.data
   if (event.kind === 'checklist' || event.kind === 'tool' && data?.tool?.name?.split('/').at(-1) === 'update_checklist') return next
   const runId: string | undefined = data?.runId
@@ -191,18 +197,14 @@ export function reduceConversationEvent(state: ConversationState, event: StreamE
     next.modelDrafts = next.modelDrafts.map(draft => draft.runId === runId && draft.turn === data.turn && draft.depth === depth ? { ...draft, finished: true } : draft)
     next.modelResults = [...next.modelResults, { sequence: event.sequence, runId, turn: data.turn, depth, createdAt: event.createdAt, ...(data.taskId ? { taskId: data.taskId, parentTaskId: data.parentTaskId } : {}), purpose: result.purpose, provider: result.provider, id: result.id, finishReason: result.finishReason, reasoningEffort: result.reasoningEffort, usage: result.usage, durationMs: result.durationMs, firstTokenMs: result.firstTokenMs, summary: result.summary }]
   }
-  if (['input_queued', 'input_updated', 'input_status'].includes(event.kind) && data?.id) {
-    const existing = next.queuedInputs.some(input => input.id === data.id)
-    next.queuedInputs = existing ? next.queuedInputs.map(input => input.id === data.id ? { ...input, ...data } : input)
-      : data.content !== undefined ? [...next.queuedInputs, data as QueuedInput] : next.queuedInputs
+  if (isInputQueueEvent(event)) {
+    const queue = reduceInputQueue({ items: next.queuedInputs, paused: next.inputQueuePaused }, event)
+    next.queuedInputs = queue.items
+    next.inputQueuePaused = queue.paused
+    const projected = projectInputQueue(next)
+    if (next.selected) next.selected = { ...next.selected,
+      inputQueuePaused: projected.paused, pendingInputCount: projected.items.length }
   }
-  if (event.kind === 'input_delivered' && data?.id) next.queuedInputs = next.queuedInputs.filter(input => input.id !== data.id)
-  if (event.kind === 'input_queue_state') {
-    if (next.selected) next.selected = { ...next.selected, inputQueuePaused: !!data?.paused }
-    if (!data?.paused) next.queuedInputs = next.queuedInputs.map(input => input.status === 'paused' ? { ...input, status: 'queued' } : input)
-  }
-  if (event.kind.startsWith('input_') && next.selected) next.selected = { ...next.selected,
-    pendingInputCount: next.queuedInputs.filter(input => ['queued', 'paused'].includes(input.status)).length }
   if (event.kind === 'context_status' && runId && !depth && data.phase === 'compacting') next.summaryStart = { runId, sequence: event.sequence }
   if (event.kind === 'model_request' && runId && !depth && (!data.taskId || data.taskId === 'main') && data.purpose === 'summary') {
     next.summaryStart = { runId, sequence: next.summaryStart?.runId === runId ? next.summaryStart.sequence : 0,

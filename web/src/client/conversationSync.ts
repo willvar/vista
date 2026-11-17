@@ -12,6 +12,7 @@ export type ConversationSyncDiagnostics = {
 type Options = {
   client: VistaClient; sessionId: string; scope?: number; signal: AbortSignal
   cursor: () => number; replySequence: () => number
+  inputQueue: () => { count: number; paused: boolean }
   applyEvent: (event: StreamEvent, live: boolean) => void
   applySnapshot: (snapshot: ConversationSnapshot) => void
   applyCheckpoint?: (checkpoint: SyncCheckpoint) => void
@@ -50,11 +51,18 @@ export function createConversationSync(options: Options) {
   function active() { return !disposed && !signal.aborted }
   function validate(snapshot: ConversationSnapshot) {
     if (!snapshot || snapshot.session?.id !== sessionId || !Number.isSafeInteger(snapshot.throughSequence) || snapshot.throughSequence < 0
-      || !Array.isArray(snapshot.messages) || !Array.isArray(snapshot.events)
+      || !Array.isArray(snapshot.messages) || !Array.isArray(snapshot.events) || !Array.isArray(snapshot.queuedInputs)
+      || snapshot.queuedInputs.some(input => !input.id || typeof input.content !== 'string' || !['queued', 'paused'].includes(input.status))
+      || new Set(snapshot.queuedInputs.map(input => input.id)).size !== snapshot.queuedInputs.length
       || snapshot.messages.some(message => !message.id || typeof message.content !== 'string' || !Number.isSafeInteger(message.sequence) || message.sequence <= 0 || message.sequence > snapshot.throughSequence)
       || snapshot.events.some(event => !Number.isSafeInteger(event.sequence) || event.sequence <= 0 || event.sequence > snapshot.throughSequence || typeof event.kind !== 'string' || !event.data || typeof event.data !== 'object')) {
       throw new Error('Invalid conversation snapshot')
     }
+  }
+  function queueMismatch(point: SyncCheckpoint) {
+    if (point.throughSequence !== options.cursor()) return false
+    const queue = options.inputQueue()
+    return queue.count !== (point.session.pendingInputCount || 0) || queue.paused !== !!point.session.inputQueuePaused
   }
   async function rebuild() {
     const snapshot = await read<ConversationSnapshot>(`${base}/snapshot`)
@@ -97,7 +105,7 @@ export function createConversationSync(options: Options) {
               if (target !== undefined && options.cursor() >= target || target === undefined && events.length < 100) break
               if (events.length < 100) throw new Error('Conversation replay did not reach checkpoint')
             }
-            if (checkpoint && options.replySequence() < (checkpoint.session.latestReplySequence || 0)) await rebuild()
+            if (checkpoint && (options.replySequence() < (checkpoint.session.latestReplySequence || 0) || queueMismatch(checkpoint))) await rebuild()
             diagnostic('replay applied')
           } catch (error) {
             if (!active()) return
@@ -135,7 +143,7 @@ export function createConversationSync(options: Options) {
         checkpoint = point
         diagnostic('checkpoint')
         if (point.throughSequence < options.cursor()) return // A newer snapshot/replay can win the race.
-        if (point.throughSequence > options.cursor() || options.replySequence() < (point.session.latestReplySequence || 0)) {
+        if (point.throughSequence > options.cursor() || options.replySequence() < (point.session.latestReplySequence || 0) || queueMismatch(point)) {
           if (point.throughSequence === options.cursor()) snapshotRequired = true
           throw new Error('Conversation is behind the server checkpoint')
         }

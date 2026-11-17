@@ -239,3 +239,131 @@ func TestSnapshotReadViewDoesNotMixConcurrentCommits(t *testing.T) {
 		t.Fatalf("new commit not visible: %+v", after)
 	}
 }
+
+func TestConversationSnapshotOwnsCompletePendingQueue(t *testing.T) {
+	s := revertStore(t)
+	ctx := context.Background()
+	if _, _, err := s.BeginRun(ctx, "s", "r", "u", "Start"); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := s.QueueInput(ctx, "s", "delivered", "Not pending"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.DeliverInput(ctx, "s", "r", "delivered", "delivered-message"); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 32; i++ {
+		if _, _, err := s.QueueInput(ctx, "s", fmt.Sprintf("pending-%02d", i), "Keep pending"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := s.MarkQueuedInputs(ctx, "s", "r", "interrupted"); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := s.QueueInput(ctx, "s", "fresh", "New deliverable input"); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 110; i++ {
+		if _, err := s.AppendModelDelta(ctx, "s", "r", 1, 1, "child"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	view, err := s.ConversationSnapshot(ctx, "s")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(view.QueuedInputs) != 33 || view.Session.PendingInputCount != 33 || !view.Session.InputQueuePaused {
+		t.Fatalf("incomplete pending snapshot: %+v", view)
+	}
+	paused, queued := 0, 0
+	for _, input := range view.QueuedInputs {
+		switch input.Status {
+		case "paused":
+			paused++
+		case "queued":
+			queued++
+		default:
+			t.Fatalf("retained history in pending snapshot: %+v", input)
+		}
+	}
+	if paused != 32 || queued != 1 {
+		t.Fatalf("pause/delivery distinction lost: %d/%d", paused, queued)
+	}
+	data, err := json.Marshal(view.QueuedInputs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var payload []map[string]any
+	if err := json.Unmarshal(data, &payload); err != nil {
+		t.Fatal(err)
+	}
+	for _, input := range payload {
+		for key := range input {
+			if key != "id" && key != "status" && key != "content" && key != "imageCount" {
+				t.Fatalf("unnecessary queue field: %s", key)
+			}
+		}
+	}
+}
+
+func TestPendingQueueSharesSnapshotReadTransaction(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "queue.db")
+	reader, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reader.Close()
+	writer, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer writer.Close()
+	ctx := context.Background()
+	if _, err := reader.Create(ctx, "s", "Queue"); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := reader.BeginRun(ctx, "s", "r", "u", "Start"); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := reader.QueueInput(ctx, "s", "pending", "Keep"); err != nil {
+		t.Fatal(err)
+	}
+	err = reader.readView(ctx, func(view *Store) error {
+		point, err := view.checkpoint(ctx, "s")
+		if err != nil {
+			return err
+		}
+		if _, err := writer.DeliverInput(ctx, "s", "r", "pending", "follow-up"); err != nil {
+			return err
+		}
+		inputs, err := view.PendingInputs(ctx, "s")
+		if err != nil {
+			return err
+		}
+		if point.Session.PendingInputCount != 1 || len(inputs) != 1 || inputs[0].ID != "pending" {
+			t.Fatalf("mixed input views: %+v %+v", point, inputs)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	after, err := reader.ConversationSnapshot(ctx, "s")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if after.Session.PendingInputCount != 0 || len(after.QueuedInputs) != 0 {
+		t.Fatalf("delivery not visible in next snapshot: %+v", after)
+	}
+	data, err := json.Marshal(after)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(data, &fields); err != nil {
+		t.Fatal(err)
+	}
+	if string(fields["queuedInputs"]) != "[]" {
+		t.Fatalf("empty queue is not an explicit array: %s", fields["queuedInputs"])
+	}
+}

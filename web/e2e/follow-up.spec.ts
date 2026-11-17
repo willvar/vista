@@ -1,7 +1,7 @@
 import { coreSnapshot, installConversationStream } from './conversation-fixture'
 import { closeSettings } from './settings-navigation'
 import type { Page } from '@playwright/test'
-import type { Message } from '../src/client/types'
+import type { Message, QueuedInput, StreamEvent } from '../src/client/types'
 import { test, expect } from './fixtures'
 
 type Submission = { content: string }
@@ -24,12 +24,15 @@ async function mockConversation(page: Page, vista: FixtureAPI, options: { cancel
     sequence: 2, kind: 'model_request',
     data: { runId, turn: 1, provider: 'openai-chat', id: vista.modelId, key: 'test' },
   }
+  const events: StreamEvent[] = [modelRequest]
+  const inputs: QueuedInput[] = []
+  let sequence = Math.max(modelRequest.sequence, ...messages.map(message => message.sequence))
   const sent: Submission[] = []
   let executing = true
   let cancelRequests = 0
   let cancelFailures = options.cancelFailures || 0
   const cancelPaths: string[] = []
-  const snapshot = () => coreSnapshot({ ...session, executing }, messages, [modelRequest])
+  const snapshot = () => coreSnapshot({ ...session, executing }, messages, events, inputs)
   const publish = await installConversationStream(page, snapshot)
 
   await page.route('**/api/sessions**', async route => {
@@ -38,9 +41,14 @@ async function mockConversation(page: Page, vista: FixtureAPI, options: { cancel
     if (request.method() === 'POST' && path === `/api/sessions/${session.id}/messages`) {
       const input = request.postDataJSON() as Submission
       sent.push(input)
-      if (executing) return route.fulfill({ json: {
-        input: { id: `follow-up-input-${sent.length}`, status: 'queued', content: input.content },
-      } })
+      if (executing) {
+        const queued = { id: `follow-up-input-${sent.length}`, status: 'queued', content: input.content }
+        const event = { sequence: ++sequence, kind: 'input_queued', data: { ...queued } }
+        inputs.push(queued); events.push(event)
+        await route.fulfill({ status: 202, json: { input: queued, event } })
+        await publish(event)
+        return
+      }
       return route.fulfill({ json: {
         message: { ...user, id: `idle-input-${sent.length}`, sequence: sent.length + 3, content: input.content },
       } })

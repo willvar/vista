@@ -379,7 +379,7 @@ async function mockExecution(page: Page, origin: string, source = replayEvents()
       if (checklist && !recent.some(event => event.sequence === checklist.sequence)) recent.push(checklist)
       recent.sort((a, b) => a.sequence - b.sequence)
       const runtimeStart = [...events].reverse().find(event => event.kind === 'run_started')
-      return reply({ ...checkpoint(), ...(runtimeStart ? { currentRun: { id: runtimeStart.data.runId, startedAt: runtimeStart.createdAt } } : {}), messages: displayMessages(), events: recent, hasOlder: false, hasOlderEvents: events.length >= 100 })
+      return reply({ ...checkpoint(), ...(runtimeStart ? { currentRun: { id: runtimeStart.data.runId, startedAt: runtimeStart.createdAt } } : {}), messages: displayMessages(), events: recent, queuedInputs: [], hasOlder: false, hasOlderEvents: events.length >= 100 })
     }
     if (path === '/model-selection/stats') return reply({ speedScope: 'global', qualityScope: 'user', speedWindowDays: 30, qualityWindowSize: 200, models: [] })
     if (path.endsWith('/messages')) return reply(displayMessages())
@@ -2196,11 +2196,11 @@ test('token usage uses compact K and M values with exact hover counts in English
     const footer = usage.locator('.token-usage')
     await expect(footer).toHaveText(language === 'en'
       ? '· input 7.9M · output 25.5K · cached 6.5M · reasoning 16.9K tokens'
-      : '· 输入 7.9M · 输出 25.5K · 缓存 6.5M · 推理 16.9K 词元')
+      : '· 输入 7.9M · 输出 25.5K · 缓存 6.5M · 推理 16.9K')
     await footer.hover()
     await expect(footer).toHaveAttribute('title', language === 'en'
       ? 'input 7,934,540 · output 25,485 · cached 6,478,336 · reasoning 16,935 tokens'
-      : '输入 7,934,540 · 输出 25,485 · 缓存 6,478,336 · 推理 16,935 词元')
+      : '输入 7,934,540 · 输出 25,485 · 缓存 6,478,336 · 推理 16,935')
     await usage.getByRole('button', { name: language === 'en' ? 'Model usage details' : '模型用量详情', exact: true }).click()
     const details = page.locator('.usage-details')
     await expect(details.locator('.usage-summary dd')).toHaveText(compact)

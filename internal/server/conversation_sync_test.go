@@ -305,3 +305,26 @@ func TestSSECheckpointFollowsCommittedRecordsAndCompletion(t *testing.T) {
 		t.Fatalf("control frames persisted: %d %v", len(stored), err)
 	}
 }
+
+func TestSnapshotAPIIncludesOnlyCurrentInputProjection(t *testing.T) {
+	app, id := inputQueueFixture(t)
+	input, event, err := app.store.QueueInputWithDiagnostics(app.ctx, id, "pending", "Pending text", nil, true, "private-selection", "high", "manual", "quality")
+	if err != nil {
+		t.Fatal(err)
+	}
+	response := httptest.NewRecorder()
+	app.session(response, httptest.NewRequest(http.MethodGet, "/api/sessions/"+id+"/snapshot", nil))
+	var body struct {
+		store.SyncCheckpoint
+		Inputs []map[string]any `json:"queuedInputs"`
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if response.Code != 200 || body.ThroughSequence != event.Sequence || body.Session.PendingInputCount != 1 || len(body.Inputs) != 1 {
+		t.Fatalf("invalid input snapshot: %d %s", response.Code, response.Body.String())
+	}
+	if len(body.Inputs[0]) != 3 || body.Inputs[0]["id"] != input.ID || body.Inputs[0]["content"] != input.Content || body.Inputs[0]["status"] != "queued" {
+		t.Fatalf("unexpected queue payload: %+v", body.Inputs)
+	}
+}

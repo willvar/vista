@@ -58,7 +58,7 @@ async function mockWorkspace(page: Page, origin: string) {
     if (path === '/model-selection/stats') return reply({ speedScope: 'global', qualityScope: 'user', speedWindowDays: 30, qualityWindowSize: 200, models: [] })
     if (path === '/status') return reply({ state: 'running', sessions: { total: 1, open: 1, closed: 0, running: session.executing ? 1 : 0, workers: 1 }, workerMetrics: [{ sessionId: session.id, memory: { heapBytes: 1000000, rssBytes: 4000000, sampledAt: '2026-01-01T12:00:00Z' } }] })
     if (path === '/sessions') return reply([session])
-    if (path.endsWith('/snapshot')) return reply(coreSnapshot(session, messages, events))
+    if (path.endsWith('/snapshot')) return reply(coreSnapshot(session, messages, events, inputs))
     if (path.endsWith('/overview')) return reply({ modelCalls: 1, throughSequence: events.at(-1)?.sequence || 0, startedAt: session.createdAt, events })
     if (path.endsWith('/selection')) {
       if (body.selectionMode && body.selectionMode !== session.selectionMode || body.selectionTier && body.selectionTier !== session.selectionTier) session.selectionReasoningEffort = ''
@@ -77,10 +77,11 @@ async function mockWorkspace(page: Page, origin: string) {
       session.inputQueuePaused = paused
       inputs = inputs.map(item => ({ ...item, status: paused ? 'paused' : 'queued' }))
       for (const input of inputs) events.push({ sequence: ++sequence, kind: 'input_status', data: { id: input.id, status: input.status } })
-      events.push({ sequence: ++sequence, kind: 'input_queue_state', data: { paused } })
+      const queueEvent = { sequence: ++sequence, kind: 'input_queue_state', data: { paused } }
+      events.push(queueEvent)
       if (paused) events.push({ sequence: ++sequence, kind: 'run_finished', data: { runId: 'run-1', status: 'canceled' } })
-      await reply({})
-      await page.evaluate(snapshot => (window as any).pushIterationFixture(snapshot), coreSnapshot(session, messages, events))
+      await reply({ event: queueEvent })
+      await page.evaluate(snapshot => (window as any).pushIterationFixture(snapshot), coreSnapshot(session, messages, events, inputs))
       return
     }
     const inputID = path.match(/\/inputs\/([^/]+)/)?.[1]
@@ -89,11 +90,13 @@ async function mockWorkspace(page: Page, origin: string) {
       if (!input) return route.fulfill({ status: 409, body: 'Already delivered' })
       if (method === 'PATCH') Object.assign(input, body)
       else inputs = inputs.filter(item => item.id !== inputID)
-      return reply({ input, images: [], event: { sequence: ++sequence, kind: method === 'PATCH' ? 'input_updated' : 'input_status', data: { ...input, status: method === 'PATCH' ? input.status : 'deleted' } } })
+      const event = { sequence: ++sequence, kind: method === 'PATCH' ? 'input_updated' : 'input_status', data: { ...input, status: method === 'PATCH' ? input.status : 'deleted' } }
+      events.push(event)
+      return reply({ input, images: [], event })
     }
     if (path.endsWith('/inputs')) return reply(inputs)
     if (path.endsWith('/messages')) {
-      if (method === 'POST') { posts.push(body); const input = { id: `pending-${++sequence}`, status: session.inputQueuePaused ? 'paused' : 'queued', content: body.content }; inputs.push(input); return reply({ input }) }
+      if (method === 'POST') { posts.push(body); const input = { id: `pending-${++sequence}`, status: session.inputQueuePaused ? 'paused' : 'queued', content: body.content }; inputs.push(input); const event = { sequence, kind: 'input_queued', data: input }; events.push(event); return reply({ input, event }) }
       return reply(messages)
     }
     if (path.endsWith('/event-page')) return reply(events)

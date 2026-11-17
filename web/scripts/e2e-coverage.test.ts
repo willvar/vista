@@ -10,7 +10,7 @@ test('local coverage includes consumers, staged/new specs and core smoke', () =>
   for (const path of ['internal/store/compaction.go', 'internal/server/worker_results_context.go']) {
     assert.deepEqual(browserScope([path], files).files, ['compaction.spec.ts', 'conversation-sync.spec.ts', 'execution-flow.spec.ts', 'usage.spec.ts'])
   }
-  for (const path of ['web/src/ConversationSender.vue', 'web/src/ConversationExecution.vue', 'web/src/ConversationRecentMessage.vue', 'web/src/pages/ConversationPage.vue', 'web/src/state/cacheUsage.ts']) {
+  for (const path of ['web/src/ConversationSender.vue', 'web/src/ConversationExecution.vue', 'web/src/ConversationRecentMessage.vue', 'web/src/pages/ConversationPage.vue', 'web/src/state/cacheUsage.ts', 'web/src/state/inputQueue.ts']) {
     assert.deepEqual(browserScope([path], ['layout.spec.ts']).files, ['layout.spec.ts'])
   }
   for (const path of ['internal/server/custom_models.go', 'internal/server/local_models.go', 'internal/server/model_directory.go']) {

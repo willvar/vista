@@ -14,13 +14,13 @@ function deferred<T>() {
 const event = (sequence: number): StreamEvent => ({ sequence, kind: 'message', data: { id: `m${sequence}`, sequence, role: 'assistant' } })
 function snapshot(sequence = 1): ConversationSnapshot {
   return { session: { id: 's', title: '', modelKey: '', open: true, running: false, executing: false, createdAt: '', latestReplySequence: sequence },
-    throughSequence: sequence, messages: [{ id: `m${sequence}`, sequence, runId: 'r', role: 'assistant', content: 'reply', createdAt: '' }], events: [], hasOlder: false, hasOlderEvents: false }
+    throughSequence: sequence, messages: [{ id: `m${sequence}`, sequence, runId: 'r', role: 'assistant', content: 'reply', createdAt: '' }], events: [], hasOlder: false, queuedInputs: [], hasOlderEvents: false }
 }
 function fixture(t: TestContext, read?: (path: string) => Promise<unknown> | undefined) {
   const controller = new AbortController()
   t.after(() => controller.abort())
   const requests: string[] = [], streams: EventStreamOptions[] = [], applied: number[] = [], rebuilt: number[] = []
-  let cursor = 0, reply = 0, failEvent = false
+  let cursor = 0, reply = 0, failEvent = false, queueCount = 0, queuePaused = false
   let status: ConversationSyncStatus = { phase: 'connecting' }
   let diagnostics: ConversationSyncDiagnostics | undefined
   const client: VistaClient = {
@@ -33,13 +33,13 @@ function fixture(t: TestContext, read?: (path: string) => Promise<unknown> | und
     async streamEvents(_id, options) { streams.push(options); await options.beforeConnect?.() },
   }
   const sync = createConversationSync({ client, sessionId: 's', signal: controller.signal,
-    cursor: () => cursor, replySequence: () => reply,
+    cursor: () => cursor, replySequence: () => reply, inputQueue: () => ({ count: queueCount, paused: queuePaused }),
     applyEvent(item) { if (failEvent) throw new Error('apply failed'); applied.push(item.sequence); cursor = item.sequence; reply = item.sequence },
-    applySnapshot(view) { rebuilt.push(view.throughSequence); cursor = view.throughSequence; reply = view.session.latestReplySequence || 0 },
+    applySnapshot(view) { queueCount = view.queuedInputs.length; queuePaused = !!view.session.inputQueuePaused; rebuilt.push(view.throughSequence); cursor = view.throughSequence; reply = view.session.latestReplySequence || 0 },
     status(value) { status = value }, diagnostics(value) { diagnostics = value },
   })
   return { sync, requests, streams, applied, rebuilt, controller, get cursor() { return cursor }, get status() { return status },
-    get diagnostics() { return diagnostics! }, fail() { failEvent = true } }
+    get diagnostics() { return diagnostics! }, corruptQueue(count: number, paused = false) { queueCount = count; queuePaused = paused }, fail() { failEvent = true } }
 }
 
 test('checkpoint checks progress without advancing the cursor and bounded replay repairs missed replies', async t => {
@@ -171,3 +171,30 @@ test('diagnostics are bounded and rendering diagnostics do not initiate recovery
   assert.equal(f.diagnostics.history[0]!.error!.length, 2000)
   assert.equal(f.requests.length, reads)
 })
+
+for (const inconsistent of ['count', 'pause'] as const) {
+  test(`same-boundary queue ${inconsistent} mismatch rebuilds saved state without mutations`, async t => {
+    const f = fixture(t)
+    await f.sync.start()
+    f.corruptQueue(inconsistent === 'count' ? 1 : 0, inconsistent === 'pause')
+    const stream = f.streams[0]!
+    assert.throws(() => stream.onCheckpoint!({ throughSequence: 1, session: snapshot().session }), /behind/)
+    stream.onError!(new Error('queue mismatch'))
+    await stream.beforeConnect!()
+    await stream.onCheckpoint!({ throughSequence: 1, session: snapshot().session })
+    assert.deepEqual(f.rebuilt, [1, 1])
+    assert.equal(f.status.phase, 'ready')
+    assert.equal(f.requests.filter(path => path.endsWith('/snapshot')).length, 2)
+  })
+}
+
+for (const queuedInputs of [undefined, null, [{ id: 'x', content: 'old', status: 'delivered' }], [{ id: 'x', content: 'one', status: 'queued' }, { id: 'x', content: 'two', status: 'paused' }]]) {
+  test(`invalid queue snapshot ${JSON.stringify(queuedInputs)} is not acknowledged`, async t => {
+    const f = fixture(t, () => Promise.resolve({ ...snapshot(), queuedInputs }))
+    await f.sync.start()
+    await new Promise(resolve => setImmediate(resolve))
+    assert.equal(f.cursor, 0)
+    assert.equal(f.status.phase, 'error')
+    assert.match(f.status.error || '', /Invalid conversation snapshot/)
+  })
+}

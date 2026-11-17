@@ -19,6 +19,7 @@ type ConversationSnapshot struct {
 	SyncCheckpoint
 	Messages       []Message         `json:"messages"`
 	Events         []Event           `json:"events"`
+	QueuedInputs   []PendingInput    `json:"queuedInputs"`
 	HasOlder       bool              `json:"hasOlder"`
 	HasOlderEvents bool              `json:"hasOlderEvents"`
 	EventsBefore   int64             `json:"eventsBefore"`
@@ -86,6 +87,9 @@ func (s *Store) ConversationSnapshot(ctx context.Context, id string) (Conversati
 	var snapshot ConversationSnapshot
 	err := s.readView(ctx, func(view *Store) (err error) {
 		if snapshot.SyncCheckpoint, err = view.checkpoint(ctx, id); err != nil {
+			return err
+		}
+		if snapshot.QueuedInputs, err = view.PendingInputs(ctx, id); err != nil {
 			return err
 		}
 		if snapshot.Messages, err = view.DisplayMessagesBefore(ctx, id, 0, 100); err != nil {

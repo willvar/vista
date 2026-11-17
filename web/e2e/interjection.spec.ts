@@ -73,3 +73,52 @@ test('a follow-up preserves the preceding streamed answer in conversation order'
     release()
   }
 })
+
+test('delivered input never returns to pending when its HTTP confirmation arrives last @responsive', async ({ page, vista }) => {
+  await vista.api('/preferences', { method: 'PATCH', body: JSON.stringify({ feedbackInvitationSeen: true }) })
+  const session = await vista.api('/sessions', { method: 'POST', body: '{}' })
+  let releaseHTTP!: () => void, accepted!: () => void
+  const responseGate = new Promise<void>(resolve => { releaseHTTP = resolve })
+  const acceptedGate = new Promise<void>(resolve => { accepted = resolve })
+  let posts = 0, inputReads = 0, snapshotReads = 0
+  page.on('request', request => {
+    const path = new URL(request.url()).pathname
+    if (path.endsWith('/inputs') && request.method() === 'GET') inputReads++
+    if (path.endsWith('/snapshot')) snapshotReads++
+  })
+  await page.route(`**/api/sessions/${session.id}/messages`, async route => {
+    if (route.request().method() !== 'POST') return route.continue()
+    posts++
+    if (route.request().postDataJSON().content !== 'Follow-up delivered before confirmation') return route.continue()
+    const response = await route.fetch()
+    expect(response.status()).toBe(202)
+    accepted()
+    await responseGate
+    await route.fulfill({ response })
+  })
+  await page.goto(`${vista.origin}/sessions/${session.id}`)
+  const sender = page.locator('.sender-card textarea')
+  const releaseModel = vista.pauseModelReplies(true)
+  try {
+    await sender.fill('First question')
+    await sender.press('Enter')
+    await expect(page.locator('.live-response')).toContainText('Mock reply: First question')
+    await sender.fill('Follow-up delivered before confirmation')
+    await sender.press('Enter')
+    await acceptedGate
+    releaseModel()
+    await expect(page.locator('article.user .markdown').last()).toHaveText('Follow-up delivered before confirmation')
+    await expect(page.locator('.pending-input')).toHaveCount(0)
+    releaseHTTP()
+    await expect(sender).toHaveValue('')
+    await expect(page.locator('article.assistant')).toHaveCount(2)
+    await expect(page.locator('.composer-send')).not.toHaveAttribute('aria-busy', 'true')
+    await expect(page.locator('.pending-input')).toHaveCount(0)
+    await expect(page.locator('.conversation-sync-notice')).toHaveCount(0)
+    const messages = await vista.api(`/sessions/${session.id}/messages`)
+    expect(messages.filter((message: any) => message.role === 'user').map((message: any) => message.content)).toEqual(['First question', 'Follow-up delivered before confirmation'])
+    expect(posts).toBe(2)
+    expect(inputReads).toBe(0)
+    expect(snapshotReads).toBe(1)
+  } finally { releaseModel(); releaseHTTP() }
+})

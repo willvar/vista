@@ -9,6 +9,7 @@ import { conversationItems, displayBodyVersion, displayOutputKey, hydrateMainOut
 import { useInteractionPreferences, type InteractionPreferences, type SelectionMode, type SelectionTier } from './useInteractionPreferences.ts'
 import { formatQuotedReply, quoteStoragePrefix, readQuotedReply, type QuotedReply, type QuotedText } from '../state/quotedReply.ts'
 import { reasoningChoiceLabel } from '../ui/reasoning.ts'
+import { confirmInputEvent, projectInputQueue } from '../state/inputQueue.ts'
 import { jobActive } from '../state/jobs.ts'
 import { initialModelKey, visibleModels } from '../state/modelVisibility.ts'
 import { failureAnalysisPrompt, type FailureContext } from '../state/failureAnalysis.ts'
@@ -80,8 +81,9 @@ export function useConversation({ client, sessions, modelCatalog, error, busy, r
   const mainOutputRequests = new Map<string, Promise<MainOutputRecord>>()
   const indexedRuns = new Map<string, { request: Promise<void> }>()
   const displayMessages = computed(() => conversationItems(messages.value, state.mainOutputs, state.hasOlder, state.hasNewer))
-  const pendingInputs = computed(() => state.queuedInputs.filter(item => ['queued', 'paused', 'delivering'].includes(item.status)))
-  const inputQueuePaused = computed(() => !!selected.value?.inputQueuePaused || pendingInputs.value.some(item => item.status === 'paused'))
+  const inputQueue = computed(() => projectInputQueue(state))
+  const pendingInputs = computed(() => inputQueue.value.items)
+  const inputQueuePaused = computed(() => inputQueue.value.paused)
   const selectedReasoningKey = computed(() => selectedModelInfo.value?.id || '')
   const selectedReasoning = computed({
     get: () => {
@@ -213,7 +215,6 @@ export function useConversation({ client, sessions, modelCatalog, error, busy, r
     return t(key || 'agentStarting')
   })
   const hasTaskDetails = computed(() => !!(olderActivity.value.some(event => !hasVisibleRun(event.data?.runId)) || hasOlderActivity.value))
-  let inputRevision = 0
   let currentScope: Scope | null = null
   let generation = 0
   let busyOwner: symbol | null = null
@@ -302,7 +303,6 @@ export function useConversation({ client, sessions, modelCatalog, error, busy, r
     if (event.sequence <= state.lastEvent) return
     const scope = currentScope
     if (!Number.isSafeInteger(event.sequence) || typeof event.kind !== 'string' || !event.data || typeof event.data !== 'object') throw new Error('Invalid conversation event')
-    if (event.kind.startsWith('input_')) inputRevision++
     const next = reduceConversationEvent(state, event)
     Object.assign(state, next)
     const reply = event.kind === 'run_finished' ? event.data.message : event.kind === 'message' ? event.data : null
@@ -339,7 +339,7 @@ export function useConversation({ client, sessions, modelCatalog, error, busy, r
     } catch (failure) { scope?.sync?.diagnostic('event side effect failed', failure) }
   }
   function applySnapshot(scope: Scope, snapshot: ConversationSnapshot) {
-    if (!current(scope)) return
+    if (!current(scope) || snapshot.throughSequence < state.lastEvent) return
     // Routing can start from a workspace list captured before the first send.
     // Restore the saved choice once, unless the user has since edited it.
     // Locally created first-send scopes keep their not-yet-persisted choice.
@@ -359,11 +359,18 @@ export function useConversation({ client, sessions, modelCatalog, error, busy, r
     next.runClock = snapshot.currentRun || (next.activeRunID ? { id: next.activeRunID, startedAt: snapshot.messages.find(message => message.role === 'user' && message.runId === next.activeRunID)?.createdAt || '' } : null)
     next.latestMessageSequence = snapshot.messages.at(-1)?.sequence || 0
     next.hasOlder = snapshot.hasOlder
-    next.jobs = old.jobs; next.artifacts = old.artifacts; next.queuedInputs = old.queuedInputs
+    next.jobs = old.jobs; next.artifacts = old.artifacts
     for (const event of snapshot.events) next = reduceConversationEvent(next, event)
     next.lastEvent = snapshot.throughSequence
+    // The transaction owns the queue at this boundary, including inputs whose
+    // lifecycle records are outside the recent event window. Retain only HTTP
+    // confirmations that this snapshot has not covered yet.
+    next.queuedInputs = snapshot.queuedInputs
+    next.inputQueuePaused = !!snapshot.session.inputQueuePaused
+    next.inputConfirmations = old.inputConfirmations.filter(event => event.sequence > snapshot.throughSequence)
+    const queue = projectInputQueue(next)
     // The database snapshot wins over older lifecycle records in its event window.
-    next.selected = updated
+    next.selected = { ...updated, inputQueuePaused: queue.paused, pendingInputCount: queue.items.length }
     if (!updated.executing && next.activeRunID) {
       next.finishedRuns = { ...next.finishedRuns, [next.activeRunID]: true }
       next.runProgress = { runId: next.activeRunID, phase: 'finished' }
@@ -418,6 +425,7 @@ export function useConversation({ client, sessions, modelCatalog, error, busy, r
     if (!scope.sync) scope.sync = createConversationSync({
       client, sessionId: scope.id, scope: scope.generation, signal: scope.controller.signal,
       cursor: () => state.lastEvent, replySequence: () => acknowledgedReplySequence,
+      inputQueue: () => ({ count: state.queuedInputs.length, paused: state.inputQueuePaused }),
       applyEvent: (event, live) => { if (current(scope)) handleEvent(event, live) },
       applySnapshot: snapshot => applySnapshot(scope, snapshot),
       applyCheckpoint: point => {
@@ -431,6 +439,8 @@ export function useConversation({ client, sessions, modelCatalog, error, busy, r
           verified.pendingReply = previous.pendingReply
           verified.latestRunStatus = previous.latestRunStatus
         }
+        const queue = inputQueue.value
+        verified.inputQueuePaused = queue.paused; verified.pendingInputCount = queue.items.length
         selected.value = verified
         sessions.value = sessions.value.map(item => item.id === scope.id ? verified : item)
       },
@@ -610,18 +620,15 @@ export function useConversation({ client, sessions, modelCatalog, error, busy, r
   async function refreshConversation() {
     const scope = currentScope
     if (!scope || !current(scope)) return
-    const revision = inputRevision
     const jobsBefore = new Map(state.jobs.map(job => [job.id, job]))
     const artifactsBefore = new Map(state.artifacts.map(artifact => [artifact.id, artifact]))
     const view = viewRevision.value
     try {
-      const [inputs, sessionJobs, sessionArtifacts] = await Promise.all([
-        request<QueuedInput[]>(scope, `/sessions/${scope.id}/inputs`),
+      const [sessionJobs, sessionArtifacts] = await Promise.all([
         request<Job[]>(scope, `/sessions/${scope.id}/jobs`),
         request<Artifact[]>(scope, `/sessions/${scope.id}/artifacts`),
       ])
       if (!current(scope) || view !== viewRevision.value) return
-      if (revision === inputRevision) state.queuedInputs = inputs
       // Preserve entries changed by SSE while still loading unrelated history.
       state.jobs = mergeOutputSnapshot(sessionJobs, state.jobs, jobsBefore)
         .sort((a, b) => Number(jobActive(b)) - Number(jobActive(a))).slice(0, 200)
@@ -889,6 +896,9 @@ export function useConversation({ client, sessions, modelCatalog, error, busy, r
   function removeQuote(id: number) {
     if (!busy.value && quotedReply.value) quotedReply.value = { ...quotedReply.value, items: quotedTexts.value.filter(quote => quote.id !== id) }
   }
+  function applyInputConfirmation(event: StreamEvent) {
+    state.inputConfirmations = confirmInputEvent(state.inputConfirmations, event, state.lastEvent)
+  }
   async function applySentMessage(scope: Scope, result: SendMessageResult) {
     if (!current(scope)) return
     if (state.hasNewer) { await selectSession(selected.value!); return }
@@ -901,7 +911,7 @@ export function useConversation({ client, sessions, modelCatalog, error, busy, r
       if (state.runProgress?.runId !== result.runId) state.runProgress = { runId: result.runId, phase: 'starting' }
       if (selected.value) selected.value = { ...selected.value, executing: true, pendingReply: undefined }
     }
-    if (result.input) state.queuedInputs = [...state.queuedInputs.filter(input => input.id !== result.input!.id), result.input]
+    if (result.input) applyInputConfirmation(result.event)
     error.value = ''
   }
   async function send() {
@@ -1097,12 +1107,11 @@ export function useConversation({ client, sessions, modelCatalog, error, busy, r
     if (!scope || !current(scope) || pendingBusy.value[input.id]) return false
     pendingBusy.value = { ...pendingBusy.value, [input.id]: true }
     try {
-      const result = await request<{ input: QueuedInput; event?: StreamEvent; images?: Array<{ mediaType: string; hash: string; name?: string }> }>(scope,
+      const result = await request<{ input: QueuedInput; event: StreamEvent; images?: Array<{ mediaType: string; hash: string; name?: string }> }>(scope,
         `/sessions/${scope.id}/inputs/${input.id}${action === 'withdraw' ? '/withdraw' : ''}`,
         { method: action === 'edit' ? 'PATCH' : action === 'delete' ? 'DELETE' : 'POST', ...(patch ? { body: JSON.stringify(patch) } : {}) })
       if (!current(scope)) return false
-      inputRevision++
-      state.queuedInputs = action === 'edit' ? state.queuedInputs.map(item => item.id === input.id ? result.input : item) : state.queuedInputs.filter(item => item.id !== input.id)
+      applyInputConfirmation(result.event)
       if (action === 'withdraw') {
         draft.value = [draft.value, result.input.content].filter(Boolean).join('\n\n')
         const files = await Promise.all((result.images || []).map(async (image, index) => {
@@ -1114,14 +1123,15 @@ export function useConversation({ client, sessions, modelCatalog, error, busy, r
       }
       error.value = ''
       return true
-    } catch (failure) { report(scope, failure); if (current(scope)) await refreshConversation(); return false }
+    } catch (failure) { report(scope, failure); if (current(scope)) scope.sync?.reconnect('input conflict', true); return false }
     finally { if (current(scope)) pendingBusy.value = { ...pendingBusy.value, [input.id]: false } }
   }
   async function resumeInputs() {
     const scope = currentScope
     if (!scope || !current(scope)) return
     try {
-      await request(scope, `/sessions/${scope.id}/inputs/resume`, { method: 'POST', body: '{}' })
+      const result = await request<{ event: StreamEvent }>(scope, `/sessions/${scope.id}/inputs/resume`, { method: 'POST', body: '{}' })
+      if (current(scope)) applyInputConfirmation(result.event)
     } catch (failure) { report(scope, failure) }
   }
   function loadFullModelOutput(message: Message): Promise<OutputView> {
