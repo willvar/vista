@@ -5,7 +5,7 @@ import { Button } from './ui'
 import { IconChevronRight, IconCircleCheck, IconLoader2, IconCircleX, IconPlayerStop } from '@tabler/icons-vue'
 import type { TraceNodeView as Node } from './ui/traceTypes'
 import type { RunTraceNode } from './state/runTrace'
-import { compactTraceText, reasoningDisplayText } from './state/runTrace'
+import { compactTraceText, reasoningDisplayText, toolSummaryText } from './state/runTrace'
 import { renderMarkdown } from './ui/markdown'
 import TraceResultCard from './TraceResultCard.vue'
 import PlainTextOutput from './PlainTextOutput.vue'
@@ -20,7 +20,7 @@ const ToolOutput = () => slots['tool-output']?.({ node: props.item, expanded: pr
 const collapsible = computed(() => ['tool', 'source'].includes(props.item.kind))
 const markdown = computed(() => renderMarkdown(props.item.kind === 'reasoning' ? reasoningDisplayText(props.item.body) : props.item.body))
 const inputText = computed(() => props.item.kind === 'tool' ? props.item.input?.command || props.item.summary || '' : props.item.kind === 'source' ? props.item.body : '')
-const inputPreview = computed(() => compactTraceText(inputText.value))
+const inputPreview = computed(() => compactTraceText(toolSummaryText(props.item.toolName, inputText.value)))
 const longInput = computed(() => inputPreview.value !== inputText.value.replace(/\s+/g, ' ').trim() || inputText.value.includes('\n'))
 function toggle() { if (collapsible.value) emit('expand', props.expanded ? [] : [props.item.key]) }
 </script>

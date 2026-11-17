@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import type { StreamEvent } from '../client/types.ts'
-import { buildRunTrace, buildTraceAgentHierarchy, projectToolOutput, reasoningDisplayText, toolOperationLabelKey, type RunTraceTask } from './runTrace.ts'
+import { buildRunTrace, buildTraceAgentHierarchy, projectToolOutput, reasoningDisplayText, toolOperationLabelKey, toolSummaryText, type RunTraceTask } from './runTrace.ts'
 
 test('patch results retain committed file diffs even when later writes failed', () => {
   const files = [
@@ -490,6 +490,29 @@ test('empty skills have readable summaries and internal planning is absent from 
   assert.equal(skills.body, 'Review\nRead code\nskills/review/SKILL.md')
   assert.equal(projectToolOutput('{"temperature":22}', 'mcp_call_tool').body, '{\n  "temperature": 22\n}')
   assert.equal(projectToolOutput('{"path":"a.txt","sha256":"digest"}', 'write_file').body, '')
+})
+
+test('skill input previews use a short name without changing trace metadata or output', () => {
+  for (const [path, name] of [
+    ['/home/user/.config/vista/skills/ponytail/SKILL.md', 'ponytail'],
+    ['C:\\Users\\user\\skills\\review\\SKILL.md', 'review'],
+    ['skills/review/SKILL.md', 'review'],
+    ['skill://system/vista-guide/SKILL.md', 'vista-guide'],
+    ['skill://system/vista-guide/references/settings.md', 'vista-guide'],
+    ['/workspace/review/references/example.md', 'example.md'],
+    ['review', 'review'],
+    ['SKILL.md', 'SKILL.md'],
+    ['', ''],
+  ]) {
+    const tool = { callId: 'skill', name: 'subagent/read_skill', summary: path }
+    const content = JSON.stringify({ path, content: 'Full instructions', nextOffset: 17 })
+    const trace = buildRunTrace([event(1, 'tool', { status: 'succeeded', tool, content })], options)
+    assert.equal(toolSummaryText(tool.name, path), name)
+    assert.equal(trace.nodes[0]?.summary, path)
+    assert.equal(trace.nodes[0]?.rawBody, content)
+    assert.equal(trace.nodes[0]?.eventData.tool.summary, path)
+    assert.equal(toolSummaryText('read_file', path), path)
+  }
 })
 
 test('tool command information survives completion events without duplicating the output body', () => {

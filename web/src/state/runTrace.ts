@@ -97,6 +97,14 @@ export function compactTraceText(text = '', limit = 110): string {
   const line = text.replace(/\s+/g, ' ').trim()
   return line.length > limit ? line.slice(0, limit - 1) + '…' : line
 }
+export function toolSummaryText(name: string | undefined, summary = ''): string {
+  if (toolOperationLabelKey(name) !== 'traceOpReadSkill') return summary
+  const path = summary.replaceAll('\\', '/').replace(/\/+$/, '')
+  const system = path.match(/^skill:\/\/system\/([^/]+)/)?.[1]
+  if (system) return system
+  const parts = path.split('/')
+  return (parts.at(-1)?.toLowerCase() === 'skill.md' ? parts.at(-2) : parts.at(-1)) || summary
+}
 export function reasoningDisplayText(content: string): string {
   // Older traces joined complete summary headings without their paragraph
   // boundaries. Repair only unambiguous heading-only text for display;

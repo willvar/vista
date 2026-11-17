@@ -4,7 +4,7 @@ import { VistaAPIError } from '../client/vista.ts'
 import { createConversationSync, type ConversationSyncStatus, type ConversationSyncDiagnostics } from '../client/conversationSync.ts'
 import type { Artifact, ConversationSnapshot, CompactionStatus, ContextUsage, Job, MainOutput, Message, ModelCatalog, OutputView, QuestionAnswer, QueuedInput, SendMessageResult, Session, StreamEvent } from '../client/types'
 import { appendMessage, createConversationState, messageResults, runResults, pruneConversationWindow, reduceConversationEvent, replyTraceSegments } from '../state/conversation.ts'
-import { toolOperationLabelKey, compactTraceText } from '../state/runTrace.ts'
+import { toolOperationLabelKey, compactTraceText, toolSummaryText } from '../state/runTrace.ts'
 import { conversationItems, displayBodyVersion, displayOutputKey, hydrateMainOutput, mainOutputKey, mainOutputText, mergeMainOutputs, type ConversationItem, type MainOutputRecord } from '../state/mainOutputs.ts'
 import { useInteractionPreferences, type InteractionPreferences, type SelectionMode, type SelectionTier } from './useInteractionPreferences.ts'
 import { formatQuotedReply, quoteStoragePrefix, readQuotedReply, type QuotedReply, type QuotedText } from '../state/quotedReply.ts'
@@ -210,7 +210,7 @@ export function useConversation({ client, sessions, modelCatalog, error, busy, r
     if (compacting.value) return t('contextCompacting')
     const progress = runProgress.value?.runId === activeRunID.value ? runProgress.value : null
     if (progress?.phase === 'retry' && progress.retry) return t('modelRetryWaiting', progress.retry)
-    if (progress?.phase === 'tool') return [t(toolOperationLabelKey(progress.tool)), compactTraceText(progress.summary, 90)].filter(Boolean).join(' · ')
+    if (progress?.phase === 'tool') return [t(toolOperationLabelKey(progress.tool)), compactTraceText(toolSummaryText(progress.tool, progress.summary), 90)].filter(Boolean).join(' · ')
     const key = { model: 'agentWaitingModel', reasoning: 'agentReasoning', response: 'agentResponding', processing: 'agentProcessing' }[progress?.phase as 'model' | 'reasoning' | 'response' | 'processing']
     return t(key || 'agentStarting')
   })

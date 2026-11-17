@@ -2392,3 +2392,30 @@ sourceTest('a failed Markdown renderer displays escaped plain text and retains c
   await expect(reply.locator('.markdown script')).toHaveCount(0)
   await expect(reply.getByRole('button', { name: 'Copy reply', exact: true })).toBeEnabled()
 })
+
+
+test('skill step headers show names while expanded details retain the source paths', { tag: '@responsive' }, async ({ page, mockOrigin }) => {
+  const runId = 'run-skill-display'
+  const paths = ['/home/user/.config/vista/skills/ponytail/SKILL.md', 'skill://system/vista-guide/SKILL.md']
+  const events: StreamEvent[] = [{ sequence: 1, kind: 'message', createdAt: '2026-01-01T12:00:00Z',
+    data: { runId, id: 'skill-user', role: 'user', sequence: 1, content: 'Read the available skills.', createdAt: '2026-01-01T12:00:00Z' } }]
+  for (const [index, path] of paths.entries()) events.push({ sequence: index + 2, kind: 'tool', createdAt: '2026-01-01T12:00:01Z',
+    data: { runId, taskId: 'main', turn: 1, status: 'succeeded', tool: { callId: `skill-${index}`, name: 'read_skill', summary: path },
+      content: JSON.stringify({ path, content: 'Complete skill instructions.', nextOffset: 28 }) } })
+  const fixture = await mockExecution(page, mockOrigin, events)
+  for (let pass = 0; pass < 2; pass++) {
+    if (pass) await page.reload()
+    const trace = page.locator(`.run-trace[data-run-id="${runId}"]`)
+    for (const [index, name] of ['ponytail', 'vista-guide'].entries()) {
+      const title = nodeTitle(trace, runId, `tool/main/skill-${index}`)
+      await expect(title.locator('.trace-input-preview')).toHaveText(name)
+      const header = title.locator('xpath=ancestor::button[1]')
+      await expect(header).toHaveAttribute('title', paths[index]!)
+      if (await header.getAttribute('aria-expanded') !== 'true') await header.click()
+      const details = trace.locator(`[id="${await header.getAttribute('aria-controls')}"]`)
+      await expect(details.locator('.trace-input-full')).toHaveText(paths[index]!)
+      await expect(details).toContainText('Complete skill instructions.')
+    }
+  }
+  expect(fixture.unexpected).toEqual([])
+})

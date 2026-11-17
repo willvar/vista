@@ -634,6 +634,19 @@ test('snapshot restores root execution while preserving recent child tokens and 
   assert.equal(conversation.modelDrafts.value[0]?.content, 'Preserve recent tokens and live tokens')
 })
 
+test('active skill progress uses the skill name while canonical progress keeps the full path', async t => {
+  const { conversation, streams } = fixture(t)
+  await conversation.selectSession(session('a'))
+  const path = '/home/user/.config/vista/skills/ponytail/SKILL.md'
+  const stream = streams.get('a')!
+  stream.onEvent({ sequence: 2, kind: 'message', data: message('skill-user', 2, 'run-skill') })
+  stream.onEvent({ sequence: 3, kind: 'tool', data: {
+    runId: 'run-skill', taskId: 'main', status: 'started', tool: { callId: 'skill', name: 'read_skill', summary: path },
+  } })
+  assert.equal(conversation.agentStatus.value, 'traceOpReadSkill · ponytail')
+  assert.equal(conversation.runProgress.value?.summary, path)
+})
+
 test('steering and a final reply keep execution details on the original user message', async t => {
   const { conversation, streams } = fixture(t)
   await conversation.selectSession(session('a'))
