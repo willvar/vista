@@ -47,6 +47,8 @@ test('question submission preserves the displayed choice across a delayed openin
     await opening
     const form = page.locator('.sender-card .question-form')
     await expect(form).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Reply with text', exact: true })).toHaveCount(0)
+    await expect(page.locator('.sender-card .ui-sender-input')).toBeHidden()
     await expect(page.locator('.composer-tier')).toContainText('Quality')
     await form.getByRole('radio', { name: 'Keep local', exact: true }).check()
     await form.getByRole('button', { name: 'Next question', exact: true }).click()
@@ -230,7 +232,7 @@ test('question tabs switch one panel at a time with keyboard navigation and redu
   expect(vista.modelRequests).toHaveLength(1)
 })
 
-test('typing a normal message replaces a pending question and rejects its stale form', async ({ page, vista }) => {
+test('an ordinary message from another client replaces a pending question and rejects its stale form', async ({ page, vista }) => {
   await vista.api('/preferences', { method: 'PATCH', body: JSON.stringify({ feedbackInvitationSeen: true }) })
   await page.reload()
   const sender = page.locator('.sender-card .ui-sender-input')
@@ -240,9 +242,10 @@ test('typing a normal message replaces a pending question and rejects its stale 
   await expect(form).toBeVisible()
   const runId = await form.getAttribute('data-run-id')
   const sessionId = new URL(page.url()).pathname.split('/').at(-1)!
-  await page.getByRole('button', { name: 'Reply with text', exact: true }).click()
-  await sender.fill('Skip those choices and use my text')
-  await sender.press('Enter')
+  await expect(page.getByRole('button', { name: 'Reply with text', exact: true })).toHaveCount(0)
+  await vista.api(`/sessions/${sessionId}/messages`, {
+    method: 'POST', body: JSON.stringify({ content: 'Skip those choices and use my text' }),
+  })
   await expect(form).toHaveCount(0)
   await expect(page.locator('article.assistant .markdown').filter({ hasText: 'Mock reply:' })).toHaveText('Mock reply: Skip those choices and use my text')
   const stale = await fetch(`${vista.origin}/api/sessions/${sessionId}/messages`, {

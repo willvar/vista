@@ -69,13 +69,6 @@ watch(editingMessage, async message => {
   await nextTick()
   if (activeInputKey.value === id) sender.value?.focus({ cursor: 'end', preventScroll: true })
 }, { flush: 'post' })
-async function showTextReply() {
-  const view = inputViewKey.value
-  inputEdited.value = true
-  questionComposer.showText()
-  await nextTick()
-  if (view && activeInputKey.value === view) sender.value?.focus({ preventScroll: true })
-}
 async function showAnswers() {
   if (busy.value || composing.value) return
   const key = questionKey.value, view = inputViewKey.value
@@ -238,7 +231,6 @@ onUnmounted(() => {
             </div>
 
             <div class="sender-actions">
-            <v-button v-if="answering" type="button" variant="text" :disabled="busy" @click="showTextReply">{{ t('questionReplyWithText') }}</v-button>
              <div v-show="!answering" class="composer-submit">
               <v-tooltip v-if="canAttachImage" :title="t('addImagesHint')"><span class="sender-attach">
                 <v-button class="icon-button" variant="text" :aria-label="t('addImage')" :disabled="imageInputDisabled" @click="imageInput?.click()"><IconPhoto /><span class="sender-attach-label">{{ t('addImage') }}</span></v-button>
