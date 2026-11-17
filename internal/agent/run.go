@@ -62,13 +62,7 @@ func runWithInputSource(ctx context.Context, command workerproto.Command, emit f
 }
 
 func runWithScope(ctx context.Context, command workerproto.Command, emit func(workerproto.Result) error, inputs <-chan workerproto.Command, nextInput func(*workerproto.CompletedReply) (*workerproto.Command, error), jobs *tools.BackgroundManager, scope *runScope) (string, error) {
-	var emitMu sync.Mutex
-	safeEmit := func(result workerproto.Result) error {
-		emitMu.Lock()
-		defer emitMu.Unlock()
-		return emit(result)
-	}
-	return run(ctx, command, safeEmit, scope, 0, inputs, nextInput, jobs, false)
+	return run(ctx, command, emit, scope, 0, inputs, nextInput, jobs, false)
 }
 
 func run(ctx context.Context, command workerproto.Command, emit func(workerproto.Result) error, scope *runScope, depth int, inputs <-chan workerproto.Command, nextInput func(*workerproto.CompletedReply) (*workerproto.Command, error), jobs *tools.BackgroundManager, taskStarted bool) (answer string, runErr error) {
@@ -89,8 +83,13 @@ func run(ctx context.Context, command workerproto.Command, emit func(workerproto
 	if scope.events == nil {
 		scope.events = newRuntimeMailbox()
 	}
+	var completion checklistCompletion
+	var emitMu sync.Mutex
 	parentEmit := emit
 	emit = func(result workerproto.Result) error {
+		// Keep snapshot replacement in the same order as persistence ACKs.
+		emitMu.Lock()
+		defer emitMu.Unlock()
 		if result.TaskID == "" {
 			result.TaskID, result.ParentTaskID, result.Depth = command.TaskID, command.ParentTaskID, depth
 			prefix := ""
@@ -112,7 +111,11 @@ func run(ctx context.Context, command workerproto.Command, emit func(workerproto
 				result.Artifact = &copy
 			}
 		}
-		return parentEmit(result)
+		if err := parentEmit(result); err != nil {
+			return err
+		}
+		completion.observe(result)
+		return nil
 	}
 	task := workerproto.AgentTask{ID: command.TaskID, ParentID: command.ParentTaskID, Join: command.Join, Title: textPrefix(command.Prompt, 300), Status: "started"}
 	if depth > 0 {
@@ -156,6 +159,7 @@ func run(ctx context.Context, command workerproto.Command, emit func(workerproto
 	}
 	messages := prepared.messages
 	if depth == 0 {
+		completion.replace(prepared.checklist)
 		if err := retainPromptPrefix(command, scope.modelTurns.Load()+1, prepared.prefix, emit); err != nil {
 			return "", err
 		}
@@ -214,6 +218,7 @@ func run(ctx context.Context, command workerproto.Command, emit func(workerproto
 				ctx = replylanguage.WithDefault(ctx, input.ReplyLanguage)
 			}
 			messages = append(messages, (provider.ChatMessage{Role: "user", Content: input.Prompt, Resources: input.Images}).WithVisualInput(true))
+			completion.madeProgress()
 			if nextInput == nil && input.Model.Provider != "" {
 				command.Model = provider.ForPurpose(input.Model, purpose)
 			}
@@ -257,6 +262,9 @@ func run(ctx context.Context, command workerproto.Command, emit func(workerproto
 				return 0, err
 			}
 			messages = append(messages, notice)
+			if !event.ModelOnly {
+				completion.madeProgress()
+			}
 			scope.events.acknowledge(event)
 			scope.delegations.collectedEvent(event)
 		}
@@ -617,7 +625,21 @@ turnLoop:
 					}
 				}
 			}
+			if err := ctx.Err(); err != nil {
+				return "", err
+			}
 			if depth == 0 {
+				notice, err := completion.check()
+				if err != nil {
+					return "", err
+				}
+				if notice.Content != "" {
+					if err := retainModelMessage(command, turnID, "join", 0, notice, depth, emit); err != nil {
+						return "", err
+					}
+					messages = append(messages, notice)
+					continue turnLoop
+				}
 				completed := workerproto.Result{RunID: command.RunID, Kind: "model_complete"}
 				if hasText {
 					completed.Turn, completed.FullBytes = turnID, len(turn.Text)

@@ -12,6 +12,8 @@ const stateParent = join(process.cwd(), '.vista', 'test-state')
 mkdirSync(stateParent, { recursive: true })
 const state = mkdtempSync(join(stateParent, 'vista-checklist-'))
 const items = [{ text: 'Inspect input', status: 'done' }, { text: 'Verify output', status: 'in_progress' }]
+const completed = items.map(item => ({ ...item, status: 'done' }))
+const unfinished = [{ text: 'Private unfinished work', status: 'pending' }]
 let calls = 0
 const provider = createServer(async (request, response) => {
   try {
@@ -21,25 +23,34 @@ const provider = createServer(async (request, response) => {
     const body = JSON.parse(raw)
     if (!body.tools?.some(item => item.function?.name === 'update_checklist')) throw new Error('checklist tool missing')
     calls++
-    if ([3, 4].includes(calls) && body.messages.some(message => message.role === 'system' && message.content?.includes('Inspect input'))) throw new Error('new run inherited the previous checklist in its system prompt')
+    if ([4, 5].includes(calls) && body.messages.some(message => message.role === 'system' && message.content?.includes('Inspect input'))) throw new Error('new run inherited the previous checklist in its system prompt')
     response.writeHead(200, { 'Content-Type': 'text/event-stream' })
-    if ([1, 4, 5].includes(calls)) {
-      const next = calls === 5 ? [] : items
+    if ([1, 5, 6].includes(calls)) {
+      const next = calls === 6 ? [] : items
       const chunk = { choices: [{ delta: { tool_calls: [{ index: 0, id: `check_${calls}`, type: 'function', function: { name: 'update_checklist', arguments: JSON.stringify({ items: next }) } }] }, finish_reason: 'tool_calls' }] }
       response.end(`data: ${JSON.stringify(chunk)}\n\ndata: [DONE]\n\n`)
-    } else if (calls === 2 || calls === 6) {
+    } else if (calls === 2 || calls === 7) {
       if (body.messages.at(-1)?.role !== 'tool') throw new Error('checklist result was not sent to model')
       response.end('data: {"choices":[{"delta":{"content":"Checklist acknowledged."},"finish_reason":"stop"}]}\n\ndata: [DONE]\n\n')
     } else if (calls === 3) {
-      response.end('data: {"choices":[{"delta":{"content":"No checklist needed."},"finish_reason":"stop"}]}\n\ndata: [DONE]\n\n')
-    } else if (calls === 7) {
-      const chunk = { choices: [{ delta: { content: 'Final answer with checklist.', tool_calls: [{ index: 0, id: 'check_7', type: 'function', function: { name: 'update_checklist', arguments: JSON.stringify({ items: items.map(item => ({ ...item, status: 'done' })), finish: true }) } }] }, finish_reason: 'tool_calls' }] }
+      if (body.messages.at(-1)?.role !== 'user' || !body.messages.at(-1)?.content?.includes('Verify output')) throw new Error('unfinished checklist did not trigger internal continuation')
+      const chunk = { choices: [{ delta: { content: 'Verification completed.', tool_calls: [{ index: 0, id: 'reconcile', type: 'function', function: { name: 'update_checklist', arguments: JSON.stringify({ items: completed, finish: true }) } }] }, finish_reason: 'tool_calls' }] }
       response.end(`data: ${JSON.stringify(chunk)}\n\ndata: [DONE]\n\n`)
+    } else if (calls === 4) {
+      response.end('data: {"choices":[{"delta":{"content":"No checklist needed."},"finish_reason":"stop"}]}\n\ndata: [DONE]\n\n')
     } else if (calls === 8) {
+      const chunk = { choices: [{ delta: { content: 'Final answer with checklist.', tool_calls: [{ index: 0, id: 'check_8', type: 'function', function: { name: 'update_checklist', arguments: JSON.stringify({ items: completed, finish: true }) } }] }, finish_reason: 'tool_calls' }] }
+      response.end(`data: ${JSON.stringify(chunk)}\n\ndata: [DONE]\n\n`)
+    } else if (calls === 9) {
       const answers = body.messages.filter(message => message.role === 'assistant' && message.content === 'Final answer with checklist.')
-      const paired = body.messages.filter(message => message.role === 'tool' && message.tool_call_id === 'check_7' && JSON.parse(message.content).finish === true)
+      const paired = body.messages.filter(message => message.role === 'tool' && message.tool_call_id === 'check_8' && JSON.parse(message.content).finish === true)
       if (answers.length !== 1 || paired.length !== 1) throw new Error('final answer/checklist history was lost or duplicated after restart')
       response.end('data: {"choices":[{"delta":{"content":"Final state retained."},"finish_reason":"stop"}]}\n\ndata: [DONE]\n\n')
+    } else if (calls === 10) {
+      const chunk = { choices: [{ delta: { content: 'Unfinished.', tool_calls: [{ index: 0, id: 'unfinished', type: 'function', function: { name: 'update_checklist', arguments: JSON.stringify({ items: unfinished, finish: true }) } }] }, finish_reason: 'tool_calls' }] }
+      response.end(`data: ${JSON.stringify(chunk)}\n\ndata: [DONE]\n\n`)
+    } else if (calls === 11 || calls === 12) {
+      response.end('data: {"choices":[{"delta":{"content":"Premature finish."},"finish_reason":"stop"}]}\n\ndata: [DONE]\n\n')
     } else throw new Error('unexpected model call')
   } catch (error) {
     if (response.headersSent) response.destroy(error)
@@ -63,14 +74,16 @@ try {
   }
   let api = await start()
   const session = await api('/sessions', { method: 'POST', body: JSON.stringify({ title: 'checklist' }) })
-  async function run(prompt, expected, expectedText) {
+  async function run(prompt, expected, expectedText, expectedStatus = 'succeeded') {
     const sent = await api(`/sessions/${session.id}/messages`, { method: 'POST', body: JSON.stringify({ content: prompt }) })
     let finished = false
     for (let i = 0; i < 250; i++) {
       const events = await api(`/sessions/${session.id}/event-page?after=${sent.event.sequence}`)
-      finished = events.some(event => event.kind === 'run_finished' && event.data.runId === sent.runId && event.data.status === 'succeeded')
+      finished = events.some(event => event.kind === 'run_finished' && event.data.runId === sent.runId && event.data.status === expectedStatus)
       if (finished) {
         if (events.some(event => event.kind === 'checklist' || event.kind === 'tool' && event.data.tool?.name === 'update_checklist')) throw new Error('internal checklist exposed through HTTP')
+        if (JSON.stringify(events).includes('Private unfinished work')) throw new Error('completion recovery exposed private checklist content')
+        if (expectedStatus === 'failed' && !events.some(event => event.kind === 'run_finished' && event.data.runId === sent.runId && event.data.message?.content?.includes('unfinished work'))) throw new Error('stalled completion was not reported as incomplete')
         if (expectedText && !events.some(event => event.kind === 'run_finished' && event.data.runId === sent.runId && event.data.message?.role === 'assistant' && event.data.message.content === expectedText)) throw new Error('final answer was not persisted with its checklist')
         break
       }
@@ -85,7 +98,7 @@ try {
     if(JSON.stringify(actual)!==JSON.stringify(expected)) throw new Error('internal checklist not persisted')
     return sent.runId
   }
-  const firstRun = await run('create checklist', items)
+  const firstRun = await run('create checklist', completed, 'Verification completed.')
   await promisify(execFile)(binary, ['stop'], { env })
   started = false
   api = await start()
@@ -93,15 +106,17 @@ try {
   if (overview.events.some(event=>event.kind==='checklist')) throw new Error('restart exposed internal plan')
   await run('answer without a checklist')
   await run('create and clear checklist', [])
-  if (calls !== 6) throw new Error(`unexpected model call count: ${calls}`)
-  await run('finish checklist with the answer', items.map(item => ({ ...item, status: 'done' })), 'Final answer with checklist.')
-  if (calls !== 7) throw new Error(`final checklist added an unnecessary model request: ${calls}`)
+  if (calls !== 7) throw new Error(`unexpected model call count: ${calls}`)
+  await run('finish checklist with the answer', completed, 'Final answer with checklist.')
+  if (calls !== 8) throw new Error(`final checklist added an unnecessary model request: ${calls}`)
   await promisify(execFile)(binary, ['stop'], { env })
   started = false
   api = await start()
   await run('recall the final state', undefined, 'Final state retained.')
-  if (calls !== 8) throw new Error(`unexpected replay model call count: ${calls}`)
-  console.log('Run checklist isolation, persistence, replay, clear and single-response completion passed')
+  if (calls !== 9) throw new Error(`unexpected replay model call count: ${calls}`)
+  await run('unfinished work must not loop forever', unfinished, undefined, 'failed')
+  if (calls !== 12) throw new Error(`unbounded completion recovery: ${calls}`)
+  console.log('Run checklist isolation, persistence, replay, clear, completion continuation and stalled-work bounds passed')
 } catch (error) {
   try { console.error(readFileSync(join(state, 'vista', 'state', 'server.log'), 'utf8')) } catch {}
   throw error

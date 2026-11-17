@@ -159,7 +159,11 @@ func TestAgentContinuesBeyondChecklistUpdateBudget(t *testing.T) {
 	model := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		turn := requests.Add(1)
 		if turn <= 12 {
-			arguments := fmt.Sprintf(`{"items":[{"text":"Step %d","status":"in_progress"}]}`, turn)
+			status := "in_progress"
+			if turn == 12 {
+				status = "done"
+			}
+			arguments := fmt.Sprintf(`{"items":[{"text":"Step %d","status":"%s"}]}`, turn, status)
 			continuationEvent(w, mcpToolEvent(fmt.Sprintf("checklist-%d", turn), "update_checklist", arguments))
 			return
 		}
@@ -189,7 +193,7 @@ func TestAgentContinuesBeyondChecklistUpdateBudget(t *testing.T) {
 		t.Fatalf("checklist continuation: answer=%q updates=%d requests=%d err=%v", answer, updates, requests.Load(), err)
 	}
 	items, err := db.RunChecklist(context.Background(), command.SessionID, command.RunID)
-	if err != nil || len(items) != 1 || items[0].Text != "Step 12" {
+	if err != nil || len(items) != 1 || items[0].Text != "Step 12" || items[0].Status != "done" {
 		t.Fatalf("final checklist: items=%+v err=%v", items, err)
 	}
 }
@@ -243,7 +247,7 @@ func TestChecklistUpdateMayRunAlongsideOtherTools(t *testing.T) {
 		if toolResults != 2 {
 			t.Errorf("mixed checklist turn returned %d tool results", toolResults)
 		}
-		continuationAnswer(w, "both tools completed")
+		checklistTextTurn(w, "both tools completed", scriptedToolCall("resolved", "update_checklist", `{"items":[{"text":"Inspect the source","status":"done"}],"finish":true}`))
 	}))
 	defer model.Close()
 
@@ -387,11 +391,16 @@ func TestSlowChecklistCompletionRemainsModelOnly(t *testing.T) {
 	}
 	var requests atomic.Int32
 	model := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		if requests.Add(1) == 1 {
+		n := requests.Add(1)
+		if n == 1 {
 			continuationEvent(w, mcpToolEvent("private", "update_checklist", `{"items":[{"text":"Private plan","status":"pending"}]}`))
 			return
 		}
-		continuationAnswer(w, "done")
+		if n == 2 {
+			continuationAnswer(w, "done")
+			return
+		}
+		checklistTextTurn(w, "done", scriptedToolCall("resolved", "update_checklist", `{"items":[{"text":"Private plan","status":"done"}],"finish":true}`))
 	}))
 	defer model.Close()
 	command := continuationCommand(model.URL, "work")
@@ -399,9 +408,10 @@ func TestSlowChecklistCompletionRemainsModelOnly(t *testing.T) {
 	var marked atomic.Bool
 	_, err = Run(ctx, command, func(result workerproto.Result) error {
 		if result.Kind == "checklist" {
-			time.Sleep(1100 * time.Millisecond)
-			_, err := db.ReplaceChecklist(ctx, "session", "continuation-run", []store.ChecklistItem{{Text: "Private plan", Status: "pending"}})
-			return err
+			if result.Checklist.Items[0].Status == "pending" {
+				time.Sleep(1100 * time.Millisecond)
+			}
+			return persistTestChecklist(db, command, result)
 		}
 		if result.Kind == "runtime_event" && result.RuntimeEvent.Kind == "tool" {
 			if !result.RuntimeEvent.ModelOnly {

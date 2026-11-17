@@ -88,7 +88,7 @@ const provider = createServer(async (request, response) => {
         // Final-looking text yields to pending task reports without a wait tool.
       default: {
         assert.ok(mainRequests <= 9, 'extra inference without a new completion')
-        const reports = body.messages.filter(message => message.role === 'system' && message.content.includes('"kind":"agent"')).map(message => message.content).join('\n')
+        const reports = body.messages.filter(message => message.role === 'user' && message.content.startsWith('Runtime completion event.') && message.content.includes('"kind":"agent"')).map(message => message.content).join('\n')
         if (reports.includes('Conclusion: fast evidence') && !resultsSeen.includes('fast')) {
           resultsSeen.push('fast')
           releaseSlow()

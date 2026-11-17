@@ -42,6 +42,7 @@ function isUserInput(message: { role: string; content: unknown }) {
     && !String(message.content).startsWith('Runtime attachments from ')
     && !String(message.content).startsWith('Vista service restart.')
     && !String(message.content).startsWith('Current run checklist snapshot (context data,')
+    && !String(message.content).startsWith('Completion check: unresolved work remains in the current run checklist.')
 }
 
 const execute = promisify(execFile)

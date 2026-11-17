@@ -144,6 +144,10 @@ func TestChecklistFinishDoesNotEndOnProgressInvalidCallsOrSaveFailure(t *testing
 						t.Error("invalid or failed finish was not returned to the model")
 					}
 				}
+				if kind == "progress" {
+					checklistTextTurn(w, "Recovered.", scriptedToolCall("resolved", "update_checklist", `{"items":[{"text":"Work","status":"done"}],"finish":true}`))
+					return
+				}
 				continuationAnswer(w, "Recovered.")
 			}))
 			defer model.Close()
@@ -170,7 +174,7 @@ func TestChecklistFinishStillConsumesNewInputsAndRuntimeResults(t *testing.T) {
 			var pending, delivered atomic.Bool
 			model := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				if requests.Add(1) == 1 {
-					checklistTextTurn(w, "Initial answer.", scriptedToolCall("finish", "update_checklist", `{"items":[],"finish":true}`))
+					checklistTextTurn(w, "Initial answer.", scriptedToolCall("finish", "update_checklist", `{"items":[{"text":"Synthesize required evidence","status":"pending"}],"finish":true}`))
 					return
 				}
 				var body struct{ Messages []provider.ChatMessage }
@@ -182,7 +186,7 @@ func TestChecklistFinishStillConsumesNewInputsAndRuntimeResults(t *testing.T) {
 				if !found {
 					t.Error("finish omitted new input/result")
 				}
-				continuationAnswer(w, "Updated answer.")
+				checklistTextTurn(w, "Updated answer.", scriptedToolCall("resolved", "update_checklist", `{"items":[{"text":"Synthesize required evidence","status":"done"}],"finish":true}`))
 			}))
 			defer model.Close()
 			command := continuationCommand(model.URL, "Work.")
@@ -265,7 +269,7 @@ func TestChecklistFinishStillWaitsForRequiredChild(t *testing.T) {
 		case 1:
 			continuationEvent(w, mcpToolEvent("child", "delegate", `{"task":"child"}`))
 		case 2:
-			checklistTextTurn(w, "Initial answer.", scriptedToolCall("finish", "update_checklist", `{"items":[],"finish":true}`))
+			checklistTextTurn(w, "Initial answer.", scriptedToolCall("finish", "update_checklist", `{"items":[{"text":"Synthesize required evidence","status":"pending"}],"finish":true}`))
 		default:
 			found := false
 			for _, m := range body.Messages {
@@ -274,7 +278,7 @@ func TestChecklistFinishStillWaitsForRequiredChild(t *testing.T) {
 			if !found {
 				t.Error("final checklist skipped required child evidence")
 			}
-			continuationAnswer(w, "Answer with child evidence.")
+			checklistTextTurn(w, "Answer with child evidence.", scriptedToolCall("resolved", "update_checklist", `{"items":[{"text":"Synthesize required evidence","status":"done"}],"finish":true}`))
 		}
 	}))
 	defer model.Close()

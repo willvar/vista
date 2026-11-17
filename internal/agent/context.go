@@ -41,6 +41,7 @@ type preparedContext struct {
 	prefix       []provider.ChatMessage
 	tools        toolSet
 	schemas      []map[string]any
+	checklist    []workerproto.ChecklistItem
 	awaitingUser bool
 	instructions projectInstructionState
 }
@@ -73,6 +74,7 @@ func prepareContext(ctx context.Context, command workerproto.Command, emit func(
 	}
 	var awaitingUser bool
 	var checklistSnapshot string
+	var checklistItems []workerproto.ChecklistItem
 	if command.SessionID != "" {
 		db, err := store.OpenReadOnly(filepath.Join(stateDir, "vista.db"))
 		if err != nil {
@@ -105,6 +107,9 @@ func prepareContext(ctx context.Context, command workerproto.Command, emit func(
 		}
 		if closeErr != nil {
 			return preparedContext{}, closeErr
+		}
+		for _, item := range checklist {
+			checklistItems = append(checklistItems, workerproto.ChecklistItem{Text: item.Text, Status: item.Status})
 		}
 		if len(checklist) > 0 {
 			encoded, err := json.Marshal(checklist)
@@ -166,7 +171,7 @@ func prepareContext(ctx context.Context, command workerproto.Command, emit func(
 			prefix = append(prefix, data)
 		}
 	}
-	return preparedContext{messages: messages, systemBase: messages[0].Content, prefix: prefix, tools: toolset, schemas: toolSchemas, awaitingUser: awaitingUser, instructions: instructions}, nil
+	return preparedContext{messages: messages, systemBase: messages[0].Content, prefix: prefix, tools: toolset, schemas: toolSchemas, checklist: checklistItems, awaitingUser: awaitingUser, instructions: instructions}, nil
 }
 
 func (prepared preparedContext) applyModel(messages []provider.ChatMessage, model modelcfg.Model) []map[string]any {
