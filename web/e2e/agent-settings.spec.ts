@@ -130,18 +130,29 @@ test('Personalization saves delegation depth and instructions independently', as
   const dialog = page.getByRole('dialog', { name: 'Delegation depth', exact: true })
   const depth = dialog.getByRole('spinbutton', { name: 'Delegation depth', exact: true })
   const save = dialog.getByRole('button', { name: 'Save changes', exact: true })
+  await expect.poll(() => dialog.evaluate(element => element.contains(document.activeElement))).toBe(true)
+  async function fillDepth(value: string) {
+    await expect(depth).toBeEditable()
+    await depth.focus()
+    await expect(depth).toBeFocused()
+    // Ark synchronizes its native input and caret in animation frames. Settle
+    // that focus work before fill selects text and inserts it in a later task.
+    await depth.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))))
+    await depth.fill(value)
+    await expect(depth).toHaveValue(value)
+  }
   await expect(depth).toHaveValue('1')
   await expect(depth).toHaveAttribute('aria-valuemin', '0')
   await expect(depth).toHaveAttribute('aria-valuemax', '8')
   await expect(save).toBeDisabled()
   for (const value of [2, 3, 0, 8]) {
     if (value === 0) {
-      await depth.fill('9')
+      await fillDepth('9')
       await expect(save).toBeDisabled()
-      await depth.fill('')
+      await fillDepth('')
       await expect(save).toBeDisabled()
     }
-    await depth.fill(String(value))
+    await fillDepth(String(value))
     if (value === 8) await expect(dialog.getByRole('button', { name: 'Increase value', exact: true })).toBeDisabled()
     await expect(save).toBeEnabled()
     await reachable(save)
