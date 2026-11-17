@@ -914,7 +914,7 @@ export function useConversation({ client, sessions, modelCatalog, error, busy, r
     if (!session && (!interactionPreferences.ready.value || !modelCatalog.value.models.some(model => model.key === selectedModel.value && !!model.provider))) return
     const text = draft.value
     const quote = quotedReply.value
-    const content = formatQuotedReply(text, quote, item => t('quoteNumber', { number: item.id }) + ' · ' + t(item.role === 'assistant' ? 'quotedReply' : 'quotedMessage'))
+    const content = formatQuotedReply(text, quote, (item, number) => t('quoteNumber', { number }) + ' · ' + t(item.role === 'assistant' ? 'quotedReply' : 'quotedMessage'))
     const files = [...attachedImages.value]
     const edited = editingMessage.value
     const modeChoice = selectionMode.value

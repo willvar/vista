@@ -56,11 +56,11 @@ export function sentMessageBody(content: string): string {
   return stripped ? body : content
 }
 
-export function formatQuotedReply(text: string, reply: QuotedReply | null, label: (quote: QuotedExcerpt) => string): string {
+export function formatQuotedReply(text: string, reply: QuotedReply | null, label: (quote: QuotedExcerpt, number: number) => string): string {
   if (!reply?.items.length) return text
-  return reply.items.map(quote => {
+  return reply.items.map((quote, index) => {
     const source = quote.source ? ` · #${quote.source.sequence} · ${quote.source.createdAt}` : ''
     const body = quote.text.replace(/\r\n?/g, '\n').split('\n').map(line => `> ${line}`).join('\n')
-    return `${quote.source ? '' : '> '}${label(quote)}${source}\n${body}`
+    return `${quote.source ? '' : '> '}${label(quote, index + 1)}${source}\n${body}`
   }).join('\n\n') + '\n\n' + text
 }

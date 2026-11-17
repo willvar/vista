@@ -18,8 +18,8 @@ watch(() => props.quotes, async (quotes, previous) => {
   await nextTick()
   if (props.quotes === quotes && list.value) list.value.scrollTop = list.value.scrollHeight
 }, { immediate: true, flush: 'post' })
-// Only presentation state is discarded; selected text and numbering live in
-// the conversation draft and survive page reloads independently.
+// Stable draft IDs preserve identity and expansion; visible numbers follow
+// the current order and never become the removal or source-navigation key.
 
 function toggle(id: number) {
   const next = new Set(expanded.value)
@@ -31,11 +31,11 @@ function toggle(id: number) {
 
 <template>
   <div v-if="props.quotes.length" ref="list" class="sender-quotes" role="group" :aria-label="t('quotedText')">
-    <div v-for="quote in quotes" :key="quote.id" class="sender-quote" :data-quote-id="quote.id">
+    <div v-for="(quote, index) in quotes" :key="quote.id" class="sender-quote" :data-quote-id="quote.id">
       <span class="sender-quote-mark" aria-hidden="true">“</span>
       <div class="sender-quote-body">
         <div class="sender-quote-header">
-          <strong>{{ t('quoteNumber', { number: quote.id }) }}</strong>
+          <strong>{{ t('quoteNumber', { number: index + 1 }) }}</strong>
           <button v-if="quote.source" type="button" class="sender-quote-source" :title="t('viewQuoteSource')" :disabled="disabled" @click="emit('locate', quote)">
             {{ t(quote.role === 'assistant' ? 'quotedReply' : 'quotedMessage') }} · {{ localTime(quote.source.createdAt) }}
           </button>
@@ -44,7 +44,7 @@ function toggle(id: number) {
         <p :id="`quote-preview-${quote.id}`" :class="{ expanded: expanded.has(quote.id) }">{{ quote.text }}</p>
         <button type="button" class="sender-quote-toggle" :aria-expanded="expanded.has(quote.id)" :aria-controls="`quote-preview-${quote.id}`" @click="toggle(quote.id)">{{ t(expanded.has(quote.id) ? 'collapseQuote' : 'expandQuote') }}</button>
       </div>
-      <v-button variant="text" class="icon-button sender-quote-remove icon-close" :aria-label="t('removeQuoteNumber', { number: quote.id })" :disabled="disabled" @click="emit('remove', quote.id)">×</v-button>
+      <v-button variant="text" class="icon-button sender-quote-remove icon-close" :aria-label="t('removeQuoteNumber', { number: index + 1 })" :disabled="disabled" @click="emit('remove', quote.id)">×</v-button>
     </div>
   </div>
 </template>

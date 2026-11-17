@@ -55,3 +55,19 @@ test('restored source-less quotes keep their full text while previews show the q
   assert.equal(sentMessageBody(formatQuotedReply(question, mixed, quote => `Quote ${quote.id}`)), question)
   assert.equal(sentMessageBody(formatQuotedReply('', restored, () => 'Quote 1')), '')
 })
+
+test('draft quote numbers follow the remaining order without changing identity or source', () => {
+  const source = { key: 'message/source', sequence: 8, createdAt: '2026-01-01T12:00:00.000Z' }
+  const reply = { nextId: 10, items: [
+    { id: 2, text: 'First remaining', role: 'assistant' as const, source },
+    { id: 9, text: 'Second remaining', role: 'user' as const },
+  ] }
+  const before = JSON.stringify(reply)
+  const text = formatQuotedReply('Question', reply, (_quote, number) => `Quote ${number}`)
+  assert.equal(text, 'Quote 1 · #8 · 2026-01-01T12:00:00.000Z\n> First remaining\n\n> Quote 2\n> Second remaining\n\nQuestion')
+  assert.equal(JSON.stringify(reply), before)
+  assert.equal(sentMessageBody(text), 'Question')
+  assert.equal(formatQuotedReply('Next', { nextId: 11, items: [reply.items[1]!] }, (_quote, number) => `Quote ${number}`),
+    '> Quote 1\n> Second remaining\n\nNext')
+  assert.equal(formatQuotedReply('No quotes', { nextId: 11, items: [] }, () => 'unused'), 'No quotes')
+})

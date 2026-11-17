@@ -344,8 +344,12 @@ test('sending a restored legacy quote preserves its full text and exposes the qu
 })
 
 test('quotes survive session changes and failed sends, and removing a quote preserves the question', async t => {
-  const { conversation, saved, error } = fixture(t, (path, options) =>
-    options?.method === 'POST' && path.endsWith('/messages') ? Promise.reject(new Error('Send failed')) : undefined)
+  const posted: string[] = []
+  const { conversation, saved, error } = fixture(t, (path, options) => {
+    if (options?.method !== 'POST' || !path.endsWith('/messages')) return
+    posted.push(JSON.parse(String(options.body)).content)
+    return Promise.reject(new Error('Send failed'))
+  })
   saved.set(quoteStoragePrefix + 'a', JSON.stringify({ text: 'Quote A', role: 'assistant' }))
   await conversation.selectSession(session('a'))
   conversation.draft.value = 'Question A'
@@ -362,6 +366,9 @@ test('quotes survive session changes and failed sends, and removing a quote pres
   assert.deepEqual(conversation.quotedTexts.value.map(quote => quote.text), ['Quote A', 'Another quote'])
   conversation.removeQuote(1)
   assert.deepEqual(conversation.quotedTexts.value.map(quote => quote.id), [2])
+  await conversation.send()
+  assert.equal(posted.at(-1), '> Quote 1 · quotedMessage\n> Another quote\n\nQuestion A')
+  assert.equal(conversation.quotedTexts.value[0]?.id, 2, 'Sending a failed draft does not change stable quote identity')
   conversation.removeQuote(2)
   assert.equal(conversation.draft.value, 'Question A')
   assert.deepEqual(JSON.parse(saved.get(quoteStoragePrefix + 'a')!), { items: [], nextId: 3 })
