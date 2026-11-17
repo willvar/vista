@@ -107,6 +107,9 @@ func TestAgentReadsFileThroughModelToolCall(t *testing.T) {
 			t.Fatalf("model request duration missing: %+v", result)
 		}
 	}
+	if results[0].FirstTokenMS != nil || results[1].FirstTokenMS == nil {
+		t.Fatalf("tool-only and text-producing calls lost their independent first-token timing: %+v", results)
+	}
 	if requests != 2 || len(events) != 6 || events[0].Kind != "model_request" || events[1].Status != "started" || events[2].Status != "succeeded" || events[3].Kind != "model_request" || events[4].Kind != "model_delta" || events[4].Content != answer || events[4].Turn != 2 || events[5].Kind != "model_complete" || events[5].FullBytes != len(answer) {
 		t.Fatalf("unexpected execution: requests=%d events=%+v", requests, events)
 	}

@@ -55,9 +55,16 @@ func (r *summaryRequests) request(instructions, prompt string, refinement bool) 
 	}
 	ctx = withModelDiagnostics(ctx, modeltrace.Scope{Enabled: r.command.Debug, SessionID: r.command.SessionID, RunID: r.command.RunID, TaskID: r.command.TaskID, Turn: turnID, Purpose: "summary"}, r.emit)
 	started := time.Now()
-	turn, requestErr := provider.ModelTurnStreamWithReasoning(ctx, model, []provider.ChatMessage{{Role: "system", Content: instructions}, {Role: "user", Content: prompt}}, nil, nil, func(string) error { return nil })
+	var firstTokenMS *float64
+	observeFirstToken := func(fragment string) error {
+		if firstTokenMS == nil && fragment != "" {
+			firstTokenMS = firstTextLatency(started)
+		}
+		return nil
+	}
+	turn, requestErr := provider.ModelTurnStreamWithReasoning(ctx, model, []provider.ChatMessage{{Role: "system", Content: instructions}, {Role: "user", Content: prompt}}, nil, observeFirstToken, observeFirstToken)
 	validation, err := validateCompactionSummary(turn, requestErr)
-	result := &workerproto.ModelResult{Provider: providerID, ID: model.ID, Purpose: "summary", FinishReason: turn.FinishReason, DurationMS: time.Since(started).Seconds() * 1000, ReasoningEffort: provider.ModelReasoningEffort(model), Summary: &workerproto.SummaryResult{
+	result := &workerproto.ModelResult{Provider: providerID, ID: model.ID, Purpose: "summary", FinishReason: turn.FinishReason, DurationMS: time.Since(started).Seconds() * 1000, FirstTokenMS: firstTokenMS, ReasoningEffort: provider.ModelReasoningEffort(model), Summary: &workerproto.SummaryResult{
 		Refinement: refinement, UpstreamFinishReason: turn.FinishReason, Validation: validation,
 		TextBytes: len(turn.Text), EstimatedTokens: provider.EstimateTextTokens(turn.Text), ToolCalls: len(turn.Calls) + len(turn.HostedCalls),
 	}}

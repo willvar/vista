@@ -105,11 +105,12 @@ test('event sequence replay cannot duplicate draft tokens or model usage', () =>
   const state = reduceConversationEvent(started, delta)
   assert.equal(reduceConversationEvent(state, delta), state)
   assert.equal(state.modelDrafts[0].content, 'Hi')
-  const result = { ...event(3, 'model_result', { runId: 'run-a', turn: 1, modelResult: { provider: 'openai-chat', id: 'example', finishReason: 'stop', durationMs: 125, usage: { inputTokens: 11, outputTokens: 2, cacheReadTokens: 0, reasoningTokens: 0 } } }), createdAt: '2026-10-11T01:00:00Z' }
+  const result = { ...event(3, 'model_result', { runId: 'run-a', turn: 1, modelResult: { provider: 'openai-chat', id: 'example', finishReason: 'stop', durationMs: 125, firstTokenMs: 27.5, usage: { inputTokens: 11, outputTokens: 2, cacheReadTokens: 0, reasoningTokens: 0 } } }), createdAt: '2026-10-11T01:00:00Z' }
   const completed = reduceConversationEvent(state, result)
   assert.equal(reduceConversationEvent(completed, result), completed)
   assert.equal(completed.modelResults.length, 1)
   assert.equal(completed.modelResults[0].durationMs, 125)
+  assert.equal(completed.modelResults[0].firstTokenMs, 27.5)
   assert.equal(completed.modelResults[0].createdAt, '2026-10-11T01:00:00Z')
 })
 
@@ -155,7 +156,7 @@ test('final reply replaces its root draft and late deltas do not recreate it', (
 test('stored and live usage join by event sequence only for the message run', () => {
   let state = createConversationState(session)
   const usage = { inputTokens: 100, outputTokens: 20, cacheReadTokens: 10, reasoningTokens: 3 }
-  state = reduceConversationEvent(state, event(1, 'model_result', { runId: 'run-a', turn: 1, modelResult: { provider: 'openai-chat', id: 'model-a', finishReason: 'stop', usage, durationMs: 250 } }))
+  state = reduceConversationEvent(state, event(1, 'model_result', { runId: 'run-a', turn: 1, modelResult: { provider: 'openai-chat', id: 'model-a', finishReason: 'stop', usage, durationMs: 250, firstTokenMs: 0 } }))
   state = reduceConversationEvent(state, event(2, 'model_result', { runId: 'run-b', turn: 1, modelResult: { provider: 'openai-chat', id: 'model-b', finishReason: 'stop' } }))
   const otherRun = state.modelResults[1]
   state = appendMessage(state, message('reply-a', 3, 'run-a', 'assistant'))
@@ -165,6 +166,7 @@ test('stored and live usage join by event sequence only for the message run', ()
   assert.deepEqual(results.map(result => result.sequence), [1])
   assert.deepEqual(results[0].usage, usage)
   assert.equal(results[0].durationMs, 250)
+  assert.equal(results[0].firstTokenMs, 0)
   assert.deepEqual(messageResults(message('user-a', 4, 'run-a'), state.modelResults), [])
 })
 

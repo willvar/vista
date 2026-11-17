@@ -1934,7 +1934,7 @@ test('usage totals stay cumulative and details use timestamps without model-call
   const totals = (await details.locator('.usage-summary').textContent())!
   await expect(details.locator('.usage-summary-heading')).not.toContainText('Child sessions')
   await expect(details.locator('tbody tr')).toHaveCount(20)
-  await expect(details.locator('thead th')).toHaveCount(7)
+  await expect(details.locator('thead th')).toHaveText(['Time', 'Status', 'Input', 'Output', 'Cache', 'Reasoning', 'TTFT', 'TPS'])
   await expect(details.locator('tbody button')).toHaveCount(0)
   await expect(details.locator('tbody tr').first().locator('td').first()).not.toHaveText('—')
   await details.getByRole('button', { name: 'Next', exact: true }).click()

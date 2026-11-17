@@ -24,8 +24,12 @@ func TestFirstTextLatencyDoesNotStopAtReasoningOrWhitespace(t *testing.T) {
 	}))
 	defer server.Close()
 	var observations []workerproto.ModelObservation
+	var result *workerproto.ModelResult
 	command := workerproto.Command{RunID: "latency-run", Prompt: "Hi", Model: modelcfg.Model{ID: "latency-test", Provider: "openai-chat", BaseURL: server.URL, APIKey: "test"}}
 	_, err := Run(context.Background(), command, func(r workerproto.Result) error {
+		if r.ModelResult != nil {
+			result = r.ModelResult
+		}
 		if r.Observation != nil {
 			observations = append(observations, *r.Observation)
 		}
@@ -36,6 +40,9 @@ func TestFirstTextLatencyDoesNotStopAtReasoningOrWhitespace(t *testing.T) {
 	}
 	if len(observations) != 1 || observations[0].FirstTextMS == nil || *observations[0].FirstTextMS < 50 {
 		t.Fatalf("first text prematurely observed: %+v", observations)
+	}
+	if result == nil || result.FirstTokenMS == nil || *result.FirstTokenMS < 0 || *result.FirstTokenMS >= *observations[0].FirstTextMS || *result.FirstTokenMS > result.DurationMS {
+		t.Fatalf("first token must include earlier reasoning without changing first-text selection timing: %+v", result)
 	}
 	if observations[0].Purpose != "conversation" || observations[0].InputTokens <= 0 || len(observations[0].Endpoint) != 64 {
 		t.Fatalf("missing observation metadata: %+v", observations[0])
@@ -63,5 +70,39 @@ func TestModelObservationRecordsMissingTextAndSkipsSubagents(t *testing.T) {
 	}
 	if results[1].Observation.Outcome != "cancelled" {
 		t.Fatal("cancelled observation lost")
+	}
+}
+
+func TestFirstTokenTimingWithoutBodyOrUsage(t *testing.T) {
+	for _, tc := range []struct {
+		name, delta string
+		measured    bool
+	}{
+		{"no output", `{}`, false},
+		{"reasoning only", `{"reasoning_content":"Thinking"}`, true},
+		{"whitespace", `{"content":" "}`, true},
+		{"body", `{"content":"Hello"}`, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "text/event-stream")
+				fmt.Fprintf(w, "data: {\"choices\":[{\"delta\":%s,\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n", tc.delta)
+			}))
+			defer server.Close()
+			command := workerproto.Command{RunID: "run", Prompt: "Hi", Model: modelcfg.Model{ID: "model", Provider: "openai-chat", BaseURL: server.URL, APIKey: "test"}}
+			var result *workerproto.ModelResult
+			_, err := Run(context.Background(), command, func(r workerproto.Result) error {
+				if r.ModelResult != nil {
+					result = r.ModelResult
+				}
+				return nil
+			})
+			if err != nil || result == nil || result.Usage != nil || (result.FirstTokenMS != nil) != tc.measured {
+				t.Fatalf("first-token result: %+v, error=%v", result, err)
+			}
+			if result.FirstTokenMS != nil && (*result.FirstTokenMS < 0 || *result.FirstTokenMS > result.DurationMS) {
+				t.Fatalf("first token outside request duration: %+v", result)
+			}
+		})
 	}
 }

@@ -115,3 +115,15 @@ test('plural forms retain counts and select Russian one, few and many forms', ()
     assert.ok(i18n.global.t('resourceStorageCount', { count: 3 }).includes('3'))
   }
 })
+
+test('Chinese usage footers retain counts without a trailing token unit', () => {
+  const i18n = createI18n({ legacy: false, locale: 'zh-CN', messages })
+  const values = { input: '10.2M', output: '16K', cached: '9M', reasoning: '13.6K' }
+  assert.equal(i18n.global.t('tokenUsage', values), '输入 10.2M · 输出 16K · 缓存 9M · 推理 13.6K')
+  for (const locale of ['zh-CN', 'zh-TW', 'zh-HK', 'zh-MO', 'zh-SG', 'zh-MY'] as const) {
+    i18n.global.locale.value = locale
+    const line = i18n.global.t('tokenUsage', values)
+    assert.doesNotMatch(line, /(?:词元|詞元)\s*$/u)
+    for (const value of Object.values(values)) assert.ok(line.includes(value))
+  }
+})

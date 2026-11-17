@@ -330,6 +330,12 @@ turnLoop:
 		}
 		modelStarted := time.Now()
 		var firstTextMS *float64
+		var firstTokenMS *float64
+		observeFirstToken := func(fragment string) {
+			if firstTokenMS == nil && fragment != "" {
+				firstTokenMS = firstTextLatency(modelStarted)
+			}
+		}
 		hasVisual := false
 		for _, message := range messages {
 			if message.VisualInput() && len(message.Resources) > 0 {
@@ -359,12 +365,16 @@ turnLoop:
 		})
 		turn, err := provider.ModelTurnStreamWithReasoning(requestCtx, command.Model, requestMessages, offeredTools,
 			func(fragment string) error {
+				observeFirstToken(fragment)
 				if firstTextMS == nil && strings.TrimSpace(fragment) != "" {
 					firstTextMS = firstTextLatency(modelStarted)
 				}
 				return appendStream("model_delta", fragment)
 			},
-			func(fragment string) error { return appendStream("model_reasoning_delta", fragment) })
+			func(fragment string) error {
+				observeFirstToken(fragment)
+				return appendStream("model_reasoning_delta", fragment)
+			})
 		modelDurationMS := time.Since(modelStarted).Seconds() * 1000
 		if observeErr := observeModelRequest(command, turnID, depth, requestEstimate, firstTextMS, turn, err, emit); observeErr != nil {
 			return "", observeErr
@@ -397,7 +407,7 @@ turnLoop:
 			messages[i] = messages[i].WithVisualInput(false)
 		}
 		if turn.FinishReason != "" || turn.Usage != nil {
-			result := &workerproto.ModelResult{Provider: providerID, ID: command.Model.ID, FinishReason: turn.FinishReason, DurationMS: modelDurationMS, ReasoningEffort: provider.ModelReasoningEffort(command.Model)}
+			result := &workerproto.ModelResult{Provider: providerID, ID: command.Model.ID, FinishReason: turn.FinishReason, DurationMS: modelDurationMS, FirstTokenMS: firstTokenMS, ReasoningEffort: provider.ModelReasoningEffort(command.Model)}
 			if turn.Usage != nil {
 				result.Usage = &workerproto.ModelUsage{InputTokens: turn.Usage.InputTokens, OutputTokens: turn.Usage.OutputTokens, CacheReadTokens: turn.Usage.CacheReadTokens, CacheReadKnown: turn.Usage.CacheReadKnown, CacheWriteTokens: turn.Usage.CacheWriteTokens, ReasoningTokens: turn.Usage.ReasoningTokens}
 			}

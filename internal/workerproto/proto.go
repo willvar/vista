@@ -203,6 +203,7 @@ type ModelResult struct {
 	FinishReason    string         `json:"finishReason"`
 	Usage           *ModelUsage    `json:"usage,omitempty"`
 	DurationMS      float64        `json:"durationMs,omitempty"`
+	FirstTokenMS    *float64       `json:"firstTokenMs,omitempty"`
 }
 
 // SummaryResult separates provider termination from local validation, without

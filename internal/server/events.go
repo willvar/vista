@@ -34,6 +34,7 @@ type modelResultEvent struct {
 	FinishReason    string                     `json:"finishReason"`
 	Usage           *workerproto.ModelUsage    `json:"usage,omitempty"`
 	DurationMS      float64                    `json:"durationMs,omitempty"`
+	FirstTokenMS    *float64                   `json:"firstTokenMs,omitempty"`
 }
 
 func (a *App) messagesWithResults(r *http.Request, id string, items []store.Message) ([]messageWithResults, error) {
@@ -83,7 +84,7 @@ func messagesWithResultData(items []store.Message, events []store.Event, boundar
 		if json.Unmarshal(event.Data, &data) != nil || data.ModelResult == nil {
 			continue
 		}
-		result := modelResultEvent{TaskID: data.TaskID, ParentTaskID: data.ParentTaskID, Purpose: data.ModelResult.Purpose, Sequence: event.Sequence, CreatedAt: event.CreatedAt, RunID: data.RunID, Turn: data.Turn, Depth: data.Depth, Provider: data.ModelResult.Provider, ID: data.ModelResult.ID, FinishReason: data.ModelResult.FinishReason, Usage: data.ModelResult.Usage, DurationMS: data.ModelResult.DurationMS, ReasoningEffort: data.ModelResult.ReasoningEffort, Summary: data.ModelResult.Summary}
+		result := modelResultEvent{TaskID: data.TaskID, ParentTaskID: data.ParentTaskID, Purpose: data.ModelResult.Purpose, Sequence: event.Sequence, CreatedAt: event.CreatedAt, RunID: data.RunID, Turn: data.Turn, Depth: data.Depth, Provider: data.ModelResult.Provider, ID: data.ModelResult.ID, FinishReason: data.ModelResult.FinishReason, Usage: data.ModelResult.Usage, DurationMS: data.ModelResult.DurationMS, FirstTokenMS: data.ModelResult.FirstTokenMS, ReasoningEffort: data.ModelResult.ReasoningEffort, Summary: data.ModelResult.Summary}
 		rootSummary := result.Purpose == "summary" && result.Depth == 0 && (result.TaskID == "" || result.TaskID == "main")
 		if result.ReasoningEffort == "" && !rootSummary {
 			effort := efforts[data.RunID]

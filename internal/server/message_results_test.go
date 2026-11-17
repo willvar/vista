@@ -28,7 +28,8 @@ func TestMessagePageIncludesOnlyItsRunModelResults(t *testing.T) {
 		if _, _, err := st.BeginRun(ctx, sessionID, runID, "user-"+runID, "Hi"); err != nil {
 			t.Fatal(err)
 		}
-		result := workerproto.Result{RunID: runID, Kind: "model_result", TaskID: "main/child", ParentTaskID: "main", Depth: 1, Turn: 1, ModelResult: &workerproto.ModelResult{Provider: "openai-responses", ID: "gpt-6-luna", Purpose: "summary", FinishReason: "completed", DurationMS: float64(500 + index*100), ReasoningEffort: []string{"high", ""}[index], Usage: &workerproto.ModelUsage{InputTokens: int64(100 + index)}}}
+		firstTokenMS := float64(index * 80)
+		result := workerproto.Result{RunID: runID, Kind: "model_result", TaskID: "main/child", ParentTaskID: "main", Depth: 1, Turn: 1, ModelResult: &workerproto.ModelResult{Provider: "openai-responses", ID: "gpt-6-luna", Purpose: "summary", FinishReason: "completed", DurationMS: float64(500 + index*100), FirstTokenMS: &firstTokenMS, ReasoningEffort: []string{"high", ""}[index], Usage: &workerproto.ModelUsage{InputTokens: int64(100 + index)}}}
 		if err := st.RecordRunSelection(ctx, runID, "gpt-6-luna", "none", "endpoint"); err != nil {
 			t.Fatal(err)
 		}
@@ -57,7 +58,7 @@ func TestMessagePageIncludesOnlyItsRunModelResults(t *testing.T) {
 			}
 			continue
 		}
-		if len(message.ModelResults) != 1 || message.ModelResults[0].RunID != message.RunID || message.ModelResults[0].Usage.InputTokens != int64(100+index/2) || message.ModelResults[0].DurationMS != float64(500+index/2*100) || message.ModelResults[0].ReasoningEffort != []string{"high", "none"}[index/2] || message.ModelResults[0].Purpose != "summary" || message.ModelResults[0].CreatedAt == "" || message.ModelResults[0].TaskID != "main/child" || message.ModelResults[0].ParentTaskID != "main" || message.ModelResults[0].Depth != 1 {
+		if len(message.ModelResults) != 1 || message.ModelResults[0].FirstTokenMS == nil || *message.ModelResults[0].FirstTokenMS != float64(index/2*80) || message.ModelResults[0].RunID != message.RunID || message.ModelResults[0].Usage.InputTokens != int64(100+index/2) || message.ModelResults[0].DurationMS != float64(500+index/2*100) || message.ModelResults[0].ReasoningEffort != []string{"high", "none"}[index/2] || message.ModelResults[0].Purpose != "summary" || message.ModelResults[0].CreatedAt == "" || message.ModelResults[0].TaskID != "main/child" || message.ModelResults[0].ParentTaskID != "main" || message.ModelResults[0].Depth != 1 {
 			t.Fatalf("model usage attached to wrong answer: %+v", message)
 		}
 	}
@@ -99,6 +100,13 @@ func TestSameRunRepliesPartitionUsageEvenAcrossMessagePages(t *testing.T) {
 	}
 	if len(page[1].ModelResults) != 1 || page[1].ModelResults[0].Turn != 1 || len(page[3].ModelResults) != 2 || page[3].ModelResults[0].Turn != 2 || page[3].ModelResults[1].Turn != 3 {
 		t.Fatalf("usage was duplicated or omitted: %+v", page)
+	}
+	for _, message := range page {
+		for _, result := range message.ModelResults {
+			if result.FirstTokenMS != nil {
+				t.Fatalf("historical timing invented: %+v", result)
+			}
+		}
 	}
 	// The earlier answer is not loaded on this page. Its usage still belongs to
 	// that answer, including when the result events are replayed by the client.

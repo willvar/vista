@@ -189,7 +189,7 @@ export function reduceConversationEvent(state: ConversationState, event: StreamE
   if (event.kind === 'model_result' && data?.modelResult && runId) {
     const result = data.modelResult
     next.modelDrafts = next.modelDrafts.map(draft => draft.runId === runId && draft.turn === data.turn && draft.depth === depth ? { ...draft, finished: true } : draft)
-    next.modelResults = [...next.modelResults, { sequence: event.sequence, runId, turn: data.turn, depth, createdAt: event.createdAt, ...(data.taskId ? { taskId: data.taskId, parentTaskId: data.parentTaskId } : {}), purpose: result.purpose, provider: result.provider, id: result.id, finishReason: result.finishReason, reasoningEffort: result.reasoningEffort, usage: result.usage, durationMs: result.durationMs, summary: result.summary }]
+    next.modelResults = [...next.modelResults, { sequence: event.sequence, runId, turn: data.turn, depth, createdAt: event.createdAt, ...(data.taskId ? { taskId: data.taskId, parentTaskId: data.parentTaskId } : {}), purpose: result.purpose, provider: result.provider, id: result.id, finishReason: result.finishReason, reasoningEffort: result.reasoningEffort, usage: result.usage, durationMs: result.durationMs, firstTokenMs: result.firstTokenMs, summary: result.summary }]
   }
   if (['input_queued', 'input_updated', 'input_status'].includes(event.kind) && data?.id) {
     const existing = next.queuedInputs.some(input => input.id === data.id)

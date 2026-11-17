@@ -1,4 +1,5 @@
 import { coreSnapshot, installConversationStream } from './conversation-fixture'
+import { scrollToConversationEntry } from './conversation-scroll'
 import { test, expect } from './fixtures'
 
 test.beforeEach(async ({ vista }) => {
@@ -117,7 +118,7 @@ test('message actions and usage retain their footer alignment and spacing', asyn
   await page.screenshot({ path: testInfo.outputPath('message-footer.png'), animations: 'disabled' })
 })
 
-test('measured TPS matches persisted model timing and survives refresh', async ({ page, vista }) => {
+test('measured TPS and TTFT match persisted model timing and survive refresh @responsive', async ({ page, vista }) => {
   const session = await vista.api('/sessions', { method: 'POST', body: '{}' })
   await page.goto(`${vista.origin}/sessions/${session.id}`)
   const sender = page.locator('.sender-card')
@@ -135,23 +136,39 @@ test('measured TPS matches persisted model timing and survives refresh', async (
   const result = messages.find((message: { role: string }) => message.role === 'assistant')?.modelResults?.[0]
   expect(result?.durationMs, 'New model results must retain their measured request time').toBeGreaterThan(0)
   expect(result?.usage?.outputTokens).toBe(5)
+  expect(result?.firstTokenMs).toBeGreaterThan(0)
+  expect(result.firstTokenMs).toBeLessThanOrEqual(result.durationMs)
+  const expectedTTFT = ` · TTFT ${result.firstTokenMs < 1000 ? `${Math.round(result.firstTokenMs)}ms` : `${(result.firstTokenMs / 1000).toFixed(2)}s`}`
+  await expect(reply.locator('.model-ttft')).toHaveText(expectedTTFT)
+  await expect(reply.locator('.model-ttft')).toHaveAttribute('title', /first text or visible reasoning/)
   const expected = ` · TPS ${(result.usage.outputTokens * 1000 / result.durationMs).toFixed(1)}`
   await expect(reply.locator('.model-tps')).toHaveText(expected)
   await expect(reply.locator('.model-tps')).toHaveAttribute('title', /including time to first token and excluding tool execution/)
   await page.reload()
   await expect(reply.locator('.model-tps')).toHaveText(expected)
+  await expect(reply.locator('.model-ttft')).toHaveText(expectedTTFT)
 })
 
-test('missing or partial timing remains visible without invented TPS', async ({ page, vista }, testInfo) => {
+test('missing or partial timing remains visible without invented TPS or TTFT @responsive', async ({ page, vista }, testInfo) => {
   const session = await vista.api('/sessions', { method: 'POST', body: '{}' })
   const usage = { inputTokens: 20, outputTokens: 10, cacheReadTokens: 0, reasoningTokens: 0 }
   const baseResult = { provider: 'openai-chat', id: vista.modelId, depth: 0, finishReason: 'completed' }
   const createdAt = new Date().toISOString()
   const scenarios = [
-    { id: 'historical', title: 'Historical timing fixture', results: [{ ...baseResult, sequence: 1, turn: 1, usage }] },
-    { id: 'mixed', title: 'Partial timing fixture', results: [{ ...baseResult, sequence: 2, turn: 1, usage }, { ...baseResult, sequence: 3, turn: 2, usage, durationMs: 400 }] },
-    { id: 'missing-usage', title: 'Missing usage fixture', results: [{ ...baseResult, sequence: 4, turn: 1, durationMs: 500 }] },
-    { id: 'measured', title: 'Measured timing fixture', results: [{ ...baseResult, sequence: 5, turn: 1, usage, durationMs: 400 }] },
+    { id: 'historical', title: 'Historical timing fixture', ttft: '—', results: [{ ...baseResult, sequence: 1, turn: 1, usage }] },
+    { id: 'mixed', title: 'Partial timing fixture', ttft: '125ms', results: [{ ...baseResult, sequence: 2, turn: 1, usage }, { ...baseResult, sequence: 3, turn: 2, usage, durationMs: 400, firstTokenMs: 125 }] },
+    { id: 'missing-usage', title: 'Missing usage fixture', ttft: '1.50s', results: [{ ...baseResult, sequence: 4, turn: 1, durationMs: 2500, firstTokenMs: 1500 }] },
+    { id: 'measured', title: 'Measured timing fixture', ttft: '0ms', results: [{ ...baseResult, sequence: 5, turn: 1, usage, durationMs: 400, firstTokenMs: 0 }] },
+    { id: 'multi', title: 'Independent request timing fixture', ttft: '250ms', results: [
+      { ...baseResult, sequence: 6, turn: 1, depth: 1, taskId: 'main/child', firstTokenMs: 1 },
+      { ...baseResult, sequence: 8, turn: 3, firstTokenMs: 1200 },
+      { ...baseResult, sequence: 7, turn: 2, firstTokenMs: 250 },
+    ] },
+    { id: 'invalid', title: 'Invalid timing fixture', ttft: '—', results: [{ ...baseResult, sequence: 9, turn: 1, firstTokenMs: -1 }] },
+    { id: 'child-only', title: 'Child timing is not main timing fixture', ttft: '—', results: [
+      { ...baseResult, sequence: 10, turn: 1 },
+      { ...baseResult, sequence: 11, turn: 2, depth: 1, firstTokenMs: 80 },
+    ] },
   ]
   const messages = scenarios.map((scenario, index) => ({
     id: scenario.id, sequence: 10 + index, role: 'assistant', content: scenario.title,
@@ -171,17 +188,22 @@ test('missing or partial timing remains visible without invented TPS', async ({ 
     return route.continue()
   })
   await page.goto(`${vista.origin}/sessions/${session.id}`)
-  for (const scenario of scenarios) {
-    const reply = page.locator('.messages article.assistant').filter({ hasText: scenario.title })
+  for (const [index, scenario] of scenarios.entries()) {
+    const reply = await scrollToConversationEntry(page, `[data-display-key="${scenario.id}"] article.assistant`, messages[index]!.sequence)
+    await expect(reply.locator('.model-ttft')).toHaveText(` · TTFT ${scenario.ttft}`)
     await expect(reply.locator('.model-tps')).toHaveText(scenario.id === 'measured' ? ' · TPS 25.0' : ' · TPS —')
     await expect(reply.locator('.model-tps')).toHaveAttribute('title', scenario.id === 'measured'
       ? /including time to first token and excluding tool execution/
       : /Request timing or token usage is missing/)
     await expect(reply.locator('.model-call-count')).toHaveText(`· ${scenario.results.length} model call${scenario.results.length === 1 ? '' : 's'}`)
   }
-  const mixed = page.locator('.messages article.assistant').filter({ hasText: 'Partial timing fixture' })
+  const mixed = await scrollToConversationEntry(page, '[data-display-key="mixed"] article.assistant', messages.find(message => message.id === 'mixed')!.sequence)
   await mixed.getByRole('button', { name: 'Model usage details', exact: true }).click()
   const details = page.locator('.usage-popover:visible .usage-details')
+  await expect(details.getByRole('columnheader', { name: 'TTFT', exact: true })).toBeVisible()
+  await expect(details.locator('tbody tr[data-turn="1"] td').nth(6)).toHaveText('—')
+  await expect(details.locator('tbody tr[data-turn="2"] td').nth(6)).toHaveText('125ms')
+  await expect(details.locator('.usage-summary')).toContainText('TTFT 125ms')
   await expect(details.locator('thead th').last()).toHaveText('TPS')
   await expect(details.locator('tbody tr[data-turn="1"] td').last()).toHaveText('—')
   await expect(details.locator('tbody tr[data-turn="2"] td').last()).toHaveText('25.0')
@@ -201,7 +223,7 @@ test('missing or partial timing remains visible without invented TPS', async ({ 
   expect(geometry.overflow, 'Usage table must scroll within the bounded panel').toBeLessThanOrEqual(2)
   if (geometry.width < 800) expect(geometry.tableScrollWidth).toBeGreaterThan(geometry.tableWidth)
   await testInfo.attach('usage-table-layout', { body: await page.screenshot(), contentType: 'image/png' })
-  await expect(page.locator('.messages')).not.toContainText(/TPS (?:NaN|Infinity)/)
+  await expect(page.locator('.messages')).not.toContainText(/(?:TPS|TTFT) (?:NaN|Infinity)/)
   await details.getByLabel('Filter model calls', { exact: true }).click()
   await page.locator('.ui-select-dropdown:visible').getByText('Failures', { exact: true }).click()
   const empty = details.locator('.ui-empty-description')

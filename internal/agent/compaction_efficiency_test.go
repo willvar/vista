@@ -89,6 +89,12 @@ func TestCompactionTriesOneRequestBeforeOverflowAndRecordsEachOutcome(t *testing
 					if result.FinishReason != "failed" && (result.Usage == nil || result.Usage.InputTokens != 123 || result.Usage.OutputTokens != 9) {
 						t.Fatal("reported summary usage was lost")
 					}
+					if result.FinishReason == "failed" && result.FirstTokenMS != nil {
+						t.Fatal("failed summary without output received invented first-token timing")
+					}
+					if result.FinishReason != "failed" && (result.FirstTokenMS == nil || *result.FirstTokenMS < 0 || *result.FirstTokenMS > result.DurationMS) {
+						t.Fatal("summary first-token timing was lost or outside request duration")
+					}
 					delete(pending, event.Turn)
 					completed++
 				}
