@@ -1,4 +1,4 @@
-import type { Artifact, ChecklistItem, Job, Message, ModelDraft, ModelInfo, ModelResultView, OutputView, QueuedInput, RunProgress, Session, StreamEvent } from '../client/types'
+import type { Artifact, Job, Message, ModelDraft, ModelInfo, ModelResultView, OutputView, QueuedInput, RunProgress, Session, StreamEvent } from '../client/types'
 import { jobActive } from './jobs.ts'
 import { reduceMainOutputEvent, type MainOutputRecord } from './mainOutputs.ts'
 
@@ -67,7 +67,6 @@ export type ConversationState = {
   activeRunSequence: number
   runProgress: RunProgress | null
   runClock: import('../client/types').RunClock | null
-  checklist: { runId: string; items: ChecklistItem[]; updatedAt?: string; updatedSequence?: number } | null
   summaryStart: { runId: string; sequence: number; model?: ModelInfo } | null
   jobs: Job[]
   artifacts: Artifact[]
@@ -83,7 +82,7 @@ export function createConversationState(selected: Session | null = null): Conver
   return {
     selected, messages: [], processEvents: [], modelDrafts: [], mainOutputs: [], modelResults: [], modelOutput: {},
     queuedInputs: [], activeRunID: '', activeRunSequence: 0,
-    runProgress: null, runClock: null, checklist: null, summaryStart: null, jobs: [], artifacts: [], modelByRun: {},
+    runProgress: null, runClock: null, summaryStart: null, jobs: [], artifacts: [], modelByRun: {},
     lastEvent: 0, latestMessageSequence: 0, hasOlder: false, hasNewer: false, finishedRuns: {},
   }
 }
@@ -112,7 +111,7 @@ export function pruneConversationWindow(state: ConversationState): ConversationS
 export function appendMessage(state: ConversationState, message: Message | null | undefined): ConversationState {
   if (!message) return state
   const next = { ...state, latestMessageSequence: Math.max(state.latestMessageSequence, message.sequence) }
-  if (message.role === 'assistant' && !message.contextSummary && !(message.checklist && !message.content) && next.selected) next.selected = { ...next.selected,
+  if (message.role === 'assistant' && !message.contextSummary && next.selected) next.selected = { ...next.selected,
     latestReplySequence: Math.max(next.selected.latestReplySequence || 0, message.sequence) }
   if (message.role === 'assistant' && message.outputTurn) {
     next.mainOutputs = next.mainOutputs.map(output => output.runId === message.runId && output.turn === message.outputTurn ? { ...output, complete: true } : output)
@@ -125,7 +124,7 @@ export function appendMessage(state: ConversationState, message: Message | null 
 }
 
 export function messageResults(message: Message, modelResults: readonly ModelResultView[]): ModelResultView[] {
-  if (message.role !== 'assistant' || !message.runId || message.checklist && !message.content) return []
+  if (message.role !== 'assistant' || !message.runId) return []
   return runResults(message.runId, [message], modelResults)
     .filter(result => {
       const rootSummary = result.purpose === 'summary' && !result.depth && (!result.taskId || result.taskId === 'main')
@@ -147,10 +146,11 @@ export function reduceConversationEvent(state: ConversationState, event: StreamE
   if (event.sequence <= state.lastEvent) return state
   let next: ConversationState = { ...state, lastEvent: event.sequence }
   const data = event.data
+  if (event.kind === 'checklist' || event.kind === 'tool' && data?.tool?.name?.split('/').at(-1) === 'update_checklist') return next
   const runId: string | undefined = data?.runId
   const depth = data?.depth || 0
   next.mainOutputs = reduceMainOutputEvent(state.mainOutputs, event, runId ? state.modelByRun[runId] : undefined)
-  if (['model_request', 'model_retry', 'model_delta', 'model_reasoning_delta', 'model_result', 'tool', 'source', 'agent_task', 'checklist', 'artifact', 'job', 'run_finished'].includes(event.kind)) next.processEvents = [...state.processEvents, event].slice(-1500)
+  if (['model_request', 'model_retry', 'model_delta', 'model_reasoning_delta', 'model_result', 'tool', 'source', 'agent_task', 'artifact', 'job', 'run_finished'].includes(event.kind)) next.processEvents = [...state.processEvents, event].slice(-1500)
   if ((event.kind === 'message' && data?.role === 'user' || event.kind === 'run_started') && runId && event.sequence >= state.activeRunSequence) {
     next.activeRunID = runId
     next.activeRunSequence = event.sequence
@@ -171,22 +171,13 @@ export function reduceConversationEvent(state: ConversationState, event: StreamE
   }
   if ((event.kind === 'session_title' || event.kind === 'session_renamed') && next.selected && typeof data?.title === 'string') next.selected = { ...next.selected, title: data.title }
   if (event.kind === 'message') next = appendMessage(next, data as Message)
-  if (event.kind === 'checklist' && runId === next.activeRunID && !depth && (!data.taskId || data.taskId === 'main') && Array.isArray(data.items || data.checklist?.items)) {
-    // Keep the current plan independently of the bounded trace/event window.
-    next.checklist = { runId, items: data.items || data.checklist.items, updatedSequence: event.sequence, ...(event.createdAt ? { updatedAt: event.createdAt } : {}) }
-  }
   if (event.kind === 'run_finished' && runId) {
     next.finishedRuns = { ...next.finishedRuns, [runId]: true }
     if (runId === next.activeRunID) {
       next.runProgress = { runId, phase: 'finished' }
       if (next.selected) next.selected = { ...next.selected, pendingReply: data?.pendingReply || undefined, executing: false, latestRunStatus: data?.status }
     }
-    const checklist = next.checklist?.runId === runId && next.checklist.items.length
-      ? { items: next.checklist.items, status: data?.status || '', updatedSequence: next.checklist.updatedSequence, ...(next.checklist.updatedAt ? { updatedAt: next.checklist.updatedAt } : {}) } : undefined
-    const reply = data?.message as Message | null
-    next = appendMessage(next, reply ? { ...reply, ...(checklist ? { checklist } : {}) }
-      : checklist ? { id: `checklist-summary/${event.sequence}`, runId, role: 'assistant', content: '',
-        sequence: event.sequence, createdAt: event.createdAt || '', checklist } : null)
+    next = appendMessage(next, data?.message as Message | null)
     next.modelDrafts = next.modelDrafts.map(draft => draft.runId === runId ? { ...draft, finished: true } : draft)
   }
   if (event.kind === 'model_delta' && !data.purpose && runId && data?.turn > 0 && typeof data?.content === 'string' && !next.finishedRuns[runId]

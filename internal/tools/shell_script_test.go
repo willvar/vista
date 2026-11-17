@@ -85,7 +85,7 @@ func TestLongBackgroundScriptKeepsBoundedMetadataAndCleansOnClose(t *testing.T) 
 	}
 	runCtx, cancelRun := context.WithCancel(context.Background())
 	defer cancelRun()
-	job, err := manager.Start(runCtx, state, "run", dir, script, 0, nil)
+	job, err := manager.Start(runCtx, state, "run", dir, script, 0, 0, nil)
 	if err != nil || job.Status != "running" || len(job.Command) >= len(script) {
 		t.Fatalf("long background start: %+v, %v", job, err)
 	}

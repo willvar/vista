@@ -128,24 +128,38 @@ func Run() error {
 	agents = agent.NewSession(sessionCtx)
 	jobs := tools.NewBackgroundManager(func(ctx context.Context, job tools.BackgroundJob) error {
 		job.Error = workerproto.TextPreview(job.Error, workerproto.MaxErrorBytes)
-		result := workerproto.Result{RunID: job.RunID, Kind: "job", Status: job.Status, TaskID: job.TaskID, ParentTaskID: job.ParentTaskID, Job: &workerproto.JobProgress{StartedAt: job.StartedAt, ExpiresAt: job.ExpiresAt, Signal: job.Signal, TerminationReason: job.TerminationReason, CallID: job.CallID, TaskID: job.TaskID, ParentTaskID: job.ParentTaskID, ID: job.ID, Directory: job.Directory, Command: job.Command, OutputPath: job.OutputPath, Bytes: job.Bytes, ExitCode: job.ExitCode, Complete: job.Complete, Error: job.Error}}
-		if job.Status == "starting" {
-			return emitPersisted(ctx, result)
-		}
-		if err := emit(result); err != nil {
+		result := workerproto.Result{RunID: job.RunID, Kind: "job", Status: job.Status, TaskID: job.TaskID, ParentTaskID: job.ParentTaskID, Job: &workerproto.JobProgress{Change: job.Change, WarnAt: job.WarnAt, WarnedAt: job.WarnedAt, DeadlineRevision: job.DeadlineRevision, StartedAt: job.StartedAt, ExpiresAt: job.ExpiresAt, Signal: job.Signal, TerminationReason: job.TerminationReason, CallID: job.CallID, TaskID: job.TaskID, ParentTaskID: job.ParentTaskID, ID: job.ID, Directory: job.Directory, Command: job.Command, OutputPath: job.OutputPath, Bytes: job.Bytes, ExitCode: job.ExitCode, Complete: job.Complete, Error: job.Error}}
+		if job.Status == "starting" || job.Change != "" {
+			if err := emitPersisted(ctx, result); err != nil {
+				return err
+			}
+		} else if err := emit(result); err != nil {
 			return err
 		}
-		if job.Status != "running" {
+		if job.Status != "starting" && job.Status != "running" || job.Change == "warning" {
 			recipient := job.TaskID
 			if recipient == "" {
 				recipient = "main"
 			}
-			content, _ := json.Marshal(map[string]any{"jobId": job.ID, "command": workerproto.TextPreview(job.Command, 4096), "exitCode": job.ExitCode, "terminationReason": job.TerminationReason, "error": job.Error, "bytes": job.Bytes, "hint": "Read saved output with read_tool_output using jobId."})
+			content, _ := json.Marshal(map[string]any{"jobId": job.ID, "command": workerproto.TextPreview(job.Command, 4096), "exitCode": job.ExitCode, "terminationReason": job.TerminationReason, "error": job.Error, "bytes": job.Bytes, "expiresAt": job.ExpiresAt, "warnAt": job.WarnAt, "warnedAt": job.WarnedAt, "hint": "Read saved output with read_tool_output using jobId."})
 			event := workerproto.RuntimeEvent{ID: job.RunID + ":job:" + job.ID, RunID: job.RunID, Recipient: recipient, Kind: "job", SourceID: job.ID, Status: job.Status, Content: string(content), Output: &workerproto.OutputRef{OutputPath: job.OutputPath, Bytes: job.Bytes}}
+			if job.Change == "warning" {
+				event.Kind, event.Status, event.DeadlineRevision = "job_warning", "running", job.DeadlineRevision
+				event.ID = fmt.Sprintf("%s:job_warning:%s:%d", job.RunID, job.ID, job.DeadlineRevision)
+			}
 			return emitPersisted(sessionCtx, workerproto.Result{RunID: job.RunID, Kind: "runtime_event", RuntimeEvent: &event})
 		}
 		return nil
 	})
+	if value := os.Getenv("VISTA_BACKGROUND_JOBS_LIMIT"); value != "" {
+		limit, err := strconv.Atoi(value)
+		if err != nil {
+			return errors.New("invalid background job limit")
+		}
+		if err := jobs.SetLimit(limit); err != nil {
+			return err
+		}
+	}
 	defer jobs.Close()
 	done := make(chan struct{})
 	defer close(done)
@@ -213,6 +227,11 @@ func Run() error {
 		}
 		if command.Action == "limits" {
 			setMemoryLimit(command.MemoryLimit)
+			if command.BackgroundJobsLimit != 0 {
+				if err := jobs.SetLimit(command.BackgroundJobsLimit); err != nil {
+					return err
+				}
+			}
 			continue
 		}
 		if command.Action == "wake" {

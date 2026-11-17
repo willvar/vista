@@ -90,3 +90,17 @@ func TestChecklistPersistsPerRunAndRejectsLateUpdates(t *testing.T) {
 		t.Fatalf("deleted run checklist: %+v, err=%v", got, err)
 	}
 }
+
+func TestChecklistPublicProjectionPreservesCursorAndCanonicalData(t *testing.T) {
+	for _, kind := range []string{"checklist", "tool", "runtime_event"} {
+		data := json.RawMessage(`{"modelOnly":true,"runId":"run","items":[{"text":"private plan","status":"pending"}],"tool":{"name":"update_checklist"}}`)
+		original := Event{Sequence: 42, Kind: kind, Data: data}
+		projected := PublicEvent(original)
+		if projected.Kind != "internal" || projected.Sequence != 42 || string(projected.Data) != "{}" {
+			t.Fatalf("private plan exposed: %+v", projected)
+		}
+		if string(original.Data) != string(data) || original.Kind != kind {
+			t.Fatal("canonical event changed")
+		}
+	}
+}

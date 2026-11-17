@@ -110,7 +110,15 @@ func (c *workerResultConsumer) consume(result workerproto.Result) error {
 	switch result.Kind {
 	case "runtime_event":
 		notice := result.RuntimeEvent
-		if notice == nil || notice.RunID != result.RunID || len(notice.ID) > 2300 || len(notice.SourceID) > 2048 || len(notice.Recipient) > 1024 || len(notice.Content) > 16<<10 || (notice.Kind != "agent" && notice.Kind != "tool" && notice.Kind != "job") || (notice.Status != "succeeded" && notice.Status != "failed" && notice.Status != "canceled" && notice.Status != "interrupted") || !validOutputReference(c.stateDir, result.RunID, notice.Output) || notice.ContentOutput != nil && (notice.Kind != "tool" || notice.ContentOutput.ArtifactID == "" || notice.ContentOutput.OutputPath == "" || !validOutputReference(c.stateDir, result.RunID, notice.ContentOutput)) || result.AckID == "" {
+		validStatus := false
+		if notice != nil {
+			if notice.Kind == "job_warning" {
+				validStatus = notice.Status == "running" && notice.DeadlineRevision > 0
+			} else {
+				validStatus = notice.Status == "succeeded" || notice.Status == "failed" || notice.Status == "canceled" || notice.Status == "interrupted"
+			}
+		}
+		if notice == nil || notice.RunID != result.RunID || len(notice.ID) > 2300 || len(notice.SourceID) > 2048 || len(notice.Recipient) > 1024 || len(notice.Content) > 16<<10 || (notice.Kind != "agent" && notice.Kind != "tool" && notice.Kind != "job" && notice.Kind != "job_warning") || !validStatus || !validOutputReference(c.stateDir, result.RunID, notice.Output) || notice.ContentOutput != nil && (notice.Kind != "tool" || notice.ContentOutput.ArtifactID == "" || notice.ContentOutput.OutputPath == "" || !validOutputReference(c.stateDir, result.RunID, notice.ContentOutput)) || result.AckID == "" {
 			return errors.New("invalid runtime event")
 		}
 		event, ready, err := c.store.RecordRuntimeEvent(c.ctx, c.sessionID, *notice)
@@ -395,7 +403,7 @@ func (c *workerResultConsumer) persisted(result workerproto.Result, event *store
 
 func (c *workerResultConsumer) job(result workerproto.Result) error {
 	job := result.Job
-	if result.RunID == "" || job == nil || len(job.Command) > workerproto.MaxCommandPreviewBytes || len(job.Directory) > workerproto.MaxCommandPreviewBytes || len(job.Error) > workerproto.MaxErrorBytes || job.Bytes < 0 || (result.Status != "starting" && result.Status != "running" && result.Status != "succeeded" && result.Status != "failed" && result.Status != "interrupted") || (result.Status == "starting" && (result.AckID == "" || len(result.AckID) > 64)) {
+	if result.RunID == "" || job == nil || len(job.Command) > workerproto.MaxCommandPreviewBytes || len(job.Directory) > workerproto.MaxCommandPreviewBytes || len(job.Error) > workerproto.MaxErrorBytes || job.Bytes < 0 || (result.Status != "starting" && result.Status != "running" && result.Status != "succeeded" && result.Status != "failed" && result.Status != "interrupted") || ((result.Status == "starting" || job.Change != "") && (result.AckID == "" || len(result.AckID) > 64)) || (job.Change != "" && job.Change != "deadline" && job.Change != "warning") {
 		return errors.New("invalid job progress")
 	}
 	if _, err := uuid.Parse(job.ID); err != nil {
@@ -410,9 +418,9 @@ func (c *workerResultConsumer) job(result workerproto.Result) error {
 	if job.ParentTaskID == "" {
 		job.ParentTaskID = result.ParentTaskID
 	}
-	event, err := c.store.RecordJob(c.ctx, store.Job{StartedAt: job.StartedAt, ExpiresAt: job.ExpiresAt, Signal: job.Signal, TerminationReason: job.TerminationReason, CallID: job.CallID, TaskID: job.TaskID, ParentTaskID: job.ParentTaskID, ID: job.ID, SessionID: c.sessionID, RunID: result.RunID, Directory: job.Directory, Command: job.Command, OutputPath: job.OutputPath, Status: result.Status, Bytes: job.Bytes, ExitCode: job.ExitCode, Complete: job.Complete, Error: job.Error})
+	event, err := c.store.RecordJob(c.ctx, store.Job{Change: job.Change, WarnAt: job.WarnAt, WarnedAt: job.WarnedAt, DeadlineRevision: job.DeadlineRevision, StartedAt: job.StartedAt, ExpiresAt: job.ExpiresAt, Signal: job.Signal, TerminationReason: job.TerminationReason, CallID: job.CallID, TaskID: job.TaskID, ParentTaskID: job.ParentTaskID, ID: job.ID, SessionID: c.sessionID, RunID: result.RunID, Directory: job.Directory, Command: job.Command, OutputPath: job.OutputPath, Status: result.Status, Bytes: job.Bytes, ExitCode: job.ExitCode, Complete: job.Complete, Error: job.Error})
 	ackID := ""
-	if result.Status == "starting" {
+	if result.Status == "starting" || job.Change != "" {
 		ackID = result.AckID
 	}
 	return c.persisted(result, event, err, ackID)

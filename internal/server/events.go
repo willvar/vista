@@ -40,7 +40,7 @@ func (a *App) messagesWithResults(r *http.Request, id string, items []store.Mess
 	var runIDs, messageIDs []string
 	seen := map[string]bool{}
 	for _, item := range items {
-		if item.Role != "assistant" || item.RunID == "" || item.Checklist != nil && item.Content == "" {
+		if item.Role != "assistant" || item.RunID == "" {
 			continue
 		}
 		if !item.ContextSummary {
@@ -74,7 +74,7 @@ func messagesWithResultData(items []store.Message, events []store.Event, boundar
 		if !item.ContextSummary {
 			out[index].ResultsAfter = boundaries[item.ID]
 		}
-		if item.Role == "assistant" && item.RunID != "" && !(item.Checklist != nil && item.Content == "") {
+		if item.Role == "assistant" && item.RunID != "" {
 			runs[item.RunID] = append(runs[item.RunID], index)
 		}
 	}
@@ -235,6 +235,7 @@ func (a *App) messages(w http.ResponseWriter, r *http.Request, id string) {
 // Summary bodies stay in durable events for canonical output reads. Automatic
 // delivery keeps each event's sequence and output coordinates without its body.
 func summaryOutputEvent(event store.Event) store.Event {
+	event = store.PublicEvent(event)
 	if event.Kind != "model_delta" {
 		return event
 	}

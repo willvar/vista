@@ -82,3 +82,23 @@ test('explicit background timeout beyond 24 hours reaches the model and process 
   await dialog.getByRole('button', { name: 'Stop process', exact: true }).click()
   await expect(dialog.locator('.process-state')).toHaveText('Stopped')
 })
+
+
+test('advance warning stays nonterminal in the process monitor and survives reload @responsive', async ({page,vista})=>{
+ await vista.api('/preferences',{method:'PATCH',body:JSON.stringify({feedbackInvitationSeen:true})})
+ await page.reload()
+ await page.locator('.sender-card textarea').fill('Start warning process')
+ await page.locator('.sender-card textarea').press('Enter')
+ await expect(page.locator('article.assistant').last()).toContainText('Process started.')
+ const id=new URL(page.url()).pathname.split('/').at(-1)!
+ await expect.poll(async()=> (await vista.api(`/sessions/${id}/jobs`))[0]?.warnedAt).toBeTruthy()
+ for(let pass=0;pass<2;pass++){
+  await page.getByRole('button',{name:'Background processes 1',exact:true}).click()
+  const dialog=page.getByRole('dialog',{name:'Background processes',exact:true})
+  await expect(dialog.locator('.process-details')).toContainText('Warning scheduled')
+  await expect(dialog.locator('.process-details')).toContainText('Warning sent')
+  await expect(dialog.locator('.process-state')).toHaveText('Running')
+  if(pass===0)await page.reload()
+ }
+ await page.getByRole('dialog',{name:'Background processes',exact:true}).getByRole('button',{name:'Stop process',exact:true}).click()
+})

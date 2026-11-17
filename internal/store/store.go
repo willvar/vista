@@ -53,25 +53,24 @@ type PendingReply struct {
 }
 
 type Message struct {
-	Failure        bool              `json:"failure,omitempty"`
-	ContextSummary bool              `json:"contextSummary,omitempty"` // Display projection of a committed compaction event, not additional model history.
-	Checklist      *ChecklistSummary `json:"checklist,omitempty"`      // Final display state; never added to canonical model history.
-	ID             string            `json:"id"`
-	SessionID      string            `json:"sessionId"`
-	RunID          string            `json:"runId"`
-	Provider       string            `json:"provider,omitempty"`
-	ModelID        string            `json:"modelId,omitempty"`
-	ModelKey       string            `json:"modelKey,omitempty"`
-	OutputTurn     int32             `json:"outputTurn,omitempty"`
-	OutputBytes    int               `json:"outputBytes,omitempty"`
-	ResultsAfter   int64             `json:"resultsAfter,omitempty"`
-	Sequence       int64             `json:"sequence"`
-	Role           string            `json:"role"`
-	Content        string            `json:"content"`
-	QuestionCallID string            `json:"questionCallId,omitempty"` // Persisted in the message event; display role stays user.
-	ImageCount     int               `json:"imageCount,omitempty"`
-	ImageBytes     int               `json:"-"`
-	CreatedAt      string            `json:"createdAt"`
+	Failure        bool   `json:"failure,omitempty"`
+	ContextSummary bool   `json:"contextSummary,omitempty"` // Display projection of a committed compaction event, not additional model history.
+	ID             string `json:"id"`
+	SessionID      string `json:"sessionId"`
+	RunID          string `json:"runId"`
+	Provider       string `json:"provider,omitempty"`
+	ModelID        string `json:"modelId,omitempty"`
+	ModelKey       string `json:"modelKey,omitempty"`
+	OutputTurn     int32  `json:"outputTurn,omitempty"`
+	OutputBytes    int    `json:"outputBytes,omitempty"`
+	ResultsAfter   int64  `json:"resultsAfter,omitempty"`
+	Sequence       int64  `json:"sequence"`
+	Role           string `json:"role"`
+	Content        string `json:"content"`
+	QuestionCallID string `json:"questionCallId,omitempty"` // Persisted in the message event; display role stays user.
+	ImageCount     int    `json:"imageCount,omitempty"`
+	ImageBytes     int    `json:"-"`
+	CreatedAt      string `json:"createdAt"`
 }
 
 type Image struct {

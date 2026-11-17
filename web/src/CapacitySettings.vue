@@ -10,7 +10,7 @@ import type { MemoryConfig, ServerStatus } from './client/types'
 const props = defineProps<{ client: VistaClient; status: ServerStatus | null; disabled?: boolean }>()
 const emit = defineEmits<{ busy: [busy: boolean]; submit: [] }>()
 const { t } = useI18n({ useScope: 'global' })
-const presets: MemoryConfig[] = [
+const presets: Omit<MemoryConfig, 'backgroundJobsPerSession'>[] = [
   { budgetMiB: 512, workerMiB: 384, concurrentRuns: 1 },
   { budgetMiB: 1024, workerMiB: 768, concurrentRuns: 2 },
   { budgetMiB: 2048, workerMiB: 1024, concurrentRuns: 4 },
@@ -19,23 +19,24 @@ const presets: MemoryConfig[] = [
 ]
 const preset = ref<number | string>(2048)
 const saved = ref<MemoryConfig>()
-const draft = ref<MemoryConfig>({ budgetMiB: 2048, workerMiB: 1024, concurrentRuns: 4 })
+const draft = ref<MemoryConfig>({ budgetMiB: 2048, workerMiB: 1024, concurrentRuns: 4, backgroundJobsPerSession: 4 })
 const busy = ref(false), error = ref(''), editorValid = ref(false), editorDirty = ref(false), editorEpoch = ref(0)
 watch(busy, value => emit('busy', value), { flush: 'sync' })
 onUnmounted(() => emit('busy', false))
-const equal = (a: MemoryConfig, b: MemoryConfig) => a.budgetMiB === b.budgetMiB && a.workerMiB === b.workerMiB && a.concurrentRuns === b.concurrentRuns
-const presetFor = (value: MemoryConfig) => presets.find(item => equal(item, value))?.budgetMiB ?? 'custom'
+const equal = (a: MemoryConfig, b: MemoryConfig) => a.budgetMiB === b.budgetMiB && a.workerMiB === b.workerMiB && a.concurrentRuns === b.concurrentRuns && a.backgroundJobsPerSession === b.backgroundJobsPerSession
+const presetFor = (value: MemoryConfig) => presets.find(item => item.budgetMiB === value.budgetMiB && item.workerMiB === value.workerMiB && item.concurrentRuns === value.concurrentRuns)?.budgetMiB ?? 'custom'
 const dirty = computed(() => !!saved.value && (editorDirty.value || !equal(saved.value, draft.value)))
-const schema = computed<JsonSchema>(() => ({ type: 'object', additionalProperties: false, required: ['budgetMiB', 'workerMiB', 'concurrentRuns'], properties: {
+const schema = computed<JsonSchema>(() => ({ type: 'object', additionalProperties: false, required: ['budgetMiB', 'workerMiB', 'concurrentRuns', 'backgroundJobsPerSession'], properties: {
   budgetMiB: { type: 'integer', title: `${t('memoryBudget')} (MiB)`, minimum: 256, maximum: 1048576 },
   workerMiB: { type: 'integer', title: `${t('memoryWorkerLimit')} (MiB)`, minimum: 128, maximum: 1048576 },
   concurrentRuns: { type: 'integer', title: t('memoryConcurrentRuns'), minimum: 1, maximum: 128 },
+  backgroundJobsPerSession: { type: 'integer', title: t('backgroundJobsPerSession'), description: t('backgroundJobsPerSessionHint'), minimum: 1, maximum: 1024 },
 } }))
-const uischema: VerticalLayout = { type: 'VerticalLayout', elements: ['budgetMiB', 'workerMiB', 'concurrentRuns'].map(field => ({ type: 'Control', scope: `#/properties/${field}` })) }
+const uischema: VerticalLayout = { type: 'VerticalLayout', elements: ['budgetMiB', 'workerMiB', 'concurrentRuns', 'backgroundJobsPerSession'].map(field => ({ type: 'Control', scope: `#/properties/${field}` })) }
 function validLimits(value: Record<string, unknown>): FormIssue[] { return typeof value.workerMiB === 'number' && typeof value.budgetMiB === 'number' && value.workerMiB > value.budgetMiB ? [{ path: '/workerMiB', message: t('configWorkerBudget') }] : [] }
 const document = computed<Record<string, unknown>>({
   get: () => ({ ...draft.value }),
-  set: value => { draft.value = { budgetMiB: value.budgetMiB as number, workerMiB: value.workerMiB as number, concurrentRuns: value.concurrentRuns as number }; preset.value = presetFor(draft.value) },
+  set: value => { draft.value = { budgetMiB: value.budgetMiB as number, workerMiB: value.workerMiB as number, concurrentRuns: value.concurrentRuns as number, backgroundJobsPerSession: value.backgroundJobsPerSession as number }; preset.value = presetFor(draft.value) },
 })
 function receive(config: MemoryConfig, reset = false) {
   const editing = dirty.value || editorDirty.value || !!saved.value && preset.value !== presetFor(saved.value)
@@ -48,7 +49,7 @@ const presetDocument = computed<Record<string, unknown>>({
   set: value => {
     preset.value = value.preset as number | string
     const selected = presets.find(item => item.budgetMiB === preset.value)
-    if (selected) { draft.value = { ...selected }; editorEpoch.value++ }
+    if (selected) { draft.value = { ...selected, backgroundJobsPerSession: draft.value.backgroundJobsPerSession }; editorEpoch.value++ }
   },
 })
 const presetSchema = computed<JsonSchema>(() => ({ type: 'object', additionalProperties: false, properties: {
@@ -81,7 +82,7 @@ defineExpose({ dirty, valid: editorValid, ready: computed(() => !!saved.value), 
   </section>
 </template>
 <style scoped>
-.memory-settings { padding: 1rem 0; border-bottom: 1px solid var(--border); }
+.memory-settings { min-width: 0; overflow-wrap: anywhere; padding: 1rem 0; border-bottom: 1px solid var(--border); }
 .memory-settings h3 { margin: 0; font-size: 1rem; }
 .memory-settings p { color: var(--muted); line-height: 1.6; margin: .5rem 0 .75rem; }
 .memory-settings form { display: flex; flex-direction: column; gap: .5rem; }

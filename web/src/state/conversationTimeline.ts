@@ -4,7 +4,7 @@ import type { StreamEvent } from '../client/types.ts'
 export function isTimelineEvent(event: StreamEvent): boolean {
   const data = event.data || {}
   if (event.kind === 'message') return true
-  if (event.kind === 'tool') return !!data.tool
+  if (event.kind === 'tool') return !!data.tool && data.tool.name?.split('/').at(-1) !== 'update_checklist'
   if (event.kind === 'model_retry') return !!data.modelRetry
   if (event.kind === 'source') return /^https?:\/\//.test(data.content || '')
   return ['model_delta', 'model_reasoning_delta'].includes(event.kind) && !data.purpose && data.turn > 0
@@ -36,7 +36,7 @@ export function recentSentMessage(messages: readonly ConversationItem[], firstVi
 
 export function conversationTimeline(messages: readonly ConversationItem[], traces: Readonly<Record<string, readonly TraceTimelineEntry[]>>, start: number): TimelineEntry[] {
   const rows: TimelineEntry[] = messages.map(message => ({ key: message.displayKey, sequence: message.displaySequence,
-    estimate: message.checklist ? 160 : Math.max(80, Math.min(1200, 80 + message.content.length / 50 * 24)), message }))
+    estimate: Math.max(80, Math.min(1200, 80 + message.content.length / 50 * 24)), message }))
   for (const [trace, entries] of Object.entries(traces)) for (const entry of entries) {
     if (entry.lastSequence < start) continue
     rows.push({ key: traceTimelineKey(trace, entry.key), sequence: entry.sequence, estimate: entry.estimate, trace, step: entry.key })

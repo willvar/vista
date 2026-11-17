@@ -43,7 +43,7 @@ func (a *App) launchRuntimeContinuation(sessionID string) {
 	if err != nil {
 		return
 	}
-	counts, err := a.store.SessionCounts(a.ctx)
+	counts, err := a.store.RuntimeAdmissionCounts(a.ctx, sessionID)
 	if err != nil {
 		return
 	}

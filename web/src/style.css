@@ -324,26 +324,6 @@ a {
   padding-top: .5rem;
   margin-top: .5rem;
 }
-.checklist {
-  list-style: none;
-  padding: 0;
-  margin: 0;
-}
-.checklist li {
-  display: flex;
-  align-items: baseline;
-  gap: .5rem;
-  margin: .25rem 0;
-}
-.checklist li span:nth-child(2) {
-  flex: 1;
-}
-.checklist li.done {
-  color: var(--success);
-}
-.checklist li.blocked {
-  color: var(--danger);
-}
 .jump-latest.ui-btn {
   position: absolute;
   z-index: 4;
@@ -1149,9 +1129,6 @@ body {
   width: 100%;
   padding-bottom: var(--message-spacing);
   min-width: 0;
-}
-.message-row > * + .checklist-message {
-  margin-block-start: var(--message-spacing);
 }
 .messages article {
   min-width: 0;

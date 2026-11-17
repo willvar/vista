@@ -101,16 +101,14 @@ func (s *Store) RunOverviewRange(ctx context.Context, sessionID, runID string, a
     THEN json_set(data,'$.content',substr(json_extract(data,'$.content'),1,512),'$.tool.truncated',json('true'))
     ELSE data END AS BLOB) AS data`).
 			Where("sequence<=?", totals.ThroughSequence).
-			Where("kind IN ? OR sequence IN (?) OR sequence IN (?)", []string{"agent_task", "checklist", "model_request", "model_retry", "run_finished", "source", "context_notice"}, latestToolSequences, firstReasoningSequences).
+			Where("kind IN ? OR sequence IN (?) OR sequence IN (?)", []string{"agent_task", "model_request", "model_retry", "run_finished", "source", "context_notice"}, latestToolSequences, firstReasoningSequences).
 			Order("sequence").Find(&events).Error; err != nil {
 			return err
 		}
 		latestTools := make(map[string]Event)
-		var checklist *Event
 		for _, event := range events {
-			if event.Kind == "checklist" {
-				current := event
-				checklist = &current
+			event = PublicEvent(event)
+			if event.Kind == "internal" {
 				continue
 			}
 			if event.Kind != "tool" {
@@ -134,9 +132,6 @@ func (s *Store) RunOverviewRange(ctx context.Context, sessionID, runID string, a
 			event.Data = shortToolPreview(data)
 			latestTools[key] = event
 		}
-		if checklist != nil {
-			overview.Events = append(overview.Events, *checklist)
-		}
 		for _, event := range latestTools {
 			overview.Events = append(overview.Events, event)
 		}
@@ -152,6 +147,7 @@ func (s *Store) RunOverviewRange(ctx context.Context, sessionID, runID string, a
 // CompactToolEvent returns the same tool preview used by RunOverview, without
 // changing stored events or shortening model text and reasoning fragments.
 func CompactToolEvent(event Event) Event {
+	event = PublicEvent(event)
 	if event.Kind != "tool" {
 		return event
 	}

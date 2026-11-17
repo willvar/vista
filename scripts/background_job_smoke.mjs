@@ -36,7 +36,7 @@ const provider = createServer(async (request, response) => {
   } else if (calls === 2) {
     response.end('data: {"choices":[{"delta":{"content":"Job started; I will leave it running."},"finish_reason":"stop"}]}\n\ndata: [DONE]\n\n')
   } else {
-    const notices = body.messages.filter(message => message.role === 'system' && message.content.startsWith('Runtime completion event.'))
+    const notices = body.messages.filter(message => typeof message.content === 'string' && message.content.startsWith('Runtime completion event.'))
       .map(message => JSON.parse(message.content.slice(message.content.indexOf('\n') + 1)))
     if (doubleCrash || ++completionCalls !== 1 || notices.length !== 1 || notices[0].kind !== 'job' || notices[0].status !== 'interrupted') throw new Error('unexpected background continuation')
     const starts = body.messages.flatMap(message => message.tool_calls || []).filter(call => call.function?.name === 'start_background')

@@ -372,3 +372,83 @@ func TestRuntimeContinuationSnapshotUsesActualRunClock(t *testing.T) {
 		t.Fatalf("wrong execution clock: %+v %v", snapshot.CurrentRun, err)
 	}
 }
+
+func TestJobWarningsAreNonterminalDeduplicatedAndInvalidatedByDeadlineOrExit(t *testing.T) {
+	for _, change := range []string{"deadline", "exit", "worker recovery"} {
+		t.Run(change, func(t *testing.T) {
+			s, ctx := runtimeStoreFixture(t)
+			job := Job{ID: "job", SessionID: "session", RunID: "source", TaskID: "main", Status: "starting", ExpiresAt: "2099-01-01T00:00:00Z", WarnAt: "2098-12-31T23:59:00Z", DeadlineRevision: 1}
+			if _, err := s.RecordJob(ctx, job); err != nil {
+				t.Fatal(err)
+			}
+			job.Status = "running"
+			job.Change = "warning"
+			job.WarnedAt = "2026-11-17T00:00:00Z"
+			if _, err := s.RecordJob(ctx, job); err != nil {
+				t.Fatal(err)
+			}
+			warning := workerproto.RuntimeEvent{ID: "warning", RunID: "source", Recipient: "main", Kind: "job_warning", SourceID: "job", Status: "running", DeadlineRevision: 1}
+			for i := 0; i < 2; i++ {
+				if _, ready, err := s.RecordRuntimeEvent(ctx, "session", warning); err != nil || !ready {
+					t.Fatalf("warning rejected: %v %v", ready, err)
+				}
+			}
+			pending, err := s.PendingRuntimeEvents(ctx, "session", "source", "main")
+			if err != nil || len(pending) != 1 || pending[0].Kind != "job_warning" {
+				t.Fatalf("wrong inbox: %+v %v", pending, err)
+			}
+			if change == "deadline" {
+				job.Change = "deadline"
+				job.DeadlineRevision = 2
+				job.ExpiresAt = "2099-02-01T00:00:00Z"
+			} else {
+				job.Status = "interrupted"
+				job.Change = ""
+				job.TerminationReason = "timeout"
+			}
+			if change == "worker recovery" {
+				if _, err := s.InterruptJobs(ctx, "session", "Worker stopped"); err != nil {
+					t.Fatal(err)
+				}
+			} else if _, err := s.RecordJob(ctx, job); err != nil {
+				t.Fatal(err)
+			}
+			if pending, err := s.HasPendingRuntimeEvents(ctx, "session"); err != nil || pending {
+				t.Fatalf("obsolete warning remained pending: %v %v", pending, err)
+			}
+			warning.ID = "late-warning"
+			if _, ready, err := s.RecordRuntimeEvent(ctx, "session", warning); err != nil || ready {
+				t.Fatalf("late warning woke model: %v %v", ready, err)
+			}
+		})
+	}
+}
+
+func TestRuntimeAdmissionReusesOnlyItsOwnBackgroundConversation(t *testing.T) {
+	s, ctx := runtimeStoreFixture(t)
+	job := Job{ID: "background", SessionID: "session", RunID: "source", TaskID: "main", Status: "starting"}
+	if _, err := s.RecordJob(ctx, job); err != nil {
+		t.Fatal(err)
+	}
+	job.Status = "running"
+	if _, err := s.RecordJob(ctx, job); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.FinishRun(ctx, "session", "source", "answer", "succeeded", "started"); err != nil {
+		t.Fatal(err)
+	}
+	counts, err := s.RuntimeAdmissionCounts(ctx, "session")
+	if err != nil || counts.Running != 0 || counts.Jobs != 1 {
+		t.Fatalf("own job consumed a second slot: %+v %v", counts, err)
+	}
+	if _, err := s.Create(ctx, "other", "other"); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := s.BeginRun(ctx, "other", "other-run", "other-user", "work"); err != nil {
+		t.Fatal(err)
+	}
+	counts, err = s.RuntimeAdmissionCounts(ctx, "session")
+	if err != nil || counts.Running != 1 {
+		t.Fatalf("other conversation was excluded: %+v %v", counts, err)
+	}
+}

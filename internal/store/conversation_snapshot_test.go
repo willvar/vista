@@ -50,7 +50,7 @@ func TestConversationSnapshotRetainsRootRetryAcrossChildTraffic(t *testing.T) {
 	t.Fatal("retry missing from run overview")
 }
 
-func TestConversationSnapshotRetainsLatestChecklistOutsideRecentEvents(t *testing.T) {
+func TestConversationSnapshotLeavesChecklistInModelContextOnly(t *testing.T) {
 	s := revertStore(t)
 	ctx := context.Background()
 	if _, _, err := s.BeginRun(ctx, "s", "r", "u", "question"); err != nil {
@@ -60,7 +60,7 @@ func TestConversationSnapshotRetainsLatestChecklistOutsideRecentEvents(t *testin
 		t.Fatal(err)
 	}
 	items := []ChecklistItem{{Text: "Read source", Status: "done"}, {Text: "Verify result", Status: "in_progress"}}
-	checklist, err := s.ReplaceChecklist(ctx, "s", "r", items)
+	_, err := s.ReplaceChecklist(ctx, "s", "r", items)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -77,28 +77,14 @@ func TestConversationSnapshotRetainsLatestChecklistOutsideRecentEvents(t *testin
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(view.Events) != 102 || view.Events[0].Sequence != checklist.Sequence || view.Events[1].Sequence != request.Sequence {
-		t.Fatalf("latest checklist or model identity lost from bounded snapshot: %+v", view.Events)
+	if len(view.Events) != 101 || view.Events[0].Sequence != request.Sequence {
+		t.Fatalf("internal plan was projected or model identity lost: %+v", view.Events)
 	}
-	var data struct{ Items []ChecklistItem }
-	if err := json.Unmarshal(view.Events[0].Data, &data); err != nil || len(data.Items) != 2 || data.Items[1] != items[1] {
-		t.Fatalf("checklist changed: %+v err=%v", data, err)
+	retained, err := s.RunChecklist(ctx, "s", "r")
+	if err != nil || len(retained) != 2 || retained[1] != items[1] {
+		t.Fatalf("internal checklist changed: %+v %v", retained, err)
 	}
-	if _, err := s.FinishRun(ctx, "s", "r", "a", "succeeded", "answer"); err != nil {
-		t.Fatal(err)
-	}
-	if _, _, err := s.BeginRun(ctx, "s", "next", "next-user", "new question"); err != nil {
-		t.Fatal(err)
-	}
-	view, err = s.ConversationSnapshot(ctx, "s")
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, event := range view.Events {
-		if event.Kind == "checklist" {
-			t.Fatal("a new run inherited the old plan outside its recent history")
-		}
-	}
+
 }
 
 func TestConversationSnapshotClockSurvivesPagingAndIgnoresAuxiliaryTraffic(t *testing.T) {

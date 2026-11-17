@@ -6,7 +6,7 @@ import (
 )
 
 func TestAdmissionUsesMeasuredMemoryWithoutSessionCountLimit(t *testing.T) {
-	config := memoryConfig{1024, 768, 2}
+	config := memoryConfig{1024, 768, 2, 4}
 	if err := admitMemory(8<<30, 1023<<20, config); err != nil {
 		t.Fatal(err)
 	}
@@ -35,7 +35,7 @@ func TestMemorySettingsPersistenceAndValidation(t *testing.T) {
 	if _, err := loadMemoryConfig(app.configDir); err != nil {
 		t.Fatal(err)
 	}
-	for _, c := range []memoryConfig{{255, 128, 1}, {1024, 2048, 1}, {1024, 0, 1}, {1024, 768, 0}} {
+	for _, c := range []memoryConfig{{255, 128, 1, 4}, {1024, 2048, 1, 4}, {1024, 0, 1, 4}, {1024, 768, 0, 4}} {
 		if validMemoryConfig(c) {
 			t.Fatalf("invalid settings accepted: %+v", c)
 		}

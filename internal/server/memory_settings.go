@@ -7,19 +7,40 @@ import (
 	"net/http"
 
 	"vista/internal/configstore"
+	"vista/internal/tools"
 	"vista/internal/workerproto"
 )
 
 type memoryConfig struct {
-	BudgetMiB      int `json:"budgetMiB"`
-	WorkerMiB      int `json:"workerMiB"`
-	ConcurrentRuns int `json:"concurrentRuns"`
+	BudgetMiB                int `json:"budgetMiB"`
+	WorkerMiB                int `json:"workerMiB"`
+	ConcurrentRuns           int `json:"concurrentRuns"`
+	BackgroundJobsPerSession int `json:"backgroundJobsPerSession"`
 }
 
-var defaultMemoryConfig = memoryConfig{2048, 1024, 4}
+// Missing limits retain the caller's defaults; explicit null is not a positive
+// integer. The standard decoder otherwise treats null as an unchanged int.
+func (c *memoryConfig) UnmarshalJSON(data []byte) error {
+	type plain memoryConfig
+	next := plain(*c)
+	if err := decodeSettingsRequest(bytes.NewReader(data), &next); err != nil {
+		return err
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return err
+	}
+	if raw, exists := fields["backgroundJobsPerSession"]; exists && bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
+		return errors.New("backgroundJobsPerSession must be a positive integer")
+	}
+	*c = memoryConfig(next)
+	return nil
+}
+
+var defaultMemoryConfig = memoryConfig{2048, 1024, 4, tools.DefaultBackgroundJobs}
 
 func validMemoryConfig(c memoryConfig) bool {
-	return c.BudgetMiB >= 256 && c.BudgetMiB <= 1<<20 && c.WorkerMiB >= 128 && c.WorkerMiB <= c.BudgetMiB && c.ConcurrentRuns >= 1 && c.ConcurrentRuns <= 128
+	return c.BudgetMiB >= 256 && c.BudgetMiB <= 1<<20 && c.WorkerMiB >= 128 && c.WorkerMiB <= c.BudgetMiB && c.ConcurrentRuns >= 1 && c.ConcurrentRuns <= 128 && c.BackgroundJobsPerSession >= 1 && c.BackgroundJobsPerSession <= tools.MaxBackgroundJobs
 }
 func loadMemoryConfig(dir string) (memoryConfig, error) {
 	config := defaultMemoryConfig
@@ -53,11 +74,13 @@ func (a *App) memorySettingsHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, 4096)
-	var input memoryConfig
+	input := memoryConfig{BackgroundJobsPerSession: a.memorySettings().BackgroundJobsPerSession}
 	if decodeSettingsRequest(r.Body, &input) != nil || !validMemoryConfig(input) {
-		http.Error(w, "budgetMiB: 256–1048576; workerMiB: 128–budgetMiB; concurrentRuns: 1–128", 400)
+		http.Error(w, "budgetMiB: 256–1048576; workerMiB: 128–budgetMiB; concurrentRuns: 1–128; backgroundJobsPerSession: 1–1024", 400)
 		return
 	}
+	a.workerLimitsMu.Lock()
+	defer a.workerLimitsMu.Unlock()
 	data, err := json.Marshal(input)
 	if err != nil {
 		http.Error(w, "could not save memory settings", 500)
@@ -80,7 +103,7 @@ func (a *App) memorySettingsHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	a.mu.Unlock()
 	for _, worker := range workers {
-		_ = worker.send(workerproto.Command{Action: "limits", RunID: "limits", MemoryLimit: int64(input.WorkerMiB) << 20})
+		_ = worker.send(workerproto.Command{Action: "limits", RunID: "limits", MemoryLimit: int64(input.WorkerMiB) << 20, BackgroundJobsLimit: input.BackgroundJobsPerSession})
 	}
 	a.updates.notify("status")
 	a.refreshMCPHost()

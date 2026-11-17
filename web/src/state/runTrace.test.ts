@@ -247,7 +247,7 @@ test('a child return and later unrelated successes never resolve failures or com
   assert.equal(failures[0]?.error, 'network refused')
   assert.equal(failures[0]?.sequence, 2)
   assert.equal(failures[0]?.lastSequence, 4)
-  assert.equal(trace.checklist?.[0]?.status, 'blocked')
+  assert.equal('checklist' in trace, false)
 })
 
 test('successful async delegation and waiting keep each child running until its own outcome arrives', () => {
@@ -375,13 +375,13 @@ test('followup trace ranges isolate model identity, checklist, failures and exec
   assert.equal(first.tasks[0]?.modelId, 'first-model')
   assert.equal(first.tasks[0]?.reasoningEffort, 'low')
   assert.equal(first.tasks[0]?.status, 'started')
-  assert.deepEqual(first.checklist, [{ text: 'Explain the recommendation', status: 'done' }])
+  assert.equal('checklist' in first, false)
   assert.equal(first.nodes.some(node => node.kind === 'tool'), false)
   const followup = buildRunTrace(events, { runId: 'run', active: false, after: 6, replyTurns: [1] })
   assert.equal(followup.finished?.sequence, 12)
   assert.equal(followup.tasks[0]?.modelId, 'followup-model')
   assert.equal(followup.tasks[0]?.reasoningEffort, 'high')
-  assert.deepEqual(followup.checklist, [{ text: 'Check current prices', status: 'blocked' }])
+  assert.equal('checklist' in followup, false)
   assert.equal(followup.nodes.find(node => node.kind === 'tool')?.callId, 'prices')
   assert.ok(followup.nodes.every(node => node.sequence > 6))
 })
@@ -481,9 +481,10 @@ test('structured search results and empty instruction discovery are readable wit
   assert.deepEqual(projectToolOutput('[{"path":"AGENTS.md","bytes":120}]', 'subagent/project_instructions').instructions, [{ path: 'AGENTS.md', bytes: 120 }])
 })
 
-test('empty skills and checklist changes have readable summaries, while errors stay separate from output', () => {
+test('empty skills have readable summaries and internal planning is absent from traces', () => {
   assert.equal(projectToolOutput('[]', 'list_skills').resultSummaryKey, 'traceNoSkills')
-  assert.deepEqual(projectToolOutput('{"items":[{"text":"Inspect","status":"done"}]}', 'update_checklist').resultSummaryParams, { count: 1 })
+  const privateTrace=buildRunTrace([event(1,'tool',{status:'succeeded',tool:{name:'update_checklist'},content:'{"items":[{"text":"Private","status":"done"}]}'})],options)
+  assert.equal(privateTrace.nodes.length,0)
   assert.deepEqual(projectToolOutput('{"error":"Timed out","preview":"Partial output"}', 'shell'), { body: 'Partial output', error: 'Timed out', rawBody: '{"error":"Timed out","preview":"Partial output"}' })
   const skills = projectToolOutput('[{"name":"Review","description":"Read code","path":"skills/review/SKILL.md"}]', 'list_skills')
   assert.equal(skills.body, 'Review\nRead code\nskills/review/SKILL.md')

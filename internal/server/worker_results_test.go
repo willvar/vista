@@ -397,3 +397,20 @@ func TestWorkerMetricsIgnoreReplacedWorker(t *testing.T) {
 		t.Fatal("retired worker metrics changed replacement state")
 	}
 }
+
+func TestWorkerDeadlineWarningCannotMasqueradeAsCompletion(t *testing.T) {
+	for _, tc := range []struct {
+		kind, status string
+		revision     uint64
+	}{
+		{"job_warning", "succeeded", 1}, {"job_warning", "failed", 1}, {"job_warning", "interrupted", 1}, {"job_warning", "running", 0}, {"job", "running", 1},
+	} {
+		t.Run(tc.kind+"/"+tc.status, func(t *testing.T) {
+			c, _ := newResultConsumerTest(t)
+			notice := workerproto.RuntimeEvent{ID: "invalid", RunID: "run", Recipient: "main", SourceID: "job", Kind: tc.kind, Status: tc.status, DeadlineRevision: tc.revision}
+			if err := consumeTestResult(t, c, workerproto.Result{RunID: "run", Kind: "runtime_event", AckID: "notice", RuntimeEvent: &notice}); err == nil {
+				t.Fatal("invalid warning/completion status accepted")
+			}
+		})
+	}
+}

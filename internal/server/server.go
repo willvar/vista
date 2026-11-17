@@ -55,6 +55,7 @@ type worker struct {
 type App struct {
 	mcpHost                *mcphost.Process
 	memoryMu               sync.Mutex
+	workerLimitsMu         sync.Mutex
 	memoryConfig           memoryConfig
 	background             sync.WaitGroup
 	closeContext           context.CancelFunc

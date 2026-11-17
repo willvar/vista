@@ -98,7 +98,7 @@ func TestRunOverviewRangeSeparatesRepliesToolsAndChecklists(t *testing.T) {
 				}
 			}
 		}
-		if tools != 1 || checklists != 1 || tasks != 1 {
+		if tools != 1 || checklists != 0 || tasks != 1 {
 			t.Fatalf("stage %d tools=%d checklists=%d tasks=%d", index, tools, checklists, tasks)
 		}
 	}

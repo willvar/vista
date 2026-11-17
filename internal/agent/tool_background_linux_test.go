@@ -23,10 +23,16 @@ func TestBackgroundTimeoutIsOptionalAndHasNoDailyLimit(t *testing.T) {
 	for _, tc := range []struct {
 		name    string
 		timeout *int64
+		warning *int64
 		invalid bool
 	}{
 		{name: "omitted"},
 		{name: "two days", timeout: new(int64(172800))},
+		{name: "warning without timeout", warning: new(int64(1)), invalid: true},
+		{name: "warning equals timeout", timeout: new(int64(2)), warning: new(int64(2)), invalid: true},
+		{name: "warning exceeds timeout", timeout: new(int64(2)), warning: new(int64(3)), invalid: true},
+		{name: "zero warning", timeout: new(int64(2)), warning: new(int64(0)), invalid: true},
+		{name: "two days with warning", timeout: new(int64(172800)), warning: new(int64(120))},
 		{name: "zero", timeout: new(int64(0)), invalid: true},
 		{name: "negative", timeout: new(int64(-1)), invalid: true},
 		{name: "duration overflow", timeout: new(int64(1<<63 - 1)), invalid: true},
@@ -43,13 +49,16 @@ func TestBackgroundTimeoutIsOptionalAndHasNoDailyLimit(t *testing.T) {
 			if tc.timeout != nil {
 				arguments["timeoutSeconds"] = *tc.timeout
 			}
+			if tc.warning != nil {
+				arguments["warnBeforeSeconds"] = *tc.warning
+			}
 			encoded, _ := json.Marshal(arguments)
 			var call provider.ToolCall
 			call.ID, call.Function.Name, call.Function.Arguments = "background", "start_background", string(encoded)
 			runtime := toolRuntime{jobs: manager, parent: workerproto.Command{RunID: "run"}}
 			output, err := runtime.startBackground(context.Background(), call)
 			if tc.invalid {
-				if err == nil || !strings.Contains(err.Error(), "timeoutSeconds") || len(events) != 0 {
+				if err == nil || !strings.Contains(strings.ToLower(err.Error()), "seconds") || len(events) != 0 {
 					t.Fatalf("invalid timeout started a job: output=%s err=%v events=%d", output, err, len(events))
 				}
 				return

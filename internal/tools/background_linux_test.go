@@ -19,7 +19,7 @@ func TestBackgroundOutputPublishesGrowthBeforeExit(t *testing.T) {
 	events := make(chan BackgroundJob, 32)
 	manager := NewBackgroundManager(func(_ context.Context, job BackgroundJob) error { events <- job; return nil })
 	defer manager.Close()
-	job, err := manager.Start(context.Background(), root, "run", root, "printf 'first🙂'; sleep 30", time.Minute, nil)
+	job, err := manager.Start(context.Background(), root, "run", root, "printf 'first🙂'; sleep 30", time.Minute, 0, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -54,7 +54,7 @@ func TestBackgroundProgressFailureIsNotReportedAsTimeout(t *testing.T) {
 		return nil
 	})
 	defer manager.Close()
-	if _, err := manager.Start(context.Background(), root, "run", root, "printf output; sleep 30", time.Minute, nil); err != nil {
+	if _, err := manager.Start(context.Background(), root, "run", root, "printf output; sleep 30", time.Minute, 0, nil); err != nil {
 		t.Fatal(err)
 	}
 	deadline := time.After(4 * time.Second)
@@ -89,7 +89,7 @@ func TestBackgroundJobOutlivesRunAndStopsDescendants(t *testing.T) {
 	})
 	defer manager.Close()
 	runCtx, cancelRun := context.WithCancel(context.Background())
-	job, err := manager.Start(runCtx, filepath.Join(root, "state"), "run", root, "sleep 30 & echo $!; wait", 0, nil)
+	job, err := manager.Start(runCtx, filepath.Join(root, "state"), "run", root, "sleep 30 & echo $!; wait", 0, 0, nil)
 	if err != nil || job.Status != "running" {
 		t.Fatalf("background start: %+v %v", job, err)
 	}
@@ -158,7 +158,7 @@ func TestBackgroundTerminalReasons(t *testing.T) {
 			events := make(chan BackgroundJob, 8)
 			manager := NewBackgroundManager(func(_ context.Context, job BackgroundJob) error { events <- job; return nil })
 			defer manager.Close()
-			job, err := manager.Start(context.Background(), root, "run", root, tc.script, tc.timeout, nil)
+			job, err := manager.Start(context.Background(), root, "run", root, tc.script, tc.timeout, 0, nil)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -194,5 +194,223 @@ func TestBackgroundTerminalReasons(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func nextBackgroundEvent(t *testing.T, events <-chan BackgroundJob, match func(BackgroundJob) bool) BackgroundJob {
+	t.Helper()
+	deadline := time.NewTimer(5 * time.Second)
+	defer deadline.Stop()
+	for {
+		select {
+		case job := <-events:
+			if match(job) {
+				return job
+			}
+		case <-deadline.C:
+			t.Fatal("background event did not arrive")
+			return BackgroundJob{}
+		}
+	}
+}
+
+func TestBackgroundWarningUpdateInvalidatesOldTimers(t *testing.T) {
+	root := t.TempDir()
+	events := make(chan BackgroundJob, 64)
+	manager := NewBackgroundManager(func(_ context.Context, job BackgroundJob) error { events <- job; return nil })
+	defer manager.Close()
+	job, err := manager.Start(context.Background(), root, "run", root, "sleep 30", 800*time.Millisecond, 600*time.Millisecond, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	warned := nextBackgroundEvent(t, events, func(j BackgroundJob) bool { return j.Change == "warning" })
+	if warned.Status != "running" || warned.WarnedAt == "" || warned.ExpiresAt != job.ExpiresAt {
+		t.Fatalf("bad warning: %+v", warned)
+	}
+	updated, err := manager.UpdateTimeout(context.Background(), job.ID, job.ExpiresAt, 1800*time.Millisecond, 300*time.Millisecond)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.ExpiresAt == job.ExpiresAt || updated.WarnedAt != "" || updated.DeadlineRevision != job.DeadlineRevision+1 {
+		t.Fatalf("bad deadline update: %+v", updated)
+	}
+	if _, err := manager.UpdateTimeout(context.Background(), job.ID, job.ExpiresAt, time.Minute, 0); err == nil {
+		t.Fatal("stale update succeeded")
+	}
+	warning := nextBackgroundEvent(t, events, func(j BackgroundJob) bool { return j.Change == "warning" || j.Status == "interrupted" })
+	if warning.Change != "warning" || warning.DeadlineRevision != updated.DeadlineRevision {
+		t.Fatalf("old timer survived update: %+v", warning)
+	}
+	terminal := nextBackgroundEvent(t, events, func(j BackgroundJob) bool { return j.Status == "interrupted" })
+	if terminal.TerminationReason != "timeout" || terminal.ExpiresAt != updated.ExpiresAt || terminal.Complete {
+		t.Fatalf("wrong terminal: %+v", terminal)
+	}
+	if _, err := manager.UpdateTimeout(context.Background(), job.ID, updated.ExpiresAt, time.Minute, 0); err == nil {
+		t.Fatal("terminated job was extended")
+	}
+}
+
+func TestBackgroundFailedDeadlineUpdatePreservesOldHardLimit(t *testing.T) {
+	root := t.TempDir()
+	events := make(chan BackgroundJob, 32)
+	manager := NewBackgroundManager(func(_ context.Context, job BackgroundJob) error {
+		if job.Change == "deadline" {
+			return errors.New("save failed")
+		}
+		events <- job
+		return nil
+	})
+	defer manager.Close()
+	job, err := manager.Start(context.Background(), root, "run", root, "sleep 30", 400*time.Millisecond, 0, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := manager.UpdateTimeout(context.Background(), job.ID, job.ExpiresAt, time.Minute, 0); err == nil {
+		t.Fatal("failed commit succeeded")
+	}
+	terminal := nextBackgroundEvent(t, events, func(j BackgroundJob) bool { return j.Status == "interrupted" })
+	if terminal.ExpiresAt != job.ExpiresAt || terminal.TerminationReason != "timeout" {
+		t.Fatalf("failed update changed timer: %+v", terminal)
+	}
+}
+
+func TestBackgroundHardDeadlineDoesNotWaitForWarningDelivery(t *testing.T) {
+	root := t.TempDir()
+	entered := make(chan struct{})
+	release := make(chan struct{})
+	events := make(chan BackgroundJob, 32)
+	manager := NewBackgroundManager(func(_ context.Context, job BackgroundJob) error {
+		if job.Change == "warning" {
+			close(entered)
+			<-release
+		}
+		events <- job
+		return nil
+	})
+	defer manager.Close()
+	job, err := manager.Start(context.Background(), root, "run", root, "echo $$; exec sleep 30", 600*time.Millisecond, 400*time.Millisecond, nil)
+	if err != nil {
+		close(release)
+		t.Fatal(err)
+	}
+	<-entered
+	data, err := os.ReadFile(job.OutputPath)
+	if err != nil {
+		close(release)
+		t.Fatal(err)
+	}
+	pid, _ := strconv.Atoi(strings.TrimSpace(string(data)))
+	time.Sleep(600 * time.Millisecond)
+	status, err := os.ReadFile("/proc/" + strconv.Itoa(pid) + "/status")
+	close(release)
+	if err == nil && !strings.Contains(string(status), "State:\tZ") {
+		t.Fatalf("hard termination waited on warning delivery: %s", status)
+	}
+	terminal := nextBackgroundEvent(t, events, func(j BackgroundJob) bool { return j.Status == "interrupted" })
+	if terminal.TerminationReason != "timeout" {
+		t.Fatalf("wrong reason: %+v", terminal)
+	}
+}
+
+func TestBackgroundLimitsAreLiveAndDoNotKillExistingJobs(t *testing.T) {
+	root := t.TempDir()
+	events := make(chan BackgroundJob, 64)
+	manager := NewBackgroundManager(func(_ context.Context, job BackgroundJob) error { events <- job; return nil })
+	defer manager.Close()
+	if err := manager.SetLimit(2); err != nil {
+		t.Fatal(err)
+	}
+	first, err := manager.Start(context.Background(), root, "run", root, "sleep 30", 0, 0, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := manager.Start(context.Background(), root, "run", root, "sleep 30", 0, 0, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := manager.SetLimit(1); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := manager.Start(context.Background(), root, "run", root, "touch should-not-exist", 0, 0, nil); err == nil || !strings.Contains(err.Error(), "2 active / 1 allowed") {
+		t.Fatalf("missing capacity error: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(root, "should-not-exist")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatal("rejected command executed")
+	}
+	manager.mu.Lock()
+	active := len(manager.active)
+	manager.mu.Unlock()
+	if active != 2 {
+		t.Fatal("lowering killed jobs")
+	}
+	if err := manager.SetLimit(3); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := manager.Start(context.Background(), root, "run", root, "sleep 30", 0, 0, nil); err != nil {
+		t.Fatal(err)
+	}
+	for _, limit := range []int{0, -1, MaxBackgroundJobs + 1} {
+		if manager.SetLimit(limit) == nil {
+			t.Fatal("invalid limit accepted")
+		}
+	}
+	if first.ExpiresAt != "" || second.WarnAt != "" {
+		t.Fatal("unlimited jobs acquired timers")
+	}
+}
+
+func TestBackgroundWarningAfterSlowStartAcknowledgment(t *testing.T) {
+	root := t.TempDir()
+	events := make(chan BackgroundJob, 32)
+	manager := NewBackgroundManager(func(_ context.Context, job BackgroundJob) error {
+		if job.Status == "starting" {
+			time.Sleep(250 * time.Millisecond)
+		}
+		events <- job
+		return nil
+	})
+	defer manager.Close()
+	job, err := manager.Start(context.Background(), root, "run", root, "sleep 30", time.Second, 900*time.Millisecond, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	warned := nextBackgroundEvent(t, events, func(j BackgroundJob) bool { return j.Change == "warning" || j.Status == "interrupted" })
+	if warned.Change != "warning" || warned.ExpiresAt != job.ExpiresAt {
+		t.Fatalf("startup lost warning or moved deadline: %+v", warned)
+	}
+}
+
+func TestBackgroundHardDeadlineDoesNotWaitForRunningStateDelivery(t *testing.T) {
+	root := t.TempDir()
+	entered := make(chan BackgroundJob, 1)
+	release := make(chan struct{})
+	done := make(chan error, 1)
+	manager := NewBackgroundManager(func(_ context.Context, job BackgroundJob) error {
+		if job.Status == "running" {
+			entered <- job
+			<-release
+		}
+		return nil
+	})
+	defer manager.Close()
+	go func() {
+		_, err := manager.Start(context.Background(), root, "run", root, "echo $$; exec sleep 30", 500*time.Millisecond, 0, nil)
+		done <- err
+	}()
+	job := <-entered
+	time.Sleep(800 * time.Millisecond)
+	data, err := os.ReadFile(job.OutputPath)
+	if err != nil {
+		close(release)
+		t.Fatal(err)
+	}
+	pid, _ := strconv.Atoi(strings.TrimSpace(string(data)))
+	status, err := os.ReadFile("/proc/" + strconv.Itoa(pid) + "/status")
+	close(release)
+	if err == nil && !strings.Contains(string(status), "State:\tZ") {
+		t.Fatalf("process survived while running-state delivery blocked: %s", status)
+	}
+	if err := <-done; err == nil {
+		t.Fatal("deadline-expired start claimed success")
 	}
 }

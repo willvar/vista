@@ -23,18 +23,18 @@ func TestMemorySettingsCommitUpdatesLiveWorkersAndSurvivesReload(t *testing.T) {
 		app.memorySettingsHTTP(w, httptest.NewRequest(http.MethodPut, "/api/memory-config", strings.NewReader(body)))
 		return w
 	}
-	if w := request(`{"budgetMiB":1024,"workerMiB":768,"concurrentRuns":2}`); w.Code != 200 {
+	if w := request(`{"budgetMiB":1024,"workerMiB":768,"concurrentRuns":2,"backgroundJobsPerSession":6}`); w.Code != 200 {
 		t.Fatal(w.Body.String())
 	}
 	config, err := loadMemoryConfig(app.configDir)
-	if err != nil || config != (memoryConfig{1024, 768, 2}) || app.memorySettings() != config {
+	if err != nil || config != (memoryConfig{1024, 768, 2, 6}) || app.memorySettings() != config {
 		t.Fatalf("settings were not committed: %+v %v", config, err)
 	}
 	var command workerproto.Command
-	if err := json.NewDecoder(sink).Decode(&command); err != nil || command.Action != "limits" || command.MemoryLimit != 768<<20 {
+	if err := json.NewDecoder(sink).Decode(&command); err != nil || command.Action != "limits" || command.MemoryLimit != 768<<20 || command.BackgroundJobsLimit != 6 {
 		t.Fatalf("resident Worker did not receive limit: %+v %v", command, err)
 	}
-	for _, body := range []string{`null`, `{}`, `{"budgetMiB":1024,"workerMiB":2048,"concurrentRuns":2}`, `{"budgetMiB":1024,"workerMiB":768,"concurrentRuns":0}`} {
+	for _, body := range []string{`{"budgetMiB":1024,"workerMiB":768,"concurrentRuns":2,"backgroundJobsPerSession":null}`, `{"budgetMiB":1024,"workerMiB":768,"concurrentRuns":2,"backgroundJobsPerSession":0}`, `{"budgetMiB":1024,"workerMiB":768,"concurrentRuns":2,"backgroundJobsPerSession":1025}`, `null`, `{}`, `{"budgetMiB":1024,"workerMiB":2048,"concurrentRuns":2}`, `{"budgetMiB":1024,"workerMiB":768,"concurrentRuns":0}`} {
 		if w := request(body); w.Code != 400 || app.memorySettings() != config {
 			t.Fatalf("invalid settings changed runtime: %d", w.Code)
 		}

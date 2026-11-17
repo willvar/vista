@@ -62,6 +62,7 @@ func builtinTools() toolSet {
 		{shellSchema, (*toolRuntime).shell, toolAlways},
 		{startBackgroundSchema, (*toolRuntime).startBackground, toolAlways},
 		{stopBackgroundSchema, (*toolRuntime).stopBackground, toolAlways},
+		{updateBackgroundTimeoutSchema, (*toolRuntime).updateBackgroundTimeout, toolAlways},
 		{listSkillsSchema, (*toolRuntime).listSkills, toolAlways},
 		{readSkillSchema, (*toolRuntime).readSkill, toolAlways},
 		{projectInstructionsSchema, (*toolRuntime).projectInstructions, toolAlways},

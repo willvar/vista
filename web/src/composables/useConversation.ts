@@ -384,7 +384,6 @@ export function useConversation({ client, sessions, modelCatalog, error, busy, r
     if (old.activeRunSequence > snapshot.throughSequence) {
       next.activeRunID = old.activeRunID; next.activeRunSequence = old.activeRunSequence
       next.runProgress = old.runProgress
-      next.checklist = old.checklist
       next.runClock = old.runClock
       next.selected = { ...next.selected!, executing: old.selected?.executing || false }
     }
@@ -709,7 +708,6 @@ export function useConversation({ client, sessions, modelCatalog, error, busy, r
   }
 
   function hasVisibleRun(runId: string) { return !!runId && (messages.value.some(message => message.runId === runId) || !state.hasNewer && activeRunID.value === runId) }
-  const currentChecklist = computed(() => agentWorking.value && state.checklist?.runId === activeRunID.value ? state.checklist.items : [])
   const traceSegments = computed(() => replyTraceSegments(messages.value, agentWorking.value ? activeRunID.value : '', state.hasNewer))
   function traceSegment(message: Message) { return traceSegments.value.get(message.id)! }
   function runActivityAnchor(message: Message) {
@@ -1224,7 +1222,7 @@ export function useConversation({ client, sessions, modelCatalog, error, busy, r
     synchronization, syncDiagnostics, snapshotReady, viewRevision, resynchronize, renderFailure,
     selectSession, clearSession, refreshConversation, loadOlderActivity, showRecentActivity, loadOlder, loadNewer, loadLatest, markRead,
     send, submitMessage, analyzingFailure, canAnalyzeFailure, analyzeFailure, canRetryFailure, retryFailure, submitQuestion, cancelExecution, readModelOutput, modelOutputLoading, modelOutputFailure,
-    fullMessageText, resultsForMessage, resultsForRun, resultsForTrace, traceSegment, runStartedAt, runReplyTurns, runActivityAnchor, firstRunSequence, liveDrafts, currentChecklist,
+    fullMessageText, resultsForMessage, resultsForRun, resultsForTrace, traceSegment, runStartedAt, runReplyTurns, runActivityAnchor, firstRunSequence, liveDrafts,
     hasVisibleRun, chooseImages, addImages, pasteImages, dropImages, removeImage,
   }
 }

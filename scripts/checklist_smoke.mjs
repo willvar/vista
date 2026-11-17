@@ -70,10 +70,7 @@ try {
       const events = await api(`/sessions/${session.id}/event-page?after=${sent.event.sequence}`)
       finished = events.some(event => event.kind === 'run_finished' && event.data.runId === sent.runId && event.data.status === 'succeeded')
       if (finished) {
-        const updates = events.filter(event => event.kind === 'checklist' && event.data.runId === sent.runId)
-        const tools = events.filter(event => event.kind === 'tool' && event.data.runId === sent.runId && event.data.tool?.name === 'update_checklist' && event.data.status === 'succeeded')
-        if (updates.length !== tools.length || updates.some((event, index) => event.sequence >= tools[index].sequence)
-          || JSON.stringify(updates.at(-1)?.data.items) !== JSON.stringify(expected)) throw new Error(`checklist events incorrect: ${JSON.stringify(events)}`)
+        if (events.some(event => event.kind === 'checklist' || event.kind === 'tool' && event.data.tool?.name === 'update_checklist')) throw new Error('internal checklist exposed through HTTP')
         if (expectedText && !events.some(event => event.kind === 'run_finished' && event.data.runId === sent.runId && event.data.message?.role === 'assistant' && event.data.message.content === expectedText)) throw new Error('final answer was not persisted with its checklist')
         break
       }
@@ -81,8 +78,11 @@ try {
     }
     if (!finished) throw new Error('checklist run did not finish')
     const overview = await api(`/sessions/${session.id}/runs/${sent.runId}/overview`)
-    const actual = overview.events.find(event => event.kind === 'checklist')?.data.items
-    if (JSON.stringify(actual) !== JSON.stringify(expected)) throw new Error(`run checklist incorrect: ${JSON.stringify(actual)}`)
+    if (overview.events.some(event=>event.kind==='checklist'||event.data?.tool?.name==='update_checklist')) throw new Error('internal plan exposed in overview')
+    const sql=`SELECT json_extract(data,'$.items') FROM events WHERE kind='checklist' AND json_extract(data,'$.runId')='${sent.runId}' ORDER BY sequence DESC LIMIT 1;`
+    const saved=(await promisify(execFile)('sqlite3',[join(state,'vista','state','vista.db'),sql],{encoding:'utf8'})).stdout.trim()
+    const actual=saved?JSON.parse(saved):undefined
+    if(JSON.stringify(actual)!==JSON.stringify(expected)) throw new Error('internal checklist not persisted')
     return sent.runId
   }
   const firstRun = await run('create checklist', items)
@@ -90,8 +90,7 @@ try {
   started = false
   api = await start()
   const overview = await api(`/sessions/${session.id}/runs/${firstRun}/overview`)
-  const retained = overview.events.find(event => event.kind === 'checklist')?.data.items
-  if (JSON.stringify(retained) !== JSON.stringify(items)) throw new Error('checklist did not survive Server restart')
+  if (overview.events.some(event=>event.kind==='checklist')) throw new Error('restart exposed internal plan')
   await run('answer without a checklist')
   await run('create and clear checklist', [])
   if (calls !== 6) throw new Error(`unexpected model call count: ${calls}`)

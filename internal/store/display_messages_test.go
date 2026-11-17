@@ -129,7 +129,7 @@ func TestDisplayMessagesProjectCompactionWithoutChangingCanonicalHistory(t *test
 	}
 }
 
-func TestDisplayMessagesRetainFinalChecklistWithItsReplyAndPageCursor(t *testing.T) {
+func TestDisplayMessagesKeepFinalChecklistInternalWithStableReplyPaging(t *testing.T) {
 	for _, status := range []string{"succeeded", "failed", "interrupted"} {
 		for _, text := range []string{"", "answer"} {
 			t.Run(status+"/"+text, func(t *testing.T) {
@@ -182,19 +182,18 @@ func TestDisplayMessagesRetainFinalChecklistWithItsReplyAndPageCursor(t *testing
 				if err != nil {
 					t.Fatal(err)
 				}
-				if len(view.Messages) != 3 {
-					t.Fatalf("unexpected messages: %+v", view.Messages)
+				expectedMessages := 2
+				if text != "" && status != "interrupted" {
+					expectedMessages++
 				}
-				final := view.Messages[1]
-				if final.Sequence != finished.Sequence || final.RunID != "r" || final.Checklist == nil || final.Checklist.Status != status || !reflect.DeepEqual(final.Checklist.Items, items) {
-					t.Fatalf("final checklist was lost or changed: %+v", final)
+				if len(view.Messages) != expectedMessages {
+					t.Fatalf("internal checklist became a message: %+v", view.Messages)
 				}
-				if final.Checklist.UpdatedAt != checklistTime {
-					t.Fatalf("checklist timestamp = %q, want %q", final.Checklist.UpdatedAt, checklistTime)
+				retained, err := s.RunChecklist(ctx, "s", "r")
+				if err != nil || !reflect.DeepEqual(retained, items) {
+					t.Fatalf("internal checklist was lost: %+v %v", retained, err)
 				}
-				if final.Checklist.UpdatedSequence != updated.Sequence {
-					t.Fatalf("checklist display sequence = %d, want %d", final.Checklist.UpdatedSequence, updated.Sequence)
-				}
+				_ = finished
 				canonical, err := s.MessagesBefore(ctx, "s", 0, 100)
 				if err != nil {
 					t.Fatal(err)
@@ -205,11 +204,6 @@ func TestDisplayMessagesRetainFinalChecklistWithItsReplyAndPageCursor(t *testing
 				}
 				if len(canonical) != wantCanonical {
 					t.Fatalf("checklist entered model history: %+v", canonical)
-				}
-				for _, message := range canonical {
-					if message.Checklist != nil {
-						t.Fatal("canonical message contains a display checklist")
-					}
 				}
 				for _, forward := range []bool{false, true} {
 					var paged []Message
@@ -279,7 +273,7 @@ func TestDisplayMessagesOmitClearedChecklists(t *testing.T) {
 		t.Fatal(err)
 	}
 	page, err := s.DisplayMessagesBefore(ctx, "s", 0, 100)
-	if err != nil || len(page) != 2 || page[1].Checklist != nil {
+	if err != nil || len(page) != 2 {
 		t.Fatalf("cleared checklist returned: %+v %v", page, err)
 	}
 }

@@ -12,7 +12,7 @@ import (
 	"vista/internal/workerproto"
 )
 
-var readToolOutputSchema = map[string]any{"type": "function", "function": map[string]any{"name": "read_tool_output", "description": "Read saved webfetch, shell, MCP, or other tool output in this Session by artifactId or jobId, or by callId from the current run. Continue at nextOffset without rerunning the original tool or downloading the URL again. Byte limit defaults to 8192 and can be up to 32768. Optional pattern searches saved text (Go regex, or literal=true) and returns matching lines, contextLines and byte positions. Continue at nextOffset without rerunning the tool.", "parameters": map[string]any{"type": "object", "properties": map[string]any{"artifactId": map[string]any{"type": "string"}, "callId": map[string]any{"type": "string"}, "jobId": map[string]any{"type": "string"}, "offset": map[string]any{"type": "integer", "minimum": 0}, "limit": map[string]any{"type": "integer", "minimum": 4, "maximum": tools.MaxOutputPageBytes}, "pattern": map[string]any{"type": "string"}, "literal": map[string]any{"type": "boolean"}, "ignoreCase": map[string]any{"type": "boolean"}, "contextLines": map[string]any{"type": "integer", "minimum": 0, "maximum": tools.MaxToolResultLines}}}}}
+var readToolOutputSchema = map[string]any{"type": "function", "function": map[string]any{"name": "read_tool_output", "description": "Read saved webfetch, shell, MCP, or other tool output in this Session by artifactId or jobId, or by callId from the current run. Continue at nextOffset without rerunning the original tool or downloading the URL again. Byte limit defaults to 8192 and can be up to 32768. Optional pattern searches saved text (Go regex, or literal=true) and returns matching lines, contextLines and byte positions. For jobId, also returns current status and deadline metadata for explicit inspection. Continue at nextOffset without rerunning the tool.", "parameters": map[string]any{"type": "object", "properties": map[string]any{"artifactId": map[string]any{"type": "string"}, "callId": map[string]any{"type": "string"}, "jobId": map[string]any{"type": "string"}, "offset": map[string]any{"type": "integer", "minimum": 0}, "limit": map[string]any{"type": "integer", "minimum": 4, "maximum": tools.MaxOutputPageBytes}, "pattern": map[string]any{"type": "string"}, "literal": map[string]any{"type": "boolean"}, "ignoreCase": map[string]any{"type": "boolean"}, "contextLines": map[string]any{"type": "integer", "minimum": 0, "maximum": tools.MaxToolResultLines}}}}}
 
 func readToolOutput(ctx context.Context, arguments string, parent workerproto.Command) (string, error) {
 	var input struct {
@@ -51,10 +51,18 @@ func readToolOutput(ctx context.Context, arguments string, parent workerproto.Co
 		return "", err
 	}
 	defer db.Close()
+	type jobState struct {
+		Status    string `json:"status"`
+		ExpiresAt string `json:"expiresAt"`
+		WarnAt    string `json:"warnAt,omitempty"`
+		WarnedAt  string `json:"warnedAt,omitempty"`
+	}
+	var currentJob *jobState
 	var artifact store.Artifact
 	if input.JobID != "" {
 		job, jobErr := db.GetJob(ctx, parent.SessionID, input.JobID)
 		err = jobErr
+		currentJob = &jobState{job.Status, job.ExpiresAt, job.WarnAt, job.WarnedAt}
 		artifact = store.Artifact{ID: job.ID, OutputPath: job.OutputPath, Complete: job.Complete}
 	} else if input.ArtifactID != "" {
 		artifact, err = db.GetArtifact(ctx, parent.SessionID, input.ArtifactID)
@@ -80,10 +88,11 @@ func readToolOutput(ctx context.Context, arguments string, parent workerproto.Co
 			}
 			return marshalResult(struct {
 				tools.OutputSearchPage
-				ArtifactID string `json:"artifactId,omitempty"`
-				JobID      string `json:"jobId,omitempty"`
-				Complete   bool   `json:"complete"`
-			}{OutputSearchPage: page, ArtifactID: artifactID, JobID: jobID, Complete: artifact.Complete})
+				ArtifactID string    `json:"artifactId,omitempty"`
+				JobID      string    `json:"jobId,omitempty"`
+				Complete   bool      `json:"complete"`
+				Job        *jobState `json:"job,omitempty"`
+			}{OutputSearchPage: page, ArtifactID: artifactID, JobID: jobID, Complete: artifact.Complete, Job: currentJob})
 		}
 		page, err := tools.ReadOutputPage(stateDir, artifact.OutputPath, input.Offset, pageLimit)
 		if err != nil {
@@ -91,10 +100,11 @@ func readToolOutput(ctx context.Context, arguments string, parent workerproto.Co
 		}
 		return marshalResult(struct {
 			tools.OutputPage
-			ArtifactID string `json:"artifactId,omitempty"`
-			JobID      string `json:"jobId,omitempty"`
-			Complete   bool   `json:"complete"`
-		}{OutputPage: page, ArtifactID: artifactID, JobID: jobID, Complete: artifact.Complete})
+			ArtifactID string    `json:"artifactId,omitempty"`
+			JobID      string    `json:"jobId,omitempty"`
+			Complete   bool      `json:"complete"`
+			Job        *jobState `json:"job,omitempty"`
+		}{OutputPage: page, ArtifactID: artifactID, JobID: jobID, Complete: artifact.Complete, Job: currentJob})
 	})
 }
 

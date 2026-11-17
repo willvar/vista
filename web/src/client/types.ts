@@ -58,7 +58,7 @@ export type CatalogCheckRecord = Pick<OMPCatalogInfo, 'revision' | 'modelsDevRev
   changed: boolean
   error?: string
 }
-export type Message = { failure?: boolean; contextSummary?: boolean; checklist?: { items: ChecklistItem[]; status: string; updatedAt?: string; updatedSequence?: number }; id: string; runId: string; provider?: string; modelId?: string; modelKey?: string; outputTurn?: number; outputBytes?: number; imageCount?: number; questionCallId?: string; sequence: number; resultsAfter?: number; role: string; content: string; createdAt: string; modelResults?: ModelResultView[] }
+export type Message = { failure?: boolean; contextSummary?: boolean; id: string; runId: string; provider?: string; modelId?: string; modelKey?: string; outputTurn?: number; outputBytes?: number; imageCount?: number; questionCallId?: string; sequence: number; resultsAfter?: number; role: string; content: string; createdAt: string; modelResults?: ModelResultView[] }
 export type StreamEvent = { sequence: number; kind: string; createdAt?: string; data: any }
 export type SyncCheckpoint = { throughSequence: number; revertedSequence?: number; session: Session }
 export type RunClock = { id: string; startedAt: string; lastActivityAt?: string }
@@ -72,10 +72,9 @@ export type SummaryResultView = { refinement: boolean; upstreamFinishReason?: st
 export type ModelResultView = { summary?: SummaryResultView; sequence: number; runId: string; turn: number; depth: number; createdAt?: string; taskId?: string; parentTaskId?: string; purpose?: string; provider: string; id: string; finishReason: string; reasoningEffort?: string; durationMs?: number; usage?: { inputTokens: number; outputTokens: number; cacheReadTokens: number; cacheReadKnown?: boolean; cacheWriteTokens?: number; reasoningTokens: number } }
 export type CompactionStatus = { runId: string; phase: 'compacting' | 'compacted' | 'failed' | 'interrupted'; manual: boolean; error?: string; sequence?: number }
 export type ContextUsage = { tokens: number; sequence: number; runId?: string }
-export type ChecklistItem = { text: string; status: 'pending' | 'in_progress' | 'done' | 'blocked' }
 export type QueuedInput = { id: string; status: string; content: string; imageCount?: number }
 export type RunProgress = { runId: string; phase: 'starting' | 'model' | 'retry' | 'reasoning' | 'response' | 'tool' | 'processing' | 'finished'; tool?: string; summary?: string; retry?: { attempt: number; maxRetries: number; retryAt: string } }
-export type Job = { id: string; runId: string; callId?: string; taskId?: string; parentTaskId?: string; directory: string; command: string; status: string; bytes: number; exitCode: number; complete: boolean; error?: string; createdAt?: string; startedAt?: string; expiresAt?: string; finishedAt?: string; signal?: string; terminationReason?: string }
+export type Job = { id: string; runId: string; callId?: string; taskId?: string; parentTaskId?: string; directory: string; command: string; status: string; bytes: number; exitCode: number; complete: boolean; error?: string; createdAt?: string; startedAt?: string; expiresAt?: string; warnAt?: string; warnedAt?: string; deadlineRevision?: number; finishedAt?: string; signal?: string; terminationReason?: string }
 export type Artifact = { id: string; runId: string; callId?: string; taskId?: string; parentTaskId?: string; status: string; bytes: number; complete: boolean; error?: string }
 export type OutputView = { content: string; offset: number; nextOffset: number; availableBytes: number; lastSequence?: number; complete?: boolean }
 export type ServerConfig = {
@@ -86,7 +85,7 @@ export type ServerConfig = {
   runningPort: number
   schema: import('@jsonforms/core').JsonSchema
 }
-export type MemoryConfig = { budgetMiB: number; workerMiB: number; concurrentRuns: number }
+export type MemoryConfig = { budgetMiB: number; workerMiB: number; concurrentRuns: number; backgroundJobsPerSession: number }
 export type ServerStatus = {
   instanceId?: string // Server process identity; unchanged by an in-process reset.
   pid?: number

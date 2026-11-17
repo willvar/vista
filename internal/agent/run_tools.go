@@ -104,7 +104,7 @@ func executeToolBatch(ctx context.Context, command workerproto.Command, turn int
 						preview = modelToolPreviewLimit(bounded.model, ref, 8<<10)
 					}
 				}
-				event := workerproto.RuntimeEvent{ID: command.RunID + ":tool:" + command.TaskID + "/" + call.ID, RunID: command.RunID, Recipient: command.TaskID, Kind: "tool", SourceID: call.ID, Status: status, Content: preview, Output: ref, ContentOutput: contentOutput, Resources: outcome.message.Resources}
+				event := workerproto.RuntimeEvent{ModelOnly: call.Function.Name == "update_checklist", ID: command.RunID + ":tool:" + command.TaskID + "/" + call.ID, RunID: command.RunID, Recipient: command.TaskID, Kind: "tool", SourceID: call.ID, Status: status, Content: preview, Output: ref, ContentOutput: contentOutput, Resources: outcome.message.Resources}
 				if emitErr == nil {
 					emitErr = toolEmit(workerproto.Result{RunID: command.RunID, Kind: "runtime_event", RuntimeEvent: &event})
 				}

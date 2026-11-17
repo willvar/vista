@@ -273,12 +273,12 @@ export const nativeFixture = {
       if (backgroundProcess && !titleRequest) {
         const currentPrompt = input.messages?.[lastUser]?.content
         const results = toolResults
-        if (!results.length && ['Start process', 'Start timed process', 'Fail command'].includes(String(currentPrompt))) {
+        if (!results.length && ['Start process', 'Start timed process', 'Start warning process', 'Fail command'].includes(String(currentPrompt))) {
           const start = currentPrompt !== 'Fail command'
           const functionName = start ? 'start_background' : 'shell'
           const command = start ? "printf 'monitor ready\\n'; while :; do printf 'live tick\\n'; sleep 0.2; done" : "printf 'command evidence'; exit 7"
-          const timeoutSeconds = currentPrompt === 'Start timed process' ? 172800 : start ? undefined : 60
-          const tool_calls = [{ index: 0, id: 'process-tool', type: 'function', function: { name: functionName, arguments: JSON.stringify({ directory: outputDirectory, command, timeoutSeconds }) } }]
+          const timeoutSeconds = ['Start timed process','Start warning process'].includes(String(currentPrompt)) ? 172800 : start ? undefined : 60
+          const tool_calls = [{ index: 0, id: 'process-tool', type: 'function', function: { name: functionName, arguments: JSON.stringify({ directory: outputDirectory, command, timeoutSeconds, ...(currentPrompt==='Start warning process'?{warnBeforeSeconds:172799}:{}) }) } }]
           response.end(`data: ${JSON.stringify({ choices: [{ delta: { tool_calls }, finish_reason: 'tool_calls' }] })}\n\ndata: [DONE]\n\n`)
           return
         }

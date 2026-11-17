@@ -2,7 +2,6 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import { appendMessage, createConversationState, messageResults, runResults, reduceConversationEvent, replyTraceSegments } from './conversation.ts'
 import type { Message, Session, StreamEvent } from '../client/types'
-import { checklistSummaryPosition } from './checklist.ts'
 
 const session: Session = { id: 'session-a', title: 'Example', modelKey: '', open: true, running: true, executing: true, createdAt: '' }
 const message = (id: string, sequence: number, runId: string, role = 'user'): Message => ({ id, sequence, runId, role, content: id, createdAt: '' })
@@ -23,27 +22,17 @@ test('the composer clock retains the run start while child activity and steering
   assert.deepEqual(state.runClock, { id: 'new-run', startedAt: '2026-11-08T02:00:00Z' })
 })
 
-test('the current checklist survives trace eviction and stays isolated from children and later runs', () => {
-  let state = reduceConversationEvent(createConversationState(session), event(1, 'message', message('input', 1, 'run')))
-  const items = [{ text: 'Review the result', status: 'in_progress' as const }]
-  state = reduceConversationEvent(state, event(2, 'checklist', { runId: 'run', items }))
-  for (let sequence = 3; sequence <= 1510; sequence++) state = reduceConversationEvent(state, event(sequence, 'model_reasoning_delta', { runId: 'run', depth: 1, turn: 1, content: '.' }))
-  assert.equal(state.processEvents.some(event => event.kind === 'checklist'), false)
-  assert.deepEqual(state.checklist, { runId: 'run', items, updatedSequence: 2 })
-  state = reduceConversationEvent(state, event(1511, 'checklist', { runId: 'run', depth: 1, taskId: 'child', items: [] }))
-  assert.deepEqual(state.checklist?.items, items)
-  state = reduceConversationEvent(state, event(1512, 'message', message('followup', 1512, 'run')))
-  assert.deepEqual(state.checklist, { runId: 'run', items, updatedSequence: 2 })
-  state = reduceConversationEvent(state, event(1513, 'run_finished', { runId: 'run', status: 'canceled' }))
-  assert.deepEqual(state.checklist?.items, items, 'Display status never rewrites the saved checklist')
-  state = reduceConversationEvent(state, event(1514, 'message', message('next', 1514, 'next-run')))
-  assert.notEqual(state.checklist?.runId, state.activeRunID, 'A new run does not inherit the old plan')
-  state = reduceConversationEvent(state, event(1515, 'checklist', { runId: 'next-run', items: [{ text: 'New plan', status: 'pending' }] }))
-  state = reduceConversationEvent(state, event(1516, 'checklist', { runId: 'run', items: [] }))
-  assert.equal(state.checklist?.runId, 'next-run')
-  assert.equal(state.checklist?.items.length, 1)
-  state = reduceConversationEvent(state, event(1517, 'checklist', { runId: 'next-run', items: [] }))
-  assert.deepEqual(state.checklist, { runId: 'next-run', items: [], updatedSequence: 1517 })
+test('internal checklist events advance coverage without retaining UI state or progress', () => {
+ let state=reduceConversationEvent(createConversationState(session),event(1,'message',message('input',1,'run')))
+ const progress=state.runProgress
+ for (const [index,kind] of ['checklist','tool','tool','internal'].entries()) {
+  state=reduceConversationEvent(state,event(index+2,kind,{runId:'run',items:[{text:'Private plan',status:'pending'}],tool:{name:'update_checklist'},status:'started'}))
+ }
+ assert.equal(state.lastEvent,5)
+ assert.deepEqual(state.runProgress,progress)
+ assert.equal('checklist' in state,false)
+ assert.equal(state.processEvents.some(e=>e.kind==='checklist'||e.data?.tool?.name==='update_checklist'),false)
+ assert.equal(state.messages.length,1)
 })
 
 test('model retry progress survives event replay and remains cancellable execution', () => {
@@ -221,7 +210,7 @@ test('execution overview events retain task ownership, timestamps and output ref
   state = reduceConversationEvent(state, event(2, 'model_request', { runId: 'run-a', taskId: 'child', depth: 1, provider: 'openai-chat', id: 'model' }))
   state = reduceConversationEvent(state, event(3, 'artifact', { id: 'artifact-a', runId: 'run-a', taskId: 'child', callId: 'child/shell-a' }))
   state = reduceConversationEvent(state, event(4, 'checklist', { runId: 'run-a', items: [{ text: 'Analyze images', status: 'in_progress' }] }))
-  assert.deepEqual(state.processEvents.map(item => item.kind), ['agent_task', 'model_request', 'artifact', 'checklist'])
+  assert.deepEqual(state.processEvents.map(item => item.kind), ['agent_task', 'model_request', 'artifact'])
   assert.equal(state.processEvents[0].data.taskId, 'child')
   assert.equal(state.processEvents[0].createdAt, '2026-10-03T10:00:00Z')
   assert.equal(state.modelByRun['run-a'], undefined)
@@ -325,36 +314,26 @@ test('summary connection identity follows its own request without replacing the 
   assert.equal(state.messages.at(-1)?.modelKey, undefined)
 })
 
-test('final checklists share the reply cursor, survive empty replies and do not change unread or saved statuses', () => {
-  for (const status of ['succeeded', 'failed', 'interrupted']) for (const hasReply of [true, false]) {
-    let state = reduceConversationEvent(createConversationState(session), event(1, 'message', message('input', 1, 'run')))
-    const items = [{ text: 'Still working', status: 'in_progress' as const }]
-    state = reduceConversationEvent(state, event(2, 'checklist', { runId: 'run', items }))
-    const finish = event(3, 'run_finished', { runId: 'run', status, message: hasReply ? message('answer', 3, 'run', 'assistant') : null })
-    state = reduceConversationEvent(state, finish)
-    assert.equal(state.messages.length, 2)
-    assert.deepEqual(state.messages.at(-1)!.checklist, { items, status, updatedSequence: 2 })
-    assert.equal(state.messages.at(-1)!.sequence, 3)
-    assert.equal(state.selected?.latestReplySequence || 0, hasReply ? 3 : 0)
-    assert.equal(reduceConversationEvent(state, finish), state)
-    state = reduceConversationEvent(state, event(4, 'message', message('next', 4, 'next-run')))
-    assert.deepEqual(state.messages[1]!.checklist?.items, items, 'A new run preserves the archived checklist')
-  }
+test('internal plans never create terminal messages or unread replies', () => {
+ for(const status of ['succeeded','failed','interrupted']) for(const hasReply of [true,false]) {
+  let state=reduceConversationEvent(createConversationState(session),event(1,'message',message('input',1,'run')))
+  state=reduceConversationEvent(state,event(2,'checklist',{runId:'run',items:[{text:'Private',status:'in_progress'}]}))
+  const finish=event(3,'run_finished',{runId:'run',status,message:hasReply?message('answer',3,'run','assistant'):null})
+  state=reduceConversationEvent(state,finish)
+  assert.equal(state.messages.length,hasReply?2:1)
+  assert.equal(state.selected?.latestReplySequence||0,hasReply?3:0)
+  assert.equal(reduceConversationEvent(state,finish),state)
+  assert.equal(JSON.stringify(state.messages).includes('Private'),false)
+ }
 })
 
-test('final checklist timestamps retain their update across live completion and distinguish unfinished work', () => {
-  const updatedAt = '2026-11-06T04:51:38Z', finishedAt = '2026-11-06T04:55:00Z'
-  for (const status of ['done', 'blocked', 'pending', 'in_progress'] as const) {
-    let state = reduceConversationEvent(createConversationState(session), event(1, 'message', message('input', 1, 'run')))
-    const items = [{ text: 'Task', status }]
-    state = reduceConversationEvent(state, { ...event(2, 'checklist', { runId: 'run', items }), createdAt: updatedAt })
-    state = reduceConversationEvent(state, { ...event(3, 'run_finished', { runId: 'run', status: 'interrupted' }), createdAt: finishedAt })
-    const final = state.messages.at(-1)!
-    assert.equal(final.checklist?.updatedAt, updatedAt)
-    assert.deepEqual(checklistSummaryPosition(final), ['pending', 'in_progress'].includes(status)
-      ? { createdAt: finishedAt, sequence: 3 } : { createdAt: updatedAt, sequence: 2 })
-    assert.deepEqual(checklistSummaryPosition({ ...final, checklist: { items, status: 'interrupted' } }), { createdAt: finishedAt, sequence: 3 }, 'Missing legacy positions fall back to the finish event')
-  }
+test('checklist timestamps and statuses do not become display messages after interruption', () => {
+ for(const status of ['done','blocked','pending','in_progress']) {
+  let state=reduceConversationEvent(createConversationState(session),event(1,'message',message('input',1,'run')))
+  state=reduceConversationEvent(state,{...event(2,'checklist',{runId:'run',items:[{text:'Private',status}]}),createdAt:'2026-11-06T04:51:38Z'})
+  state=reduceConversationEvent(state,event(3,'run_finished',{runId:'run',status:'interrupted'}))
+  assert.deepEqual(state.messages.map(m=>m.id),['input'])
+ }
 })
 
 test('clearing a checklist and child-only plans do not create final checklist messages', () => {

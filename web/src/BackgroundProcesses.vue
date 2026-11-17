@@ -132,6 +132,8 @@ onUnmounted(() => { cancelRequests(); clearInterval(clock); for (const action of
           <div><dt>{{ t('processStartedAt') }}</dt><dd>{{ time(job.startedAt || job.createdAt) }}</dd></div>
           <div><dt>{{ t('processElapsed') }}</dt><dd>{{ elapsed }}</dd></div>
           <div v-if="job.expiresAt"><dt>{{ t('processExpiresAt') }}</dt><dd>{{ time(job.expiresAt) }}</dd></div>
+          <div v-if="job.warnAt"><dt>{{ t('processWarnAt') }}</dt><dd>{{ time(job.warnAt) }}</dd></div>
+          <div v-if="job.warnedAt"><dt>{{ t('processWarnedAt') }}</dt><dd>{{ time(job.warnedAt) }}</dd></div>
           <div v-if="jobActive(job) && job.expiresAt"><dt>{{ t('processRemaining') }}</dt><dd>{{ remaining }}</dd></div>
           <template v-if="!jobActive(job)"><div><dt>{{ t('processFinishedAt') }}</dt><dd>{{ time(job.finishedAt) }}</dd></div><div><dt>{{ t('processExitReason') }}</dt><dd>{{ reason }}<template v-if="job.signal"> · {{ job.signal }}</template><template v-else-if="job.complete"> · {{ t('processExitCode', { code: job.exitCode }) }}</template></dd></div></template>
         </dl>

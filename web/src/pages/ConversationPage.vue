@@ -7,7 +7,6 @@ import Bubble from '../ui/Bubble.vue'
 import TimelineItem from '../TimelineItem.vue'
 import ConversationSender from '../ConversationSender.vue'
 import ContextCompaction from '../ContextCompaction.vue'
-import ConversationChecklist from '../ConversationChecklist.vue'
 import ConversationExecution from '../ConversationExecution.vue'
 import ConversationRecentMessage from '../ConversationRecentMessage.vue'
 import VistaMark from '../VistaMark.vue'
@@ -31,14 +30,13 @@ import PendingInputs from '../PendingInputs.vue'
 import WorkerStatus from '../WorkerStatus.vue'
 import { useWorkspace } from '../composables/useWorkspace'
 import { messageModelIdentity } from '../composables/usePresentation'
-import { checklistItems } from '../state/checklist.ts'
 import { displayOutputKey, needsFullMessageText, type ConversationItem } from '../state/mainOutputs.ts'
 import { jobActive } from '../state/jobs.ts'
 import type { QuotedExcerpt, QuoteSource } from '../state/quotedReply'
 
 const { t } = useI18n({ useScope: 'global' })
 const workspace = useWorkspace()
-const { selected, needsProvider, busy, error, workerAvailable, modelLabel, modelCatalog, localTime, statusLabel,
+const { selected, needsProvider, busy, error, workerAvailable, modelLabel, modelCatalog, localTime,
   historicalModelLabel, modelNameById, formatModelWithReasoning,
   workerMemory, mobileSessionsOpen, attentionCount, debugMode, route, displaySessionTitle } = workspace
 const selectedWorkerMemory = computed(() => selected.value ? workerMemory(selected.value.id) : undefined)
@@ -48,7 +46,7 @@ const { synchronization, snapshotReady, viewRevision, resynchronize, renderFailu
   beginEditMessage, withdrawMessage, rollbackFailure, draft, attachedImages,
   feedback, feedbackBusy, rateMessage, selectionMode, pendingInputs, inputQueuePaused, pendingBusy, mutateInput, resumeInputs,
   displayMessages: messages, processEvents, mainOutputs, modelOutput,
-  agentWorking, agentStatus, jobs, artifacts, currentChecklist, runClock,
+  agentWorking, agentStatus, jobs, artifacts, runClock,
   contextUsage, canCompact, compactSession, compacting, compactionResult, compaction, manualCompacting, compactionRequestPending,
   modelByRun,
   hasOlder, hasNewer, lastEvent, loadOlder, readOutputIndexes, readDisplayOutput, releaseDisplayOutput, modelOutputLoading, modelOutputFailure,
@@ -69,12 +67,6 @@ function runModelName(message: Message) {
     return result ? formatModelWithReasoning(historicalModelLabel({ key: message.modelKey, provider: result.provider, id: result.id }), result.reasoningEffort) : ''
   }
   return historicalModelLabel(messageModelIdentity(message, modelByRun.value))
-}
-function checklistText(message: Message) {
-  const summary = message.checklist!
-  return t('checklistSummaryProgress', { done: summary.items.filter(item => item.status === 'done').length, total: summary.items.length })
-    + '\n' + checklistItems(summary.items, false, summary.status)
-      .map((item, index) => t('checklistSummaryItem', { index: index + 1, status: statusLabel(item.status), text: item.text })).join('\n')
 }
 const messageList = ref<HTMLElement | null>(null)
 const processes = ref<InstanceType<typeof BackgroundProcesses> | null>(null)
@@ -241,7 +233,6 @@ onUnmounted(() => {
         <div class="conversation-header" :class="{ 'has-recent-sent': !!recentSent }"><v-button variant="text" class="icon-button mobile-sessions-trigger" :aria-label="t('sessions')" :aria-expanded="mobileSessionsOpen" @click="mobileSessionsOpen = true"><IconMenu2 /><span v-if="attentionCount" class="session-attention-dot" role="img" :aria-label="t('sessionsNeedAttention', { count: attentionCount })"></span></v-button><div class="conversation-heading"><InlineSessionTitle :key="selected.id" :session="selected" v-model:editing="renamingTitle"><div class="session-heading-title"><h2 :title="displaySessionTitle(selected)">{{ displaySessionTitle(selected) }}</h2><v-button class="icon-button" variant="text" :aria-label="t('editTitle')" @click="renamingTitle = true"><IconPencil /></v-button></div></InlineSessionTitle></div><div class="conversation-header-tools">
           <WorkerStatus v-if="debugMode && selected.open" :key="selected.id" :memory="selectedWorkerMemory" :available="workerAvailable(selected.id)" />
           <ContextCompaction :key="selected.id" :usage="contextUsage" :disabled="!canCompact || !workerAvailable(selected.id)" @compact="compactSession" />
-          <ConversationChecklist :key="selected.id" :items="currentChecklist" :active="agentWorking" :status="selected.latestRunStatus" />
           <v-button v-if="jobs.length" variant="text" class="icon-button header-status-trigger background-processes-trigger"
             :aria-label="t('backgroundProcessCount', { count: runningJobs })" :title="t('backgroundProcessCount', { count: runningJobs })" @click="processes?.open()">
             <IconSubtask aria-hidden="true" /><span class="background-processes-count">{{ runningJobs }}</span></v-button>
@@ -299,14 +290,7 @@ onUnmounted(() => {
 
           <TimelineItem v-for="row in visibleMessages" :key="row.key" :layout="row.layout" :paused="paused || history.missing.value.has(row.key)" :placeholder="scrolling.placeholders.value.has(row.key) || history.missing.value.has(row.key)" @measure="observeMessage" :data-display-key="row.message.displayKey" :data-timeline-sequence="row.message.displaySequence" :data-progress="row.message.progress || undefined"
             class="timeline-row message-row" :class="[row.message.role, { 'quote-source-target': quoteSourceKey === row.message.displayKey }]">
-          <article v-if="row.message.content || !row.message.checklist" :data-session-id="selected.id" :data-context-summary="row.message.contextSummary || undefined" :data-reply-sequence="row.message.role === 'assistant' && !row.message.contextSummary && !row.message.progress ? row.message.sequence : undefined" :class="[row.message.role, { 'question-reply': row.message.questionCallId, 'main-output': row.message.progress, 'live-response': row.message.progress && !row.message.mainOutput?.complete && agentWorking }]"><Bubble :streaming="!!row.message.progress && !row.message.mainOutput?.complete && agentWorking" :content="row.message.content" :placement="row.message.role === 'user' ? 'end' : 'start'" :variant="row.message.role === 'user' ? 'filled' : 'borderless'" :styles="{ body: { maxWidth: '100%', width: row.message.role === 'assistant' ? '100%' : undefined } }"><template #header><div class="message-meta"><time :datetime="row.message.createdAt" :title="localTime(row.message.createdAt)">{{ localTime(row.message.createdAt) }}</time></div></template><template #content><div v-if="row.message.failure" class="markdown run-failure-message" :data-quote-role="row.message.role" role="alert">{{ row.message.content }}</div><MessageMarkdown v-else :content="row.message.content" :role="row.message.role" @failure="renderFailure" /><FailureHelp v-if="row.message.failure" :failure="{ kind: 'execution', runId: row.message.runId, error: row.message.content, sequence: row.message.sequence, messageId: row.message.id, createdAt: row.message.createdAt, provider: row.message.provider, modelId: row.message.modelId, modelKey: row.message.modelKey }" /><MessageImages v-if="row.message.imageCount && selected" :session-id="selected.id" :message-id="row.message.id" :count="row.message.imageCount!" /><small v-if="modelOutputLoading[displayOutputKey(row.message)]" class="message-output-loading" role="status">{{ t('outputLoading') }}</small><div v-if="modelOutputFailure[displayOutputKey(row.message)]" class="message-output-error"><small role="alert" :title="modelOutputFailure[displayOutputKey(row.message)]">{{ t('outputLoadFailed') }}</small><v-button @click="history.retry(row.message)">{{ t('retry') }}</v-button></div></template><template v-if="!row.message.progress" #footer><div class="reply-footer"><MessageActions :allow-mutation="row.message.role === 'user'" :mutation-disabled="busy || !selected.open" @edit="beginEditMessage(row.message)" @withdraw="requestWithdrawal(row.message)" :text="row.message.content" :allow-feedback="row.message.role === 'assistant' && !row.message.contextSummary" :compact-feedback="selectionMode === 'manual'" :feedback="feedback[row.message.id]" :busy="feedbackBusy[row.message.id]" @feedback="rateMessage(row.message, $event)" :full-text="row.message.mainOutput || needsFullMessageText(row.message) ? () => fullMessageText(row.message) : undefined" /><MessageUsage v-if="row.message.role === 'assistant'" :results="resultsForMessage(row.message)" :model-name="runModelName(row.message)" /></div></template></Bubble></article>
-          <article v-if="row.message.checklist" class="assistant checklist-message" :data-checklist-summary="row.message.runId">
-            <Bubble variant="borderless" :styles="{ body: { maxWidth: '100%', width: '100%' } }">
-              <template #header><div class="message-meta"><time :datetime="row.message.createdAt" :title="localTime(row.message.createdAt)">{{ localTime(row.message.createdAt) }}</time></div></template>
-              <template #content><div class="markdown checklist-summary-text" data-quote-role="assistant">{{ checklistText(row.message) }}</div></template>
-              <template #footer><div class="reply-footer"><MessageActions :text="checklistText(row.message)" /></div></template>
-            </Bubble>
-          </article>
+          <article :data-session-id="selected.id" :data-context-summary="row.message.contextSummary || undefined" :data-reply-sequence="row.message.role === 'assistant' && !row.message.contextSummary && !row.message.progress ? row.message.sequence : undefined" :class="[row.message.role, { 'question-reply': row.message.questionCallId, 'main-output': row.message.progress, 'live-response': row.message.progress && !row.message.mainOutput?.complete && agentWorking }]"><Bubble :streaming="!!row.message.progress && !row.message.mainOutput?.complete && agentWorking" :content="row.message.content" :placement="row.message.role === 'user' ? 'end' : 'start'" :variant="row.message.role === 'user' ? 'filled' : 'borderless'" :styles="{ body: { maxWidth: '100%', width: row.message.role === 'assistant' ? '100%' : undefined } }"><template #header><div class="message-meta"><time :datetime="row.message.createdAt" :title="localTime(row.message.createdAt)">{{ localTime(row.message.createdAt) }}</time></div></template><template #content><div v-if="row.message.failure" class="markdown run-failure-message" :data-quote-role="row.message.role" role="alert">{{ row.message.content }}</div><MessageMarkdown v-else :content="row.message.content" :role="row.message.role" @failure="renderFailure" /><FailureHelp v-if="row.message.failure" :failure="{ kind: 'execution', runId: row.message.runId, error: row.message.content, sequence: row.message.sequence, messageId: row.message.id, createdAt: row.message.createdAt, provider: row.message.provider, modelId: row.message.modelId, modelKey: row.message.modelKey }" /><MessageImages v-if="row.message.imageCount && selected" :session-id="selected.id" :message-id="row.message.id" :count="row.message.imageCount!" /><small v-if="modelOutputLoading[displayOutputKey(row.message)]" class="message-output-loading" role="status">{{ t('outputLoading') }}</small><div v-if="modelOutputFailure[displayOutputKey(row.message)]" class="message-output-error"><small role="alert" :title="modelOutputFailure[displayOutputKey(row.message)]">{{ t('outputLoadFailed') }}</small><v-button @click="history.retry(row.message)">{{ t('retry') }}</v-button></div></template><template v-if="!row.message.progress" #footer><div class="reply-footer"><MessageActions :allow-mutation="row.message.role === 'user'" :mutation-disabled="busy || !selected.open" @edit="beginEditMessage(row.message)" @withdraw="requestWithdrawal(row.message)" :text="row.message.content" :allow-feedback="row.message.role === 'assistant' && !row.message.contextSummary" :compact-feedback="selectionMode === 'manual'" :feedback="feedback[row.message.id]" :busy="feedbackBusy[row.message.id]" @feedback="rateMessage(row.message, $event)" :full-text="row.message.mainOutput || needsFullMessageText(row.message) ? () => fullMessageText(row.message) : undefined" /><MessageUsage v-if="row.message.role === 'assistant'" :results="resultsForMessage(row.message)" :model-name="runModelName(row.message)" /></div></template></Bubble></article>
         </TimelineItem></div>
 
         </div>
@@ -349,7 +333,6 @@ onUnmounted(() => {
 
 <style scoped>
 .quote-source-target{border-inline-start:2px solid var(--accent);border-radius:2px}
-.checklist-summary-text{white-space:pre-wrap;overflow-wrap:anywhere}
 .conversation-header.has-recent-sent{flex-wrap:wrap;row-gap:6px}
 @media(max-height:520px){.conversation-header.has-recent-sent{flex-wrap:nowrap}}
 .background-processes-trigger.ui-btn{gap:.25rem;min-width:32px;width:auto}

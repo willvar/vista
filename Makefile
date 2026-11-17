@@ -17,7 +17,7 @@ TEST_BASE ?= HEAD
 HARBOR_PYTHON ?= $(CURDIR)/.vista/benchmarks/harbor/venv/bin/python
 BENCHMARK_ARGS ?= --help
 
-INTEGRATION_SCRIPTS := artifact background_job catalog checklist copilot_startup \
+INTEGRATION_SCRIPTS := artifact background_job background_deadline catalog checklist copilot_startup \
 	escaped_input execution_efficiency runtime_events gemini history iteration_flow long_context \
 	mistral security session_conflict sqlite_fault tool_continuation worker_crash
 IMAGE_PROTOCOLS := openai-chat mistral cohere bedrock vercel-gateway \

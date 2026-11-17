@@ -69,6 +69,13 @@ func (s *Store) RecordRuntimeEvent(ctx context.Context, sessionID string, notice
 			notice.Recipient = parent
 		}
 	}
+	if notice.Kind == "job_warning" {
+		var current bool
+		if err := tx.WithContext(ctx).Raw(`SELECT EXISTS(SELECT 1 FROM jobs j WHERE j.session_id=? AND j.id=? AND j.status='running' AND EXISTS(SELECT 1 FROM events e WHERE e.session_id=j.session_id AND e.kind='job' AND json_extract(e.data,'$.id')=j.id AND e.sequence=(SELECT MAX(last.sequence) FROM events last WHERE last.session_id=j.session_id AND last.kind='job' AND json_extract(last.data,'$.id')=j.id) AND json_extract(e.data,'$.deadlineRevision')=? AND json_extract(e.data,'$.expiresAt')>?))`, sessionID, notice.SourceID, notice.DeadlineRevision, time.Now().UTC().Format(time.RFC3339Nano)).Row().Scan(&current); err != nil {
+			return nil, false, err
+		}
+		enabled = enabled && current
+	}
 	status = "suppressed"
 	if enabled {
 		status = "pending"
@@ -251,4 +258,32 @@ func (s *Store) SaveCompletedReply(ctx context.Context, sessionID, runID string,
 		return nil, err
 	}
 	return &event, tx.Commit().Error
+}
+
+// RuntimeAdmissionCounts reuses an already active conversation's admission slot.
+// Counts and ownership come from one read view, so a concurrent job exit cannot
+// accidentally subtract another conversation. Memory admission is unchanged.
+func (s *Store) RuntimeAdmissionCounts(ctx context.Context, sessionID string) (Counts, error) {
+	var counts Counts
+	err := s.readView(ctx, func(view *Store) error {
+		var err error
+		counts, err = view.SessionCounts(ctx)
+		if err != nil {
+			return err
+		}
+		point, err := view.checkpoint(ctx, sessionID)
+		if err != nil {
+			return err
+		}
+		if point.Session.Running {
+			counts.Running--
+		}
+		return nil
+	})
+	return counts, err
+}
+
+func suppressJobWarnings(ctx context.Context, tx *gorm.DB, sessionID, jobID string) error {
+	_, err := execSQL(ctx, tx, `UPDATE runtime_events SET status='suppressed' WHERE session_id=? AND status='pending' AND json_extract(data,'$.kind')='job_warning' AND json_extract(data,'$.sourceId')=?`, sessionID, jobID)
+	return err
 }

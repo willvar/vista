@@ -12,38 +12,39 @@ const DefaultNetworkPreviewBytes = 50 << 10
 // Frames are newline-delimited JSON on a dedicated Worker stdin/stdout pipe.
 // Result frames have a byte limit; command fields are validated after decoding.
 type Command struct {
-	Network            network.Policy   `json:"network"`
-	RuntimeEvents      []RuntimeEvent   `json:"runtimeEvents,omitempty"`
-	ProjectRules       []ProjectRule    `json:"projectRules,omitempty"`
-	MCPHost            MCPHost          `json:"mcpHost,omitzero"`
-	RPCID              string           `json:"rpcId,omitempty"`
-	ResourcePath       string           `json:"resourcePath,omitempty"`
-	ResourceName       string           `json:"resourceName,omitempty"`
-	ResourceType       string           `json:"resourceType,omitempty"`
-	MemoryLimit        int64            `json:"memoryLimit,omitempty"`
-	Debug              bool             `json:"debug,omitempty"`
-	TaskID             string           `json:"taskId,omitempty"`
-	ParentTaskID       string           `json:"parentTaskId,omitempty"`
-	Join               string           `json:"join,omitempty"`
-	Action             string           `json:"action,omitempty"`
-	AckID              string           `json:"ackId,omitempty"`
-	Input              *Command         `json:"input,omitempty"`
-	Error              string           `json:"error,omitempty"`
-	JobID              string           `json:"jobId,omitempty"`
-	SessionID          string           `json:"sessionId,omitempty"`
-	MessageSequence    int64            `json:"messageSequence,omitempty"`
-	InputID            string           `json:"inputId,omitempty"`
-	RunID              string           `json:"runId"`
-	Prompt             string           `json:"prompt"`
-	ReplyLanguage      string           `json:"replyLanguage,omitempty"`
-	QuestionCallID     string           `json:"questionCallId,omitempty"`
-	Images             []Image          `json:"images,omitempty"`
-	Model              modelcfg.Model   `json:"model"`
-	History            []Message        `json:"history,omitempty"`
-	MCPServers         []MCPServer      `json:"mcpServers,omitempty"`
-	SearchProviders    []SearchProvider `json:"searchProviders,omitempty"`
-	SearchPreviewBytes int              `json:"searchPreviewBytes,omitempty"`
-	Webfetch           WebfetchConfig   `json:"webfetch,omitzero"`
+	Network             network.Policy   `json:"network"`
+	RuntimeEvents       []RuntimeEvent   `json:"runtimeEvents,omitempty"`
+	ProjectRules        []ProjectRule    `json:"projectRules,omitempty"`
+	MCPHost             MCPHost          `json:"mcpHost,omitzero"`
+	RPCID               string           `json:"rpcId,omitempty"`
+	ResourcePath        string           `json:"resourcePath,omitempty"`
+	ResourceName        string           `json:"resourceName,omitempty"`
+	ResourceType        string           `json:"resourceType,omitempty"`
+	MemoryLimit         int64            `json:"memoryLimit,omitempty"`
+	BackgroundJobsLimit int              `json:"backgroundJobsLimit,omitempty"`
+	Debug               bool             `json:"debug,omitempty"`
+	TaskID              string           `json:"taskId,omitempty"`
+	ParentTaskID        string           `json:"parentTaskId,omitempty"`
+	Join                string           `json:"join,omitempty"`
+	Action              string           `json:"action,omitempty"`
+	AckID               string           `json:"ackId,omitempty"`
+	Input               *Command         `json:"input,omitempty"`
+	Error               string           `json:"error,omitempty"`
+	JobID               string           `json:"jobId,omitempty"`
+	SessionID           string           `json:"sessionId,omitempty"`
+	MessageSequence     int64            `json:"messageSequence,omitempty"`
+	InputID             string           `json:"inputId,omitempty"`
+	RunID               string           `json:"runId"`
+	Prompt              string           `json:"prompt"`
+	ReplyLanguage       string           `json:"replyLanguage,omitempty"`
+	QuestionCallID      string           `json:"questionCallId,omitempty"`
+	Images              []Image          `json:"images,omitempty"`
+	Model               modelcfg.Model   `json:"model"`
+	History             []Message        `json:"history,omitempty"`
+	MCPServers          []MCPServer      `json:"mcpServers,omitempty"`
+	SearchProviders     []SearchProvider `json:"searchProviders,omitempty"`
+	SearchPreviewBytes  int              `json:"searchPreviewBytes,omitempty"`
+	Webfetch            WebfetchConfig   `json:"webfetch,omitzero"`
 }
 
 // The private loopback endpoint is sent only over Worker IPC, never public SSE.
@@ -139,16 +140,18 @@ type Result struct {
 // RuntimeEvent is a bounded notice. Complete reports/output remain at their
 // durable references; event identity is stable across IPC retries.
 type RuntimeEvent struct {
-	ContentOutput *OutputRef `json:"contentOutput,omitempty"`
-	Resources     []Image    `json:"resources,omitempty"`
-	ID            string     `json:"id"`
-	RunID         string     `json:"runId"`
-	Recipient     string     `json:"recipient"`
-	Kind          string     `json:"kind"`
-	SourceID      string     `json:"sourceId"`
-	Status        string     `json:"status"`
-	Content       string     `json:"content,omitempty"`
-	Output        *OutputRef `json:"output,omitempty"`
+	ModelOnly        bool       `json:"modelOnly,omitempty"`
+	ContentOutput    *OutputRef `json:"contentOutput,omitempty"`
+	Resources        []Image    `json:"resources,omitempty"`
+	ID               string     `json:"id"`
+	RunID            string     `json:"runId"`
+	Recipient        string     `json:"recipient"`
+	Kind             string     `json:"kind"`
+	SourceID         string     `json:"sourceId"`
+	Status           string     `json:"status"`
+	DeadlineRevision uint64     `json:"deadlineRevision,omitempty"`
+	Content          string     `json:"content,omitempty"`
+	Output           *OutputRef `json:"output,omitempty"`
 }
 
 type ProjectRule struct {
@@ -256,8 +259,12 @@ type ToolInput struct {
 	TimeoutSeconds int    `json:"timeoutSeconds"`
 }
 type JobProgress struct {
+	Change            string `json:"change,omitempty"`
 	StartedAt         string `json:"startedAt,omitempty"`
 	ExpiresAt         string `json:"expiresAt,omitempty"`
+	WarnAt            string `json:"warnAt,omitempty"`
+	WarnedAt          string `json:"warnedAt,omitempty"`
+	DeadlineRevision  uint64 `json:"deadlineRevision,omitempty"`
 	Signal            string `json:"signal,omitempty"`
 	TerminationReason string `json:"terminationReason,omitempty"`
 	CallID            string `json:"callId,omitempty"`

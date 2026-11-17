@@ -62,7 +62,7 @@ func TestPreparedContextRetainsTaskInstructionsHistoryAndToolOrder(t *testing.T)
 		t.Fatal(err)
 	}
 	const checklistJSON = `[{"text":"Inspect","status":"done"},{"text":"Verify","status":"pending"}]`
-	always := []string{"read_file", "read_tool_output", "search", "find_files", "webfetch", "websearch", "write_file", "apply_patch", "shell", "start_background", "stop_background", "list_skills", "read_skill", "project_instructions", "read_project_instruction", "history_index", "read_history", "list_resources", "read_resource", "read_model_output"}
+	always := []string{"read_file", "read_tool_output", "search", "find_files", "webfetch", "websearch", "write_file", "apply_patch", "shell", "start_background", "stop_background", "update_background_timeout", "list_skills", "read_skill", "project_instructions", "read_project_instruction", "history_index", "read_history", "list_resources", "read_resource", "read_model_output"}
 	for _, tc := range []struct {
 		name  string
 		depth int

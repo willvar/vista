@@ -9,8 +9,12 @@ import (
 )
 
 type Job struct {
+	Change            string `json:"-"`
 	StartedAt         string `json:"startedAt,omitempty"`
 	ExpiresAt         string `json:"expiresAt,omitempty"`
+	WarnAt            string `json:"warnAt,omitempty"`
+	WarnedAt          string `json:"warnedAt,omitempty"`
+	DeadlineRevision  uint64 `json:"deadlineRevision,omitempty"`
 	Signal            string `json:"signal,omitempty"`
 	TerminationReason string `json:"terminationReason,omitempty"`
 	CallID            string `json:"callId,omitempty"`
@@ -33,6 +37,7 @@ type Job struct {
 
 func (s *Store) RecordJob(ctx context.Context, job Job) (*Event, error) {
 	var previousStatus string
+	var previousBytes int64
 	if job.ID == "" || job.SessionID == "" || job.RunID == "" {
 		return nil, errors.New("invalid job identity")
 	}
@@ -60,12 +65,13 @@ func (s *Store) RecordJob(ctx context.Context, job Job) (*Event, error) {
 		if job.Status != "running" {
 			job.FinishedAt = time.Now().UTC().Format(time.RFC3339Nano)
 		}
-		if err := tx.WithContext(ctx).Raw("SELECT created_at,status FROM jobs WHERE id=? AND session_id=? AND run_id=?", job.ID, job.SessionID, job.RunID).Row().Scan(&job.CreatedAt, &previousStatus); err != nil {
+		if err := tx.WithContext(ctx).Raw("SELECT created_at,status,bytes FROM jobs WHERE id=? AND session_id=? AND run_id=?", job.ID, job.SessionID, job.RunID).Row().Scan(&job.CreatedAt, &previousStatus, &previousBytes); err != nil {
 			if errors.Is(err, ErrNotFound) {
 				return nil, nil
 			}
 			return nil, err
 		}
+		job.Bytes = max(job.Bytes, previousBytes)
 		var result sql.Result
 		result, err = execSQL(ctx, tx, `UPDATE jobs SET status=?,bytes=?,exit_code=?,complete=?,error=?,finished_at=? WHERE id=? AND session_id=? AND run_id=? AND status IN ('starting','running')`, job.Status, job.Bytes, job.ExitCode, job.Complete, job.Error, nullableTime(job.FinishedAt), job.ID, job.SessionID, job.RunID)
 		if err == nil {
@@ -83,13 +89,18 @@ func (s *Store) RecordJob(ctx context.Context, job Job) (*Event, error) {
 		return nil, err
 	}
 	kind, data := "job", any(job)
-	if previousStatus == "running" && job.Status == "running" {
+	if previousStatus == "running" && job.Status == "running" && job.Change == "" {
 		// Output growth is replayable metadata, not another process action.
 		kind, data = "job_output", struct {
 			ID    string `json:"id"`
 			RunID string `json:"runId"`
 			Bytes int64  `json:"bytes"`
 		}{job.ID, job.RunID, job.Bytes}
+	}
+	if job.Change == "deadline" || job.Status != "starting" && job.Status != "running" {
+		if err := suppressJobWarnings(ctx, tx, job.SessionID, job.ID); err != nil {
+			return nil, err
+		}
 	}
 	event, err := appendEvent(ctx, tx, job.SessionID, kind, data)
 	if err != nil {
@@ -140,6 +151,7 @@ func (s *Store) Jobs(ctx context.Context, sessionID string) ([]Job, error) {
 		link := links[result[i].ID]
 		result[i].CallID, result[i].TaskID, result[i].ParentTaskID = link.CallID, link.TaskID, link.ParentTaskID
 		result[i].StartedAt, result[i].ExpiresAt, result[i].Signal, result[i].TerminationReason = link.StartedAt, link.ExpiresAt, link.Signal, link.TerminationReason
+		result[i].WarnAt, result[i].WarnedAt, result[i].DeadlineRevision = link.WarnAt, link.WarnedAt, link.DeadlineRevision
 	}
 	return result, nil
 }
@@ -154,6 +166,7 @@ func (s *Store) GetJob(ctx context.Context, sessionID, jobID string) (Job, error
 	link := links[job.ID]
 	job.CallID, job.TaskID, job.ParentTaskID = link.CallID, link.TaskID, link.ParentTaskID
 	job.StartedAt, job.ExpiresAt, job.Signal, job.TerminationReason = link.StartedAt, link.ExpiresAt, link.Signal, link.TerminationReason
+	job.WarnAt, job.WarnedAt, job.DeadlineRevision = link.WarnAt, link.WarnedAt, link.DeadlineRevision
 	return job, err
 }
 
@@ -202,7 +215,11 @@ func (s *Store) InterruptJobs(ctx context.Context, sessionID, reason string) ([]
 				return nil, err
 			}
 			job.StartedAt, job.ExpiresAt = previous.StartedAt, previous.ExpiresAt
+			job.WarnAt, job.WarnedAt, job.DeadlineRevision = previous.WarnAt, previous.WarnedAt, previous.DeadlineRevision
 		} else if !errors.Is(err, ErrNotFound) {
+			return nil, err
+		}
+		if err := suppressJobWarnings(ctx, tx, job.SessionID, job.ID); err != nil {
 			return nil, err
 		}
 		job.Status, job.Error = "interrupted", reason

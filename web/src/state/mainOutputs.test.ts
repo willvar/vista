@@ -190,44 +190,26 @@ test('a late index exposing an earlier missing prefix invalidates a streamed bod
   assert.equal(records[0]!.loaded, false)
 })
 
-test('settled checklists keep their chronological position independently of the terminal reply and page cursor', () => {
-  let state = createConversationState()
-  const updatedAt = '2026-11-08T04:17:48Z'
-  const finishedAt = '2026-11-08T04:18:06Z'
-  state = reduceConversationEvent(state, event(1, 'message', message('user', 1)))
-  state = reduceConversationEvent(state, { ...event(2, 'checklist', { items: [{ text: 'Review', status: 'done' }] }), createdAt: updatedAt })
-  assert.equal(conversationItems(state.messages, state.mainOutputs).length, 1, 'Active checklists stay above the composer')
-  state = reduceConversationEvent(state, event(3, 'message', message('followup', 3)))
-  state = reduceConversationEvent(state, event(4, 'model_delta', { turn: 1, content: 'answer' }))
-  state = reduceConversationEvent(state, { ...event(5, 'run_finished', {
-    status: 'succeeded', message: { ...message('reply', 5, 'assistant', 1), createdAt: finishedAt },
-  }), createdAt: finishedAt })
-  const live = conversationItems(state.messages, state.mainOutputs)
-  assert.deepEqual(live.map(row => row.id), ['user', 'checklist-summary/5', 'followup', 'reply'])
-  const summary = live[1]!
-  assert.equal(summary.createdAt, updatedAt)
-  assert.equal(summary.displaySequence, 2)
-  assert.equal(summary.sequence, 5, 'The paging cursor remains with the terminal reply')
-  assert.equal(live.at(-1)!.displayKey, 'output/run/main/1', 'Streaming text retains its existing row')
-  assert.equal(live.at(-1)!.checklist, undefined, 'The reply does not render another checklist')
-  const restored = conversationItems(JSON.parse(JSON.stringify(state.messages)), mergeMainOutputs([], state.mainOutputs))
-  assert.deepEqual(restored.map(row => [row.id, row.displaySequence, row.createdAt]), live.map(row => [row.id, row.displaySequence, row.createdAt]))
-  assert.equal(replyTraceSegments(state.messages).has(summary.id), false, 'The display-only checklist does not take ownership of execution details')
+test('internal plans do not alter chronological replies or restored output rows', () => {
+ let state=createConversationState()
+ state=reduceConversationEvent(state,event(1,'message',message('user',1)))
+ state=reduceConversationEvent(state,event(2,'checklist',{items:[{text:'Private',status:'done'}]}))
+ state=reduceConversationEvent(state,event(3,'message',message('followup',3)))
+ state=reduceConversationEvent(state,event(4,'model_delta',{turn:1,content:'answer'}))
+ state=reduceConversationEvent(state,event(5,'run_finished',{status:'succeeded',message:message('reply',5,'assistant',1)}))
+ const live=conversationItems(state.messages,state.mainOutputs)
+ assert.deepEqual(live.map(row=>row.id),['user','followup','reply'])
+ const restored=conversationItems(JSON.parse(JSON.stringify(state.messages)),mergeMainOutputs([],state.mainOutputs))
+ assert.deepEqual(restored.map(row=>row.displayKey),live.map(row=>row.displayKey))
 })
 
-test('unfinished checklists stay at run end and empty replies produce only one summary row', () => {
-  for (const status of ['done', 'blocked', 'pending', 'in_progress'] as const) for (const content of ['', 'Answer']) {
-    const reply: Message = { ...message(content ? 'reply' : 'checklist-summary/5', 5, 'assistant'), content,
-      createdAt: '2026-11-08T04:18:06Z', checklist: { items: [{ text: 'Task', status }], status: 'interrupted',
-        updatedAt: '2026-11-08T04:17:48Z', updatedSequence: 2 } }
-    const rows = conversationItems([message('user', 1), message('followup', 3), reply], [])
-    const settled = ['done', 'blocked'].includes(status)
-    assert.deepEqual(rows.map(row => row.id), settled
-      ? ['user', 'checklist-summary/5', 'followup', ...(content ? ['reply'] : [])]
-      : ['user', 'followup', ...(content ? ['reply'] : []), 'checklist-summary/5'])
-    assert.equal(rows.find(row => row.checklist)!.createdAt, settled ? reply.checklist!.updatedAt : reply.createdAt)
-    assert.equal(rows.filter(row => row.checklist).length, 1)
-  }
+test('unfinished internal plans do not manufacture an empty assistant response', () => {
+ for(const status of ['done','blocked','pending','in_progress']) {
+  let state=reduceConversationEvent(createConversationState(),event(1,'message',message('user',1)))
+  state=reduceConversationEvent(state,event(2,'checklist',{items:[{text:'Private',status}]}))
+  state=reduceConversationEvent(state,event(3,'run_finished',{status:'interrupted'}))
+  assert.deepEqual(conversationItems(state.messages,state.mainOutputs).map(row=>row.id),['user'])
+ }
 })
 
 test('HTTP output snapshot and delayed SSE merge without repeated or missing text', () => {

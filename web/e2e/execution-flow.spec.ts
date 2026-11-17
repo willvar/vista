@@ -4,7 +4,7 @@ import { test as base, expect, type Locator, type Page } from '@playwright/test'
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import type { IncomingMessage, ServerResponse } from 'node:http'
-import type { Artifact, ChecklistItem, Job, Message, ModelResultView, RunOverview, Session, StreamEvent } from '../src/client/types'
+import type { Artifact, Job, Message, ModelResultView, RunOverview, Session, StreamEvent } from '../src/client/types'
 import { coreSnapshot } from './conversation-fixture'
 import { scrollConversationTo, scrollToConversationEntry } from './conversation-scroll'
 import { buildRunTrace } from '../src/state/runTrace'
@@ -36,6 +36,7 @@ const sourceTest = test.extend<{}, { mockOrigin: string }>({
   mockOrigin: [async ({}, use) => executionFrontend(use, true), { scope: 'worker' }],
 })
 
+type ChecklistItem = { text: string; status: 'pending'|'in_progress'|'done'|'blocked' }
 const initialChecklist: ChecklistItem[] = [
   { text: 'Check message composer', status: 'done' },
   { text: 'Analyze duplicate images', status: 'in_progress' },
@@ -295,23 +296,7 @@ async function mockExecution(page: Page, origin: string, source = replayEvents()
     current.latestRunStatus = current.executing ? 'running' : finished?.data.status || ''
     return { session: current, throughSequence }
   }
-  // Match the server's display projection: final checklists share the
-  // terminal reply cursor, including runs without a final text message.
-  const displayMessages = () => {
-    const displayed = new Map(messages.map(message => [message.sequence, { ...message }]))
-    for (const finished of events.filter(event => event.kind === 'run_finished')) {
-      const checklist = [...events].reverse().find(event => event.kind === 'checklist' && event.sequence < finished.sequence
-        && event.data.runId === finished.data.runId && !event.data.depth && (!event.data.taskId || event.data.taskId === 'main'))
-      const items = checklist?.data.items || checklist?.data.checklist?.items
-      if (!items?.length) continue
-      const reply = displayed.get(finished.sequence) || finished.data.message || {
-        id: `checklist-summary/${finished.sequence}`, sequence: finished.sequence, role: 'assistant', runId: finished.data.runId,
-        content: '', createdAt: finished.createdAt || '',
-      }
-      displayed.set(finished.sequence, { ...reply, checklist: { items, status: finished.data.status, updatedSequence: checklist!.sequence, ...(checklist?.createdAt ? { updatedAt: checklist.createdAt } : {}) } })
-    }
-    return [...displayed.values()].sort((a, b) => a.sequence - b.sequence)
-  }
+  const displayMessages = () => [...messages].sort((a,b)=>a.sequence-b.sequence)
   // Keep the mock transport open, just like the runtime. A finite fulfilled
   // response would continually exercise recovery during unrelated layout tests.
   streamHandlers.set(origin, (request, response) => {
@@ -378,7 +363,7 @@ async function mockExecution(page: Page, origin: string, source = replayEvents()
     if (path === '/model-catalog') return reply({ revision: 'a'.repeat(40), modelCount: 1, providerCount: 1 })
     if (path === '/user-agent') return reply({ preset: 'vista', custom: '', value: 'Vista/test', presets: [{ id: 'vista', name: 'Vista', value: 'Vista/test' }], maxLength: 512 })
     if (path === '/models') return reply({ default: 'replay-model', models: [{ key: 'replay-model', name: 'Replay', provider: 'openai-chat', id: 'gpt-6-astra', tools: true, reasoningOptions: ['high'] }] })
-    if (path === '/status') return reply({ state: 'running', capacity: { config: { budgetMiB: 2048, workerMiB: 1024, concurrentRuns: 4 }, residentBytes: 4000000 }, sessions: { total: 1, open: 1, closed: 0, running: session.executing ? 1 : 0, workers: 1 }, workerMetrics: [{ sessionId: session.id, pid: 1, memory: { heapBytes: 1000000, rssBytes: 4000000, sampledAt: session.createdAt } }] })
+    if (path === '/status') return reply({ state: 'running', capacity: { config: { budgetMiB: 2048, workerMiB: 1024, concurrentRuns: 4, backgroundJobsPerSession: 4 }, residentBytes: 4000000 }, sessions: { total: 1, open: 1, closed: 0, running: session.executing ? 1 : 0, workers: 1 }, workerMetrics: [{ sessionId: session.id, pid: 1, memory: { heapBytes: 1000000, rssBytes: 4000000, sampledAt: session.createdAt } }] })
     if (path === '/sessions') {
       if (!url.searchParams.has('page')) return reply([session])
       const items = url.searchParams.get('open') === 'false' ? [] : [session]
@@ -1426,7 +1411,7 @@ test('historical full text is prepared before display and virtual recycling does
   expect(fixture.unexpected).toEqual([])
 })
 
-test('current action, timing and header checklist survive live work and reload', { tag: '@smoke' }, async ({ page, mockOrigin }, testInfo) => {
+test('current action, timing and internal planning survive live work and reload', { tag: '@smoke' }, async ({ page, mockOrigin }, testInfo) => {
   const source = independentWindowEvents()
   const runId = source[0].data.runId as string
   source.push({ sequence: source.at(-1)!.sequence + 1, kind: 'checklist', createdAt: source.at(-1)!.createdAt, data: { runId, items: initialChecklist } })
@@ -1452,18 +1437,8 @@ test('current action, timing and header checklist survive live work and reload',
       expect(timing.elapsedRight).toBeLessThanOrEqual(timing.activityLeft + 1)
       expect(timing.topDifference).toBeLessThanOrEqual(1)
     }
-    await expect(entry).toBeVisible()
-    await expect(entry.locator('svg.tabler-icon-list-check')).toBeVisible()
-    await entry.click()
-    await expect(checklist).toContainText('Analyze duplicate images')
-    const box = await checklist.boundingBox()
-    expect(box!.x).toBeGreaterThanOrEqual(-1)
-    expect(box!.x + box!.width).toBeLessThanOrEqual(page.viewportSize()!.width + 1)
-    expect(box!.y + box!.height).toBeLessThanOrEqual(page.viewportSize()!.height + 1)
-    await page.keyboard.press('Escape')
-    await expect(entry).toHaveAttribute('aria-expanded', 'false')
+    await expect(entry).toHaveCount(0)
     await expect(checklist).toHaveCount(0)
-    expect(fixture.session.executing, 'Dismissing the checklist must not stop the task').toBe(true)
     expect(await dock.evaluate(element => !!element.closest('.messages'))).toBe(false)
     const geometry = await dock.evaluate(element => {
       const sender = document.querySelector('.sender-card')!
@@ -1503,161 +1478,54 @@ test('current action, timing and header checklist survive live work and reload',
   await expect(page.locator('.sender-status')).toHaveCount(0)
   await expect(entry).toHaveCount(0)
   await expect(page.locator('.conversation-column > .conversation-checklist')).toHaveCount(0)
-  await expect(page.locator('.messages [data-checklist-summary]')).toHaveCount(1)
-  await expect(page.locator('.checklist-summary-text')).toContainText('incomplete: Analyze duplicate images')
+  await expect(page.locator('.messages [data-checklist-summary]')).toHaveCount(0)
   await expect(checklist).toHaveCount(0)
   await expect(page.locator('.run-trace')).toHaveAttribute('data-run-status', 'succeeded')
   await page.reload()
   await expect(dock).toHaveCount(0)
   await expect(entry).toHaveCount(0)
   await expect(page.locator('.conversation-column > .conversation-checklist')).toHaveCount(0)
-  await expect(page.locator('.messages [data-checklist-summary]')).toHaveCount(1)
-  await expect(page.locator('.checklist-summary-text')).toContainText('incomplete: Analyze duplicate images')
+  await expect(page.locator('.messages [data-checklist-summary]')).toHaveCount(0)
   await expect(checklist).toHaveCount(0)
   expect(fixture.unexpected).toEqual([])
 })
 
-test('stopping a run shows interrupted Todo immediately and after reload without changing saved statuses', async ({ page, mockOrigin }, testInfo) => {
-  await page.addInitScript(() => {
-    localStorage.setItem('vista-debug-mode', 'true')
-    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: async (text: string) => { (window as Window & { copiedText?: string }).copiedText = text } } })
-  })
-  const events = agentIdentityEvents()
-  const runId = events[0].data.runId as string
-  const savedItems: ChecklistItem[] = [...initialChecklist,
-    { text: 'Optional follow-up', status: 'pending' },
-    { text: 'Waiting for source access', status: 'blocked' },
-  ]
-  events.push({ sequence: events.at(-1)!.sequence + 1, kind: 'checklist', createdAt: '2026-01-01T12:01:00Z', data: { runId, items: savedItems } })
-  const fixture = await mockExecution(page, mockOrigin, events)
-  const trace = page.locator(`.run-trace[data-run-id="${runId}"]`)
-  const overview = trace
-  const checklist = page.locator('.conversation-checklist')
-  const header = checklist
-  await expect(overview).toHaveAttribute('data-run-status', 'active')
-  await page.locator('.conversation-header .checklist-trigger').click()
-  await expect(checklist.locator('[data-checklist-status="in_progress"]')).toHaveCount(2)
-  await expect(header).toContainText('1/5 checklist items complete')
-
-  fixture.session.executing = false
-  fixture.append('agent_task', { taskId: 'main', task: { id: 'main', title: 'Main task', status: 'canceled' } })
-  fixture.append('run_finished', { status: 'canceled' })
-  const assertStoppedChecklist = async () => {
-    await expect(overview).toHaveAttribute('data-run-status', 'canceled')
-    await expect(page.locator('.conversation-column > .conversation-checklist')).toHaveCount(0)
-    await expect(page.locator('.conversation-header .checklist-trigger')).toHaveCount(0)
-    await expect(page.locator('.messages [data-checklist-summary]')).toHaveCount(1)
-    await expect(trace.locator('.trace-step-row')).toHaveCount(4)
-    await expect(checklist).toHaveCount(0)
-    const summary = page.locator('.checklist-summary-text')
-    await expect(summary).toHaveText('Tasks completed: 1/5\n1. done: Check message composer\n2. interrupted: Analyze duplicate images\n3. interrupted: Check mobile navigation\n4. pending: Optional follow-up\n5. blocked: Waiting for source access')
-    await expect(summary.locator('svg, .checklist, [data-checklist-status]')).toHaveCount(0)
-    await expect(page.locator('[data-checklist-summary] time')).toHaveAttribute('datetime', fixture.events.at(-1)!.createdAt!)
-  }
-  await assertStoppedChecklist()
-  await page.locator('.messages [data-checklist-summary]').getByRole('button', { name: 'Copy reply', exact: true }).click()
-  const copied = await page.evaluate(() => (window as Window & { copiedText?: string }).copiedText)
-  expect(copied).toBe(await page.locator('.checklist-summary-text').innerText())
-  expect(copied).toContain('1. done: Check message composer')
-  expect(copied).toContain('2. interrupted: Analyze duplicate images')
-  for (const item of savedItems) expect(copied).toContain(item.text)
-  await page.locator('.messages [data-checklist-summary]').scrollIntoViewIfNeeded()
-  await page.screenshot({ path: testInfo.outputPath('stopped-todo.png'), animations: 'disabled' })
-  await trace.getByRole('button', { name: 'Debug details', exact: true }).click()
-  const diagnostics = page.getByRole('dialog', { name: 'Debug details', exact: true })
-  await expect(diagnostics).toBeVisible()
-  const diagnosticEvents = JSON.parse(await diagnostics.locator('.trace-debug-body').innerText()).events as StreamEvent[]
-  expect(diagnosticEvents.find(event => event.kind === 'checklist')!.data.items, 'Only visible statuses change; the source event remains intact').toEqual(savedItems)
-  await page.keyboard.press('Escape')
-  await page.reload()
-  await assertStoppedChecklist()
-  expect(fixture.events.find(event => event.kind === 'checklist')!.data.items).toEqual(savedItems)
-  expect(fixture.unexpected).toEqual([])
-  await page.locator('.messages [data-checklist-summary]').scrollIntoViewIfNeeded()
-  await page.screenshot({ path: testInfo.outputPath('stopped-todo-reloaded.png'), animations: 'disabled' })
+test('stopping a run keeps internal plans out of the UI before and after reload @responsive', async ({page,mockOrigin}) => {
+ const events=agentIdentityEvents(), runId=events[0].data.runId as string
+ events.push({sequence:events.at(-1)!.sequence+1,kind:'checklist',data:{runId,items:initialChecklist}})
+ const fixture=await mockExecution(page,mockOrigin,events)
+ const trace=page.locator(`.run-trace[data-run-id="${runId}"]`)
+ await expect(trace).toHaveAttribute('data-run-status','active')
+ await expect(page.locator('.checklist-trigger, .conversation-checklist, [data-checklist-summary]')).toHaveCount(0)
+ fixture.session.executing=false
+ fixture.append('agent_task',{taskId:'main',task:{id:'main',title:'Main task',status:'canceled'}})
+ fixture.append('run_finished',{status:'canceled'})
+ for(let pass=0;pass<2;pass++) {
+  await expect(trace).toHaveAttribute('data-run-status','canceled')
+  await expect(page.locator('.checklist-trigger, .conversation-checklist, [data-checklist-summary]')).toHaveCount(0)
+  await expect(trace.locator('.trace-step-row')).toHaveCount(4)
+  if(pass===0) await page.reload()
+ }
+ expect(fixture.events.find(e=>e.kind==='checklist')!.data.items).toEqual(initialChecklist)
+ expect(fixture.unexpected).toEqual([])
 })
 
-test('new runs clear the header checklist without changing earlier saved plans', async ({ page, mockOrigin }) => {
-  const events = hydrationEvents().slice(0, 2)
-  const runId = events[0].data.runId as string
-  const oldItems = [{ text: 'Earlier unfinished work', status: 'in_progress' }]
-  const oldReply: Message = { id: 'old-reply', runId, sequence: 6, role: 'assistant', content: 'Earlier execution failed.', failure: true, createdAt: events[0].createdAt! }
-  const checklistTool = { callId: 'old-checklist', name: 'update_checklist', summary: 'Plan earlier work' }
-  events.push({ sequence: 3, kind: 'tool', data: { runId, status: 'started', tool: checklistTool } })
-  events.push({ sequence: 4, kind: 'checklist', data: { runId, items: oldItems } })
-  events.push({ sequence: 5, kind: 'tool', data: { runId, status: 'succeeded', tool: checklistTool, content: 'Checklist updated.' } })
-  events.push({ sequence: 6, kind: 'run_finished', data: { runId, status: 'failed', message: oldReply } })
-  const fixture = await mockExecution(page, mockOrigin, events, { messages: [events[0].data, oldReply] })
-  const oldTrace = page.locator(`.run-trace[data-run-id="${runId}"]`)
-  const newRun = 'run-without-checklist'
-  const newTrace = page.locator(`.run-trace[data-run-id="${newRun}"]`)
-  await expect(page.locator('.checklist-summary-text')).toContainText('1. incomplete: Earlier unfinished work')
-  await expect(page.locator('.conversation-checklist')).toHaveCount(0)
-  const user: Message = { id: 'new-user', runId: newRun, sequence: 7, role: 'user', content: 'A different task', createdAt: new Date().toISOString() }
-  fixture.messages.push(user)
-  fixture.session.executing = true
-  fixture.append('message', user)
-  fixture.append('model_request', { runId: newRun, turn: 1, taskId: 'main', provider: 'openai-chat', id: 'gpt-6-astra' })
-  const tool = { callId: 'new-read', name: 'read_file', summary: 'Read another file' }
-  fixture.append('tool', { runId: newRun, turn: 1, taskId: 'main', status: 'started', tool })
-  const assertSeparate = async () => {
-    await expect(newTrace).toBeVisible()
-    await expect(page.locator('.conversation-column > .conversation-checklist')).toHaveCount(0)
-    await expect(page.locator('.conversation-header .checklist-trigger')).toHaveCount(0)
-    await expect(page.locator('.messages [data-checklist-summary]')).toHaveCount(1)
-    await expect(oldTrace.locator('.checklist')).toHaveCount(0)
-    await expect(newTrace.locator('.checklist')).toHaveCount(0)
-  }
-  await assertSeparate()
-  await page.reload()
-  await assertSeparate()
-  const newItems: ChecklistItem[] = [{ text: 'Verify the new task', status: 'in_progress' }]
-  fixture.append('checklist', { runId: newRun, items: newItems })
-  await page.locator('.conversation-header .checklist-trigger').click()
-  await expect(page.locator('.conversation-checklist')).toContainText('Verify the new task')
-  await expect(page.locator('.conversation-checklist')).not.toContainText('Earlier unfinished work')
-  fixture.append('checklist', { runId: newRun, items: [] })
-  await expect(page.locator('.conversation-column > .conversation-checklist')).toHaveCount(0)
-  await expect(page.locator('.conversation-header .checklist-trigger')).toHaveCount(0)
-  await expect(page.locator('.conversation-checklist')).toHaveCount(0)
-  fixture.append('checklist', { runId: newRun, items: [{ ...newItems[0], status: 'done' }] })
-  const checklistTime = fixture.events.at(-1)!.createdAt!
-  fixture.append('tool', { runId: newRun, turn: 1, taskId: 'main', status: 'succeeded', tool, content: 'File read.' })
-  const reply: Message = { id: 'new-reply', runId: newRun, sequence: events.at(-1)!.sequence + 1, role: 'assistant', content: 'New task completed.', createdAt: new Date().toISOString() }
-  fixture.messages.push(reply)
-  fixture.session.executing = false
-  fixture.append('run_finished', { runId: newRun, status: 'succeeded', message: reply })
-  await expect(newTrace).toHaveAttribute('data-run-status', 'succeeded')
-  await expect(page.locator('.checklist-summary-text').last()).toHaveText('Tasks completed: 1/1\n1. done: Verify the new task')
-  await expect(page.locator('[data-checklist-summary]').last().locator('time')).toHaveAttribute('datetime', checklistTime)
-  const assertChecklistSpacing = async () => {
-    const summary = page.locator('.checklist-message').last()
-    await summary.scrollIntoViewIfNeeded()
-    const gap = await summary.evaluate(element => {
-      const row = element.closest('.message-row')!
-      const previous = row.previousElementSibling!
-      const content = previous.querySelector('article:last-child') || previous
-      return element.getBoundingClientRect().top - content.getBoundingClientRect().bottom
-    })
-    expect(gap, 'The final checklist is a separate message with visible space above it').toBeGreaterThanOrEqual(20)
-  }
-  const assertChecklistOrder = async () => {
-    expect(await page.locator('[data-checklist-summary]').last().evaluate((summary, replyId) => {
-      const reply = document.querySelector(`[data-display-key="${replyId}"]`)
-      return !!reply && !!(summary.compareDocumentPosition(reply) & Node.DOCUMENT_POSITION_FOLLOWING)
-    }, reply.id), 'The completed checklist precedes the later final reply').toBe(true)
-  }
-  await assertChecklistOrder()
-  await assertChecklistSpacing()
-  await page.reload()
-  await expect(page.locator('.checklist-summary-text').last()).toHaveText('Tasks completed: 1/1\n1. done: Verify the new task')
-  await expect(page.locator('[data-checklist-summary]').last().locator('time')).toHaveAttribute('datetime', checklistTime)
-  await assertChecklistOrder()
-  await assertChecklistSpacing()
-  await expect(page.locator('.conversation-column > .conversation-checklist')).toHaveCount(0)
-  await expect(page.locator('.messages [data-checklist-summary]')).toHaveCount(2)
-  expect(fixture.events.find(event => event.kind === 'checklist')!.data.items).toEqual(oldItems)
-  expect(fixture.unexpected).toEqual([])
+test('new runs keep earlier and current internal plans out of chat and tool details @responsive', async ({page,mockOrigin}) => {
+ const events=hydrationEvents().slice(0,2),runId=events[0].data.runId as string
+ const tool={callId:'private-plan',name:'update_checklist',summary:'Private plan'}
+ events.push({sequence:3,kind:'tool',data:{runId,status:'started',tool}})
+ events.push({sequence:4,kind:'checklist',data:{runId,items:initialChecklist}})
+ events.push({sequence:5,kind:'tool',data:{runId,status:'succeeded',tool,content:JSON.stringify({items:initialChecklist})}})
+ const fixture=await mockExecution(page,mockOrigin,events)
+ for(let pass=0;pass<2;pass++) {
+  await expect(page.locator('.checklist-trigger, .conversation-checklist, [data-checklist-summary]')).toHaveCount(0)
+  await expect(page.getByText('Private plan',{exact:true})).toHaveCount(0)
+  if(pass===0) await page.reload()
+ }
+ fixture.session.executing=false
+ fixture.append('run_finished',{runId,status:'succeeded'})
+ await expect(page.locator('.checklist-trigger, .conversation-checklist, [data-checklist-summary]')).toHaveCount(0)
+ expect(fixture.unexpected).toEqual([])
 })
 
 test('child messages retain their stable identities, full assignments and delegation @responsive', async ({ page, mockOrigin }, testInfo) => {
@@ -1848,7 +1716,8 @@ test('execution tool results render once, keep useful summaries, and move metada
   await readFull(nodeTitle(trace, runId, 'tool/main/source-read'))
   await expect(trace.locator('pre.trace-output').filter({ hasText: 'Source read once.' })).toHaveCount(1)
 
-  for (const [callId, text] of [['empty-skills', 'No skills found'], ['checklist-updated', 'Checklist updated · 1 items'], ['delegate-started', 'Child session started']]) {
+  await expect(nodeTitle(trace, runId, 'tool/main/checklist-updated')).toHaveCount(0)
+  for (const [callId, text] of [['empty-skills', 'No skills found'], ['delegate-started', 'Child session started']]) {
     const title = nodeTitle(trace, runId, `tool/main/${callId}`)
     const node = title.locator('xpath=ancestor::div[contains(concat(" ",normalize-space(@class)," ")," ui-thought-chain-node ")][1]')
     await readFull(title)
@@ -1927,7 +1796,7 @@ test('reasoning headings and long commands stay readable without hiding executio
   expect(headings[1]).toBeGreaterThan(headings[0])
   expect(headings[2]).toBeGreaterThan(headings[1])
   expect(fixture.events.filter(event => event.kind === 'model_reasoning_delta').map(event => event.data.content)).toEqual(fragments)
-  await expect(trace.locator('.trace-step-row')).toHaveCount(8)
+  await expect(trace.locator('.trace-step-row')).toHaveCount(7)
   await assertNoHorizontalOverflow(page)
   expect(fixture.unexpected).toEqual([])
   await page.screenshot({ path: testInfo.outputPath('readable-reasoning-and-command.png'), animations: 'disabled' })

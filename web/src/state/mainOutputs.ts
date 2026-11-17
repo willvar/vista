@@ -1,5 +1,4 @@
 import type { MainOutput, Message, ModelInfo, OutputView, StreamEvent } from '../client/types.ts'
-import { checklistSummaryPosition } from './checklist.ts'
 import { isTimelineEvent } from './conversationTimeline.ts'
 
 export type MainOutputSpan = { sequence: number; lastSequence: number; createdAt: string; offset: number; endOffset: number; closed?: boolean }
@@ -156,18 +155,9 @@ export function conversationItems(messages: readonly Message[], outputs: readonl
   }
   const items: ConversationItem[] = messages.flatMap(message => {
     const output = message.role === 'assistant' && message.outputTurn ? byTurn.get(`${message.runId}/${message.outputTurn}`) : undefined
-    const { checklist, ...reply } = message
-    const rows: ConversationItem[] = checklist && !message.content ? [] : output ? outputRows(output, reply) : [{
-      ...reply, content: message.content, displayKey: message.id, displaySequence: message.sequence,
+    const rows: ConversationItem[] = output ? outputRows(output, message) : [{
+      ...message, content: message.content, displayKey: message.id, displaySequence: message.sequence,
     }]
-    if (checklist) {
-      // The page cursor stays with the terminal reply. Only the presentation
-      // row moves to the last checklist update, without changing model history.
-      const position = checklistSummaryPosition(message)
-      const id = `checklist-summary/${message.sequence}`
-      rows.push({ id, displayKey: id, displaySequence: position.sequence, runId: message.runId,
-        sequence: message.sequence, role: 'assistant', content: '', createdAt: position.createdAt, checklist })
-    }
     return rows
   })
   for (const output of outputs) {

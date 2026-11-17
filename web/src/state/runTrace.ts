@@ -1,4 +1,4 @@
-import type { AgentTaskView, ChecklistItem, ModelResultView, StreamEvent, ToolOutputRef } from '../client/types.ts'
+import type { AgentTaskView, ModelResultView, StreamEvent, ToolOutputRef } from '../client/types.ts'
 import { inRunTraceRange, type RunTraceRange } from './runTraceRange.ts'
 import { isTimelineEvent } from './conversationTimeline.ts'
 
@@ -72,8 +72,8 @@ const toolOperationLabels: Record<string, string> = {
   apply_patch: 'traceOpPatch', find_files: 'traceOpFindFiles',
   list_files: 'traceOpList', search_files: 'traceOpSearch', search: 'traceOpSearch', grep: 'traceOpSearch',
   delegate: 'traceOpDelegate', await_agent: 'traceOpAwaitAgent', cancel_agent: 'traceOpCancelAgent',
-  update_checklist: 'traceOpChecklist', fetch_url: 'traceOpFetch',
-  webfetch: 'traceOpFetch', websearch: 'traceOpWebSearch', start_background: 'traceOpBackground', stop_background: 'traceOpStopBackground',
+  fetch_url: 'traceOpFetch',
+  webfetch: 'traceOpFetch', websearch: 'traceOpWebSearch', start_background: 'traceOpBackground', stop_background: 'traceOpStopBackground', update_background_timeout: 'traceOpUpdateBackgroundTimeout',
   project_instructions: 'traceOpFindInstructions', read_project_instruction: 'traceOpReadInstructions',
   list_skills: 'traceOpListSkills', read_skill: 'traceOpReadSkill', history_index: 'traceOpBrowseHistory',
   read_history: 'traceOpReadHistory', read_model_output: 'traceOpReadAnswer', read_tool_output: 'traceOpReadToolOutput',
@@ -156,10 +156,10 @@ export function projectToolOutput(raw: string, toolName?: string): Pick<RunTrace
     if (operation === 'traceOpShell' && typeof fields.signal === 'string' && fields.signal) return { body: preview, error: `terminated by signal: ${fields.signal}`, rawBody: raw }
     if (operation === 'traceOpShell' && fields.complete === true && typeof fields.exitCode === 'number' && fields.exitCode !== 0) return { body: preview, error: `exit code ${fields.exitCode}`, rawBody: raw }
     if (operation === 'traceOpBackground' && typeof fields.jobId === 'string') return { body: '', rawBody: raw, resultSummaryKey: 'traceProcessStarted' }
+    if (operation === 'traceOpUpdateBackgroundTimeout' && typeof fields.expiresAt === 'string') return { body: '', rawBody: raw, resultSummaryKey: 'traceProcessDeadlineUpdated' }
     if (operation === 'traceOpStopBackground' && fields.status === 'stopping') return { body: '', rawBody: raw, resultSummaryKey: 'traceProcessStopRequested' }
     if (operation === 'traceOpDelegate' && typeof fields.taskId === 'string' && fields.status === 'running') return { body: '', rawBody: raw, resultSummaryKey: 'traceAgentStarted' }
     if (operation === 'traceOpAwaitAgent' && fields.status === 'running' && Array.isArray(fields.pendingTaskIds)) return { body: '', rawBody: raw, resultSummaryKey: 'traceAgentsRunning', resultSummaryParams: { count: fields.pendingTaskIds.length } }
-    if (Array.isArray(fields.items) && toolOperationLabelKey(toolName) === 'traceOpChecklist') return { body: '', rawBody: raw, resultSummaryKey: 'traceChecklistUpdated', resultSummaryParams: { count: fields.items.length } }
     const warnings = Array.isArray(fields.warnings) ? fields.warnings.filter(item => item && typeof item.path === 'string' && typeof item.error === 'string') : []
     const searchWarnings = warnings.length ? { warnings } : {}
     if (Array.isArray(fields.matches) || (operation === 'traceOpSearch' && Array.isArray(fields.files))) {
@@ -189,7 +189,6 @@ export function buildRunTrace(events: readonly StreamEvent[], options: RunTraceR
   const completed = new Set<string>()
   const models = new Map<string, { id?: string; reasoningEffort?: string }>()
   const outputLinks = new Map<string, { artifacts: Set<string>; jobs: Set<string> }>()
-  let checklist: ChecklistItem[] | undefined
   let finished: StreamEvent | undefined
   let activeTextGroup = '', activeTextKey = ''
   for (const result of options.modelResults || []) {
@@ -210,6 +209,7 @@ export function buildRunTrace(events: readonly StreamEvent[], options: RunTraceR
   const ordered = [...events].filter(event => event.data?.runId === options.runId && inRunTraceRange(event.sequence, options)).sort((a, b) => a.sequence - b.sequence)
   for (const event of ordered) {
     const data = event.data || {}
+    if (event.kind === 'tool' && data.tool?.name?.split('/').at(-1) === 'update_checklist') continue
     const id = traceTaskId(event)
     const turn = `${id}/${data.turn}`
     if (event.kind === 'model_result') {
@@ -225,6 +225,7 @@ export function buildRunTrace(events: readonly StreamEvent[], options: RunTraceR
   }
   for (const event of ordered) {
     const data = event.data || {}
+    if (event.kind === 'tool' && data.tool?.name?.split('/').at(-1) === 'update_checklist') continue
     const id = traceTaskId(event)
     const turn = `${id}/${data.turn}`
     if (isTimelineEvent(event) && !['model_delta', 'model_reasoning_delta'].includes(event.kind)) activeTextGroup = ''
@@ -232,8 +233,6 @@ export function buildRunTrace(events: readonly StreamEvent[], options: RunTraceR
       const current = task(data.task.id, event)
       Object.assign(current, data.task)
       current.lastSequence = event.sequence
-    } else if (event.kind === 'checklist' && !data.depth && (id === 'main') && Array.isArray(data.items || data.checklist?.items)) {
-      checklist = (data.items || data.checklist.items).slice(0, 16)
     } else if (event.kind === 'model_request' && data.purpose !== 'summary') {
       const current = task(id, event)
       current.modelId = data.id || current.modelId
@@ -340,6 +339,6 @@ export function buildRunTrace(events: readonly StreamEvent[], options: RunTraceR
   }
   return {
     tasks: [...tasks.values()].sort((a, b) => a.id === 'main' ? -1 : b.id === 'main' ? 1 : a.sequence - b.sequence),
-    nodes: allNodes, checklist, finished,
+    nodes: allNodes, finished,
   }
 }

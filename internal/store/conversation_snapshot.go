@@ -105,7 +105,7 @@ func (s *Store) ConversationSnapshot(ctx context.Context, id string) (Conversati
 			if message.Role == "user" {
 				activeRun = message.RunID
 			}
-			if message.Role != "assistant" || message.Checklist != nil && message.Content == "" {
+			if message.Role != "assistant" {
 				continue
 			}
 			if !message.ContextSummary {
@@ -141,7 +141,7 @@ func (s *Store) ConversationSnapshot(ctx context.Context, id string) (Conversati
 			return err
 		}
 		// Child traffic can push the latest root progress off the recent page.
-		// Keep its model identity, latest progress and checklist without a full run overview.
+		// Keep its model identity, latest progress without a full run overview.
 		if activeRun != "" {
 			var clock RunClock
 			if err = view.orm.Raw(`SELECT id,created_at AS started_at,
@@ -164,8 +164,8 @@ func (s *Store) ConversationSnapshot(ctx context.Context, id string) (Conversati
  SELECT MAX(sequence) FROM events WHERE session_id=? AND json_extract(data,'$.runId')=?
  AND COALESCE(json_extract(data,'$.depth'),0)=0 AND COALESCE(json_extract(data,'$.taskId'),'main') IN ('','main')
  AND COALESCE(json_extract(data,'$.purpose'),'')=''
- AND kind IN ('model_request','model_retry','model_delta','model_reasoning_delta','model_result','tool','run_finished','checklist')
- GROUP BY CASE kind WHEN 'model_request' THEN 1 WHEN 'checklist' THEN 2 ELSE 0 END) AND session_id=? ORDER BY sequence`, id, activeRun, id).Scan(&root).Error; err != nil {
+ AND kind IN ('model_request','model_retry','model_delta','model_reasoning_delta','model_result','tool','run_finished')
+ GROUP BY CASE kind WHEN 'model_request' THEN 1 ELSE 0 END) AND session_id=? ORDER BY sequence`, id, activeRun, id).Scan(&root).Error; err != nil {
 				return err
 			}
 			var prefix []Event

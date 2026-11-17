@@ -13,13 +13,6 @@ type ChecklistItem struct {
 	Status string `json:"status"`
 }
 
-type ChecklistSummary struct {
-	Items           []ChecklistItem `json:"items"`
-	Status          string          `json:"status"`
-	UpdatedAt       string          `json:"updatedAt,omitempty"`
-	UpdatedSequence int64           `json:"updatedSequence,omitempty"`
-}
-
 func ValidateChecklist(items []ChecklistItem) error {
 	if len(items) > 16 {
 		return errors.New("checklist exceeds 16 items")
@@ -43,6 +36,7 @@ func (s *Store) RunChecklist(ctx context.Context, sessionID, runID string) ([]Ch
 	var raw []byte
 	err := s.orm.WithContext(ctx).Raw(`SELECT CAST(data AS BLOB) FROM events
  WHERE session_id=? AND kind='checklist' AND json_extract(data,'$.runId')=?
+ AND COALESCE(json_extract(data,'$.depth'),0)=0 AND COALESCE(json_extract(data,'$.taskId'),'main') IN ('','main')
  ORDER BY sequence DESC LIMIT 1`, sessionID, runID).Row().Scan(&raw)
 	if errors.Is(err, ErrNotFound) {
 		return []ChecklistItem{}, nil
@@ -83,4 +77,33 @@ func (s *Store) ReplaceChecklist(ctx context.Context, sessionID, runID string, i
 		return nil, err
 	}
 	return &event, nil
+}
+
+// PublicEvent preserves cursor coverage while withholding model-only planning.
+// Canonical events and model-history tool pairs are never changed.
+func PublicEvent(event Event) Event {
+	internal := event.Kind == "checklist"
+	if event.Kind == "runtime_event" {
+		var data struct {
+			ModelOnly bool `json:"modelOnly"`
+		}
+		if json.Unmarshal(event.Data, &data) == nil {
+			internal = data.ModelOnly
+		}
+	}
+	if event.Kind == "tool" {
+		var data struct {
+			Tool struct {
+				Name string `json:"name"`
+			} `json:"tool"`
+		}
+		if json.Unmarshal(event.Data, &data) == nil {
+			internal = strings.TrimPrefix(data.Tool.Name, "subagent/") == "update_checklist"
+		}
+	}
+	if internal {
+		event.Kind = "internal"
+		event.Data = json.RawMessage(`{}`)
+	}
+	return event
 }

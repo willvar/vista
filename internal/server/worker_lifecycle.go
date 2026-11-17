@@ -127,6 +127,14 @@ func (a *App) startWorkerUsing(id string, launch func(context.Context, string) (
 		}
 		return err
 	}
+	// Serialize the initial limits with broadcasts, including a save that raced
+	// with process launch before the Worker entered the registry.
+	a.workerLimitsMu.Lock()
+	settings := a.memorySettings()
+	if w.input != nil {
+		_ = w.send(workerproto.Command{Action: "limits", RunID: "limits", MemoryLimit: int64(settings.WorkerMiB) << 20, BackgroundJobsLimit: settings.BackgroundJobsPerSession})
+	}
+	a.workerLimitsMu.Unlock()
 	a.updates.notify("status", "sessions")
 	a.background.Go(func() { a.readWorkerOutput(id, w, scanner) })
 	return nil
@@ -139,7 +147,8 @@ func (a *App) launchWorker(ctx context.Context, id string) (*worker, *bufio.Scan
 	}
 	cmd := exec.Command(exe, "worker")
 	cmd.Env = modelcatalog.WorkerEnvironment(os.Environ(), a.modelCredentialEnvironment()...)
-	cmd.Env = append(cmd.Env, fmt.Sprintf("VISTA_WORKER_MEMORY_MIB=%d", a.memorySettings().WorkerMiB))
+	settings := a.memorySettings()
+	cmd.Env = append(cmd.Env, fmt.Sprintf("VISTA_WORKER_MEMORY_MIB=%d", settings.WorkerMiB), fmt.Sprintf("VISTA_BACKGROUND_JOBS_LIMIT=%d", settings.BackgroundJobsPerSession))
 	return a.launchWorkerCommand(ctx, id, cmd)
 }
 

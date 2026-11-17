@@ -12,6 +12,9 @@ import (
 type outputLink struct {
 	StartedAt         string `json:"startedAt"`
 	ExpiresAt         string `json:"expiresAt"`
+	WarnAt            string `json:"warnAt,omitempty"`
+	WarnedAt          string `json:"warnedAt,omitempty"`
+	DeadlineRevision  uint64 `json:"deadlineRevision,omitempty"`
 	Signal            string `json:"signal"`
 	TerminationReason string `json:"terminationReason"`
 	ID                string `json:"id"`

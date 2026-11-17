@@ -365,3 +365,53 @@ func TestAgentExecutesTwelveToolsConcurrently(t *testing.T) {
 		t.Fatalf("parallel tools: answer=%q entered=%d completed=%d requests=%d err=%v", answer, entered.Load(), completed, requests.Load(), err)
 	}
 }
+
+func TestSlowChecklistCompletionRemainsModelOnly(t *testing.T) {
+	root, _ := continuationFixture(t)
+	stateDir := filepath.Join(root, "vista", "state")
+	if err := os.MkdirAll(stateDir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	db, err := store.Open(filepath.Join(stateDir, "vista.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 6*time.Second)
+	defer cancel()
+	if _, err := db.Create(ctx, "session", "private plan"); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := db.BeginRun(ctx, "session", "continuation-run", "user-message", "work"); err != nil {
+		t.Fatal(err)
+	}
+	var requests atomic.Int32
+	model := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		if requests.Add(1) == 1 {
+			continuationEvent(w, mcpToolEvent("private", "update_checklist", `{"items":[{"text":"Private plan","status":"pending"}]}`))
+			return
+		}
+		continuationAnswer(w, "done")
+	}))
+	defer model.Close()
+	command := continuationCommand(model.URL, "work")
+	command.SessionID = "session"
+	var marked atomic.Bool
+	_, err = Run(ctx, command, func(result workerproto.Result) error {
+		if result.Kind == "checklist" {
+			time.Sleep(1100 * time.Millisecond)
+			_, err := db.ReplaceChecklist(ctx, "session", "continuation-run", []store.ChecklistItem{{Text: "Private plan", Status: "pending"}})
+			return err
+		}
+		if result.Kind == "runtime_event" && result.RuntimeEvent.Kind == "tool" {
+			if !result.RuntimeEvent.ModelOnly {
+				return errors.New("slow checklist result was exposed as an ordinary completion")
+			}
+			marked.Store(true)
+		}
+		return nil
+	})
+	if err != nil || !marked.Load() {
+		t.Fatalf("missing model-only completion: %v %v", marked.Load(), err)
+	}
+}
