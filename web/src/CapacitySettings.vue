@@ -29,7 +29,7 @@ const dirty = computed(() => !!saved.value && (editorDirty.value || !equal(saved
 const schema = computed<JsonSchema>(() => ({ type: 'object', additionalProperties: false, required: ['budgetMiB', 'workerMiB', 'concurrentRuns', 'backgroundJobsPerSession'], properties: {
   budgetMiB: { type: 'integer', title: `${t('memoryBudget')} (MiB)`, minimum: 256, maximum: 1048576 },
   workerMiB: { type: 'integer', title: `${t('memoryWorkerLimit')} (MiB)`, minimum: 128, maximum: 1048576 },
-  concurrentRuns: { type: 'integer', title: t('memoryConcurrentRuns'), minimum: 1, maximum: 128 },
+  concurrentRuns: { type: 'integer', title: t('memoryConcurrentRuns'), description: t('memoryConcurrentRunsHint'), minimum: 1, maximum: 128 },
   backgroundJobsPerSession: { type: 'integer', title: t('backgroundJobsPerSession'), description: t('backgroundJobsPerSessionHint'), minimum: 1, maximum: 1024 },
 } }))
 const uischema: VerticalLayout = { type: 'VerticalLayout', elements: ['budgetMiB', 'workerMiB', 'concurrentRuns', 'backgroundJobsPerSession'].map(field => ({ type: 'Control', scope: `#/properties/${field}` })) }

@@ -63,6 +63,7 @@ export default { ...base, ...{
   "memorySettingsHint": "按 Vista 主進程和會話進程的實際內存佔用檢查預算。達到預算時拒絕新的高開銷操作；會話進程超過自身上限時中斷執行。這是軟保護，並非操作系統的內存硬限制。Shell 啓動的程序另佔內存。",
   "memoryBudget": "內存預算",
   "memoryWorkerLimit": "單個會話進程上限",
+  "memoryConcurrentRunsHint": "只統計有執行任務或後台活動的會話；空閒會話不計入，同一會話只計一次。不限制打開的會話總數。",
   "backgroundJobsPerSession": "每會話最大後台進程數",
   "backgroundJobsPerSessionHint": "限制單個會話同時活動的後台 job 數量。調低不會停止已有進程，只限制新啓動；這不是 CPU 或內存配額。",
   "processWarnedAt": "已發送預警",

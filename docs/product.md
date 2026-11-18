@@ -65,7 +65,7 @@ Completed model turns and tool results survive later messages and Worker restart
 
 Images use shared original files with conversation-owned references. New attachments or explicit resource reads activate visual input for the next supported request; earlier images are not automatically resent. Closing retains ownership; deleting a conversation releases its links, and fully unreferenced files can be cleaned manually. See [resources](./resources.md).
 
-About Vista’s Advanced settings provides memory presets and custom total, per-conversation and execution-concurrency limits. It shows measured resident usage; reaching the budget refuses new heavy work, and exceeding a Worker limit interrupts that conversation. These are soft guards rather than an OS memory ceiling; external tool processes use additional memory.
+About Vista’s Advanced settings provides memory presets and custom total, per-conversation and active conversation limits. The active conversation limit includes foreground tasks and background activity, counts each conversation once, and excludes idle conversations; it does not limit how many conversations can be open. It shows measured resident usage; reaching the budget refuses new heavy work, and exceeding a Worker limit interrupts that conversation. These are soft guards rather than an OS memory ceiling; external tool processes use additional memory.
 
 Editing and withdrawing sent messages roll back conversation/model history only. Files, shell effects, and remote changes remain. See [message rollback](./message-revert.md).
 
@@ -94,7 +94,7 @@ The configuration root has three fixed user configuration filenames: the main `c
 | Section in `config.json` | Purpose | Startup migration input only |
 | --- | --- | --- |
 | `server` | Saved listening port, separate from the running listener | `server.json` |
-| `capacity` | Memory budgets and execution-concurrency limits | `capacity.json` |
+| `capacity` | Memory budgets and active conversation limits | `capacity.json` |
 | `agent` | Delegation depth and automatic conversation titles | `agent-settings.json` |
 | `search` | Search/page-reading services, order and output preview limits | `search.json` |
 | `userAgent` | HTTP client identity settings | `user-agent.json` |

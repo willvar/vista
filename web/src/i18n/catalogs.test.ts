@@ -28,6 +28,13 @@ test('every language has a complete, valid catalog with matching placeholders', 
   }
 })
 
+test('capacity wording distinguishes active conversations from open conversations', () => {
+  assert.equal(messages.en.memoryConcurrentRuns, 'Active conversation limit')
+  assert.equal(messages['zh-CN'].memoryConcurrentRuns, '同时工作会话上限')
+  assert.equal(messages.en.memoryConcurrentRunsHint, 'Counts conversations with running tasks or background activity. Idle conversations do not count; each conversation counts once. This does not limit how many conversations you can open.')
+  assert.equal(messages['zh-CN'].memoryConcurrentRunsHint, '只统计有执行任务或后台活动的会话；空闲会话不计入，同一会话只计一次。不限制打开的会话总数。')
+})
+
 test('regional catalogs share base wording and only retain actual regional differences', () => {
   assert.equal(messages['en-GB'].mcpLoginCanceled, 'Authorisation cancelled.')
   assert.equal(messages.en.mcpLoginCanceled, 'Authorization canceled.')

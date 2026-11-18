@@ -23,7 +23,7 @@ test('selecting custom without changing limits survives background metrics and c
   await expect(region.getByRole('status')).toContainText('/ 4096 MiB')
   await expect(budget).toHaveValue('2048')
   await expect(region.getByRole('spinbutton', { name: 'Per-conversation limit (MiB)', exact: true })).toHaveValue('1024')
-  await expect(region.getByRole('spinbutton', { name: 'Concurrent executions', exact: true })).toHaveValue('4')
+  await expect(region.getByRole('spinbutton', { name: 'Active conversation limit', exact: true })).toHaveValue('4')
   await expect(save).toBeEnabled()
   await save.click()
   await expect(save).not.toHaveAttribute('aria-busy', 'true')
@@ -52,7 +52,7 @@ test('capacity presets and custom limits save, synchronize and preserve an unsav
   await choose('Custom')
   const budget = region.getByRole('spinbutton', { name: 'Memory budget (MiB)', exact: true })
   const worker = region.getByRole('spinbutton', { name: 'Per-conversation limit (MiB)', exact: true })
-  const concurrent = region.getByRole('spinbutton', { name: 'Concurrent executions', exact: true })
+  const concurrent = region.getByRole('spinbutton', { name: 'Active conversation limit', exact: true })
   await budget.fill('3072')
   await worker.fill('1536')
   await concurrent.fill('3')
@@ -109,4 +109,40 @@ test('capacity presets and custom limits save, synchronize and preserve an unsav
   await expect(confirmation).toBeHidden()
   await expect(page.locator('.about-advanced-modal')).toBeVisible()
   await expect(port).toHaveValue(nextPort)
+})
+
+test('active conversation limit explains background work without limiting open conversations @responsive', async ({ page, vista }, testInfo) => {
+  const cases = [
+    {
+      language: 'en', settings: 'Advanced settings', capacity: 'Memory and capacity', label: 'Active conversation limit',
+      hint: 'Counts conversations with running tasks or background activity. Idle conversations do not count; each conversation counts once. This does not limit how many conversations you can open.',
+    },
+    {
+      language: 'zh-CN', settings: '高级设置', capacity: '内存与容量', label: '同时工作会话上限',
+      hint: '只统计有执行任务或后台活动的会话；空闲会话不计入，同一会话只计一次。不限制打开的会话总数。',
+    },
+  ]
+  await page.goto(vista.origin + '/settings/about')
+  for (const labels of cases) {
+    await page.evaluate(language => localStorage.setItem('vista-language', language), labels.language)
+    await page.goto(vista.origin + '/settings/about')
+    await page.locator('.settings-page').getByRole('button', { name: labels.settings, exact: true }).click()
+    const dialog = page.getByRole('dialog', { name: labels.settings, exact: true })
+    await dialog.getByRole('tab', { name: labels.capacity, exact: true }).click()
+    const region = dialog.getByRole('region', { name: labels.capacity, exact: true })
+    const limit = region.getByRole('spinbutton', { name: labels.label, exact: true })
+    await expect(limit).toHaveValue('4')
+    await expect(limit).toHaveAccessibleDescription(labels.hint)
+    await expect(region.getByText(labels.hint, { exact: true })).toBeVisible()
+    await region.getByText(labels.hint, { exact: true }).scrollIntoViewIfNeeded()
+    expect(await vista.api('/memory-config')).toMatchObject({ concurrentRuns: 4 })
+    const bounds = await region.evaluate(element => {
+      const rect = element.getBoundingClientRect()
+      return { left: rect.left, right: rect.right, width: innerWidth, overflow: element.scrollWidth - element.clientWidth }
+    })
+    expect(bounds.left).toBeGreaterThanOrEqual(0)
+    expect(bounds.right).toBeLessThanOrEqual(bounds.width)
+    expect(bounds.overflow).toBeLessThanOrEqual(2)
+    await page.screenshot({ path: testInfo.outputPath(`capacity-limit-${labels.language}.png`), animations: 'disabled' })
+  }
 })
