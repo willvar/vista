@@ -15,6 +15,8 @@ import (
 )
 
 type modelSetting struct {
+	ConnectionKey  string                  `json:"connectionKey,omitempty"`
+	Disabled       bool                    `json:"disabled,omitempty"`
 	PromptCaching  *modelcfg.PromptCaching `json:"promptCaching,omitempty"`
 	ResponsesRoute modelcfg.ResponsesRoute `json:"responsesRoute,omitempty"`
 	ProxyID        string                  `json:"proxyId,omitempty"`
@@ -66,7 +68,18 @@ func (a *App) writeModelSettings(w http.ResponseWriter) {
 		} else if model.APIKey == "" && (modelcatalog.LocalProvider(model.ProviderID) || model.ProviderID == "amazon-bedrock" || model.ProviderID == "google-vertex") || model.BedrockAuth == "sigv4" {
 			mode = "default"
 		}
-		items = append(items, modelSetting{PromptCaching: model.PromptCaching, ResponsesRoute: model.ResponsesRoute, ProxyID: model.ProxyID, Kind: modelcatalog.SetupID(model), Key: model.Key, ConnectionID: model.ConnectionID, Name: model.Name, Provider: model.Provider, ProviderID: model.ProviderID, ID: model.ID, BaseURL: model.BaseURL, HasAPIKey: model.APIKey != "", Editable: exists && modelcatalog.Editable(model),
+		// Group the cards by the same identity used by connection mutations.
+		// No key for environment-only entries: a switch must not persist env credentials.
+		connectionKey := ""
+		if exists {
+			for _, anchor := range catalog.Models {
+				if modelcatalog.SameConnection(anchor, model) {
+					connectionKey = anchor.Key
+					break
+				}
+			}
+		}
+		items = append(items, modelSetting{ConnectionKey: connectionKey, Disabled: model.Disabled, PromptCaching: model.PromptCaching, ResponsesRoute: model.ResponsesRoute, ProxyID: model.ProxyID, Kind: modelcatalog.SetupID(model), Key: model.Key, ConnectionID: model.ConnectionID, Name: model.Name, Provider: model.Provider, ProviderID: model.ProviderID, ID: model.ID, BaseURL: model.BaseURL, HasAPIKey: model.APIKey != "", Editable: exists && modelcatalog.Editable(model),
 			HeaderNames: headerNames, CopilotAuth: model.CopilotAuth, HasAccessToken: model.AccessToken != "", CredentialMode: mode, Region: model.Region, Project: model.Project, Location: model.Location, ResourceName: model.ResourceName, DeploymentID: model.DeploymentID, APIVersion: model.APIVersion})
 	}
 	jsonOut(w, map[string]any{"default": catalog.Default, "models": items, "settingsRevision": a.modelSettingsVersion(snapshot.revision)})

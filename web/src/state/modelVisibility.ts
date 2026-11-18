@@ -1,7 +1,7 @@
 import type { ModelCatalog, ModelInfo } from '../client/types'
 
 export function visibleModels(catalog: ModelCatalog): ModelInfo[] {
-  return catalog.models.filter(model => (!model.status || model.status === 'active' || model.status === 'deprecated')
+  return catalog.models.filter(model => !model.disabled && (!model.status || model.status === 'active' || model.status === 'deprecated')
     && (catalog.showUnrecognizedModels || model.recognized === true))
 }
 

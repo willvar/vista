@@ -12,7 +12,7 @@ import (
 )
 
 func (a *App) resolveForRun(ctx context.Context, key string) (modelcfg.Model, string, error) {
-	source, selected, err := a.modelsSnapshot().Resolve(key)
+	source, selected, err := a.modelsSnapshot().ResolveEnabled(key)
 	if err != nil {
 		return source, selected, err
 	}

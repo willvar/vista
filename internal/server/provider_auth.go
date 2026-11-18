@@ -326,7 +326,7 @@ func (a *App) connectCodexAccount(ctx context.Context, input modelcatalog.Connec
 	if err := codexauth.Save(ctx, path, credential); err != nil {
 		return errors.New("could not save Codex account")
 	}
-	if err := a.commitModelSettingsLocked(ctx, snapshot, raw); err != nil {
+	if err := a.commitModelSettingsLocked(ctx, snapshot, raw, true); err != nil {
 		rollback, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		if previousErr == nil {

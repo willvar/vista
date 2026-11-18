@@ -187,3 +187,54 @@ test('an all-hidden inventory disables selection until enabled in settings', asy
   } finally { await stop() }
 })
 })
+
+test('disabling a saved connection removes all its models and leaves other connections usable @responsive', async ({ page, vista }) => {
+  const stop = await inventory(vista, [
+    { id: 'private-a', name: 'Private Alpha', input_modalities: ['text'] },
+    { id: 'private-b', name: 'Private Beta', input_modalities: ['text'] },
+  ])
+  const conversation = await page.context().newPage()
+  try {
+    const session = await vista.api('/sessions', { method: 'POST', body: '{}' })
+    const settings = `${vista.origin}/settings/models`
+    await Promise.all([page.goto(settings), conversation.goto(`${vista.origin}/sessions/${session.id}`)])
+    const picker = conversation.getByRole('combobox', { name: 'Model', exact: true })
+    const options = conversation.locator('.ui-select-dropdown:visible')
+    await picker.click()
+    await options.getByRole('option', { name: 'Private Alpha', exact: true }).click()
+    await expect(conversation.locator('.composer-model')).toContainText('Private Alpha')
+
+    const toggle = page.getByRole('switch', { name: 'Enable Metadata test', exact: true })
+    const remaining = page.getByRole('switch', { name: 'Enable Layout test', exact: true })
+    const row = page.locator('.configured-provider').filter({ hasText: 'Metadata test' })
+    const defaultPicker = page.locator('.default-model-setting').getByRole('combobox')
+    const defaultOptions = page.locator('.ui-select-dropdown:visible')
+    await expect(toggle).toBeChecked()
+    await toggle.click()
+    await expect(toggle).not.toBeChecked()
+    await expect(row.getByText('Disabled', { exact: true })).toBeVisible()
+    await expect(row.getByRole('button', { name: 'Usage statistics', exact: true })).toBeVisible()
+    await expect(remaining).toBeChecked()
+    await expect(conversation.locator('.composer-model')).not.toContainText(/Private Alpha|Layout test/)
+
+    await picker.click()
+    await expect(options.locator('.ui-select-group-label')).toHaveText(['Layout test'])
+    await picker.press('Escape')
+    await defaultPicker.click()
+    await expect(defaultOptions.locator('.ui-select-group-label')).toHaveText(['Layout test'])
+    await defaultPicker.press('Escape')
+
+    // A reload must not restore a disabled connection or silently replace its selected model.
+    await Promise.all([page.reload(), conversation.reload()])
+    await expect(toggle).not.toBeChecked()
+    await expect(conversation.locator('.composer-model')).not.toContainText(/Private Alpha|Layout test/)
+    await toggle.click()
+    await expect(toggle).toBeChecked()
+    await picker.click()
+    await expect(options.getByRole('option', { name: 'Private Alpha', exact: true })).toBeVisible()
+    await expect(options.getByRole('option', { name: 'Private Beta', exact: true })).toBeVisible()
+  } finally {
+    await conversation.close()
+    await stop()
+  }
+})

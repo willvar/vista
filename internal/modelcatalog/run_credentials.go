@@ -10,7 +10,7 @@ import (
 // ResolveForRun resolves configuration, then refreshes only the selected
 // Provider's credentials before the model is sent to a Worker.
 func (c Catalog) ResolveForRun(ctx context.Context, key string) (modelcfg.Model, string, error) {
-	model, selected, err := c.Resolve(key)
+	model, selected, err := c.ResolveEnabled(key)
 	if err != nil {
 		return model, selected, err
 	}

@@ -32,6 +32,9 @@ func replaceConnection(ctx context.Context, raw Catalog, previous *Configured, s
 		}
 	}
 	prototype := input.configured()
+	if previous != nil {
+		prototype.Disabled = previous.Disabled
+	}
 	ids := input.IDs
 	if previous != nil && len(ids) == 0 && (setup.ID != "custom" || previous.Provider == input.Provider && previous.Authentication == input.CredentialMode && previous.BaseURL == input.BaseURL && previous.APIKey == input.APIKey && maps.Equal(previous.Headers, input.Headers)) {
 		// Keep existing anchors that the edited authentication mode can use.

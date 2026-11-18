@@ -148,13 +148,15 @@ func (a *App) sessionSelection(w http.ResponseWriter, r *http.Request, id string
 		http.Error(w, "invalid session selection", 400)
 		return
 	}
-	if patch.ProcessingTier != nil && *patch.ProcessingTier != "" {
-		if patch.ManualModelKey == nil || *patch.ManualModelKey == "" {
-			http.Error(w, "a processing tier requires an explicit model", 400)
-			return
-		}
-		model, _, err := a.modelsSnapshot().Resolve(*patch.ManualModelKey)
-		if err == nil {
+	hasExplicitModel := patch.ManualModelKey != nil && *patch.ManualModelKey != ""
+	hasTier := patch.ProcessingTier != nil && *patch.ProcessingTier != ""
+	if hasTier && !hasExplicitModel {
+		http.Error(w, "a processing tier requires an explicit model", 400)
+		return
+	}
+	if hasExplicitModel {
+		model, _, err := a.modelsSnapshot().ResolveEnabled(*patch.ManualModelKey)
+		if err == nil && hasTier {
 			model.Key = *patch.ManualModelKey
 			model = a.processingTierMetadata(r.Context(), model)
 			err = provider.ApplyProcessingTier(&model, *patch.ProcessingTier)

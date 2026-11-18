@@ -51,6 +51,9 @@ func NewSettingsError(code, message string, details map[string]any) *SettingsErr
 func SelectDefault(raw, live Catalog, key string) (Catalog, error) {
 	for _, model := range raw.Models {
 		if model.Key == key {
+			if model.Disabled {
+				return Catalog{}, errors.New("this model connection is disabled")
+			}
 			raw.Default = key
 			return raw, nil
 		}
@@ -58,6 +61,9 @@ func SelectDefault(raw, live Catalog, key string) (Catalog, error) {
 	for _, model := range live.Models {
 		if model.Key != key || model.Info().DiscoverySource != "provider" && model.Info().DiscoverySource != "github-copilot" {
 			continue
+		}
+		if model.Disabled {
+			return Catalog{}, errors.New("this model connection is disabled")
 		}
 		for _, anchor := range raw.Models {
 			if !SameConnection(anchor, model) {

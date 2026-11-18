@@ -11,6 +11,11 @@ Connections have independent IDs. Credentials, discovery, editing, defaults, and
 Successful `POST` / `PUT /api/provider-config` responses return the same credential-redacted settings snapshot and `settingsRevision` as `GET /api/model-config`.
 The editor accepts that snapshot before closing; older responses cannot replace newer settings received through synchronization.
 
+In **Settings → Service connections**, switch off a saved connection next to its name to hide all of its models in the composer and default model picker.
+It cannot be selected for new executions while off. Existing selections are not silently moved to another connection, and executions already in progress keep their configuration.
+Credentials, the connection's model inventory, history and usage statistics are retained; switch it back on to make its models available again. Environment-only connections are managed outside this switch.
+`PATCH /api/provider-config` with `key`, `disabled` and the current `revision` changes only availability and returns the same redacted settings snapshot.
+
 A custom connection selects one conversation API format for all its models:
 
 | Format | Implementation |
@@ -57,7 +62,7 @@ Discovery cannot replace API formats, endpoints, authentication, or request head
 
 Discovery schedules are implemented separately: custom/Zen every minute, Copilot every five minutes, local services every 30 seconds. Temporary discovery errors retain the latest successful inventory. Editing a connection invalidates obsolete discovery responses. See [custom](../internal/server/custom_models.go), [Copilot](../internal/server/copilot_models.go), and [local](../internal/server/local_models.go) discovery.
 
-Directory caches use a [metadata-only model type](../internal/modelcatalog/inventory.go): IDs, names, advertised per-model protocols, capabilities, and token limits. Runtime models combine those facts with current connection addresses, credentials, proxy selections and user options. Proxy, routing and prompt-cache option edits apply to new runs using the retained inventory, without waiting for a successful refresh. Changing service/account access invalidates that inventory; responses started before any connection edit remain obsolete. Saved per-model restrictions stay with their anchor and do not restrict newly discovered siblings. Existing runs retain their acquired network snapshots.
+Directory caches use a [metadata-only model type](../internal/modelcatalog/inventory.go): IDs, names, advertised per-model protocols, capabilities, and token limits. Runtime models combine those facts with current connection addresses, credentials, proxy selections and user options. Proxy, routing and prompt-cache option edits apply to new runs using the retained inventory, without waiting for a successful refresh. Changing service/account access invalidates that inventory; responses started before a connection access or request-settings edit remain obsolete. Saved per-model restrictions stay with their anchor and do not restrict newly discovered siblings. Existing runs retain their acquired network snapshots.
 
 Cache capabilities are selected independently of transport routing. See [prompt caching](./prompt-caching.md) for the multi-provider policy and configuration.
 

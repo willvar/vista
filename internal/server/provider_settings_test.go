@@ -12,6 +12,7 @@ import (
 	"vista/internal/modelcatalog"
 
 	"vista/internal/provider"
+	"vista/internal/store"
 )
 
 func TestProviderSaveReturnsAcceptedSettingsWithoutCredentials(t *testing.T) {
@@ -383,6 +384,116 @@ func TestZenConnectionAutomaticallyIncludesSupportedModels(t *testing.T) {
 	for _, model := range models {
 		if model.Provider == "catalog" || model.ID == "unknown-model" || model.ProviderID != "opencode-go" {
 			t.Fatal("inventory contains an unrouted model")
+		}
+	}
+}
+
+func TestProviderAvailabilityPersistsAndIsScopedToConnection(t *testing.T) {
+	a := selectionApp(t)
+	a.configDir = t.TempDir()
+	if err := os.Chmod(a.configDir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	showAll := true
+	if _, err := a.store.PatchPreferences(ctx, store.PreferencesPatch{ShowUnrecognizedModels: &showAll}); err != nil {
+		t.Fatal(err)
+	}
+	connection := configuredModel{Key: "primary", ID: "private-1", ConnectionID: "account-a", Name: "First", Provider: "openai-chat", ProviderID: "custom",
+		BaseURL: "https://example.test/v1", Authentication: "bearer", APIKey: "private-test-key", Headers: map[string]string{"X-Test": "private-header-value"}}
+	sibling := connection
+	sibling.Key, sibling.ID = "sibling", "private-2"
+	other := connection
+	other.Key, other.ConnectionID, other.Name = "other", "account-b", "Second"
+	raw := modelCatalog{Default: connection.Key, Models: []configuredModel{connection, sibling, other}}
+	resolved, err := modelcatalog.Save(a.configDir, raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	a.baseModels = resolved
+	source, ok := customSourceFor(resolved.Models[0])
+	if !ok {
+		t.Fatal("expected a custom discovery source")
+	}
+	a.customInventories = map[string][]modelcatalog.InventoryModel{source.identity(): {{ID: connection.ID}, {ID: sibling.ID}, {ID: "discovered"}}}
+	ticketKey := "custom:" + source.identity()
+	ticket := a.beginModelDiscoveryLocked(ticketKey)
+	a.rebuildModelsLocked()
+	before := a.updates.snapshot()
+	revision := a.modelSettingsVersion(a.modelRevision)
+	patch := func(disabled bool, revision string) *httptest.ResponseRecorder {
+		t.Helper()
+		body, err := json.Marshal(map[string]any{"key": connection.Key, "disabled": disabled, "revision": revision})
+		if err != nil {
+			t.Fatal(err)
+		}
+		w := httptest.NewRecorder()
+		a.providerSettings(w, httptest.NewRequest(http.MethodPatch, "/api/provider-config", strings.NewReader(string(body))))
+		return w
+	}
+	w := patch(true, revision)
+	var settings struct {
+		Models           []modelSetting `json:"models"`
+		SettingsRevision string         `json:"settingsRevision"`
+	}
+	if w.Code != 200 || json.Unmarshal(w.Body.Bytes(), &settings) != nil || len(settings.Models) != 3 || settings.SettingsRevision == revision {
+		t.Fatalf("disable did not return accepted settings: %d %s", w.Code, w.Body)
+	}
+	for _, model := range settings.Models {
+		if model.Disabled != (model.ConnectionID == connection.ConnectionID) || !model.HasAPIKey || !model.Editable || model.ConnectionKey == "" {
+			t.Fatalf("unexpected saved row: %+v", model)
+		}
+	}
+	if strings.Contains(w.Body.String(), "private-test-key") || strings.Contains(w.Body.String(), "private-header-value") {
+		t.Fatal("patch returned credentials")
+	}
+	if stale := patch(false, revision); stale.Code != 409 {
+		t.Fatalf("stale edit: %d %s", stale.Code, stale.Body)
+	}
+	if !a.currentModelDiscoveryLocked(ticketKey, ticket) {
+		t.Fatal("visibility-only edit invalidated discovery")
+	}
+	point := a.updates.snapshot()
+	if err := a.addStateSnapshots(ctx, "", &point, before); err != nil {
+		t.Fatal(err)
+	}
+	if point.Revisions["models"] != before.Revisions["models"]+1 || point.Models == nil || point.Models.Default != "other" || point.Models.SettingsRevision != settings.SettingsRevision || len(point.Models.Models) != 4 {
+		t.Fatalf("unexpected models publication: %+v", point.Models)
+	}
+	for _, model := range point.Models.Models {
+		if model.Disabled != (model.ConnectionID == connection.ConnectionID) {
+			t.Fatalf("unexpected model availability: %+v", model)
+		}
+	}
+	reloaded, err := modelcatalog.Load(a.configDir)
+	if err != nil || len(reloaded.Models) != 3 || !reloaded.Models[0].Disabled || !reloaded.Models[1].Disabled || reloaded.Models[2].Disabled || reloaded.Models[0].APIKey != connection.APIKey || reloaded.Models[0].Headers["X-Test"] != connection.Headers["X-Test"] {
+		t.Fatal("disable did not persist independently of credentials")
+	}
+	if _, err := a.store.Create(ctx, "session", "availability"); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := a.resolveSelection(ctx, "session", selectionInput{ModelKey: connection.Key}); err == nil {
+		t.Fatal("disabled connection accepted for a new run")
+	}
+	if err := a.selectDefaultModel(ctx, sibling.Key); err == nil {
+		t.Fatal("disabled connection accepted as a new default")
+	}
+	w = httptest.NewRecorder()
+	a.sessionSelection(w, httptest.NewRequest(http.MethodPatch, "/api/sessions/session/selection", strings.NewReader(`{"manualModelKey":"sibling"}`)), "session")
+	if w.Code != 400 {
+		t.Fatalf("disabled session choice: %d %s", w.Code, w.Body)
+	}
+	w = httptest.NewRecorder()
+	a.connectionStatistics(w, httptest.NewRequest(http.MethodGet, "/api/connection-statistics?key=primary&days=30", nil))
+	if w.Code != 200 {
+		t.Fatalf("disabled connection lost statistics: %d %s", w.Code, w.Body)
+	}
+	if enabled := patch(false, settings.SettingsRevision); enabled.Code != 200 {
+		t.Fatalf("enable: %d %s", enabled.Code, enabled.Body)
+	}
+	for _, model := range a.modelsSnapshot().Models {
+		if model.Disabled {
+			t.Fatalf("model %s did not reappear", model.Key)
 		}
 	}
 }

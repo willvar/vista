@@ -50,10 +50,10 @@ func (a *App) modelCredentialEnvironment() []string {
 func (a *App) commitModelSettings(ctx context.Context, snapshot modelSettingsSnapshot, raw modelCatalog) error {
 	a.modelMu.Lock()
 	defer a.modelMu.Unlock()
-	return a.commitModelSettingsLocked(ctx, snapshot, raw)
+	return a.commitModelSettingsLocked(ctx, snapshot, raw, true)
 }
 
-func (a *App) commitModelSettingsLocked(ctx context.Context, snapshot modelSettingsSnapshot, raw modelCatalog) error {
+func (a *App) commitModelSettingsLocked(ctx context.Context, snapshot modelSettingsSnapshot, raw modelCatalog, inventoryChange bool) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -72,18 +72,29 @@ func (a *App) commitModelSettingsLocked(ctx context.Context, snapshot modelSetti
 		a.publishBaseModelsLocked(fallback)
 		return a.removeDisconnectedCodex(snapshot.raw, raw)
 	}
-	networkSettings, err := network.Load(a.configDir)
-	if err != nil {
-		return err
-	}
-	for _, model := range raw.Models {
-		if _, err := networkSettings.Select(model.ProxyID); err != nil {
+	if inventoryChange {
+		networkSettings, err := network.Load(a.configDir)
+		if err != nil {
 			return err
+		}
+		for _, model := range raw.Models {
+			if _, err := networkSettings.Select(model.ProxyID); err != nil {
+				return err
+			}
 		}
 	}
 	resolved, err := modelcatalog.Save(a.configDir, raw)
 	if err != nil {
 		return err
+	}
+	if !inventoryChange {
+		// Availability alone does not invalidate or need to reload any inventory.
+		a.baseModels = resolved
+		a.modelRevision++
+		if !a.rebuildModelsLocked() {
+			a.updates.notify("models") // The saved connection can have no discovered models.
+		}
+		return nil
 	}
 	a.publishBaseModelsLocked(resolved)
 	if a.ctx != nil {

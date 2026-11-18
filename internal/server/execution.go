@@ -130,7 +130,7 @@ func (a *App) submitMessage(w http.ResponseWriter, r *http.Request, sessionID st
 			if key == "" {
 				key = item.ModelKey
 			}
-			model, resolved, resolveErr := catalog.Resolve(key)
+			model, resolved, resolveErr := catalog.ResolveEnabled(key)
 			if resolveErr != nil {
 				http.Error(w, resolveErr.Error(), 400)
 				return

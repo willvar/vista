@@ -58,7 +58,7 @@ func (a *App) refreshLocalModels(ctx context.Context) {
 	}
 }
 
-func (a *App) rebuildModelsLocked() {
+func (a *App) rebuildModelsLocked() bool {
 	catalog := modelCatalog{Default: a.baseModels.Default, Models: []configuredModel{}}
 	seenKeys := make(map[string]bool, len(a.baseModels.Models))
 	seenModels := make(map[string]bool, len(a.baseModels.Models))
@@ -154,7 +154,9 @@ func (a *App) rebuildModelsLocked() {
 		if a.ctx != nil && a.ctx.Err() == nil && a.store != nil && modelsBecameAvailable(previous, catalog) {
 			a.background.Go(a.launchReadyRuntimeContinuations)
 		}
+		return true
 	}
+	return false
 }
 
 func modelsBecameAvailable(previous, current modelCatalog) bool {

@@ -98,7 +98,7 @@ func (a *App) modelProcessingTiers(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid model key", 400)
 		return
 	}
-	model, _, err := a.modelsSnapshot().Resolve(key)
+	model, _, err := a.modelsSnapshot().ResolveEnabled(key)
 	if err != nil {
 		http.NotFound(w, r)
 		return

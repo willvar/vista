@@ -117,12 +117,15 @@ const {
   modelCredentials, modelCredentialsSchema, modelCredentialsUISchema, modelCredentialsValid, showModelCredentials,
   updateSelectedModels, changeProvider,
   startProviderConnection, cancelModelForm, loadModelSettings, editProvider, providerGroups,
-  saveProvider, retryModelDiscovery, providerConnected, setDefaultModel, confirmDisconnectProvider, updateProviderDisconnect,
+  saveProvider, retryModelDiscovery, providerConnected, setDefaultModel, setProviderEnabled, changingProvider, confirmDisconnectProvider, updateProviderDisconnect,
 } = useProviderSettings(workspace)
 const networkConfigData = useNetworkConfig(workspace, () => route.name === 'settings')
 const usageConnection = ref<{ key: string; name: string }>()
 const usageDays = ref(30)
-const usagePeriods = computed(() => [7, 30, 90].map(value => ({value, label: t('statisticsPeriodDays', {count: value})})))
+const usagePeriods = computed(() => [7, 30, 90].map(value => ({ value, label: t('statisticsPeriodDays', { count: value }) })))
+function openConnectionUsage(model: ModelSetting, name: string) {
+  usageConnection.value = { key: model.key, name }
+}
 const proxyProfiles = computed(() => networkConfigData.value.value?.config.profiles || [])
 const providerProxyValid = ref(true), providerCredentialDirty = ref(false), providerBaseline = ref('')
 const providerSnapshot = computed(() => JSON.stringify({ draft: modelDraft.value, models: chosenModels.value, manual: manualModelIDs.value }))
@@ -196,6 +199,7 @@ watch(() => route.fullPath, () => {
   delegationEditorOpen.value = false
   aboutAdvancedOpen.value = false
   providerDisconnectTarget.value = null
+  usageConnection.value = undefined
   proxyBindingTarget.value = undefined
   cancelModelForm()
   if (route.name === 'settings-personalization' || route.name === 'settings-general') void loadAgentSettings()
@@ -206,7 +210,7 @@ watch(() => route.fullPath, () => {
 <template>
 <WorkspaceModal ref="modal" :open="true" width="max-content" :title="settingsTitle" :page-class="settingsIndex ? 'settings-page settings-index' : 'settings-page'"
   :close-label="t('closeSettings')" :back-label="t(settingsIndex ? 'backToConversation' : 'backToSettings')"
-  :keyboard="!providerDisconnectTarget && !modelFormOpen && !providerImportOpen && !mcpModalOpen && !skillModalOpen && !searchModalOpen && !networkModalOpen && !providerDiscardOpen && !proxyBindingTarget && !storageModalOpen && !resetModalOpen && !restartModalOpen && !statisticsModalOpen && !instructionsEditorOpen && !delegationEditorOpen && !aboutAdvancedOpen && !environmentCheckOpen" @cancel="backToWorkspace" @back="back">
+  :keyboard="!providerDisconnectTarget && !modelFormOpen && !providerImportOpen && !mcpModalOpen && !skillModalOpen && !searchModalOpen && !networkModalOpen && !usageConnection && !providerDiscardOpen && !proxyBindingTarget && !storageModalOpen && !resetModalOpen && !restartModalOpen && !statisticsModalOpen && !instructionsEditorOpen && !delegationEditorOpen && !aboutAdvancedOpen && !environmentCheckOpen" @cancel="backToWorkspace" @back="back">
         <template #header-actions>
             <v-button v-if="route.name === 'settings-about'" variant="text" class="icon-button" :aria-label="t('advancedSettings')" :title="t('advancedSettings')" @click="aboutAdvancedOpen = true"><template #icon><IconAdjustments aria-hidden="true" /></template></v-button>
             <v-button v-if="canImport" variant="text" class="icon-button" :aria-label="t(importTitleKey)" :title="t(importTitleKey)" :disabled="importKind === 'providers' ? settingsBusy : headerAction?.disabled" @click="importedCount = 0; providerImport?.show()"><template #icon><IconFileImport aria-hidden="true" /></template></v-button>
@@ -309,9 +313,33 @@ watch(() => route.fullPath, () => {
           <v-alert v-if="importedCount" type="success" role="status" :message="t('providerImportSuccess', { count: importedCount })" />
           <div v-if="settings.models.length" class="default-model-setting"><label>{{ t('defaultModel') }}<v-select :value="modelCatalog.default" :options="defaultModelChoices" show-search option-filter-prop="searchText" option-label-prop="fullLabel" :disabled="settingsBusy" @update:value="setDefaultModel(String($event))" /></label></div>
           <div class="model-visibility-setting general-setting"><div><label for="show-unrecognized-models">{{ t('showUnrecognizedModels') }}</label><p id="model-visibility-hint">{{ t('showUnrecognizedModelsHint') }}</p></div><v-switch id="show-unrecognized-models" :checked="showUnrecognizedModels" :loading="visibilityBusy" :aria-label="t('showUnrecognizedModels')" aria-describedby="model-visibility-hint" @update:checked="setShowUnrecognizedModels($event === true)" /></div>
-          <div v-if="providerGroups.length" class="configured-providers"><h3>{{ t('connectedProviders') }}</h3>
+          <div v-if="providerGroups.length" class="configured-providers">
+            <h3>{{ t('connectedProviders') }}</h3>
+            <p v-if="settings.models.some(model => model.connectionKey)" id="provider-availability-hint" class="provider-availability-hint">{{ t('providerAvailabilityHint') }}</p>
             <div v-for="group in providerGroups" :key="group.key" class="configured-provider">
-              <div class="provider-heading"><div><strong>{{ group.name }}</strong><small class="provider-type">{{ providerTypeLabel(group.kind, group.protocol) }}</small><small v-if="group.baseUrl">{{ group.baseUrl }}</small></div><div class="actions"><v-button @click="usageConnection = { key: group.models[0]!.key, name: group.name }">{{ t('connectionUsage') }}</v-button><template v-if="group.models.every(model => model.editable)"><v-button :disabled="settingsBusy" @click="editProvider(group.models[0]!)">{{ t('edit') }}</v-button><confirm-popover :show="providerDisconnectTarget?.key === group.models[0]!.key" :message="t('disconnectProviderConfirm', { name: group.name })" :cancel-text="t('cancel')" :confirm-text="t('disconnectProvider')" :busy="settingsBusy" :error="providerDisconnectError" popover-class="provider-disconnect-popover" @update:show="updateProviderDisconnect($event, group.models[0]!.key, group.name)" @confirm="confirmDisconnectProvider"><template #trigger><v-button danger :disabled="settingsBusy">{{ t('disconnectProvider') }}</v-button></template></confirm-popover></template><v-button v-else :disabled="settingsBusy" @click="editProxyBinding(group.models[0]!)">{{ t('networkProxy') }}</v-button></div></div>
+              <div class="provider-heading">
+                <div class="provider-identity">
+                  <div class="provider-title">
+                    <strong>{{ group.name }}</strong>
+                    <v-switch v-if="group.models[0]!.connectionKey" :checked="!group.models[0]!.disabled" :disabled="settingsBusy"
+                      :loading="changingProvider === group.key" :aria-label="t('providerEnable', { name: group.name })"
+                      aria-describedby="provider-availability-hint" @update:checked="setProviderEnabled(group.models[0]!, $event)" />
+                    <span v-if="group.models[0]!.disabled" class="provider-disabled">{{ t('providerDisabled') }}</span>
+                  </div>
+                  <small class="provider-type">{{ providerTypeLabel(group.kind, group.protocol) }}</small>
+                  <small v-if="group.baseUrl">{{ group.baseUrl }}</small>
+                </div>
+                <div class="actions">
+                  <v-button @click="openConnectionUsage(group.models[0]!, group.name)">{{ t('connectionUsage') }}</v-button>
+                  <template v-if="group.models.every(model => model.editable)">
+                    <v-button :disabled="settingsBusy" @click="editProvider(group.models[0]!)">{{ t('edit') }}</v-button>
+                    <confirm-popover :show="providerDisconnectTarget?.key === group.models[0]!.key" :message="t('disconnectProviderConfirm', { name: group.name })" :cancel-text="t('cancel')" :confirm-text="t('disconnectProvider')" :busy="settingsBusy" :error="providerDisconnectError" popover-class="provider-disconnect-popover" @update:show="updateProviderDisconnect($event, group.models[0]!.key, group.name)" @confirm="confirmDisconnectProvider">
+                      <template #trigger><v-button danger :disabled="settingsBusy">{{ t('disconnectProvider') }}</v-button></template>
+                    </confirm-popover>
+                  </template>
+                  <v-button v-else :disabled="settingsBusy" @click="editProxyBinding(group.models[0]!)">{{ t('networkProxy') }}</v-button>
+                </div>
+              </div>
             </div>
           </div>
         </div>
@@ -410,8 +438,11 @@ watch(() => route.fullPath, () => {
       <div class="actions"><v-button type="button" :disabled="settingsBusy" @click="closeProviderForm">{{ t('cancel') }}</v-button><v-button v-if="modelDraft.kind && (modelDraft.credentialMode !== 'oauth' || editingProvider)" type="submit" variant="primary" :loading="settingsBusy" :disabled="settingsBusy || loginBusy || !canSaveProvider || !providerProxyValid || !networkConfigData.value.value">{{ editingProvider ? t('saveChanges') : t('connectProvider') }}</v-button></div>
     </form>
   </v-modal>
-  <v-modal :open="!!usageConnection" :title="t('connectionUsageTitle', { name: usageConnection?.name || '' })" :footer="null" width="min(860px, calc(100vw - 2rem))" @cancel="usageConnection = undefined">
-    <v-select v-model:value="usageDays" :options="usagePeriods" :aria-label="t('statisticsPeriod')" />
+  <v-modal :open="!!usageConnection" :title="t('connectionUsageTitle', { name: usageConnection?.name || '' })" :footer="null"
+    class="connection-usage-modal" :width="860" :z-index="1200" destroy-on-hidden @cancel="usageConnection = undefined">
+    <template #header-actions>
+      <v-select v-model:value="usageDays" class="connection-usage-period" :options="usagePeriods" :aria-label="t('statisticsPeriod')" />
+    </template>
     <ConnectionUsage v-if="usageConnection" :key="`${usageConnection.key}:${usageDays}`" :model-key="usageConnection.key" :days="usageDays" :profiles="proxyProfiles" />
   </v-modal>
   <v-modal :open="!!proxyBindingTarget" :title="t('networkProxy')" :footer="null" :z-index="1200" :close-disabled="settingsBusy" :keyboard="!settingsBusy && !providerDiscardOpen" :mask-closable="!settingsBusy && !providerDiscardOpen" @cancel="closeProxyBinding">
@@ -427,4 +458,21 @@ watch(() => route.fullPath, () => {
 .provider-kind-select,.provider-kind-field,.provider-public-config,.provider-auth-info,.provider-login-workflow { grid-column: 1 / -1; min-width: 0; }
 .provider-proxy-field { grid-column: 1 / -1; min-width: 0; }
 .provider-login-workflow { margin: 0; padding: 0; border: 0; }
+.provider-availability-hint { margin: 0; color: var(--muted); font-size: var(--font-size-small); }
+.provider-identity { min-width: 0; }
+.provider-title { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; overflow-wrap: anywhere; }
+.provider-disabled { color: var(--muted); font-size: var(--font-size-small); }
+:global(.connection-usage-modal .ui-modal-container) {
+  display: flex;
+  flex-direction: column;
+  max-height: calc(100dvh - 32px);
+  padding: 16px clamp(12px, 3vw, 24px);
+}
+:global(.connection-usage-modal .ui-modal-body) { min-height: 0; overflow: auto; overscroll-behavior: contain; padding: 2px; }
+:global(.connection-usage-modal .ui-modal-title) { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }
+.connection-usage-period { width: clamp(7.25rem, 32vw, 10rem); }
+@media (max-height: 480px) {
+  :global(.connection-usage-modal .ui-modal-container) { padding-block: 10px; }
+  :global(.connection-usage-modal .ui-modal-header) { margin-bottom: 8px; }
+}
 </style>

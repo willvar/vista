@@ -15,7 +15,7 @@ func (a *App) providerSettings(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if r.Method == http.MethodPatch {
-		a.providerNetworkSettings(w, r)
+		a.patchProviderSettings(w, r)
 		return
 	}
 	if r.Method != http.MethodPost && r.Method != http.MethodPut && r.Method != http.MethodDelete {

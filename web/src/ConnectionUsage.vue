@@ -41,43 +41,83 @@ const metrics = computed(() => ([['usageTTFT','firstTokenMs','firstTokenSamples'
 
 <template>
   <section class="connection-usage" :aria-busy="loading">
-    <p>{{ t('connectionUsageHint') }}</p>
     <p v-if="error" role="alert">{{ error }} <v-button @click="refresh">{{ t('retry') }}</v-button></p>
     <p v-else-if="loading && !data" role="status">{{ t('statisticsLoading') }}</p>
     <v-empty v-else-if="!all.length" :description="t('connectionUsageEmpty')" />
     <template v-else>
-      <p v-if="data?.truncated">{{ t('connectionUsageTruncated') }}</p>
       <div class="connection-usage-filters">
-        <label>{{ t('model') }}<v-select v-model:value="model" :options="modelOptions" :aria-label="t('model')" /></label>
-        <label>{{ t('processingTierLabel') }}<v-select v-model:value="tier" :options="tierOptions" :aria-label="t('processingTierLabel')" /></label>
-        <label>{{ t('connectionUsageRoute') }}<v-select v-model:value="route" :options="routeOptions" :aria-label="t('connectionUsageRoute')" /></label>
+        <div><label for="connection-usage-model">{{ t('model') }}</label><v-select id="connection-usage-model" v-model:value="model" :options="modelOptions" :title="model || undefined" /></div>
+        <div><label for="connection-usage-tier">{{ t('connectionUsageRequested') }}</label><v-select id="connection-usage-tier" v-model:value="tier" :options="tierOptions" /></div>
+        <div><label for="connection-usage-route">{{ t('connectionUsageRoute') }}</label><v-select id="connection-usage-route" v-model:value="route" :options="routeOptions" /></div>
       </div>
-      <dl class="connection-usage-metrics">
-        <div><dt>{{ t('connectionUsageRequests') }}</dt><dd>{{ number(total) }}</dd></div>
-        <div><dt>{{ t('connectionUsageSuccess') }}</dt><dd>{{ completed ? number((outcomes.succeeded || 0) / completed * 100, 1) + '%' : '—' }}</dd></div>
-        <div v-for="item in metrics" :key="item.label"><dt>{{ t(item.label) }}</dt><dd>{{ item.value }} <small>{{ t('connectionUsageSamples', { count: number(item.samples) }) }}</small></dd></div>
-      </dl>
-      <ul v-if="rows.length" class="connection-usage-outcomes">
-        <li v-for="(count, outcome) in outcomes" :key="outcome">{{ t(`connectionUsageOutcome_${outcome}`) }} · {{ number(count) }}</li>
-      </ul>
-      <div v-if="rows.length" class="connection-usage-table" tabindex="0" :aria-label="t('usageDetails')">
-        <table><thead><tr><th>{{ t('model') }}</th><th>{{ t('connectionUsageRoute') }}</th><th>{{ t('connectionUsageRequested') }}</th><th>{{ t('connectionUsageActual') }}</th><th>{{ t('usageStatus') }}</th><th>{{ t('connectionUsageRequests') }}</th></tr></thead>
-          <tbody><tr v-for="row in rows" :key="JSON.stringify([row.model,row.route,row.requestedTier,row.actualTier,row.outcome])">
-            <td>{{ row.model }}</td><td>{{ routeLabel(row) }}</td><td>{{ tierLabel(row.requestedTier) }}</td><td>{{ row.actualTier ? tierLabel(row.actualTier) : t('processingTierUnconfirmed') }}</td><td>{{ t(`connectionUsageOutcome_${row.outcome}`) }}</td><td>{{ number(row.requests) }}</td>
-          </tr></tbody>
-        </table>
-      </div>
+      <template v-if="rows.length">
+        <dl class="connection-usage-metrics">
+          <div><dt>{{ t('connectionUsageRequests') }}</dt><dd>{{ number(total) }}</dd></div>
+          <div><dt>{{ t('connectionUsageSuccess') }}</dt><dd>{{ completed ? number((outcomes.succeeded || 0) / completed * 100, 1) + '%' : '—' }}</dd></div>
+          <div v-for="item in metrics" :key="item.label"><dt>{{ t(item.label) }}</dt><dd>{{ item.value }}</dd><dd class="connection-usage-samples">{{ t('connectionUsageSamples', { count: number(item.samples) }) }}</dd></div>
+        </dl>
+        <ul class="connection-usage-outcomes">
+          <li v-for="(count, outcome) in outcomes" :key="outcome">{{ t(`connectionUsageOutcome_${outcome}`) }} · {{ number(count) }}</li>
+        </ul>
+        <div class="connection-usage-table" tabindex="0" role="region" :aria-label="t('usageDetails')">
+          <table>
+            <thead><tr>
+              <th scope="col" class="connection-usage-model">{{ t('model') }}</th>
+              <th scope="col">{{ t('connectionUsageRoute') }}</th>
+              <th scope="col">{{ t('connectionUsageRequested') }}</th>
+              <th scope="col">{{ t('connectionUsageActual') }}</th>
+              <th scope="col">{{ t('usageStatus') }}</th>
+              <th scope="col">{{ t('connectionUsageRequests') }}</th>
+            </tr></thead>
+            <tbody><tr v-for="row in rows" :key="JSON.stringify([row.model, row.route, row.requestedTier, row.actualTier, row.outcome])">
+              <td>{{ row.model }}</td><td>{{ routeLabel(row) }}</td><td>{{ tierLabel(row.requestedTier) }}</td>
+              <td>{{ row.actualTier ? tierLabel(row.actualTier) : t('processingTierUnconfirmed') }}</td>
+              <td>{{ t(`connectionUsageOutcome_${row.outcome}`) }}</td><td>{{ number(row.requests) }}</td>
+            </tr></tbody>
+          </table>
+        </div>
+      </template>
+      <v-empty v-else :description="t('traceNoMatches')" />
+      <p v-if="data?.truncated" class="connection-usage-note">{{ t('connectionUsageTruncated') }}</p>
+      <p class="connection-usage-note">{{ t('connectionUsageHint') }}</p>
     </template>
   </section>
 </template>
 
 <style scoped>
-.connection-usage-filters,.connection-usage-metrics { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%,10rem),1fr)); gap:.65rem; }
-.connection-usage-filters label { display:grid; gap:.25rem; min-width:0; }
-.connection-usage-metrics { margin:1rem 0; }
-.connection-usage-metrics dd { margin:.2rem 0 0; font-variant-numeric:tabular-nums; }
-.connection-usage-outcomes { display:flex; flex-wrap:wrap; list-style:none; padding:0; gap:.5rem 1rem; }
-.connection-usage-table { overflow:auto; max-height:18rem; }
-.connection-usage-table table { border-collapse:collapse; min-width:100%; text-align:start; }
-.connection-usage-table th,.connection-usage-table td { text-align:start; padding:.45rem; }
+.connection-usage { display: grid; gap: 12px; min-width: 0; }
+.connection-usage p { margin: 0; overflow-wrap: anywhere; }
+.connection-usage-note { color: var(--muted); font-size: var(--font-size-small); }
+.connection-usage-filters, .connection-usage-metrics {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin: 0;
+}
+.connection-usage-filters { align-items: end; }
+.connection-usage-filters > div { display: grid; gap: 4px; min-width: 0; }
+.connection-usage-filters label, .connection-usage-metrics dt { color: var(--muted); font-size: var(--font-size-small); }
+.connection-usage-filters .ui-select { width: 100%; }
+.connection-usage-metrics > div {
+  min-width: 0;
+  padding: 8px 12px;
+  background: var(--surface-subtle);
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  overflow-wrap: anywhere;
+}
+.connection-usage-metrics dd { margin: 2px 0 0; font-weight: 600; font-variant-numeric: tabular-nums; }
+.connection-usage-metrics .connection-usage-samples { color: var(--muted); font-size: var(--font-size-small); font-weight: 400; }
+.connection-usage-outcomes { display: flex; flex-wrap: wrap; gap: 4px 12px; list-style: none; padding: 0; margin: 0; color: var(--text-secondary); font-size: var(--font-size-small); }
+.connection-usage-table { overflow: auto; max-height: min(18rem, 52dvh); border: 1px solid var(--border); border-radius: 8px; }
+.connection-usage-table table { table-layout: fixed; border-spacing: 0; width: 100%; min-width: 37rem; font-size: var(--font-size-small); }
+.connection-usage-table th, .connection-usage-table td { text-align: start; padding: 6px 8px; vertical-align: top; overflow-wrap: anywhere; }
+.connection-usage-table th { position: sticky; top: 0; background: var(--surface-subtle); border-bottom: 1px solid var(--border); }
+.connection-usage-table tbody tr + tr td { border-top: 1px solid var(--border-subtle); }
+.connection-usage-table .connection-usage-model { width: 32%; }
+.connection-usage-table th:last-child, .connection-usage-table td:last-child { text-align: end; width: 10%; font-variant-numeric: tabular-nums; }
+@media (max-width: 560px) {
+  .connection-usage-filters, .connection-usage-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .connection-usage-filters > :first-child { grid-column: 1 / -1; }
+}
 </style>

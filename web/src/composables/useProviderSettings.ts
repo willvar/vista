@@ -465,12 +465,25 @@ export function useProviderSettings({ client, error, stateSync, modelCatalog }: 
     const groups = new Map<string, { key: string; name: string; kind: string; protocol: string; baseUrl: string; models: ModelSetting[] }>()
     for (const model of settings.value.models) {
       const kind = model.kind || ''
-      const key = model.connectionId || (kind === 'custom' ? `custom:${model.provider}:${model.baseUrl || ''}` : kind || `${model.provider}:${model.providerId || ''}:${model.baseUrl || ''}`)
+      const key = model.connectionKey || model.connectionId || (kind === 'custom' ? `custom:${model.provider}:${model.baseUrl || ''}` : kind || `${model.provider}:${model.providerId || ''}:${model.baseUrl || ''}`)
       if (!groups.has(key)) groups.set(key, { key, name: settingProviderName(model), kind, protocol: model.provider, baseUrl: model.baseUrl || '', models: [] })
       groups.get(key)!.models.push(model)
     }
     return [...groups.values()]
   })
+  const changingProvider = ref('')
+  async function setProviderEnabled(model: ModelSetting, enabled: boolean) {
+    const revision = settings.value.settingsRevision
+    if (settingsBusy.value || !revision || !model.connectionKey) return
+    settingsBusy.value = true
+    changingProvider.value = model.connectionKey
+    settingsError.value = ''
+    try {
+      const saved = await api<ModelSettings>('/provider-config', { method: 'PATCH', body: JSON.stringify({ key: model.connectionKey, disabled: !enabled, revision }) })
+      acceptModelSettings(saved)
+    } catch (cause) { settingsError.value = cause instanceof Error ? cause.message : String(cause) }
+    finally { changingProvider.value = ''; settingsBusy.value = false }
+  }
   async function saveProvider() {
     if (settingsBusy.value || !canSaveProvider.value) return
     const form = modelDraft.value
@@ -563,6 +576,6 @@ export function useProviderSettings({ client, error, stateSync, modelCatalog }: 
     modelCredentials, modelCredentialsSchema, modelCredentialsUISchema, modelCredentialsValid, showModelCredentials,
     updateSelectedModels, changeProvider,
     startProviderConnection, cancelModelForm, loadModelSettings, editProvider, providerGroups,
-    saveProvider, retryModelDiscovery, providerConnected, setDefaultModel, confirmDisconnectProvider, updateProviderDisconnect,
+    saveProvider, retryModelDiscovery, providerConnected, setDefaultModel, setProviderEnabled, changingProvider, confirmDisconnectProvider, updateProviderDisconnect,
   }
 }

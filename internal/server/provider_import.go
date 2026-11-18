@@ -132,7 +132,7 @@ func (a *App) importProviders(w http.ResponseWriter, r *http.Request) {
 		}
 		saved = append(saved, item.path)
 	}
-	if err := a.commitModelSettingsLocked(r.Context(), snapshot, raw); err != nil {
+	if err := a.commitModelSettingsLocked(r.Context(), snapshot, raw, true); err != nil {
 		settingsHTTPError(w, err, http.StatusBadRequest)
 		return
 	}

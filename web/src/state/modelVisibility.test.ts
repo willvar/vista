@@ -36,3 +36,10 @@ test('an unavailable saved model is not selectable even when unrecognized models
   const retired: ModelCatalog = { models: [{ ...catalog.models[1]!, status: 'retired' }], default: 'text', showUnrecognizedModels: true }
   assert.equal(initialModelKey(retired, ['text']), '')
 })
+
+test('disabled connections stay out of the model picker even when every model is recognized or revealed', () => {
+  const disabled = { ...catalog, showUnrecognizedModels: true, models: catalog.models.map(model => ({ ...model, disabled: model.key !== 'vision' })) }
+  assert.deepEqual(visibleModels(disabled).map(model => model.key), ['vision'])
+  assert.equal(initialModelKey(disabled, ['text', 'unknown']), 'vision')
+  assert.equal(initialModelKey({ ...disabled, models: disabled.models.slice(0, 2) }, ['text']), '')
+})

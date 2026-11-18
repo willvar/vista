@@ -5,20 +5,20 @@ import (
 	"net/http"
 
 	"vista/internal/modelcatalog"
-	"vista/internal/network"
 )
 
-// A network-only edit preserves advanced connection fields which the ordinary
-// Provider form intentionally does not expose, including credentials and routes.
-func (a *App) providerNetworkSettings(w http.ResponseWriter, r *http.Request) {
+// Patch one connection setting without replacing credentials or advanced fields.
+func (a *App) patchProviderSettings(w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, 4096)
 	var input struct {
-		Key      string `json:"key"`
-		ProxyID  string `json:"proxyId"`
-		Revision string `json:"revision"`
+		Key      string  `json:"key"`
+		ProxyID  *string `json:"proxyId"`
+		Disabled *bool   `json:"disabled"`
+		Revision string  `json:"revision"`
 	}
-	if decodeSettingsRequest(r.Body, &input) != nil || input.Key == "" || len(input.Key) > 64 || len(input.ProxyID) > 80 {
-		settingsHTTPError(w, errors.New("invalid provider network request"), 400)
+	if decodeSettingsRequest(r.Body, &input) != nil || input.Key == "" || len(input.Key) > 64 ||
+		(input.ProxyID == nil) == (input.Disabled == nil) || input.ProxyID != nil && len(*input.ProxyID) > 80 {
+		settingsHTTPError(w, errors.New("invalid provider settings patch"), 400)
 		return
 	}
 	snapshot, err := a.modelSettingsSnapshot()
@@ -27,38 +27,44 @@ func (a *App) providerNetworkSettings(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if input.Revision == "" || input.Revision != a.modelSettingsVersion(snapshot.revision) {
-		settingsHTTPError(w, errors.New("model settings changed; reload before saving"), 409)
+		settingsHTTPError(w, modelcatalog.NewSettingsError("settings_conflict", "Model settings changed; reload before saving.", nil), 409)
 		return
 	}
-	ctx, err := network.ForConnection(network.WithConfigDir(r.Context(), a.configDir), input.ProxyID)
-	if err != nil {
-		settingsHTTPError(w, err, 400)
+	if input.Disabled != nil && !snapshot.exists {
+		settingsHTTPError(w, errors.New("only saved model connections can be enabled or disabled"), 400)
 		return
 	}
-	var previous *configuredModel
+	var anchor *configuredModel
 	for _, model := range snapshot.raw.Models {
 		if model.Key == input.Key {
-			copy := model
-			previous = &copy
+			anchor = &model
 			break
 		}
 	}
-	if previous == nil {
+	if anchor == nil {
 		settingsHTTPError(w, errors.New("model connection is no longer available"), 404)
 		return
 	}
 	for index := range snapshot.raw.Models {
-		if modelcatalog.SameConnection(*previous, snapshot.raw.Models[index]) {
-			snapshot.raw.Models[index].ProxyID = input.ProxyID
+		model := &snapshot.raw.Models[index]
+		if !modelcatalog.SameConnection(*anchor, *model) {
+			continue
+		}
+		if input.Disabled != nil {
+			model.Disabled = *input.Disabled
+		} else {
+			model.ProxyID = *input.ProxyID
 		}
 	}
-	if err := a.commitModelSettings(ctx, snapshot, snapshot.raw); err != nil {
-		status := 400
-		var conflict *modelcatalog.SettingsError
-		if errors.As(err, &conflict) && conflict.Code == "settings_conflict" {
-			status = 409
-		}
-		settingsHTTPError(w, err, status)
+	a.modelMu.Lock()
+	err = a.commitModelSettingsLocked(r.Context(), snapshot, snapshot.raw, input.ProxyID != nil)
+	a.modelMu.Unlock()
+	if err != nil {
+		settingsHTTPError(w, err, 400)
+		return
+	}
+	if input.Disabled != nil {
+		a.writeModelSettings(w)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)

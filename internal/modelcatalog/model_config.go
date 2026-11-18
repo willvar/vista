@@ -21,6 +21,7 @@ import (
 )
 
 type Configured struct {
+	Disabled            bool                    `json:"disabled,omitempty"`
 	ProxyID             string                  `json:"proxyId,omitempty"`
 	Key                 string                  `json:"key"`
 	ConnectionID        string                  `json:"connectionId,omitempty"`
@@ -104,6 +105,7 @@ type Catalog struct {
 }
 
 type Info struct {
+	Disabled         bool     `json:"disabled,omitempty"`
 	ProxyID          string   `json:"proxyId,omitempty"`
 	Key              string   `json:"key"`
 	ConnectionID     string   `json:"connectionId,omitempty"`
@@ -326,6 +328,16 @@ func Validate(catalog Catalog) error {
 }
 
 func (c Catalog) Resolve(key string) (modelcfg.Model, string, error) {
+	return c.resolve(key, true)
+}
+
+// ResolveEnabled is for new selections. History, statistics and credential
+// refreshes for already admitted runs can still resolve disabled connections.
+func (c Catalog) ResolveEnabled(key string) (modelcfg.Model, string, error) {
+	return c.resolve(key, false)
+}
+
+func (c Catalog) resolve(key string, allowDisabled bool) (modelcfg.Model, string, error) {
 	if len(c.Models) == 0 {
 		return modelcfg.Model{}, "", errors.New("connect a model provider first")
 	}
@@ -334,6 +346,9 @@ func (c Catalog) Resolve(key string) (modelcfg.Model, string, error) {
 	}
 	for _, item := range c.Models {
 		if item.Key == key {
+			if item.Disabled && !allowDisabled {
+				return modelcfg.Model{}, "", errors.New("this model connection is disabled")
+			}
 			if !item.catalogResolved {
 				fillMissingModelMetadata(&item)
 			}
@@ -376,7 +391,7 @@ func (item Configured) Info() Info {
 	if item.ProviderID == "custom" || (item.Provider == "openai-chat" || item.Provider == "openai-responses") && (item.ProviderID == "" || item.ProviderID == "openai") {
 		baseURL = item.BaseURL
 	}
-	return Info{ProxyID: item.ProxyID, Key: item.Key, ConnectionID: item.ConnectionID, Name: item.Name, ModelName: modelName, Recognized: item.Recognized(), Provider: item.Provider, ProviderID: item.ProviderID, ID: item.ID, BaseURL: baseURL, Tools: item.Tools, Context: item.Context, InputLimit: item.inputLimit, OutputLimit: item.outputLimit, CatalogReasoning: item.catalogReasoning, Status: item.status, InputModalities: provider.SupportedInputModalities(item.Provider, item.EffectiveInputModalities()), OutputModalities: item.outputModalities, DiscoverySource: item.discoverySource, ReasoningOptions: options, ProcessingTiers: provider.ProcessingOptions(request)}
+	return Info{Disabled: item.Disabled, ProxyID: item.ProxyID, Key: item.Key, ConnectionID: item.ConnectionID, Name: item.Name, ModelName: modelName, Recognized: item.Recognized(), Provider: item.Provider, ProviderID: item.ProviderID, ID: item.ID, BaseURL: baseURL, Tools: item.Tools, Context: item.Context, InputLimit: item.inputLimit, OutputLimit: item.outputLimit, CatalogReasoning: item.catalogReasoning, Status: item.status, InputModalities: provider.SupportedInputModalities(item.Provider, item.EffectiveInputModalities()), OutputModalities: item.outputModalities, DiscoverySource: item.discoverySource, ReasoningOptions: options, ProcessingTiers: provider.ProcessingOptions(request)}
 }
 
 // Recognized reports available catalog or explicit capability metadata, including
@@ -422,5 +437,5 @@ func (m Configured) WithStatus(status string) Configured {
 
 // Available reports whether the inventory permits selecting this model.
 func (m Configured) Available() bool {
-	return m.status == "" || m.status == "active" || m.status == "deprecated"
+	return !m.Disabled && (m.status == "" || m.status == "active" || m.status == "deprecated")
 }
