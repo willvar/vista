@@ -36,7 +36,7 @@ SQLite remains the single-host durable store. Ordinary CRUD and parameterized co
 
 Fresh databases initialize the current complete base structure. One schema entry applies necessary existing-database additions and the marker-guarded statistics backfill without rebuilding user data. Per-start attempt reconciliation and statistics retention execute separately from structural initialization; Worker read-only opens perform neither initialization nor recovery.
 
-[Directory resolution](../internal/appdirs/dirs.go) uses `os.UserConfigDir()/vista`. The main `config.json`, static-credential `key.json`, global `AGENTS.md`, `skills/`, separate account authorization directories, and generated `omp-models.json`/`model-catalog-status.json` live at this root. SQLite, instance records, locks, logs, outputs, and resource originals live in `state/`. Generated model catalog files remain outside `state/` and are not user settings.
+[Directory resolution](../internal/appdirs/dirs.go) uses `os.UserConfigDir()/vista`. The main `config.json`, static-credential `key.json`, global `AGENTS.md`, `skills/`, separate account authorization directories, and generated `omp-models.json`/`model-catalog-status.json` live at this root. SQLite, instance records, locks, logs and outputs live in `state/`; originals use the fixed local resource directory or the selected object backend, with metadata and staging remaining local. Generated model catalog files remain outside `state/` and are not user settings.
 
 `GET /api/status` exposes version, cached executable SHA-256, Go source revision/dirty state, and the server OS/version. `internal/buildinfo.Version` defaults to `dev`; the Makefile supplies release versions. No build timestamp is injected. The hash is calculated at startup and is not embedded back into the executable.
 
@@ -46,12 +46,12 @@ Fresh databases initialize the current complete base structure. One schema entry
 
 ### Documents and credential boundaries
 
-The `config.json` root must be one JSON object with mandatory integer `version: 2` and optional raw JSON sections `server`, `capacity`, `agent`, `search`, `userAgent`, `models`, `mcp`, and `network`.
+The `config.json` root must be one JSON object with mandatory integer `version: 2` and optional raw JSON sections `server`, `capacity`, `agent`, `search`, `userAgent`, `models`, `mcp`, `network`, and `storage`.
 For example, a complete main document containing only a saved port is `{"version":2,"server":{"port":6186}}`; the service editor instead receives only `{"port":6186}`.
 An absent section keeps the previous default/environment fallback; explicit `null`, empty objects/arrays and empty values remain distinct from absence through storage and credential splitting, subject to the section's typed validation.
 
 `key.json` is a JSON object with mandatory integer `version: 1` and an `entries` object mapping opaque references to `{section, owner, values}` bundles.
-Managed model and MCP records, proxy profiles, or the `search` object, hold `credentialRef` in the main file to reference a private bundle.
+Managed model and MCP records, proxy profiles, resource backends, or the `search` object, hold `credentialRef` in the main file to reference a private bundle.
 Resolution checks the bundle's section and stable identity owner; display names and array indexes are not owners.
 Reference and owner encodings are internal storage details, not user-editable names.
 
@@ -61,6 +61,7 @@ Reference and owner encodings are internal storage details, not user-editable na
 | `mcp` | `token`, `clientSecret`, `headers` |
 | `search` | `apiKeys`, `jinaApiKey`, `deepseekFetchApiKey` |
 | `network` profiles | `username`, `password` |
+| `storage` backends | `accessKey`, `secretKey`, `sessionToken`, `masterKey` |
 
 The entire custom `headers` object moves conservatively, including values of headers not recognized as authentication headers; there is no header-name allowlist for leaving values in the main file.
 Public `clientId`, route and identity settings stay in `config.json`.
@@ -397,7 +398,7 @@ MCP imports accept both v2 `mcp.servers` and v1 flat server entries; native entr
 
 ## Resources, rollback, and limits
 
-Original attachments live at `state/resources/<hash prefix>/<SHA-256>`. SQLite stores metadata and ownership, not image bytes. The Server streams raw uploads; the Worker verifies originals up to 50 MiB, publishes them and waits for committed session ownership. Image bytes and image-bearing model requests stay in the Worker. New attachments and explicit `read_resource(path|hash)` results activate visual input for the next request only; canonical history and checkpoints keep references. See [resource contracts](./resources.md).
+Original attachments default to `state/resources/<hash prefix>/<SHA-256>` or use the selected encrypted DOFS object backend. SQLite stores identity, ownership and cutover state, not image bytes. The Server streams raw uploads; the Worker verifies originals up to 50 MiB, publishes them and waits for committed session ownership. Image bytes and image-bearing model requests stay in the Worker. New attachments and explicit `read_resource(path|hash)` results activate visual input for the next request only; canonical history and checkpoints keep references. See [resource contracts](./resources.md).
 
 Withdrawal/edit submission stops the conversation's work before truncating history at the selected user message. It does not undo files or other tool effects. Event sequences are not reused. See [message rollback](./message-revert.md).
 

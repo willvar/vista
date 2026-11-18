@@ -30,6 +30,10 @@ func (s *Store) QueueInputWithDiagnostics(ctx context.Context, sessionID, inputI
 	if err := ValidateImages(images); err != nil {
 		return QueuedInput{}, Event{}, err
 	}
+	images, publishErr := s.prepareImages(ctx, images)
+	if publishErr != nil {
+		return QueuedInput{}, Event{}, publishErr
+	}
 	tx, err := s.begin(ctx, nil)
 	if err != nil {
 		return QueuedInput{}, Event{}, err

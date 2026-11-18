@@ -260,7 +260,12 @@ func Run() error {
 				result := workerproto.Result{Kind: "rpc", RPCID: command.RPCID, RunID: command.RunID, Status: "succeeded"}
 				var err error
 				if command.Action == "import_resource" {
-					result.Resource, err = importResource(rpcCtx, command, emitPersisted)
+					result.Resource, err = importResource(rpcCtx, command, func(ctx context.Context, result workerproto.Result) error {
+						if result.Kind == "resource_import" {
+							return emitPersisted(sessionCtx, result)
+						}
+						return emitPersisted(ctx, result)
+					})
 				} else {
 					result.Content, err = resourceTitle(rpcCtx, command, emitPersisted, emit)
 				}
@@ -345,6 +350,12 @@ func Run() error {
 					return emit(result)
 				}
 				ackCtx := agents.TaskContext(result.RunID, result.TaskID, runCtx)
+				if result.Kind == "resource_import" {
+					if err := sessionCtx.Err(); err != nil {
+						return err
+					}
+					ackCtx = sessionCtx
+				}
 				if result.Kind == "model_history" || result.Kind == "runtime_event" || result.Kind == "runtime_delivered" || result.Kind == "reply_checkpoint" || result.Kind == "agent_task" && result.Task != nil && result.Task.Status != "started" {
 					// Canceled runs still commit completed model/tool history and
 					// terminal reports while the Session's IPC connection is alive.

@@ -16,7 +16,7 @@ import (
 	"vista/internal/question"
 	"vista/internal/resources"
 
-	gosqlite "github.com/glebarez/sqlite"
+	gosqlite "gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
 )
@@ -163,7 +163,7 @@ func sessionRowsAffected(result *gorm.DB) error {
 }
 
 func openORM(db *sql.DB) (*gorm.DB, error) {
-	return gorm.Open(gosqlite.Dialector{Conn: db}, &gorm.Config{
+	return gorm.Open(gosqlite.Dialector{DriverName: "sqlite", Conn: db}, &gorm.Config{
 		SkipDefaultTransaction: true, DisableAutomaticPing: true,
 		Logger: logger.New(log.New(os.Stderr, "", log.LstdFlags), logger.Config{
 			SlowThreshold: 200 * time.Millisecond, LogLevel: logger.Warn,

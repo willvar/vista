@@ -49,7 +49,7 @@ const groups: Record<string, string[]> = {
   search: ['search-settings'],
   network: ['network-settings', 'provider-setup', 'codex-login', 'search-settings', 'mcp-settings', 'settings-navigation', 'state-sync', 'modal-header'],
   controls: ['controls'],
-  about: ['about-advanced', 'capacity-settings', 'model-catalog', 'reset-settings', 'resource-storage', 'user-agent', 'ui-contracts', 'onboarding', 'execution-flow'],
+  about: ['about-advanced', 'capacity-settings', 'model-catalog', 'reset-settings', 'resource-destination', 'resource-storage', 'user-agent', 'ui-contracts', 'onboarding', 'execution-flow'],
   statistics: ['statistics'],
 }
 const consumers: [RegExp, string[]][] = [

@@ -18,7 +18,7 @@ import (
 	"strings"
 	"time"
 
-	_ "github.com/glebarez/go-sqlite"
+	_ "modernc.org/sqlite"
 
 	"vista/internal/codexauth"
 	"vista/internal/copilotauth"

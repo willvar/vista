@@ -154,6 +154,12 @@ func TestFailedResourceTransactionAndInterruptedUploadAreManuallyCleanable(t *te
 	if err != nil {
 		t.Fatal(err)
 	}
+	prepared, err := s.prepareImages(ctx, []Image{image})
+	if err != nil {
+		unlock()
+		t.Fatal(err)
+	}
+	image = prepared[0]
 	tx, err := s.begin(ctx, nil)
 	if err != nil {
 		unlock()
@@ -196,6 +202,12 @@ func TestResourceCleanupSerializesWithReferenceCommit(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	prepared, err := s.prepareImages(ctx, []Image{image})
+	if err != nil {
+		unlock()
+		t.Fatal(err)
+	}
+	image = prepared[0]
 	tx, err := s.begin(ctx, nil)
 	if err != nil {
 		unlock()

@@ -89,14 +89,14 @@ func (a *App) serveResource(w http.ResponseWriter, r *http.Request, ref resource
 }
 
 func (c *workerResultConsumer) importResource(result workerproto.Result) error {
-	if result.Resource == nil || result.AckID == "" {
+	if result.Resource == nil || result.ResourceStorage == nil || result.AckID == "" {
 		return store.ErrNotFound
 	}
 	var source *workerproto.Result
 	if result.RPCID == "" {
 		source = &result
 	}
-	err := c.store.AttachResource(c.ctx, c.sessionID, *result.Resource, source)
+	err := c.store.AttachResource(c.ctx, c.sessionID, *result.Resource, source, *result.ResourceStorage)
 	if err == nil && c.changed != nil {
 		c.changed("resource_changed")
 	}

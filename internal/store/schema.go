@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"time"
+	"vista/internal/resources"
 
 	"gorm.io/gorm"
 )
@@ -122,6 +123,9 @@ func (s *Store) initializeSchema() error {
 		if err := s.orm.Exec(q).Error; err != nil {
 			return fmt.Errorf("initialize database: %w", err)
 		}
+	}
+	if err := resources.InitSchema(s.orm); err != nil {
+		return err
 	}
 	if err := s.initModelSelectionSchema(); err != nil {
 		return fmt.Errorf("initialize model selection: %w", err)

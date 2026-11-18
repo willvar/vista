@@ -67,6 +67,11 @@ type App struct {
 	listenerPort           func() int
 	listenerHost           string
 	portChange             func(http.ResponseWriter, *http.Request, RuntimeConfig, string, bool)
+	storageConfigMu        sync.Mutex
+	storageMigrationMu     sync.Mutex
+	storageMigrationID     string
+	storageMigrationCancel context.CancelFunc
+	migrationWake          chan struct{}
 	storageStatus          resourceStorageStatus
 	storageGeneration      uint64
 	storageScanned         uint64
@@ -289,6 +294,9 @@ func loadApp(parent context.Context, cancel context.CancelFunc, configDir, dir s
 	if err := os.RemoveAll(filepath.Join(dir, "shell-scripts")); err != nil {
 		return nil, fmt.Errorf("discard interrupted shell scripts: %w", err)
 	}
+	if err := os.RemoveAll(filepath.Join(dir, "resource-staging")); err != nil {
+		return nil, err
+	}
 	if err := st.RecoverExecutions(context.Background()); err != nil {
 		return nil, fmt.Errorf("reconcile interrupted executions: %w", err)
 	}
@@ -340,6 +348,9 @@ func (a *App) start() error {
 	a.background.Go(a.cleanModelDiagnostics)
 	a.storageWake = make(chan struct{}, 1)
 	a.background.Go(a.syncResourceStorage)
+	a.migrationWake = make(chan struct{}, 1)
+	a.background.Go(a.runResourceMigrations)
+	a.wakeResourceMigration()
 	a.background.Go(a.watchManagedFiles)
 	a.startMCPHost()
 	a.background.Go(func() { a.pollModelCatalog(a.ctx) })

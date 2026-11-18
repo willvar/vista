@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"strings"
 
-	sqlite "github.com/glebarez/go-sqlite"
 	"gorm.io/gorm"
+	sqlite "modernc.org/sqlite"
 )
 
 func init() {

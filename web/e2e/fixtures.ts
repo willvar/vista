@@ -4,7 +4,7 @@ import { promisify } from 'node:util'
 import { createHash } from 'node:crypto'
 import { createServer } from 'node:http'
 import { createServer as createPortReservation } from 'node:net'
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { resolve, join, parse } from 'node:path'
 import { restoreHistoryState } from './history-state'
 import { projectRulesFixture } from '../../scripts/test_config.mjs'
@@ -89,7 +89,7 @@ export const nativeFixture = {
     const binary = resolve(process.env.VISTA_BIN || join(import.meta.dirname, '../../bin/vista'))
     const root = resolve(import.meta.dirname, '../.vista/test-state')
     mkdirSync(root, { recursive: true })
-    const state = mkdtempSync(join(root, 'e2e-'))
+    const state = mkdtempSync(join(realpathSync(root), 'e2e-'))
     const workspacePath = join(state, 'workspace')
     mkdirSync(workspacePath)
     writeFileSync(join(workspacePath, 'source.txt'), 'original')

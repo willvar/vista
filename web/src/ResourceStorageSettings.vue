@@ -6,6 +6,7 @@ import { IconTrash } from '@tabler/icons-vue'
 import { useWorkspace } from './composables/useWorkspace'
 import { formatDateTime } from './ui/datetime.ts'
 import BatchOperationModal from './BatchOperationModal.vue'
+import ResourceStorageDestination from './ResourceStorageDestination.vue'
 import type { ResourceStorageStatus as Status } from './client/types'
 
 const emit = defineEmits<{ 'modal-open': [open: boolean] }>()
@@ -14,6 +15,7 @@ const { client, stateSync } = useWorkspace()
 const status = ref<Status>({ phase: 'idle', deletedCount: 0, deletedBytes: 0 })
 const error = ref('')
 const cleanOpen = ref(false)
+const destinationOpen = ref(false)
 const cleanPhase = ref<'confirm' | 'running' | 'complete'>('confirm')
 const cleanFailure = ref('')
 const cleanResult = ref('')
@@ -99,7 +101,7 @@ async function start(action: 'scan' | 'clean') {
   }
   finally { submitting.value = false; if (!disposed) settleClean() }
 }
-watch(cleanOpen, value => emit('modal-open', value), { flush: 'sync' })
+watch([cleanOpen, destinationOpen], ([clean, destination]) => emit('modal-open', clean || destination), { flush: 'sync' })
 onBeforeUnmount(() => { disposed = true; controller.abort(); unsubscribe(); emit('modal-open', false) })
 const cards = computed(() => [
   { label: 'resourceStorageTotal', bytes: status.value.stats?.totalBytes, count: status.value.stats?.totalCount },
@@ -111,6 +113,7 @@ const cards = computed(() => [
 <template>
   <div class="settings-content resource-storage-settings">
     <div><h3>{{ t('resourceStorageTitle') }}</h3><p class="storage-description">{{ t('resourceStorageHint') }}</p></div>
+    <ResourceStorageDestination :configuration="status.config" :busy="busy" @changed="accept" @modal-open="destinationOpen = $event" />
     <div class="storage-cards">
       <div v-for="card in cards" :key="card.label" class="storage-card">
         <span>{{ t(card.label) }}</span><strong>{{ card.bytes === undefined ? '—' : size(card.bytes) }}</strong>

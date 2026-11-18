@@ -28,6 +28,7 @@ From the repository root, `make test frontend` runs unit/types/build and `make t
 
 `e2e/frontend-fixture.ts` serves the built application through Vite preview; workers share only the read-only files in `internal/server/assets/`.
 `scripts/e2e-setup.ts` builds the separate control-contract page once per Playwright run under ignored `web/.vista/test-state/controls/`; it is not part of the shipped application.
+The same setup builds `scripts/resource_storage_fixture` once in its disposable preparation directory. Resource-destination scenarios run that bounded HTTP fixture as a child process, reuse its deterministic hold/failure controls, and stop it after each case; it is not shipped with Vista and does not validate S3 signatures. The separate live Go storage contract uses a real S3 service.
 Each worker has its own listener, and each case has its own browser context and mutable API fixtures.
 Execution-history fixtures retain real streaming HTTP responses through the listener's SSE handler.
 Only the two rendering-failure tests use `startSourceFrontend` to replace source modules before mounting.
@@ -93,7 +94,7 @@ Its connection-scoped subscription ID allows batched `PUT /api/events/subscripti
 `useStateQuery.ts` keeps skill inventories and model-selection statistics on revision-driven, cached, cancellable HTTP reads; list updates never replace skill-editor drafts. `SkillEditor.vue` uses `ui/Tree.vue` for existing files, caches drafts per path, saves the selected UTF-8 file with its SHA-256 revision, and confirms discarding drafts. Shared skill revisions update only tree metadata while it is open; file bodies and raster previews are separate on-demand reads. System skills use the same viewer read-only. Mobile navigates between the tree and file inside the same modal.
 The server coalesces storage scans for visible storage views and schedules statistics hour/day invalidation in each subscribed viewer's timezone.
 Routine Refresh controls are absent from automatically updated views; catalog checks, import reads, authorization, cleanup and error recovery retain explicit actions.
-Changed sessions/status, models, catalog progress/history, storage status, MCP settings, login outcomes and memory counts/limits arrive as bounded state-frame payloads.
+Changed sessions/status, models, catalog progress/history, storage status, MCP settings, and login outcomes arrive as bounded state-frame payloads.
 The workspace session list contains open summaries only; archived counts come from status.
 The manager owns its paginated summary read and session-revision subscription, cancelling both on unmount; search/filter/count and the selected sort run before database pagination, without the unpaginated endpoint's 1,000-summary limit.
 `usePagedList.ts` cancels superseded page reads, deduplicates concurrent requests and compares epoch/revision versions before rereading on a state notification; `ListPagination.vue` provides the shared page and 10/20/50/100 page-size controls.
@@ -109,7 +110,6 @@ HTTP initialization and SSE updates must have the same view scope; check respons
 Subscriptions initialize from the latest matching payload and serialize their own reconciliation; components must not add a separate mount-time read for the same subscription.
 Initial/reconnect calibration, missing or oversized payloads and bounded content pages use ordinary HTTP.
 Shared login updates contain outcomes only; authorization links/codes remain attempt-specific reads.
-Personalization opens memory management in a secondary modal with paginated bounded previews and full-text editing in the same modal. Its component subscribes and reads its requested page only while open; memory state frames carry counts and limits without text. Paginated mutation responses update the list without an extra echo read. Remote updates preserve active drafts and compare-and-swap edit/delete targets.
 `StatisticsSettings.vue` uses `useStatistics.ts` to read/cache bounded 7/30/90-day chart history only while mounted; the shared stream carries statistics revisions rather than chart payloads. Period changes and reconnects reject cancelled/stale reads. `client/activity.ts` batches actual visible input minutes; it never reports idle presence or reads statistics from other views.
 `StatisticsTrend.vue` delegates trend scales, responsive axes, SVG rendering and pointer/keyboard navigation to TanStack Charts; the selected day remains application state, and the heatmap remains a seven-by-24 grid of accessible controls.
 The visible Model HTTP tab consumes saved-record summaries and revision coverage from the same stream; bodies remain on demand and new records preserve the current selection.

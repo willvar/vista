@@ -30,7 +30,9 @@ export type MCPServer = {
 export type MCPConfig = { servers: MCPServer[]; maxServers: number; defaultDirectory: string }
 export type MCPState = MCPConfig & { logins: LoginUpdate[] }
 export type ResourceStorageStats = { totalBytes: number; totalCount: number; referencedBytes: number; referencedCount: number; cleanableBytes: number; cleanableCount: number; scannedAt: string }
-export type ResourceStorageStatus = { phase: string; action?: string; stats?: ResourceStorageStats; deletedCount: number; deletedBytes: number; error?: string }
+export type ResourceStorageBackend = { kind: 'local' | 's3'; endpoint?: string; bucket?: string; region?: string; prefix?: string; hasCredentials: boolean }
+export type ResourceStorageConfiguration = { objectStorage?: ResourceStorageBackend; current: ResourceStorageBackend; revision: string; migration?: { id: string; phase: string; error?: string; copiedCount: number; copiedBytes: number }; target?: ResourceStorageBackend }
+export type ResourceStorageStatus = { checkError?: string; config?: ResourceStorageConfiguration; phase: string; action?: string; stats?: ResourceStorageStats; deletedCount: number; deletedBytes: number; error?: string }
 export type ModelCatalog = { default: string; models: ModelInfo[]; showUnrecognizedModels?: boolean; settingsRevision?: string }
 export type OMPCatalogInfo = {
   revision: string

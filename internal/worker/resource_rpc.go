@@ -38,11 +38,18 @@ func importResource(ctx context.Context, command workerproto.Command, emit func(
 		return nil, err
 	}
 	defer unlock()
+	stamp, err := library.Stamp(ctx)
+	if err != nil {
+		return nil, err
+	}
 	ref, err := library.ImportImage(ctx, command.ResourcePath, command.ResourceName, command.ResourceType)
 	if err != nil {
 		return nil, err
 	}
-	if err = emit(ctx, workerproto.Result{Kind: "resource_import", RPCID: command.RPCID, RunID: command.RunID, Resource: &ref}); err != nil {
+	if err = emit(ctx, workerproto.Result{Kind: "resource_import", RPCID: command.RPCID, RunID: command.RunID, Resource: &ref, ResourceStorage: &stamp}); err != nil {
+		return nil, err
+	}
+	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
 	return &ref, nil

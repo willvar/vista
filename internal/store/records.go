@@ -158,6 +158,10 @@ func (s *Store) beginRun(ctx context.Context, sessionID, runID, messageID, conte
 	if err := ValidateImages(images); err != nil {
 		return Message{}, Event{}, err
 	}
+	images, publishErr := s.prepareImages(ctx, images)
+	if publishErr != nil {
+		return Message{}, Event{}, publishErr
+	}
 	tx, err := s.begin(ctx, nil)
 	if err != nil {
 		return Message{}, Event{}, err

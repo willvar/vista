@@ -103,6 +103,10 @@ func (r *toolRuntime) readResource(ctx context.Context, call provider.ToolCall) 
 		return "", err
 	}
 	defer unlock()
+	stamp, err := library.Stamp(ctx)
+	if err != nil {
+		return "", err
+	}
 	var ref resources.Ref
 	if input.Path != "" {
 		if r.parent.SessionID == "" {
@@ -132,9 +136,12 @@ func (r *toolRuntime) readResource(ctx context.Context, call provider.ToolCall) 
 		file.Close()
 	}
 	if r.emit != nil {
-		if err = r.emit(workerproto.Result{RunID: r.parent.RunID, Kind: "resource_import", Resource: &ref}); err != nil {
+		if err = r.emit(workerproto.Result{RunID: r.parent.RunID, Kind: "resource_import", Resource: &ref, ResourceStorage: &stamp}); err != nil {
 			return "", err
 		}
+	}
+	if err := ctx.Err(); err != nil {
+		return "", err
 	}
 	r.resourceResults = []resources.Ref{ref}
 	return marshalResult(map[string]any{"resource": r.resourceLink(ref), "visualInput": true})

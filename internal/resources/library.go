@@ -78,7 +78,7 @@ func (l Library) Lock(ctx context.Context) (func(), error) {
 // Put streams once into a temporary file while hashing. The caller holds Lock
 // until its reference transaction commits. A failed commit leaves an orphan,
 // never a reference to a partially written original.
-func (l Library) Put(ctx context.Context, input io.Reader) (string, int64, error) {
+func (l Library) putLocal(ctx context.Context, input io.Reader) (string, int64, error) {
 	dir := filepath.Join(l.StateDir, "resources")
 	if err := os.MkdirAll(dir, 0700); err != nil {
 		return "", 0, err
@@ -103,6 +103,13 @@ func (l Library) Put(ctx context.Context, input io.Reader) (string, int64, error
 		if !info.Mode().IsRegular() || info.Size() != n {
 			return "", 0, errors.New("resource file is inconsistent")
 		}
+		existing, err := l.openLocal(ctx, Ref{Hash: hash, Bytes: n})
+		if err != nil {
+			return "", 0, err
+		}
+		if err = existing.Close(); err != nil {
+			return "", 0, err
+		}
 		return hash, n, nil
 	} else if !errors.Is(err, fs.ErrNotExist) {
 		return "", 0, err
@@ -119,48 +126,31 @@ func (l Library) Put(ctx context.Context, input io.Reader) (string, int64, error
 	if err := os.Rename(f.Name(), path); err != nil {
 		return "", 0, err
 	}
+	if err := syncResourceDirectory(filepath.Dir(path)); err != nil {
+		return "", 0, err
+	}
+	if err := syncResourceDirectory(dir); err != nil {
+		return "", 0, err
+	}
+	if err := syncResourceDirectory(l.StateDir); err != nil {
+		return "", 0, err
+	}
 	return hash, n, nil
-}
-
-func (l Library) Read(ref Ref) ([]byte, error) {
-	path, err := l.Path(ref.Hash)
-	if err != nil {
-		return nil, err
-	}
-	f, err := os.Open(path)
-	if err != nil {
-		return nil, err
-	}
-	defer f.Close()
-	info, err := f.Stat()
-	if err != nil {
-		return nil, err
-	}
-	if !info.Mode().IsRegular() || ref.Bytes <= 0 || info.Size() != ref.Bytes {
-		return nil, errors.New("resource size does not match its reference")
-	}
-	data, err := io.ReadAll(io.LimitReader(f, ref.Bytes+1))
-	if err != nil {
-		return nil, err
-	}
-	hash := sha256.Sum256(data)
-	if int64(len(data)) != ref.Bytes || hex.EncodeToString(hash[:]) != ref.Hash {
-		return nil, errors.New("resource content does not match its hash")
-	}
-	return data, nil
 }
 
 // File is either a published original (Hash is set) or an abandoned upload.
 // Only Library.Files constructs its removal path.
 type File struct {
-	Hash  string
-	Bytes int64
-	path  string
+	Hash      string
+	Bytes     int64
+	BackendID string
+	ID        string
+	ObjectKey string
+	Pending   bool
+	path      string
 }
 
-func (f File) Remove() error { return os.Remove(f.path) }
-
-func (l Library) Files(ctx context.Context, visit func(File) error) error {
+func (l Library) localFiles(ctx context.Context, visit func(File) error) error {
 	root := filepath.Join(l.StateDir, "resources")
 	err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, err error) error {
 		if err != nil {
@@ -198,7 +188,7 @@ func (l Library) Files(ctx context.Context, visit func(File) error) error {
 
 // Open verifies an original with bounded buffers and rewinds it for streaming.
 // Callers retain Lock until the file closes. No image bytes enter Server heap.
-func (l Library) Open(ctx context.Context, ref Ref) (*os.File, error) {
+func (l Library) openLocal(ctx context.Context, ref Ref) (*os.File, error) {
 	path, err := l.Path(ref.Hash)
 	if err != nil {
 		return nil, err
@@ -212,7 +202,7 @@ func (l Library) Open(ctx context.Context, ref Ref) (*os.File, error) {
 	if err != nil {
 		return fail(err)
 	}
-	if !info.Mode().IsRegular() || ref.Bytes <= 0 || info.Size() != ref.Bytes {
+	if !info.Mode().IsRegular() || ref.Bytes < 0 || info.Size() != ref.Bytes {
 		return fail(errors.New("resource size does not match its reference"))
 	}
 	hash := sha256.New()

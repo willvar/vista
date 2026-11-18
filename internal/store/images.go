@@ -6,7 +6,6 @@ import (
 	"database/sql"
 	"errors"
 	"net/http"
-	"os"
 	"time"
 
 	"vista/internal/resources"
@@ -55,10 +54,8 @@ func (s *Store) writeImages(ctx context.Context, tx *gorm.DB, sessionID, table, 
 	for position, image := range images {
 		hash, size := image.Hash, image.Bytes
 		if len(image.Data) > 0 {
-			var err error
-			hash, size, err = s.library.Put(ctx, bytes.NewReader(image.Data))
-			if err != nil {
-				return err
+			if !resources.ValidHash(hash) || size != int64(len(image.Data)) {
+				return errors.New("image was not published before its reference transaction")
 			}
 		} else {
 			var exists int
@@ -120,7 +117,7 @@ func (s *Store) ResolveImages(ctx context.Context, refs []resources.Ref) ([]Imag
 		if ref.Bytes > MaxImageBytes {
 			return nil, errors.New("image exceeds 50 MiB")
 		}
-		data, err := s.library.Read(ref)
+		data, err := s.library.ReadContext(ctx, ref)
 		if err != nil {
 			return nil, err
 		}
@@ -172,23 +169,37 @@ func (s *Store) SessionResources(ctx context.Context, sessionID string, after st
 // holds the library lock. Workers publish bytes; Server alone commits ownership.
 // A tool source records the history boundary that retains an imported/reread
 // original across later rollbacks. Unsent HTTP uploads have no tool source.
-func (s *Store) AttachResource(ctx context.Context, sessionID string, ref resources.Ref, source *workerproto.Result) error {
+func (s *Store) AttachResource(ctx context.Context, sessionID string, ref resources.Ref, source *workerproto.Result, stamps ...resources.Stamp) error {
 	if !resources.ValidHash(ref.Hash) || !resources.ValidImageType(ref.MediaType) || ref.Bytes < 1 || ref.Bytes > MaxImageBytes || len(ref.Name) > 1024 {
 		return errors.New("invalid resource reference")
 	}
-	path, _ := s.library.Path(ref.Hash)
-	info, err := os.Stat(path)
+	stamp, err := s.ResourceControl().Current(ctx)
 	if err != nil {
 		return err
 	}
-	if !info.Mode().IsRegular() || info.Size() != ref.Bytes {
-		return errors.New("resource file is unavailable")
+	if len(stamps) > 0 {
+		stamp = stamps[0]
 	}
 	tx, err := s.begin(ctx, nil)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
+	if err = resources.CheckStamp(ctx, tx, stamp); err != nil {
+		return err
+	}
+	var deleting int64
+	if err = tx.WithContext(ctx).Model(&resources.Deletion{}).Where("backend_id = ? AND hash = ?", stamp.BackendID, ref.Hash).Count(&deleting).Error; err != nil {
+		return err
+	}
+	if deleting != 0 {
+		return errors.New("resource cleanup is pending; retry after cleanup completes")
+	}
+	// Local filesystem/DOFS metadata only; no remote request in this transaction.
+	if err = s.library.Stat(ctx, stamp, ref); err != nil {
+		return err
+	}
+
 	var open bool
 	if err = tx.WithContext(ctx).Raw("SELECT is_open FROM sessions WHERE id=?", sessionID).Row().Scan(&open); err != nil {
 		return err
@@ -217,4 +228,23 @@ func (s *Store) AttachResource(ctx context.Context, sessionID string, ref resour
 		}
 	}
 	return tx.Commit().Error
+}
+
+// Publication happens before SQL reference transactions. A failed reference
+// commit leaves an explicitly cleanable immutable original, never SQL-held I/O.
+func (s *Store) prepareImages(ctx context.Context, images []Image) ([]Image, error) {
+	prepared := append([]Image(nil), images...)
+	for i, image := range prepared {
+		if len(image.Data) > 0 {
+			hash, size, err := s.library.Put(ctx, bytes.NewReader(image.Data))
+			if err != nil {
+				return nil, err
+			}
+			prepared[i].Hash, prepared[i].Bytes = hash, size
+		}
+	}
+	return prepared, nil
+}
+func (s *Store) ResourceControl() resources.Control {
+	return resources.Control{DB: s.orm, Library: s.library}
 }

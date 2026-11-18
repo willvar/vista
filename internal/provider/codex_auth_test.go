@@ -37,8 +37,9 @@ func TestCodexAccountRefreshAndToolContinuation(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	expiresAt := time.Now().Add(time.Hour).Unix()
 	token := func(version string) string {
-		claims, _ := json.Marshal(map[string]any{"version": version, "exp": time.Now().Add(time.Hour).Unix(), "https://api.openai.com/auth": map[string]string{"chatgpt_account_id": "account"}})
+		claims, _ := json.Marshal(map[string]any{"version": version, "exp": expiresAt, "https://api.openai.com/auth": map[string]string{"chatgpt_account_id": "account"}})
 		return "header." + base64.RawURLEncoding.EncodeToString(claims) + ".signature"
 	}
 	ctx := context.Background()

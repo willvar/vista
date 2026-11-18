@@ -36,7 +36,7 @@ SQLite 继续作为单主机的持久化存储。普通 CRUD 与参数化的复�
 
 新库直接初始化当前完整的基础结构，由一个结构初始化入口执行必要的已有数据库补齐和带标记的统计回填，保留已有数据。每次启动的尝试状态恢复与统计保留期清理独立于结构初始化执行；Worker 的只读打开不执行初始化或恢复。
 
-[目录解析](../internal/appdirs/dirs.go)使用 `os.UserConfigDir()/vista`。主配置 `config.json`、静态凭据文件 `key.json`、全局 `AGENTS.md`、`skills/`、独立的账号授权目录，以及生成的 `omp-models.json`／`model-catalog-status.json` 位于该根目录。SQLite、实例记录、锁、日志、输出及资源原件位于 `state/`。生成的模型目录文件仍不在 `state/` 内，也不属于用户设置。
+[目录解析](../internal/appdirs/dirs.go)使用 `os.UserConfigDir()/vista`。主配置 `config.json`、静态凭据文件 `key.json`、全局 `AGENTS.md`、`skills/`、独立的账号授权目录，以及生成的 `omp-models.json`／`model-catalog-status.json` 位于该根目录。SQLite、实例记录、锁、日志和输出位于 `state/`；原件可在本地资源目录或选定的对象存储后端，元数据和暂存仍在本地。生成的模型目录文件仍不在 `state/` 内，也不属于用户设置。
 
 `GET /api/status` 提供版本、缓存的可执行文件 SHA-256、Go 源码提交及 dirty 状态、服务所在系统及版本。`internal/buildinfo.Version` 默认为 `dev`，Makefile 可指定发布版本。不注入构建时间，二进制哈希在启动时计算，不回写可执行文件。
 
@@ -46,12 +46,12 @@ SQLite 继续作为单主机的持久化存储。普通 CRUD 与参数化的复�
 
 ### 文档与凭据边界
 
-`config.json` 根对象必须是单个 JSON 对象，包含必需的整数 `version: 2`，以及可选的原始 JSON 分区 `server`、`capacity`、`agent`、`search`、`userAgent`、`models`、`mcp`、`network`。
+`config.json` 根对象必须是单个 JSON 对象，包含必需的整数 `version: 2`，以及可选的原始 JSON 分区 `server`、`capacity`、`agent`、`search`、`userAgent`、`models`、`mcp`、`network`、`storage`。
 例如，仅保存端口的完整主文档为 `{"version":2,"server":{"port":6186}}`；服务编辑器接收的则只有 `{"port":6186}`。
 缺失分区保留原有默认值／环境变量回退；存储及凭据拆分保留显式 `null`、空对象／数组、空值与缺失之间的区别，仍由对应分区的类型化校验判定。
 
 `key.json` 是包含必需整数 `version: 1` 和 `entries` 对象的 JSON 对象，`entries` 将不透明引用映射到 `{section, owner, values}` 凭据包。
-主文件中的受管模型记录、MCP 记录、代理 Profile 或 `search` 对象通过 `credentialRef` 引用私密凭据包。
+主文件中的受管模型记录、MCP 记录、代理 Profile、资源后端或 `search` 对象通过 `credentialRef` 引用私密凭据包。
 解析时校验凭据包的分区和稳定身份归属；显示名称与数组下标不能作为归属。
 引用和归属的编码是内部存储细节，不是供用户编辑的名称。
 
@@ -61,6 +61,7 @@ SQLite 继续作为单主机的持久化存储。普通 CRUD 与参数化的复�
 | `mcp` | `token`、`clientSecret`、`headers` |
 | `search` | `apiKeys`、`jinaApiKey`、`deepseekFetchApiKey` |
 | `network` 中的 Profile | `username`、`password` |
+| `storage` 中的后端 | `accessKey`、`secretKey`、`sessionToken`、`masterKey` |
 
 整个自定义 `headers` 对象保守地迁出，包括未被识别为认证请求头的值；不存在根据请求头名称将值留在主文件的白名单。
 公开的 `clientId`、路由和身份设置保留在 `config.json`。
@@ -397,7 +398,7 @@ MCP 导入同时接受 v2 的 `mcp.servers` 和 v1 的平铺服务条目，同�
 
 ## 资源、回退与限制
 
-原始附件位于 `state/resources/<哈希前缀>/<SHA-256>`，SQLite 只存元数据和归属，不存图片字节。Server 流式接收原始上传，Worker 校验最多 50 MiB 的原件、发布并等待会话归属提交确认。图片字节及含图片的模型请求均留在 Worker。新附件及显式 `read_resource(path|hash)` 结果只激活下一次请求的视觉输入，规范历史和检查点保留引用。见[资源约定](./resources.zh-CN.md)。
+原始附件默认位于 `state/resources/<哈希前缀>/<SHA-256>`，也可选择加密 DOFS 对象后端；SQLite 保存身份、归属及存储切换状态，不存图片字节。Server 流式接收原始上传，Worker 校验最多 50 MiB 的原件、发布并等待会话归属提交确认。图片字节及含图片的模型请求均留在 Worker。新附件及显式 `read_resource(path|hash)` 结果只激活下一次请求的视觉输入，规范历史和检查点保留引用。见[资源约定](./resources.zh-CN.md)。
 
 撤回或编辑提交先停止该会话工作，再从所选用户消息处截断历史，不撤销文件或其他工具副作用，也不复用事件序号。见[消息回退](./message-revert.zh-CN.md)。
 

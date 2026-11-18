@@ -13,20 +13,29 @@ import (
 )
 
 type resourceStorageStatus struct {
-	Phase        string                 `json:"phase"`
-	Action       string                 `json:"action,omitempty"`
-	Stats        *store.ResourceStorage `json:"stats,omitempty"`
-	DeletedCount int                    `json:"deletedCount"`
-	DeletedBytes int64                  `json:"deletedBytes"`
-	Error        string                 `json:"error,omitempty"`
+	CheckError   string                     `json:"checkError,omitempty"`
+	Config       *resourceStorageConfigView `json:"config,omitempty"`
+	Phase        string                     `json:"phase"`
+	Action       string                     `json:"action,omitempty"`
+	Stats        *store.ResourceStorage     `json:"stats,omitempty"`
+	DeletedCount int                        `json:"deletedCount"`
+	DeletedBytes int64                      `json:"deletedBytes"`
+	Error        string                     `json:"error,omitempty"`
 }
 
 func (a *App) resourceStorageSnapshot() resourceStorageStatus {
 	a.storageMu.Lock()
-	defer a.storageMu.Unlock()
 	result := a.storageStatus
+	a.storageMu.Unlock()
 	if result.Phase == "" {
 		result.Phase = "idle"
+	}
+	if a.store != nil {
+		if config, err := a.storageConfiguration(); err == nil {
+			result.Config = &config
+		} else if result.Error == "" {
+			result.Error = "Resource storage configuration is unavailable"
+		}
 	}
 	return result
 }
@@ -40,13 +49,37 @@ func (a *App) resourceStorage(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "method", 405)
 		return
 	}
-	r.Body = http.MaxBytesReader(w, r.Body, 1024)
-	var input struct {
-		Action string `json:"action"`
-	}
+	r.Body = http.MaxBytesReader(w, r.Body, 64<<10)
+	var input resourceStorageRequest
 	decoder := json.NewDecoder(r.Body)
 	decoder.DisallowUnknownFields()
-	if decoder.Decode(&input) != nil || decoder.Decode(new(any)) != io.EOF || input.Action != "scan" && input.Action != "clean" {
+	if decoder.Decode(&input) != nil || decoder.Decode(new(any)) != io.EOF {
+		http.Error(w, "invalid storage action", 400)
+		return
+	}
+	switch input.Action {
+	case "check", "migrate":
+		a.configureResourceStorage(w, r, input)
+		return
+	case "cancel", "retry":
+		var err error
+		if input.Action == "cancel" {
+			err = a.cancelResourceMigration(r.Context(), input.MigrationID)
+		} else {
+			err = a.store.ResourceControl().Retry(r.Context(), input.MigrationID)
+			if err == nil {
+				a.wakeResourceMigration()
+			}
+		}
+		if err != nil {
+			settingsHTTPError(w, err, 409)
+			return
+		}
+		a.updates.notify("storage")
+		jsonOut(w, a.resourceStorageSnapshot())
+		return
+	case "scan", "clean":
+	default:
 		http.Error(w, "invalid storage action", 400)
 		return
 	}
@@ -130,6 +163,7 @@ func (a *App) wakeResourceStorageLocked() {
 func (a *App) invalidateResourceStorage() {
 	a.storageMu.Lock()
 	a.storageGeneration++
+	a.wakeResourceMigration()
 	a.wakeResourceStorageLocked()
 	a.storageMu.Unlock()
 }

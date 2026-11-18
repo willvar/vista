@@ -50,7 +50,7 @@ func materializeResources(ctx context.Context, command workerproto.Command, mess
 					return nil, err
 				}
 			}
-			data, err := library.Read(ref)
+			data, err := library.ReadContext(ctx, ref)
 			if err != nil {
 				return nil, fmt.Errorf("read image resource %s: %w", ref.Hash, err)
 			}
