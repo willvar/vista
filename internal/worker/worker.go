@@ -33,6 +33,14 @@ import (
 
 // Run serves the worker IPC stream until its input closes.
 func Run() error {
+	// A Server crash can close the reply pipe before SIGTERM or stdin EOF
+	// completes cleanup. Let stdout writes return EPIPE instead of killing the
+	// Worker before it can stop its descendants. Do not treat other broken pipes
+	// as shutdown signals or have executed tools inherit an ignored SIGPIPE.
+	brokenPipe := make(chan os.Signal, 1)
+	signal.Notify(brokenPipe, syscall.SIGPIPE)
+	defer signal.Stop(brokenPipe)
+
 	if mib, err := strconv.ParseInt(os.Getenv("VISTA_WORKER_MEMORY_MIB"), 10, 64); err == nil && mib >= 128 {
 		setMemoryLimit(mib << 20)
 	}
