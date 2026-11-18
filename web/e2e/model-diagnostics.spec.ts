@@ -1,5 +1,16 @@
 import { test, expect } from './fixtures'
+import type { Locator } from '@playwright/test'
 import type { ModelDiagnosticRecord, ModelDiagnosticSummary } from '../src/client/modelDiagnostics'
+
+async function searchConversationRequests(select: Locator) {
+  await select.click()
+  await expect(select).toBeFocused()
+  await expect(select).toHaveAttribute('aria-expanded', 'true')
+  // The closed field contains the selected request label, not the search term.
+  await expect(select).toHaveValue('')
+  await select.fill('conversation')
+  await expect(select).toHaveValue('conversation')
+}
 
 test.describe('captured model HTTP', () => {
   test.use({ progressCalls: 1 })
@@ -24,7 +35,7 @@ test.describe('captured model HTTP', () => {
       release()
       await expect(page.locator('article.assistant').last()).toContainText('Final progress answer.')
       const select = modal.getByRole('combobox', { name: 'Select model request' })
-      await select.fill('conversation')
+      await searchConversationRequests(select)
       await expect(page.locator('.ui-select-item-option-content').filter({ hasText: /conversation.*main \/ [12]/ })).toHaveCount(2)
       await expect(modal.locator('.trace-model-record')).toContainText('"purpose": "title"')
       expect(reads).toEqual([])
@@ -42,7 +53,7 @@ test.describe('captured model HTTP', () => {
         if (rejectBody) { rejectBody = false; return route.fulfill({ status: 503, body: 'Temporary body read failure' }) }
         return route.continue()
       })
-      await select.fill('conversation')
+      await searchConversationRequests(select)
       await page.locator('.ui-select-item-option-content').filter({ hasText: /conversation.*main \/ 2/ }).click()
       await expect(modal.getByRole('alert')).toContainText('Temporary body read failure')
       await modal.getByRole('button', { name: 'Retry', exact: true }).click()
@@ -117,7 +128,7 @@ test.describe('captured model HTTP', () => {
     const modal = page.getByRole('dialog', { name: 'Debug details', exact: true })
     await modal.getByRole('tab', { name: 'Model HTTP', exact: true }).click()
     const select = modal.getByRole('combobox', { name: 'Select model request' })
-    await select.fill('conversation')
+    await searchConversationRequests(select)
     await page.locator('.ui-select-item-option-content').filter({ hasText: /conversation.*main \/ 1/ }).click()
     await expect(modal.locator('.trace-model-record')).toContainText('Inspect diagnostic evidence')
     await expect(modal.locator('.trace-model-record')).toContainText('data: [DONE]')
