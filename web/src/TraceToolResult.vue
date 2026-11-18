@@ -43,7 +43,6 @@ const copyText = computed(() => {
 </script>
 
 <template>
-  <p v-if="showError && node.error" class="tool-output-error error">{{ node.error }}</p>
   <FileDiffOutput v-if="node.diff" :diff="node.diff" />
   <div v-else-if="node.diffs?.length" class="trace-file-diffs"><FileDiffOutput v-for="diff in node.diffs" :key="diff.path" :diff="diff" /></div>
   <TraceResultCard v-else-if="node.search || node.instructions || node.body" :title="title" :summary="summary" :text="copyText" :kind="kind">
@@ -67,6 +66,7 @@ const copyText = computed(() => {
     <PlainTextOutput v-else :content="node.body" />
   </TraceResultCard>
   <small v-else-if="node.resultSummaryKey" class="trace-result-summary">{{ t(node.resultSummaryKey, node.resultSummaryParams || {}) }}</small>
+  <p v-if="showError && node.error" class="tool-output-error error">{{ node.error }}</p>
 </template>
 
 <style scoped>
@@ -82,5 +82,4 @@ const copyText = computed(() => {
 .trace-search-context .trace-output{color:var(--muted)}
 .trace-search-warning{display:block;margin:.6rem 0 0;color:var(--muted);font-size:13px;overflow-wrap:anywhere}
 .trace-instruction-files{list-style:none;padding:0;margin:0}.trace-instruction-files li{display:flex;align-items:baseline;justify-content:space-between;gap:.4rem .75rem;flex-wrap:wrap;padding:.45rem .25rem;border-bottom:1px solid var(--border-subtle)}.trace-instruction-files li:last-child{border-bottom:0}.trace-instruction-files code{font:13px/1.7 var(--font-mono,monospace);overflow-wrap:anywhere}.trace-instruction-files small{color:var(--muted);font-size:12px;white-space:nowrap}
-.tool-output-error{color:var(--danger);overflow-wrap:anywhere}
 </style>

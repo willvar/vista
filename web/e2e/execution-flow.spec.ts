@@ -2495,3 +2495,74 @@ test('skill step headers show names while expanded details retain the source pat
   }
   expect(fixture.unexpected).toEqual([])
 })
+
+
+test('tool failure status follows output at the same width before and after reload @responsive', async ({ page, mockOrigin }, testInfo) => {
+  const events = hydrationEvents().slice(0, 2)
+  const runId = events[0].data.runId as string
+  const output = '# example/module\nexample.go:4:2: "context" imported and not used\n'
+  const cases = [
+    { id: 'inline-exit', name: 'shell', artifactId: '', output, error: 'exit code 1', parsed: false },
+    { id: 'artifact-exit', name: 'shell', artifactId: 'exit-output', output, error: 'exit code 1', parsed: false },
+    { id: 'parsed-error', name: 'read_file', artifactId: 'parsed-output', output, error: 'Stored result error', parsed: true },
+    { id: 'empty-exit', name: 'shell', artifactId: '', output: '', error: 'exit code 1', parsed: false },
+  ]
+  const contents: Record<string, string> = {}
+  const add = (kind: string, data: object) => events.push({ sequence: events.length + 1, kind, createdAt: '2026-01-01T12:00:10Z', data: { runId, taskId: 'main', ...data } })
+  for (const item of cases) {
+    const full = item.parsed ? JSON.stringify({ preview: item.output, error: item.error }) : item.output
+    const status = item.parsed ? 'succeeded' : 'failed'
+    const tool = { callId: item.id, name: item.name, summary: 'Inspect synthetic output', ...(item.artifactId ? { outputRef: { artifactId: item.artifactId, bytes: Buffer.byteLength(full) } } : {}) }
+    add('tool', { turn: 1, status: 'started', tool, content: '' })
+    if (item.artifactId) {
+      contents[`/sessions/execution-session/artifacts/${item.artifactId}/output`] = full
+      add('artifact', { id: item.artifactId, callId: item.id, status, bytes: Buffer.byteLength(full), complete: true, ...(item.parsed ? {} : { error: item.error }) })
+    }
+    add('tool', { turn: 1, status, tool, content: JSON.stringify(item.parsed ? { preview: 'Stored output preview.' } : { preview: item.output, complete: true, exitCode: 1 }) })
+  }
+  const fixture = await mockExecution(page, mockOrigin, events, { outputContents: contents, outputFailures: { '/sessions/execution-session/artifacts/exit-output/output': 1 } })
+  for (const theme of ['light', 'dark']) {
+    await page.evaluate(value => localStorage.setItem('vista-appearance', value), theme)
+    await page.reload()
+    for (const reload of [false, true]) {
+      if (reload) await page.reload()
+      const trace = page.locator(`.run-trace[data-run-id="${runId}"]`)
+      for (const item of cases) {
+        const title = nodeTitle(trace, runId, `tool/main/${item.id}`)
+        await readFull(title)
+        const node = stepNode(title)
+        const status = node.locator('p.tool-output-error')
+        await expect(status).toHaveCount(1)
+        await expect(status).toHaveText(item.error)
+        await expect.poll(() => settledHeight(node)).toBeGreaterThan(0)
+        if (!item.output) {
+          await expect(node.locator('.trace-result-card')).toHaveCount(0)
+          continue
+        }
+        await expect(node.locator('pre.trace-output')).toHaveText(item.output)
+        const geometry = () => status.evaluate(element => {
+          const card = element.closest('.tool-outputs')!.querySelector('.trace-result-card')!
+          const output = card.getBoundingClientRect(), error = element.getBoundingClientRect()
+          return {
+            followsOutput: !!(card.compareDocumentPosition(element) & Node.DOCUMENT_POSITION_FOLLOWING),
+            belowOutput: error.top >= output.bottom,
+            aligned: Math.abs(error.left - output.left) <= 1 && Math.abs(error.right - output.right) <= 1,
+            sameWidth: Math.abs(error.width - output.width) <= 1,
+          }
+        })
+        await expect.poll(geometry).toEqual({ followsOutput: true, belowOutput: true, aligned: true, sameWidth: true })
+        if (await node.locator('.trace-output-load-error').count()) {
+          await node.getByRole('button', { name: 'Retry', exact: true }).click()
+          await expect(node.locator('.trace-output-load-error')).toHaveCount(0)
+          await expect(status).toHaveCount(1)
+          await expect(node.locator('pre.trace-output')).toHaveText(item.output)
+          await expect.poll(geometry).toEqual({ followsOutput: true, belowOutput: true, aligned: true, sameWidth: true })
+        }
+      }
+    }
+    const failed = stepNode(nodeTitle(page.locator(`.run-trace[data-run-id="${runId}"]`), runId, 'tool/main/artifact-exit'))
+    await failed.locator('.tool-outputs').scrollIntoViewIfNeeded()
+    await page.screenshot({ path: testInfo.outputPath(`tool-status-${theme}.png`), animations: 'disabled' })
+  }
+  expect(fixture.unexpected).toEqual([])
+})

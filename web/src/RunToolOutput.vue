@@ -29,7 +29,6 @@ function artifactResult(content: string) {
 
 <template>
   <div class="tool-outputs">
-    <p v-for="error in errors" :key="error" class="tool-output-error error">{{ error }}</p>
     <TraceToolResult v-if="!expanded || !displayedArtifacts.length && !jobs.length" :node="node" :show-error="false" />
     <section v-for="(item, index) in jobs" :key="item.id" class="tool-output-entry" :data-output-id="item.id">
       <TraceToolResult v-if="expanded && index === 0" :node="node" :show-error="false" />
@@ -42,6 +41,7 @@ function artifactResult(content: string) {
         <template v-if="!jobs.length && index === 0" #fallback><TraceToolResult :node="node" :show-error="false" /></template>
       </FullTraceOutput>
     </section>
+    <p v-for="error in errors" :key="error" class="tool-output-error error">{{ error }}</p>
   </div>
 </template>
 
@@ -49,6 +49,5 @@ function artifactResult(content: string) {
 .tool-outputs{min-width:0;margin-top:.6rem}
 .tool-output-entry{min-width:0;padding:.4rem 0}
 .tool-output-entry+.tool-output-entry{border-top:1px solid var(--border)}
-.tool-output-error{color:var(--danger);overflow-wrap:anywhere}
 .tool-outputs .actions{flex-wrap:wrap}
 </style>
