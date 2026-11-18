@@ -3,7 +3,7 @@
 package useragent
 
 // CodexVersion tracks @openai/codex@latest.
-const CodexVersion = "0.169.1"
+const CodexVersion = "0.170.0"
 
 // OpenCodeVersion tracks opencode-ai@latest.
 const OpenCodeVersion = "1.19.6"
@@ -24,4 +24,4 @@ const KimiCodeVersion = "2.6.3"
 const ClineVersion = "3.0.74"
 
 // CopilotVersion tracks @github/copilot@latest.
-const CopilotVersion = "1.0.113"
+const CopilotVersion = "1.0.114"
