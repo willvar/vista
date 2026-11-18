@@ -19,6 +19,11 @@ import (
 // discoverCustomModels uses the explicitly selected API format and the same
 // authentication and headers as inference. Inventory hints never change routing.
 func discoverCustomModels(parent context.Context, source Configured) ([]Configured, error) {
+	models, err := discoverCustomInventory(parent, source)
+	return slices.DeleteFunc(models, func(m Configured) bool { return !m.chatInventoryEligible() }), err
+}
+
+func discoverCustomInventory(parent context.Context, source Configured) ([]Configured, error) {
 	if !provider.IsCustomProtocol(source.Provider) || !ValidCustomProviderBaseURL(source.BaseURL) {
 		return nil, errors.New("choose a conversation API format and enter an HTTP or HTTPS service address")
 	}
@@ -105,7 +110,7 @@ func discoverCustomPages(ctx context.Context, source Configured, endpoint string
 			model := source
 			model.ID = id
 			model.applyDiscoveredMetadata(row)
-			if !model.ChatEligible() || model.inputModalities != nil && !slices.Contains(model.inputModalities, "text") || model.outputModalities != nil && !slices.Contains(model.outputModalities, "text") {
+			if !model.chatInventoryEligible() && !generationOutput(model.Kind()) {
 				continue
 			}
 			seenIDs[id] = true

@@ -76,7 +76,7 @@ func (a *App) rebuildModelsLocked() bool {
 			if inventory, ready := a.customInventories[source.identity()]; ready {
 				// A successful inventory replaces saved anchors, even when empty.
 				remote, present := inventoryModel(inventory, model.ID)
-				if !present {
+				if !present || !remote.ChatEligible() {
 					continue
 				}
 				if model.ProviderID == "custom" || modelcatalog.LocalProvider(model.ProviderID) {
@@ -112,6 +112,9 @@ func (a *App) rebuildModelsLocked() bool {
 	}
 	for _, source := range customSources(a.baseModels) {
 		for _, remote := range a.customInventories[source.identity()] {
+			if !remote.ChatEligible() {
+				continue
+			}
 			// Resolve against current catalog routes and connection preferences.
 			model := source.model.WithInventoryModel(remote).WithDiscoverySource("provider")
 			resolved := modelCatalog{Models: []configuredModel{model}}

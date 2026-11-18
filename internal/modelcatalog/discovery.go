@@ -44,3 +44,16 @@ func DiscoverModels(ctx context.Context, source Configured) ([]Configured, error
 		return nil, errors.New("provider has no model discovery endpoint")
 	}
 }
+
+// DiscoverConnectionInventory keeps media declarations for the settings picker.
+// Conversation setup continues to consume only the chat projection.
+func DiscoverConnectionInventory(ctx context.Context, source Configured) ([]Configured, error) {
+	if SetupID(source) != "custom" {
+		return DiscoverModels(ctx, source)
+	}
+	ctx, err := source.ConnectionContext(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return discoverCustomInventory(ctx, source)
+}

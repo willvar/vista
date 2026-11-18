@@ -184,6 +184,7 @@ function onImported(count: number) {
 const headerAction = computed<HeaderAction | undefined>(() => route.name === 'settings'
   ? { label: 'connectProvider', run: startProviderConnection, disabled: settingsBusy.value, loading: false }
   : ['settings-mcp', 'settings-network', 'settings-about', 'settings-statistics'].includes(String(route.name)) ? sectionActions.value?.headerAction : undefined)
+const generationWorkflowOpen = ref(false)
 const loginBusy = ref(false)
 watch(() => modelDraft.value.kind, () => { loginBusy.value = false })
 function providerTypeLabel(kind: string, protocol: string) {
@@ -211,7 +212,7 @@ watch(() => route.fullPath, () => {
 <template>
 <WorkspaceModal ref="modal" :open="true" width="max-content" :title="settingsTitle" :page-class="settingsIndex ? 'settings-page settings-index' : 'settings-page'"
   :close-label="t('closeSettings')" :back-label="t(settingsIndex ? 'backToConversation' : 'backToSettings')"
-  :keyboard="!providerDisconnectTarget && !modelFormOpen && !providerImportOpen && !mcpModalOpen && !skillModalOpen && !searchModalOpen && !networkModalOpen && !usageConnection && !providerDiscardOpen && !proxyBindingTarget && !storageModalOpen && !resetModalOpen && !restartModalOpen && !statisticsModalOpen && !instructionsEditorOpen && !delegationEditorOpen && !aboutAdvancedOpen && !environmentCheckOpen" @cancel="backToWorkspace" @back="back">
+  :keyboard="!generationWorkflowOpen && !providerDisconnectTarget && !modelFormOpen && !providerImportOpen && !mcpModalOpen && !skillModalOpen && !searchModalOpen && !networkModalOpen && !usageConnection && !providerDiscardOpen && !proxyBindingTarget && !storageModalOpen && !resetModalOpen && !restartModalOpen && !statisticsModalOpen && !instructionsEditorOpen && !delegationEditorOpen && !aboutAdvancedOpen && !environmentCheckOpen" @cancel="backToWorkspace" @back="back">
         <template #header-actions>
             <v-button v-if="route.name === 'settings-about'" variant="text" class="icon-button" :aria-label="t('advancedSettings')" :title="t('advancedSettings')" @click="aboutAdvancedOpen = true"><template #icon><IconAdjustments aria-hidden="true" /></template></v-button>
             <EnvironmentCheckSettings v-if="route.name === 'settings-about'" :client="workspace.client" @modal-open="environmentCheckOpen = $event" />
@@ -313,8 +314,12 @@ watch(() => route.fullPath, () => {
           </v-empty>
           <v-alert v-if="settingsError && !modelFormOpen" type="error" role="alert" :message="settingsError" />
           <v-alert v-if="importedCount" type="success" role="status" :message="t('providerImportSuccess', { count: importedCount })" />
-          <div v-if="settings.models.some(model => model.provider !== 'generation')" class="default-model-setting"><label>{{ t('defaultModel') }}<v-select :value="modelCatalog.conversationDefault ?? modelCatalog.default" :options="defaultModelChoices" show-search option-filter-prop="searchText" option-label-prop="fullLabel" :disabled="settingsBusy" @update:value="setDefaultModel(String($event))" /></label></div>
-          <GenerationSettings :settings="settings" :client="workspace.client" @saved="acceptModelSettings" @connect="startProviderConnection" />
+          <GenerationSettings :settings="settings" :client="workspace.client" :state-sync="workspace.stateSync" :disabled="settingsBusy" @saved="acceptModelSettings" @workflow-open="generationWorkflowOpen = $event">
+            <div class="generation-binding default-model-setting" data-generation-purpose="chat">
+              <label for="generation-chat-model">{{ t('generationChat') }}</label>
+              <v-select id="generation-chat-model" :value="modelCatalog.conversationDefault ?? modelCatalog.default" :options="defaultModelChoices" show-search option-filter-prop="searchText" option-label-prop="fullLabel" :placeholder="t('chooseModel')" :disabled="settingsBusy || !defaultModelChoices.length" @update:value="setDefaultModel(String($event))" />
+            </div>
+          </GenerationSettings>
           <div class="model-visibility-setting general-setting"><div><label for="show-unrecognized-models">{{ t('showUnrecognizedModels') }}</label><p id="model-visibility-hint">{{ t('showUnrecognizedModelsHint') }}</p></div><v-switch id="show-unrecognized-models" :checked="showUnrecognizedModels" :loading="visibilityBusy" :aria-label="t('showUnrecognizedModels')" aria-describedby="model-visibility-hint" @update:checked="setShowUnrecognizedModels($event === true)" /></div>
           <div v-if="providerGroups.length" class="configured-providers">
             <h3>{{ t('connectedProviders') }}</h3>

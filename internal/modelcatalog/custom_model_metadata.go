@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"slices"
 	"strings"
+	"vista/internal/generation"
+	"vista/internal/provider"
 
 	modelcfg "vista/internal/model"
 )
@@ -84,7 +86,7 @@ func inventoryModalities(fields ...[]string) []string {
 		var modalities []string
 		for _, value := range values {
 			value = strings.ToLower(strings.TrimSpace(value))
-			if slices.Contains([]string{"text", "image", "audio", "video", "file"}, value) && !slices.Contains(modalities, value) {
+			if slices.Contains([]string{"text", "image", "audio", "video", "file", "speech", "transcription", "decisions", "embeddings", "rerank"}, value) && !slices.Contains(modalities, value) {
 				modalities = append(modalities, value)
 			}
 		}
@@ -121,9 +123,12 @@ func (m *Configured) applyDiscoveredMetadata(row discoveryFields) {
 	if tools != nil && (m.Tools == nil || !*tools) {
 		m.Tools = tools
 	}
-	m.modelKind = row.text("type", "kind")
+	m.modelKind = provider.ConversationCategory(row.text("kind", "type"))
 	m.inputModalities = inventoryModalities(row.strings("input_modalities", "inputModalities"), architecture.strings("input_modalities"), modalities.strings("input"))
 	m.outputModalities = inventoryModalities(row.strings("output_modalities", "outputModalities"), architecture.strings("output_modalities"), modalities.strings("output"))
+	// An exact media API advertisement belongs to a model on this saved
+	// connection. The chat format and model ID alone do not prove it.
+	m.mediaAdapter, m.modelKind = generation.AdvertisedRoute(m.modelKind, m.outputModalities, row.text("api"), row.strings("endpoints"))
 	if vision := firstBoolean(row.boolean("supports_vision"), capabilities.boolean("vision")); vision != nil && m.inputModalities == nil {
 		m.inputModalities = []string{"text"}
 		if *vision {
@@ -182,6 +187,7 @@ func (m Configured) DiscoveryTemplate() Configured {
 	m.inputLimit, m.outputLimit = 0, 0
 	m.catalogReasoning, m.catalogResolved, m.status = false, false, ""
 	m.inputModalities, m.outputModalities = nil, nil
+	m.modelKind, m.mediaAdapter = "", ""
 	m.discoverySource, m.discoveredName = "", ""
 	m.metadataKnown, m.discoveredReasoning = false, nil
 	m.azureCatalog, m.azureNative = false, false
@@ -204,6 +210,7 @@ func (m Configured) WithDiscoveryMetadata(remote InventoryModel) Configured {
 	}
 	m.discoveredName, m.discoveredReasoning = remote.discoveredName, remote.discoveredReasoning
 	m.metadataKnown, m.discoverySource = remote.metadataKnown, remote.discoverySource
+	m.modelKind, m.mediaAdapter = remote.modelKind, remote.mediaAdapter
 	m.catalogReasoning, m.status = remote.catalogReasoning, remote.status
 	return m
 }

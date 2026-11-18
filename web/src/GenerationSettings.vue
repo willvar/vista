@@ -1,146 +1,148 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, onScopeDispose, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { Button as VButton, Modal as VModal, Alert as VAlert } from './ui'
+import { Button as VButton, Modal as VModal, Alert as VAlert, Select as VSelect } from './ui'
 import type { VistaClient } from './client/vista'
-import type { GenerationKind, GenerationSetting, ModelSetting, ModelSettings } from './client/types'
+import type { createWorkspaceSync } from './client/workspaceSync'
+import type { GenerationKind, GenerationOption, ModelSettings } from './client/types'
+import { displayModelName, modelPickerOptions } from './composables/usePresentation'
 
-const props = defineProps<{ settings: ModelSettings; client: VistaClient }>()
-const emit = defineEmits<{ saved: [ModelSettings]; connect: [] }>()
-const { t } = useI18n()
+const props = defineProps<{ settings: ModelSettings; client: VistaClient; stateSync: ReturnType<typeof createWorkspaceSync>; disabled?: boolean }>()
+const emit = defineEmits<{ saved: [ModelSettings]; 'workflow-open': [boolean] }>()
+const { t, locale } = useI18n()
 const kinds = ['image', 'video', 'decision'] as const
 const labels = { image: 'generationImage', video: 'generationVideo', decision: 'generationDecision' } as const
-const active = ref<GenerationKind>()
-const draft = ref<GenerationSetting>()
-const revision = ref('')
+const candidates = ref<GenerationOption[]>()
+const candidateError = ref('')
+const saveError = ref('')
 const busy = ref(false)
-const failure = ref('')
-const candidates = ref<{ id: string; name: string; input: string[] }[]>([])
+const workflowChoice = ref<GenerationOption>()
+const revision = ref('')
 const workflowName = ref('')
 const workflow = ref<{ workflow?: unknown; promptNode?: string; outputNode?: string; imageNode?: string; cloud?: boolean }>({})
+const conflict = computed(() => !!workflowChoice.value && props.settings.settingsRevision !== revision.value)
 const saved = (kind: GenerationKind) => props.settings.generation?.find(item => item.kind === kind)
-const connectionRef = (row: ModelSetting) => row.connectionId || row.key
-const connectionName = (row: ModelSetting) => row.name || row.providerId || row.id
-const connectionsFor = (kind: GenerationKind) => props.settings.models.filter(row => row.generationAdapters?.[kind]?.length && !row.disabled)
-const connections = computed(() => active.value ? connectionsFor(active.value) : [])
-const connection = computed(() => connections.value.find(row => connectionRef(row) === draft.value?.connection))
-const choices = computed(() => (props.settings.generationAdapters || []).filter(adapter =>
-  !!active.value && connection.value?.generationAdapters?.[active.value]?.includes(adapter.id)))
-const adapter = computed(() => choices.value.find(item => item.id === draft.value?.adapter))
-const conflict = computed(() => !!active.value && props.settings.settingsRevision !== revision.value)
-function bindingLabel(kind: GenerationKind) {
+const valueKey = (connection: string | undefined, model: string) => JSON.stringify([connection || '', model])
+const byKind = computed(() => Object.fromEntries(kinds.map(kind => {
+  const rows = (candidates.value || []).filter(row => row.kind === kind)
+  const options = modelPickerOptions(rows.map(row => ({ key: valueKey(row.connection, row.model), id: row.model, modelName: row.name, connectionId: row.connection, name: row.connectionName, provider: '' })), locale.value,
+    model => model.name || '', model => `${model.name} · ${displayModelName(model)}`)
+  return [kind, { rows, options }]
+})) as Record<GenerationKind, { rows: GenerationOption[]; options: ReturnType<typeof modelPickerOptions> }>)
+const selected = (kind: GenerationKind) => {
   const binding = saved(kind)
-  if (!binding) return t('generationNotConfigured')
-  const row = props.settings.models.find(row => connectionRef(row) === binding.connection && row.generationAdapters?.[kind]?.includes(binding.adapter))
-  return `${row ? connectionName(row) : t('generationNeedConnection')} · ${binding.model}`
+  return binding ? byKind.value[kind].rows.find(row => row.connection === binding.connection && row.model === binding.model) : undefined
 }
-function open(kind: GenerationKind) {
+const legacyLabel = (kind: GenerationKind) => {
   const binding = saved(kind)
-  active.value = kind
-  draft.value = { kind, adapter: '', model: '', ...binding }
-  failure.value = ''
-  revision.value = props.settings.settingsRevision || ''
-  workflow.value = { ...(draft.value.options as typeof workflow.value | undefined) }
-  workflowName.value = ''
-  if (!binding && connections.value.length === 1) changeConnection(connectionRef(connections.value[0]!))
+  if (!binding) return ''
+  const account = props.settings.models.find(row => (row.connectionId || row.key) === binding.connection)
+  return account?.name ? `${account.name} · ${binding.model}` : binding.model
 }
-function connectProvider() {
-  active.value = undefined
-  emit('connect')
-}
-function changeConnection(ref: string) {
-  if (!draft.value) return
-  const kind = draft.value.kind
-  const ids = connections.value.find(row => connectionRef(row) === ref)?.generationAdapters?.[kind] ?? []
-  draft.value = { kind, connection: ref, adapter: ids.length === 1 ? ids[0]! : '', model: '' }
-  workflow.value = {}
-  workflowName.value = ''
-}
-function changeAdapter(event: Event) {
-  if (!draft.value) return
-  draft.value = { ...draft.value, adapter: (event.target as HTMLSelectElement).value, model: '', hasWorkflow: false }
-  workflow.value = {}
-  workflowName.value = ''
-}
-watch(() => [draft.value?.adapter, active.value] as const, ([id, kind], _, cleanup) => {
-  candidates.value = []
-  if (!id || !kind) return
-  const controller = new AbortController()
-  cleanup(() => controller.abort())
-  const query = new URLSearchParams({ adapter: id, kind })
-  void props.client.request<typeof candidates.value | null>(`/generation-models?${query}`, { signal: controller.signal }).then(items => {
-    if (!controller.signal.aborted) candidates.value = items || []
-  }).catch(() => { /* An explicit provider model ID remains available. */ })
+let rosterRevision = ''
+const stop = props.stateSync.subscribe(['models', 'catalog'], async (topics, signal, snapshots) => {
+  const catalog = snapshots.catalog
+  const catalogRevision = catalog && !catalog.updating ? `${catalog.revision}:${catalog.modelsDevRevision || ''}` : ''
+  if (candidates.value && !topics.includes('models') && (!catalogRevision || catalogRevision === rosterRevision)) return
+  try {
+    const result = await props.client.request<GenerationOption[]>('/generation-models', { signal })
+    if (signal.aborted) return
+    candidates.value = result
+    candidateError.value = ''
+    if (catalogRevision) rosterRevision = catalogRevision
+  } catch (cause) {
+    if (!signal.aborted) candidateError.value = String(cause)
+    throw cause
+  }
 })
+onScopeDispose(() => { stop(); emit('workflow-open', false) })
+
+function closeWorkflow() { workflowChoice.value = undefined; emit('workflow-open', false) }
+function editWorkflow(choice: GenerationOption) {
+  const prior = saved(choice.kind)
+  const same = prior?.model === choice.model && prior.connection === choice.connection
+  workflow.value = same ? { ...(prior?.options as typeof workflow.value | undefined) } : {}
+  workflowName.value = ''
+  revision.value = props.settings.settingsRevision || ''
+  workflowChoice.value = choice
+  saveError.value = ''
+  emit('workflow-open', true)
+}
 async function loadWorkflow(event: Event) {
-  const file = (event.target as HTMLInputElement).files?.[0]
-  if (!file) return
+  const file = (event.target as HTMLInputElement).files?.[0], current = workflowChoice.value
+  if (!file || !current) return
   try {
     if (file.size > 16 * 1024) throw new Error(t('generationWorkflowInvalid'))
     const payload = JSON.parse(await file.text())
     if (!payload || typeof payload !== 'object' || Array.isArray(payload)) throw new Error(t('generationWorkflowInvalid'))
+    if (current !== workflowChoice.value) return
     workflow.value.workflow = payload
     workflowName.value = file.name
-    failure.value = ''
-  } catch { failure.value = t('generationWorkflowInvalid') }
+    saveError.value = ''
+  } catch { if (current === workflowChoice.value) saveError.value = t('generationWorkflowInvalid') }
 }
-async function save(clear = false) {
-  const value = draft.value
-  if (!value || busy.value || conflict.value || (!clear && (!connection.value || !adapter.value))) return
+async function persist(kind: GenerationKind, choice?: GenerationOption) {
+  if (busy.value || conflict.value || props.disabled) return
   busy.value = true
-  failure.value = ''
+  saveError.value = ''
   try {
-    const generation = clear ? { kind: value.kind, model: '' } : {
-      kind: value.kind, adapter: value.adapter, model: value.model.trim(), connection: value.connection,
-      ...(value.adapter === 'comfy' ? { options: workflow.value } : {}),
-    }
+    const generation = choice ? { kind, model: choice.model, connection: choice.connection, ...(choice.workflow ? { options: workflow.value } : {}) } : { kind, model: '' }
     const result = await props.client.request<ModelSettings>('/model-config', {
-      method: 'PATCH', body: JSON.stringify({ generation, revision: revision.value }),
+      method: 'PATCH', body: JSON.stringify({ generation, revision: choice?.workflow ? revision.value : props.settings.settingsRevision }),
     })
+    closeWorkflow()
     emit('saved', result)
-    active.value = undefined
-  } catch (error) { failure.value = String(error) }
+  } catch (error) { saveError.value = error instanceof Error ? error.message : String(error) }
   finally { busy.value = false }
 }
+function choose(kind: GenerationKind, value: unknown) {
+  if (value === undefined || value === '') { if (saved(kind)) void persist(kind); return }
+  const choice = byKind.value[kind].rows.find(row => valueKey(row.connection, row.model) === value)
+  if (!choice) return
+  if (choice.workflow) editWorkflow(choice)
+  else if (choice !== selected(kind)) void persist(kind, choice)
+}
+const keepsWorkflow = computed(() => !!workflowChoice.value && !!saved(workflowChoice.value.kind)?.hasWorkflow &&
+  saved(workflowChoice.value.kind)?.connection === workflowChoice.value.connection && saved(workflowChoice.value.kind)?.model === workflowChoice.value.model)
 </script>
 
 <template>
-  <section v-if="settings.generationAdapters?.length" class="generation-settings">
+  <section class="generation-settings">
     <h3>{{ t('generationModels') }}</h3>
-    <div v-for="kind in kinds" :key="kind" class="generation-binding">
-      <div><strong>{{ t(labels[kind]) }}</strong><div>{{ bindingLabel(kind) }}</div></div>
-      <v-button :aria-label="t(labels[kind])" @click="open(kind)">{{ t('edit') }}</v-button>
+    <slot />
+    <div v-for="kind in kinds" :key="kind" class="generation-binding" :data-generation-purpose="kind">
+      <label :for="`generation-${kind}-model`">{{ t(labels[kind]) }}</label>
+      <div class="generation-selection">
+        <v-select :id="`generation-${kind}-model`" :aria-label="t(labels[kind])" :value="selected(kind) ? valueKey(selected(kind)!.connection, selected(kind)!.model) : undefined"
+          :options="byKind[kind].options" show-search option-filter-prop="searchText" option-label-prop="fullLabel" allow-clear
+          :disabled="busy || disabled || !byKind[kind].options.length" :placeholder="t(candidates ? 'chooseModel' : 'uiLoading')" @update:value="choose(kind, $event)" />
+        <small v-if="candidates && !byKind[kind].options.length" class="generation-note">{{ t(settings.models.length ? 'generationNoCandidates' : 'generationNeedConnection') }}</small>
+        <small v-if="selected(kind)?.noFirstFrame" class="generation-note">{{ t('generationNoFirstFrame') }}</small>
+        <div v-if="saved(kind) && !selected(kind) && candidates" class="generation-legacy">
+          <span>{{ t('generationSavedUnavailable', { model: legacyLabel(kind) }) }}</span>
+          <v-button :disabled="busy || disabled" @click="persist(kind)">{{ t('generationClear') }}</v-button>
+        </div>
+        <v-button v-if="selected(kind)?.workflow" :disabled="busy || disabled" @click="editWorkflow(selected(kind)!)">{{ t('edit') }}</v-button>
+      </div>
     </div>
-    <v-modal v-if="draft" :open="!!active" centered :width="480" :title="t(labels[draft.kind])"
+    <v-alert v-if="candidateError || saveError && !workflowChoice" type="error" role="alert" :message="candidateError || saveError" />
+    <v-modal v-if="workflowChoice" :open="true" centered :width="480" :title="t(labels[workflowChoice.kind])"
       :ok-text="t('saveChanges')" :cancel-text="t('cancel')" :confirm-loading="busy" :closable="!busy" :keyboard="!busy" :mask-closable="!busy"
-      :ok-button-props="{ disabled: conflict || !connection || !adapter || !draft.model.trim() || (draft.adapter === 'comfy' && ((!draft.hasWorkflow && !workflow.workflow) || !workflow.promptNode || !workflow.outputNode)) }"
-      @cancel="active = undefined" @ok="save()">
-      <v-alert v-if="failure || conflict" type="error" role="alert" :message="failure || t('generationSettingsChanged')" />
+      :ok-button-props="{ disabled: conflict || (!keepsWorkflow && !workflow.workflow) || !workflow.promptNode || !workflow.outputNode }"
+      @cancel="closeWorkflow" @ok="persist(workflowChoice.kind, workflowChoice)">
+      <v-alert v-if="saveError || conflict" type="error" role="alert" :message="saveError || t('generationSettingsChanged')" />
       <div class="generation-fields">
-        <template v-if="connections.length">
-          <label>{{ t('modelConnections') }}<select :value="connection ? draft.connection : ''" :disabled="busy || conflict" @change="changeConnection(($event.target as HTMLSelectElement).value)"><option value="" disabled>{{ t('chooseProvider') }}</option><option v-for="row in connections" :key="connectionRef(row)" :value="connectionRef(row)">{{ connectionName(row) }}</option></select></label>
-          <label v-if="choices.length > 1">{{ t('generationAPIFormat') }}<select :value="draft.adapter" :disabled="busy || conflict" @change="changeAdapter"><option value="" disabled>{{ t('generationAPIFormat') }}</option><option v-for="item in choices" :key="item.id" :value="item.id">{{ item.name }}</option></select></label>
-        </template>
-        <div v-else><p>{{ t('generationNeedConnection') }}</p><v-button :disabled="busy" @click="connectProvider">{{ t('connectProvider') }}</v-button></div>
-        <template v-if="adapter">
-          <label>{{ t('model') }}<input v-model="draft.model" :disabled="busy || conflict" list="generation-candidates" maxlength="200" /></label>
-          <datalist id="generation-candidates"><option v-for="row in candidates" :key="row.id" :value="row.id">{{ row.name }}</option></datalist>
-          <p v-if="draft.kind === 'video' && !adapter.frame">{{ t('generationNoFirstFrame') }}</p>
-          <template v-if="adapter.id === 'comfy'">
-            <label>{{ t('generationWorkflow') }}<input type="file" accept=".json,application/json" @change="loadWorkflow" /></label>
-            <span v-if="workflowName">{{ workflowName }}</span>
-            <label>{{ t('generationPromptNode') }}<input v-model="workflow.promptNode" /></label>
-            <label>{{ t('generationOutputNode') }}<input v-model="workflow.outputNode" /></label>
-            <label v-if="draft.kind === 'video'">{{ t('generationImageNode') }}<input v-model="workflow.imageNode" /></label>
-            <label class="workflow-cloud"><input v-model="workflow.cloud" type="checkbox" /> Comfy Cloud</label>
-          </template>
-        </template>
-        <v-button v-if="saved(draft.kind) && !conflict" :disabled="busy" @click="save(true)">{{ t('generationClear') }}</v-button>
+        <label>{{ t('generationWorkflow') }}<input type="file" accept=".json,application/json" @change="loadWorkflow" /></label>
+        <span v-if="workflowName">{{ workflowName }}</span>
+        <label>{{ t('generationPromptNode') }}<input v-model="workflow.promptNode" /></label>
+        <label>{{ t('generationOutputNode') }}<input v-model="workflow.outputNode" /></label>
+        <label v-if="workflowChoice.kind === 'video'">{{ t('generationImageNode') }}<input v-model="workflow.imageNode" /></label>
+        <label class="workflow-cloud"><input v-model="workflow.cloud" type="checkbox" /> Comfy Cloud</label>
       </div>
     </v-modal>
   </section>
 </template>
 
 <style scoped>
-.generation-settings{margin-block:14px 20px}.generation-binding{display:flex;align-items:center;justify-content:space-between;gap:12px;border-block-end:1px solid var(--border);padding:8px 0}.generation-binding div div{color:var(--muted);overflow-wrap:anywhere}.generation-fields{display:grid;gap:12px;margin-block:12px}.generation-fields label:not(.workflow-cloud){display:grid;gap:4px}.generation-fields input:not([type=checkbox]),.generation-fields select{width:100%;min-height:34px;padding:4px 8px;color:var(--text);background:var(--surface);border:1px solid var(--border);border-radius:6px}
+.generation-settings{margin-block:14px 20px}.generation-binding,:slotted(.generation-binding){margin:0;display:grid;grid-template-columns:minmax(80px,1fr) minmax(0,3fr);align-items:baseline;gap:12px;padding:8px 0}.generation-binding>label{font-weight:500}.generation-selection{display:grid;gap:5px;min-width:0}.generation-note{color:var(--muted)}.generation-legacy{display:flex;align-items:center;justify-content:space-between;gap:8px;overflow-wrap:anywhere}.generation-fields{display:grid;gap:12px;margin-block:12px}.generation-fields label:not(.workflow-cloud){display:grid;gap:4px}.generation-fields input:not([type=checkbox]){width:100%;min-height:34px;padding:4px 8px;color:var(--text);background:var(--surface);border:1px solid var(--border);border-radius:6px}
 </style>

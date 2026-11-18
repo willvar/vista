@@ -14,13 +14,19 @@ test('composer retains its text padding; model search lives in Settings', { tag:
   await page.goto(`${vista.origin}/settings/models`)
   const model = page.locator('.default-model-setting')
   const inputModel = model.getByRole('combobox')
-  const label = await model.locator('.ui-select-selection-item').innerText()
+  const catalog = await vista.api('/models')
+  const chosen = catalog.models.find((row: { key: string }) => row.key === catalog.conversationDefault)
+  expect(chosen?.id).toBe(vista.modelId)
+  const label = `${chosen.name} · ${chosen.modelName || chosen.id}`
+  const selection = model.locator('.ui-select-selection-item')
+  await expect(selection).toHaveText(label)
   await inputModel.click()
   await expect(page.locator('.ui-select-dropdown:visible')).toBeVisible()
   await inputModel.fill('No matching model')
   await expect(page.locator('.ui-select-empty:visible')).toBeVisible()
   await page.keyboard.press('Escape')
-  await expect(model).toContainText(label)
+  await expect(page.locator('.ui-select-dropdown:visible')).toHaveCount(0)
+  await expect(selection).toHaveText(label)
 })
 
 test('ordinary selects reject typing without filtering and still support keyboard selection', async ({ page, vista }) => {

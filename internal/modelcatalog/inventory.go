@@ -3,9 +3,11 @@ package modelcatalog
 import (
 	"crypto/sha256"
 	"fmt"
+	"slices"
 	"strings"
 
 	modelcfg "vista/internal/model"
+	"vista/internal/provider"
 )
 
 // InventoryModel contains provider-advertised model facts only. Connection
@@ -14,6 +16,8 @@ import (
 // per-model endpoint advertisement, never to override a custom API format.
 type InventoryModel struct {
 	ID                  string
+	modelKind           string
+	mediaAdapter        string
 	protocol            string
 	Tools               *bool
 	Context             int
@@ -36,7 +40,7 @@ func (m Configured) InventoryMetadata() InventoryModel {
 		protocol = m.Provider
 	}
 	return InventoryModel{
-		ID: m.ID, protocol: protocol, Tools: m.Tools, Context: m.Context,
+		ID: m.ID, protocol: protocol, modelKind: m.modelKind, mediaAdapter: m.mediaAdapter, Tools: m.Tools, Context: m.Context,
 		inputLimit: m.inputLimit, outputLimit: m.outputLimit,
 		catalogReasoning: m.catalogReasoning, status: m.status,
 		inputModalities: m.inputModalities, outputModalities: m.outputModalities,
@@ -97,4 +101,24 @@ func (s LocalSource) WithInventoryModel(remote InventoryModel) Configured {
 	hash := sha256.Sum256([]byte(remote.ID))
 	connection := Configured{Key: fmt.Sprintf("%s-%x", s.kind, hash[:6]), ProviderID: s.kind, BaseURL: s.baseURL, APIKey: s.apiKey}
 	return connection.WithInventoryModel(remote)
+}
+
+// GenerationChoice reads only advertised model facts, never credentials.
+func (m InventoryModel) GenerationChoice(kind string) (provider.OutputMetadata, string, bool) {
+	if !generationOutput(kind) || m.modelKind != kind || m.mediaAdapter == "" || m.status != "" && m.status != "active" && m.status != "deprecated" {
+		return provider.OutputMetadata{}, "", false
+	}
+	return provider.OutputMetadata{ID: m.ID, Name: m.discoveredName, Kind: kind, Input: m.inputModalities, Output: m.outputModalities}, m.mediaAdapter, true
+}
+
+func generationOutput(kind string) bool {
+	return kind == modelcfg.ImageOutput || kind == modelcfg.VideoOutput || kind == modelcfg.DecisionOutput
+}
+
+func (m Configured) chatInventoryEligible() bool {
+	return m.ChatEligible() && (m.inputModalities == nil || slices.Contains(m.inputModalities, "text")) && (m.outputModalities == nil || slices.Contains(m.outputModalities, "text"))
+}
+
+func (m InventoryModel) ChatEligible() bool {
+	return (m.modelKind == "" || m.modelKind == "chat") && (m.inputModalities == nil || slices.Contains(m.inputModalities, "text")) && (m.outputModalities == nil || slices.Contains(m.outputModalities, "text"))
 }

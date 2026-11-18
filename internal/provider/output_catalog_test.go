@@ -32,3 +32,27 @@ func TestSpecializedOutputsAreRetainedWithoutBecomingChat(t *testing.T) {
 		t.Fatalf("media-only catalog change did not change the revision: %v", err)
 	}
 }
+
+func TestLegacyTypedRowsAreSelectableWithoutAFullMediaSnapshot(t *testing.T) {
+	snapshot := &OMPCatalogSnapshot{data: ompCatalogFile{ModelsDev: &modelsDevCatalog{Schema: 1, Types: map[string]map[string]string{
+		"openai": {"uncategorized-spelling": "image", "image-in-name": "chat"},
+	}}}}
+	rows := snapshot.specializedModels("openai", "image")
+	if len(rows) != 1 || rows[0].ID != "uncategorized-spelling" {
+		t.Fatalf("lost explicit legacy classification: %+v", rows)
+	}
+}
+
+func TestLegacyModelCatalogKeepsDeclaredMediaAPIs(t *testing.T) {
+	for _, entry := range []struct{ id, kind, api string }{
+		{"unfamiliar-id", "image", "openai-images"}, {"unfamiliar-id", "video", "openrouter-video"}, {"unfamiliar-id", "decision", "openrouter-decisions"},
+		{"arbitrary-video-name", "", "openai-responses"},
+	} {
+		if got := OutputKind(ompOutput(entry.id, OMPModel{API: entry.api})); got != entry.kind {
+			t.Fatalf("%s gave %q; want %q", entry.api, got, entry.kind)
+		}
+	}
+	if len(SpecializedModels("openrouter", "video")) == 0 || len(SpecializedModels("openrouter", "decision")) == 0 {
+		t.Fatal("embedded catalog lost its media and decision choices")
+	}
+}

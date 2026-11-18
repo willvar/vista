@@ -23,6 +23,7 @@ import (
 type Configured struct {
 	Generation          *modelcfg.GenerationBinding `json:"generation,omitempty"`
 	modelKind           string
+	mediaAdapter        string
 	Disabled            bool                    `json:"disabled,omitempty"`
 	ProxyID             string                  `json:"proxyId,omitempty"`
 	Key                 string                  `json:"key"`

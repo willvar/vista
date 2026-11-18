@@ -52,7 +52,7 @@ const groups: Record<string, string[]> = {
   operationProgress: ['environment-check', 'resource-storage', 'session-batch', 'settings-batch'],
 }
 const consumers: [RegExp, string[]][] = [
-  [/^internal\/(?:generation\/|modelcatalog\/generation|resources\/generated\.go|server\/generation_settings\.go)|^web\/src\/(?:Generation|state\/generationCards)/, ['models', 'conversation']],
+  [/^internal\/(?:generation\/|provider\/output_catalog|modelcatalog\/(?:generation|inventory|custom_model_metadata)|resources\/generated\.go|server\/generation_settings\.go)|^web\/src\/(?:Generation|state\/generationCards)/, ['models', 'conversation']],
   [/^web\/src\/(?:App\.vue$|SessionActionDialog\.vue$|client\/(?:sse|conversationSync|types)\.)|^internal\/(?:server|store)\/session_actions\.go$|^internal\/agent\/tool_(?:session|history)\.go$/, ['sessions', 'conversation']],
   [/^web\/src\/ui\/TabbedModal\.vue$/, ['about']],
   [/^web\/src\/ui\/Tabs\.vue$/, ['controls', 'about', 'models', 'conversation']],

@@ -225,7 +225,6 @@ onUnmounted(() => {
             </section>
           </template>
           <template #footer><div class="sender-footer">            <div class="sender-options">
-              <label for="selected-model" class="visually-hidden">{{ t('model') }}</label>
               <ReasoningEffortPicker v-if="reasoningChoices.length" v-model:value="selectedReasoning" class="composer-reasoning" :options="reasoningChoices" :disabled="senderDisabled" />
               <v-select v-if="processingTiers.length || selectedProcessingTier" id="processing-tier" variant="borderless" class="sender-picker" :value="selectedProcessingTier" :options="tierOptions" :aria-label="t('processingTierLabel')" :title="t('processingTierHint')" :disabled="senderDisabled" @update:value="chooseProcessingTier(String($event ?? ''))" />
             </div>

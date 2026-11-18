@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"reflect"
 	"time"
 	"vista/internal/modelcatalog"
 )
@@ -84,7 +85,7 @@ func (a *App) refreshCustomModels(ctx context.Context) {
 			return
 		}
 		requestCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
-		modelsFound, err := modelcatalog.DiscoverModels(requestCtx, source.model)
+		modelsFound, err := modelcatalog.DiscoverConnectionInventory(requestCtx, source.model)
 		ids := make([]string, 0, len(modelsFound))
 		local := map[string]configuredModel{}
 		for _, model := range modelsFound {
@@ -118,8 +119,11 @@ func (a *App) refreshCustomModels(ctx context.Context) {
 				if a.customInventories == nil {
 					a.customInventories = map[string][]modelcatalog.InventoryModel{}
 				}
+				changed := !reflect.DeepEqual(a.customInventories[source.identity()], models)
 				a.customInventories[source.identity()] = models
-				a.rebuildModelsLocked()
+				if !a.rebuildModelsLocked() && changed {
+					a.updates.notify("models")
+				}
 				break
 			}
 		}

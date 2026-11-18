@@ -46,16 +46,30 @@ func DeclaredModelKind(providerID, id string) string {
 				return outputKind(row)
 			}
 		}
-		if row, ok := c.data.Providers[p][id]; ok && row.Kind != "" {
-			return row.Kind
+		if row, ok := c.data.Providers[p][id]; ok {
+			if kind := outputKind(ompOutput(id, row)); kind != "" {
+				return kind
+			}
 		}
 	}
 	return ""
 }
 
+// OutputKind uses declared categories or unambiguous non-chat outputs.
+func OutputKind(row OutputMetadata) string { return outputKind(row) }
+
 func outputKind(row OutputMetadata) string {
-	if row.Kind != "" {
-		return row.Kind
+	if kind := ConversationCategory(row.Kind); kind != "" {
+		return kind
+	}
+	if slices.Contains(row.Output, "decisions") {
+		return "decision"
+	}
+	if slices.Contains(row.Output, "embeddings") {
+		return "embedding"
+	}
+	if slices.Contains(row.Output, "rerank") {
+		return "reranking"
 	}
 	if !slices.Contains(row.Output, "text") {
 		for _, kind := range []string{"image", "video", "audio"} {
@@ -68,7 +82,10 @@ func outputKind(row OutputMetadata) string {
 }
 
 func SpecializedModels(providerID, kind string) []OutputMetadata {
-	c := CurrentOMPCatalog()
+	return CurrentOMPCatalog().specializedModels(providerID, kind)
+}
+
+func (c *OMPCatalogSnapshot) specializedModels(providerID, kind string) []OutputMetadata {
 	if c == nil {
 		return nil
 	}
@@ -76,6 +93,7 @@ func SpecializedModels(providerID, kind string) []OutputMetadata {
 	seen := map[string]bool{}
 	add := func(row OutputMetadata) {
 		if outputKind(row) == kind && !seen[row.ID] {
+			row.Kind = kind
 			seen[row.ID] = true
 			rows = append(rows, row)
 		}
@@ -87,7 +105,21 @@ func SpecializedModels(providerID, kind string) []OutputMetadata {
 			}
 		}
 		for id, m := range c.data.Providers[p] {
-			add(OutputMetadata{ID: id, Name: m.Name, Kind: m.Kind, Input: m.Input, Output: m.Output})
+			if c.data.ModelsDev != nil {
+				if declared := ConversationCategory(c.data.ModelsDev.Types[p][id]); declared != "" && declared != kind {
+					continue
+				}
+			}
+			add(ompOutput(id, m))
+		}
+		// Older mirrors retained type declarations even when they didn't
+		// serialize the full non-chat rows or display names.
+		if c.data.ModelsDev != nil {
+			for id, declared := range c.data.ModelsDev.Types[p] {
+				if _, richer := c.data.ModelsDev.Specialized[p][id]; !richer {
+					add(OutputMetadata{ID: id, Kind: declared})
+				}
+			}
 		}
 	}
 	slices.SortFunc(rows, func(a, b OutputMetadata) int { return strings.Compare(a.ID, b.ID) })
@@ -100,8 +132,12 @@ func ConversationCategory(kind string) string {
 	switch strings.ToLower(strings.TrimSpace(kind)) {
 	case "chat", "llm":
 		return "chat"
-	case "image", "video", "audio", "speech", "transcription", "realtime", "decision", "embedding", "rerank", "reranking", "extraction", "image_generation", "video_generation":
-		return kind
+	case "image_generation":
+		return "image"
+	case "video_generation":
+		return "video"
+	case "image", "video", "audio", "speech", "transcription", "realtime", "decision", "embedding", "rerank", "reranking", "extraction":
+		return strings.ToLower(strings.TrimSpace(kind))
 	case "decisions":
 		return "decision"
 	case "embeddings":
@@ -124,11 +160,36 @@ func SpecializedModel(providerID, id, kind string) (OutputMetadata, bool) {
 			}
 		}
 		if m, ok := c.data.Providers[p][id]; ok {
-			row := OutputMetadata{ID: id, Name: m.Name, Kind: m.Kind, Input: m.Input, Output: m.Output}
+			if c.data.ModelsDev != nil {
+				if declared := ConversationCategory(c.data.ModelsDev.Types[p][id]); declared != "" && declared != kind {
+					continue
+				}
+			}
+			row := ompOutput(id, m)
 			if outputKind(row) == kind {
 				return row, true
 			}
 		}
+		if c.data.ModelsDev != nil && ConversationCategory(c.data.ModelsDev.Types[p][id]) == kind {
+			return OutputMetadata{ID: id, Kind: kind}, true
+		}
 	}
 	return OutputMetadata{}, false
+}
+
+// Old persisted OMP catalogs omitted kind/output but retained explicit wire
+// APIs. Recover those declarations without interpreting model ID spelling.
+func ompOutput(id string, m OMPModel) OutputMetadata {
+	row := OutputMetadata{ID: id, Name: m.Name, Kind: m.Kind, Input: m.Input, Output: m.Output}
+	if row.Kind == "" {
+		switch m.API {
+		case "openai-images", "openrouter-images":
+			row.Kind = "image"
+		case "openrouter-video":
+			row.Kind = "video"
+		case "openrouter-decisions":
+			row.Kind = "decision"
+		}
+	}
+	return row
 }
