@@ -1,9 +1,10 @@
-import type { StreamEvent, SyncCheckpoint } from './types.ts'
+import type { SessionActionPreview, StreamEvent, SyncCheckpoint } from './types.ts'
 
 export type EventStreamOptions = {
   signal: AbortSignal
   after: () => number
   onEvent: (event: StreamEvent) => void | Promise<void>
+  onSessionAction?: (action: SessionActionPreview | null) => void
   onCheckpoint?: (checkpoint: SyncCheckpoint) => void | Promise<void>
   beforeConnect?: () => Promise<void>
   onActivity?: () => void
@@ -151,6 +152,14 @@ export async function streamSessionEvents(
   return streamSSE(signal => { cursor = options.after(); return openStream(cursor, signal) }, {
     ...options,
     async onFrame(frame) {
+      if (frame.event === 'session-action') {
+        const action: SessionActionPreview | null = JSON.parse(frame.data)
+        if (action !== null && (typeof action?.requestId !== 'string' || !['close', 'delete'].includes(action.kind)
+          || !Array.isArray(action.targets) || !action.targets.length || action.targets.length > 20
+          || action.targets.some(target => typeof target?.id !== 'string' || typeof target.title !== 'string'))) throw new Error('invalid session action preview')
+        options.onSessionAction?.(action)
+        return
+      }
       if (frame.event === 'sync') {
         const point: SyncCheckpoint = JSON.parse(frame.data)
         if (!Number.isSafeInteger(point.throughSequence) || point.throughSequence < 0 || !point.session?.id) throw new Error('invalid synchronization checkpoint')

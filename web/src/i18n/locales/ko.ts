@@ -498,6 +498,8 @@ export default {
   "closeSessionConfirmTitle": "세션을 닫을까요?",
   "closeSelectedSessionsConfirmTitle": "{count}개 세션을 닫을까요?",
   "closeSessionConfirmBody": "실행 중인 작업과 백그라운드 프로세스가 중지됩니다. 대화 기록은 유지되며 {manager}에서 세션을 다시 열 수 있지만, 완료되지 않은 작업은 자동으로 재개되지 않습니다.",
+  "agentCloseSessionsHelp": "작업 중이 아닌 세션만 닫습니다. 대화 기록은 유지됩니다.",
+  "agentDeleteSessionsHelp": "삭제한 세션은 Vista에서 복원할 수 없습니다.",
   "closeAndStop": "닫고 중지",
   "closeSettings": "설정 닫기",
   "backToConversation": "대화로 돌아가기",

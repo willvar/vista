@@ -208,7 +208,7 @@ func TestJoinedReportsCompactAndRemainReadable(t *testing.T) {
 				var restored strings.Builder
 				for offset := int64(0); offset < ref.Bytes; {
 					arguments, _ := json.Marshal(map[string]any{"runId": ref.RunID, "turn": ref.Turn, "offset": offset})
-					output, err := (&toolRuntime{parent: command}).readModelOutput(ctx, scriptedToolCall("read-report", "read_model_output", string(arguments)))
+					output, err := (&toolRuntime{parent: command}).readSession(ctx, scriptedToolCall("read-report", "read_session", string(arguments)))
 					var page store.ModelOutputPage
 					if err != nil || json.Unmarshal([]byte(output), &page) != nil || page.NextOffset <= offset {
 						t.Fatalf("cannot read compacted report %d at %d: %v", i, offset, err)

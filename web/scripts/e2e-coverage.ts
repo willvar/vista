@@ -40,7 +40,7 @@ export const responsiveGrep = new RegExp([
 
 const groups: Record<string, string[]> = {
   conversation: ['background-process', 'compaction', 'composer-sizing', 'conversation-sync', 'detached', 'empty-reply', 'execution-flow', 'failure-analysis', 'follow-up', 'images', 'interjection', 'iteration', 'layout', 'main-outputs', 'message-revert', 'model-diagnostics', 'model-retry', 'provider-output', 'question', 'quoted-reply', 'usage', 'worker-status'],
-  sessions: ['management-pagination', 'session-actions', 'session-batch', 'session-bulk', 'session-close', 'session-flow', 'session-manager', 'session-reminders', 'session-scope', 'state-sync'],
+  sessions: ['management-pagination', 'session-actions', 'agent-session-tools', 'session-batch', 'session-bulk', 'session-close', 'session-flow', 'session-manager', 'session-reminders', 'session-scope', 'state-sync'],
   models: ['codex-login', 'model-catalog', 'model-names', 'model-visibility', 'onboarding', 'provider-errors', 'provider-import', 'provider-setup', 'selection-flow', 'selection-stats'],
   personalization: ['agent-settings', 'long-term-instructions', 'extension-import', 'settings-batch'],
   skills: ['skills-settings', 'extension-import', 'settings-batch'],
@@ -52,6 +52,7 @@ const groups: Record<string, string[]> = {
   statistics: ['statistics'],
 }
 const consumers: [RegExp, string[]][] = [
+  [/^web\/src\/(?:App\.vue$|SessionActionDialog\.vue$|client\/(?:sse|conversationSync|types)\.)|^internal\/(?:server|store)\/session_actions\.go$|^internal\/agent\/tool_(?:session|history)\.go$/, ['sessions', 'conversation']],
   [/^web\/src\/ui\/TabbedModal\.vue$/, ['about']],
   [/^web\/src\/ui\/Tabs\.vue$/, ['controls', 'about', 'models', 'conversation']],
   [/^web\/src\/ui\/Collapsible\.vue$/, ['conversation', 'models', 'skills', 'mcp']],

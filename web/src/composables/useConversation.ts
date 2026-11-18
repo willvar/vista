@@ -2,7 +2,7 @@ import { computed, onScopeDispose, reactive, ref, toRefs, watch, type Ref } from
 import type { VistaClient } from '../client/vista'
 import { VistaAPIError } from '../client/vista.ts'
 import { createConversationSync, type ConversationSyncStatus, type ConversationSyncDiagnostics } from '../client/conversationSync.ts'
-import type { Artifact, ConversationSnapshot, CompactionStatus, ContextUsage, Job, MainOutput, Message, ModelCatalog, OutputView, QuestionAnswer, QueuedInput, SendMessageResult, Session, StreamEvent } from '../client/types'
+import type { Artifact, ConversationSnapshot, CompactionStatus, ContextUsage, Job, MainOutput, Message, ModelCatalog, OutputView, QuestionAnswer, QueuedInput, SendMessageResult, Session, SessionActionPreview, StreamEvent } from '../client/types'
 import { appendMessage, createConversationState, messageResults, runResults, pruneConversationWindow, reduceConversationEvent, replyTraceSegments, trailingTraceSegment, type ReplyTraceSegment } from '../state/conversation.ts'
 import { toolOperationLabelKey, compactTraceText, toolSummaryText } from '../state/runTrace.ts'
 import { conversationItems, displayBodyVersion, displayOutputKey, hydrateMainOutput, mainOutputKey, mainOutputText, mergeMainOutputs, type ConversationItem, type MainOutputRecord } from '../state/mainOutputs.ts'
@@ -195,6 +195,7 @@ export function useConversation({ client, sessions, modelCatalog, error, busy, r
     return t(key || 'agentStarting')
   })
   const hasTaskDetails = computed(() => !!(olderActivity.value.some(event => !hasVisibleRun(event.data?.runId)) || hasOlderActivity.value))
+  const sessionAction = ref<SessionActionPreview | null>(null)
   let currentScope: Scope | null = null
   let generation = 0
   let busyOwner: symbol | null = null
@@ -400,6 +401,7 @@ export function useConversation({ client, sessions, modelCatalog, error, busy, r
       inputQueue: () => ({ count: state.queuedInputs.length, paused: state.inputQueuePaused }),
       applyEvent: (event, live) => { if (current(scope)) handleEvent(event, live) },
       applySnapshot: snapshot => applySnapshot(scope, snapshot),
+      applySessionAction: action => { if (current(scope)) sessionAction.value = action },
       applyCheckpoint: point => {
         if (!current(scope) || !selected.value) return
         const previous = selected.value
@@ -521,6 +523,7 @@ export function useConversation({ client, sessions, modelCatalog, error, busy, r
     firstSendController = null
     currentScope?.controller.abort()
     currentScope = null
+    sessionAction.value = null
     synchronization.value = { phase: 'ready' }
     syncDiagnostics.value = null
     snapshotReady.value = false
@@ -1067,6 +1070,19 @@ export function useConversation({ client, sessions, modelCatalog, error, busy, r
     } catch (failure) { report(scope, failure); return false }
     finally { endBusy(scope, owner) }
   }
+  async function decideSessionAction(requestId: string, sessionIds: string[]) {
+    const scope = currentScope
+    if (!scope || !current(scope) || !selected.value?.open || busy.value || sessionAction.value?.requestId !== requestId) return
+    const owner = startBusy()
+    try {
+      await request(scope, `/sessions/${scope.id}/session-action/${encodeURIComponent(requestId)}`, { method: 'POST', body: JSON.stringify({ sessionIds }) })
+      if (current(scope) && sessionAction.value?.requestId === requestId) sessionAction.value = null
+    } catch (failure) {
+      if (current(scope) && failure instanceof VistaAPIError && failure.status === 409) {
+        if (sessionAction.value?.requestId === requestId) sessionAction.value = null
+      } else report(scope, failure)
+    } finally { endBusy(scope, owner) }
+  }
   async function cancelExecution() {
     const scope = currentScope
     if (!scope || !current(scope) || !selected.value?.executing || busy.value || manualCompacting.value || compactionRequestPending.value) return
@@ -1197,7 +1213,7 @@ export function useConversation({ client, sessions, modelCatalog, error, busy, r
   }
 
   return {
-    editingMessage, beginEditMessage, cancelEditMessage, withdrawMessage, rollbackFailure,
+    editingMessage, beginEditMessage, cancelEditMessage, withdrawMessage, rollbackFailure, sessionAction, decideSessionAction,
     ...refs, displayMessages, readOutputIndexes, readDisplayOutput, releaseDisplayOutput, olderActivity, hasOlderActivity, activityPaging, paging, selectedModel, selectedModelInfo,
     selectedReasoning, reasoningChoices, canAttachImage, attachedImages, attachedPreviewURLs,
     selectedProcessingTier, processingTiers, chooseProcessingTier,

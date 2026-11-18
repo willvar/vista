@@ -14,11 +14,12 @@ import VistaMark from './VistaMark.vue'
 import SessionIndicators from './SessionIndicators.vue'
 import InlineSessionTitle from './InlineSessionTitle.vue'
 import SessionPin from './SessionPin.vue'
+import SessionActionDialog from './SessionActionDialog.vue'
 import type { Session } from './client/types'
 import { sessionHasUnread } from './state/workspace'
 const { t } = useI18n({ useScope: 'global' })
 onErrorCaptured(error => { if (captureAssetError(error)) return false })
-const { router, error, busy, totalSessions, openSessions, selected, serverStatus, mobileSessionsOpen, settingsOpen,
+const { route, conversation, router, error, busy, totalSessions, openSessions, selected, serverStatus, mobileSessionsOpen, settingsOpen,
   stateConnection, stateSync, backToWorkspace, openSettings, openSessionManager, create, action, workerAvailable, displaySessionTitle,
   closeConfirmation, cancelSessionClose, confirmSessionClose } = provideWorkspace()
 const layout = ref<HTMLElement | null>(null)
@@ -135,5 +136,7 @@ function activateSession(id: string) {
     :closable="!busy" :keyboard="!busy" :mask-closable="!busy" @cancel="!busy && (deleteConfirmationOpen = false)" @ok="deleteSession">
     <p style="overflow-wrap: anywhere">{{ t('deleteSessionConfirm', { title: deletingSession ? displaySessionTitle(deletingSession) : '' }) }}</p>
   </v-modal>
+  <SessionActionDialog v-if="route.name === 'session' && selected?.open" :action="conversation.sessionAction.value" :busy="busy"
+    @decision="conversation.decideSessionAction" />
   </AppProvider>
 </template>

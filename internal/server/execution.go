@@ -440,6 +440,7 @@ func (a *App) readWorkerOutput(id string, w *worker, scanner *bufio.Scanner) {
 	a.mu.Lock()
 	w.exiting = true
 	a.mu.Unlock()
+	a.withdrawSessionAction(id, w, "")
 	if w.cmd.Process != nil {
 		_ = w.cmd.Process.Kill()
 		if err := platform.KillSessionDescendants(w.cmd.Process.Pid); err != nil {

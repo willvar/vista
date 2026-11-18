@@ -498,6 +498,8 @@ export default {
   "closeSessionConfirmTitle": "关闭会话？",
   "closeSelectedSessionsConfirmTitle": "关闭 {count} 个会话？",
   "closeSessionConfirmBody": "正在执行的任务和后台进程将停止。聊天记录会保留，可从「{manager}」重新打开，但未完成的任务不会自动继续。",
+  "agentCloseSessionsHelp": "只会关闭空闲会话，聊天记录会保留。",
+  "agentDeleteSessionsHelp": "删除后无法在 Vista 中恢复。",
   "closeAndStop": "关闭并停止",
   "closeSettings": "关闭设置",
   "backToConversation": "返回会话",

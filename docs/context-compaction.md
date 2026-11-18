@@ -51,7 +51,7 @@ wire role is user, but they are runtime evidence rather than new user intent or 
 both automatic and manual compaction can summarize them, including reports just
 appended after the latest assistant/tool group. The marker survives history,
 checkpoints and model/protocol changes; it is never serialized to provider APIs.
-Child reports use an inline preview of at most 16 KiB with original output references; tool completions also retain saved output references. Full reports remain readable through `read_model_output`, and saved tool output through `read_tool_output`, after compaction. The summarizer
+Child reports use an inline preview of at most 16 KiB with original output references; tool completions also retain saved output references. Full reports remain readable through `read_session`, and saved tool output through `read_tool_output`, after compaction. The summarizer
 receives report text as runtime results and preserves task identity and references.
 
 Manual compaction shares this summarizer and checkpoint path, but may also

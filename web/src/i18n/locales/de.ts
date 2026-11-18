@@ -498,6 +498,8 @@ export default {
   "closeSessionConfirmTitle": "Sitzung schließen?",
   "closeSelectedSessionsConfirmTitle": "{count} Sitzungen schließen?",
   "closeSessionConfirmBody": "Laufende Aufgaben und Hintergrundprozesse werden beendet. Der Chatverlauf bleibt erhalten. Sitzungen können unter „{manager}“ wieder geöffnet werden; unvollendete Aufgaben werden nicht automatisch fortgesetzt.",
+  "agentCloseSessionsHelp": "Nur inaktive Sitzungen werden geschlossen. Der Verlauf bleibt erhalten.",
+  "agentDeleteSessionsHelp": "Gelöschte Sitzungen können in Vista nicht wiederhergestellt werden.",
   "closeAndStop": "Schließen und stoppen",
   "closeSettings": "Einstellungen schließen",
   "backToConversation": "Zurück zur Unterhaltung",

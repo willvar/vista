@@ -35,20 +35,11 @@ func (a *App) workerOperation(ctx context.Context, id string, cancel context.Can
 			return nil, err
 		}
 		a.mu.Lock()
-		if a.workerOperations == nil {
-			a.workerOperations = make(map[string]*workerOperation)
-		}
 		previous := a.workerOperations[id]
 		if previous == nil {
-			op := &workerOperation{done: make(chan struct{}), cancel: cancel}
-			a.workerOperations[id] = op
+			release := a.reserveWorkerOperationLocked(id, cancel)
 			a.mu.Unlock()
-			return func() {
-				a.mu.Lock()
-				delete(a.workerOperations, id)
-				close(op.done)
-				a.mu.Unlock()
-			}, nil
+			return release, nil
 		}
 		// A close or shutdown also cancels an unfinished start of this session.
 		if cancel == nil && previous.cancel != nil {
@@ -60,6 +51,20 @@ func (a *App) workerOperation(ctx context.Context, id string, cancel context.Can
 		case <-ctx.Done():
 			return nil, ctx.Err()
 		}
+	}
+}
+
+func (a *App) reserveWorkerOperationLocked(id string, cancel context.CancelFunc) func() {
+	if a.workerOperations == nil {
+		a.workerOperations = make(map[string]*workerOperation)
+	}
+	op := &workerOperation{done: make(chan struct{}), cancel: cancel}
+	a.workerOperations[id] = op
+	return func() {
+		a.mu.Lock()
+		delete(a.workerOperations, id)
+		close(op.done)
+		a.mu.Unlock()
 	}
 }
 
@@ -268,6 +273,10 @@ func (a *App) launchOpenWorker(ctx context.Context, id string) (*worker, *bufio.
 func (a *App) stopWorker(id string) {
 	release, _ := a.workerOperation(context.Background(), id, nil)
 	defer release()
+	a.stopReservedWorker(id)
+}
+
+func (a *App) stopReservedWorker(id string) {
 	a.mu.Lock()
 	w := a.workers[id]
 	if w != nil {

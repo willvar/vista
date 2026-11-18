@@ -498,6 +498,8 @@ export default {
   "closeSessionConfirmTitle": "Fechar sessão?",
   "closeSelectedSessionsConfirmTitle": "Fechar {count} sessões?",
   "closeSessionConfirmBody": "As tarefas em execução e os processos em segundo plano serão interrompidos. O histórico será mantido e as sessões poderão ser reabertas em {manager}. As tarefas inacabadas não serão retomadas automaticamente.",
+  "agentCloseSessionsHelp": "Somente as sessões inativas serão fechadas. O histórico será mantido.",
+  "agentDeleteSessionsHelp": "As sessões excluídas não podem ser restauradas no Vista.",
   "closeAndStop": "Fechar e interromper",
   "closeSettings": "Fechar configurações",
   "backToConversation": "Voltar à conversa",

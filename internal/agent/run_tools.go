@@ -32,6 +32,12 @@ type toolFuture struct {
 }
 
 func executeToolBatch(ctx context.Context, command workerproto.Command, turn int32, calls []provider.ToolCall, callErrors []error, prepared *preparedContext, mcp *mcpManager, scope *runScope, depth int, jobs *tools.BackgroundManager, runChild func(context.Context, workerproto.Command, func(workerproto.Result) error) (string, error), work *sync.WaitGroup, emit func(workerproto.Result) error) ([]provider.ChatMessage, error) {
+	confirmingSessionAction := len(calls) == 1 && isSessionAction(calls[0].Function.Name)
+	for i, call := range calls {
+		if isSessionAction(call.Function.Name) && !confirmingSessionAction {
+			callErrors[i] = errors.New("session action requests must be the only tool call in the response")
+		}
+	}
 	futures := make([]*toolFuture, len(calls))
 	for _, call := range calls {
 		if err := emit(workerproto.Result{RunID: command.RunID, Kind: "tool", Turn: turn, Status: "started", Tool: &workerproto.ToolProgress{CallID: call.ID, Name: call.Function.Name, Summary: toolSummary(call), Input: toolInput(call, command)}}); err != nil {
@@ -118,6 +124,11 @@ func executeToolBatch(ctx context.Context, command workerproto.Command, turn int
 	}
 	deadline := time.NewTimer(toolYieldDelay)
 	defer deadline.Stop()
+	yield := deadline.C
+	if confirmingSessionAction {
+		// Await the user without issuing a model turn or detaching the mutation.
+		yield = nil
+	}
 	yielded := false
 	messages := make([]provider.ChatMessage, 0, len(calls))
 	for index, call := range calls {
@@ -125,7 +136,7 @@ func executeToolBatch(ctx context.Context, command workerproto.Command, turn int
 		if !yielded {
 			select {
 			case <-future.ready:
-			case <-deadline.C:
+			case <-yield:
 				yielded = true
 			case <-ctx.Done():
 				return nil, ctx.Err()

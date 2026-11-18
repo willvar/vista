@@ -498,6 +498,8 @@ export default {
   "closeSessionConfirmTitle": "セッションを閉じますか？",
   "closeSelectedSessionsConfirmTitle": "{count} 件のセッションを閉じますか？",
   "closeSessionConfirmBody": "実行中のタスクとバックグラウンドプロセスが停止します。会話履歴は保持され、「{manager}」からセッションを再度開けますが、未完了のタスクは自動的には再開されません。",
+  "agentCloseSessionsHelp": "作業中でないセッションのみ閉じます。履歴は保持されます。",
+  "agentDeleteSessionsHelp": "削除したセッションは Vista で復元できません。",
   "closeAndStop": "閉じて停止",
   "closeSettings": "設定を閉じる",
   "backToConversation": "会話に戻る",

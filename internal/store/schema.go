@@ -18,7 +18,8 @@ func (s *Store) initializeSchema() error {
    pending_kind TEXT NOT NULL DEFAULT '', pending_content TEXT NOT NULL DEFAULT '', pending_run_id TEXT NOT NULL DEFAULT '',
    pinned INTEGER NOT NULL DEFAULT 0,
    manual_model_key TEXT NOT NULL DEFAULT '', manual_reasoning_effort TEXT NOT NULL DEFAULT '', processing_tier TEXT NOT NULL DEFAULT '',
-   input_queue_paused INTEGER NOT NULL DEFAULT 0, read_sequence INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL
+   input_queue_paused INTEGER NOT NULL DEFAULT 0, read_sequence INTEGER NOT NULL DEFAULT 0,
+   open_revision INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL
   )`,
 		`CREATE TABLE IF NOT EXISTS runs (
    id TEXT PRIMARY KEY, session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
@@ -125,6 +126,11 @@ func (s *Store) initializeSchema() error {
 	}
 	if err := s.initModelSelectionSchema(); err != nil {
 		return fmt.Errorf("initialize model selection: %w", err)
+	}
+	if !s.orm.Migrator().HasColumn(&sessionRow{}, "OpenRevision") {
+		if err := s.orm.Migrator().AddColumn(&sessionRow{}, "OpenRevision"); err != nil {
+			return fmt.Errorf("initialize session lifecycle revision: %w", err)
+		}
 	}
 	return s.initStatistics()
 }

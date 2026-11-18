@@ -2,6 +2,8 @@ export type QuestionOption = { id?: string; label: string; description?: string 
 export type QuestionPrompt = { id?: string; header?: string; question: string; options: QuestionOption[]; multiple?: boolean; custom?: boolean; when?: { questionId: string; optionId: string } }
 export type QuestionAnswer = { questionId?: string; options: string[]; text?: string }
 export type PendingReply = { runId: string; callId?: string; kind: 'question'; content: string; questions: QuestionPrompt[] }
+export type SessionActionPreview = { requestId: string; kind: 'close' | 'delete'; targets: { id: string; title: string }[] }
+
 export type Session = { id: string; title: string; modelKey: string; open: boolean; pinned?: boolean; running: boolean; executing: boolean; createdAt: string; updatedAt?: string; pendingReply?: PendingReply; inputQueuePaused?: boolean; readSequence?: number; latestReplySequence?: number; latestRunStatus?: string; pendingInputCount?: number; manualModelKey?: string; manualReasoningEffort?: string; processingTier?: string }
 export type SessionListSnapshot = { items: Session[]; throughSequences: Record<string, number> }
 export type ModelInfo = { proxyId?: string; key: string; connectionId?: string; name?: string; modelName?: string; recognized?: boolean; provider: string; providerId?: string; id: string; baseUrl?: string; tools?: boolean; context?: number; inputLimit?: number; outputLimit?: number; catalogReasoning?: boolean; status?: string; inputModalities?: string[]; outputModalities?: string[]; discoverySource?: string; processingTiers?: string[]; reasoningOptions?: string[]; reasoningEffort?: string }

@@ -495,6 +495,8 @@ export default {
   "closeSessionConfirmTitle": "Close session?",
   "closeSelectedSessionsConfirmTitle": "Close {count} sessions?",
   "closeSessionConfirmBody": "Running tasks and background processes will stop. Chat history will be kept, and you can reopen sessions in {manager}. Unfinished tasks will not resume automatically.",
+  "agentCloseSessionsHelp": "Only idle conversations will be closed. Their history is kept.",
+  "agentDeleteSessionsHelp": "Deleted conversations cannot be restored in Vista.",
   "closeAndStop": "Close and stop",
   "closeSettings": "Close settings",
   "backToConversation": "Back to conversation",

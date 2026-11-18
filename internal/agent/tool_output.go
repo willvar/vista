@@ -61,7 +61,7 @@ func modelToolPreview(output string, reference *workerproto.OutputRef) string {
 }
 
 func modelToolPreviewLimit(output string, reference *workerproto.OutputRef, maximum int) string {
-	location := fmt.Sprintf("run %s, turn %d; use read_model_output", reference.RunID, reference.Turn)
+	location := fmt.Sprintf("run %s, turn %d; use read_session with runId and turn", reference.RunID, reference.Turn)
 	if reference.ArtifactID != "" {
 		location = "artifact " + reference.ArtifactID + "; use read_tool_output with artifactId and offset 0"
 	}

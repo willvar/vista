@@ -498,6 +498,8 @@ export default {
   "closeSessionConfirmTitle": "Fermer la session ?",
   "closeSelectedSessionsConfirmTitle": "Fermer {count} sessions ?",
   "closeSessionConfirmBody": "Les tâches en cours et les processus en arrière-plan seront arrêtés. L’historique sera conservé et les sessions pourront être rouvertes dans {manager}. Les tâches inachevées ne reprendront pas automatiquement.",
+  "agentCloseSessionsHelp": "Seules les sessions inactives seront fermées. Leur historique sera conservé.",
+  "agentDeleteSessionsHelp": "Les sessions supprimées ne peuvent pas être restaurées dans Vista.",
   "closeAndStop": "Fermer et arrêter",
   "closeSettings": "Fermer les paramètres",
   "backToConversation": "Retour à la conversation",

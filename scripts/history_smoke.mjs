@@ -43,13 +43,13 @@ async function handleProvider(request, response) {
   if (calls <= 2) return sendText('Noted.')
   if (calls === 3) {
     if (!JSON.stringify(body.messages).includes('Summary: keep output concise.')) throw new Error('persisted summary was not loaded into the Agent context')
-    return sendTool('history_index_call', 'history_index', {})
+    return sendTool('history_index_call', 'read_session', {})
   }
   if (calls === 4) {
     const index = JSON.parse(body.messages.at(-1).content)
     const old = index.messages.find(message => message.preview.includes('EARLY CONSTRAINT'))
     if (!old) throw new Error(`early message not indexed: ${JSON.stringify(index)}`)
-    return sendTool('history_read_call', 'read_history', { sequence: old.sequence })
+    return sendTool('history_read_call', 'read_session', { sequence: old.sequence })
   }
   if (calls === 5) {
     const page = JSON.parse(body.messages.at(-1).content)

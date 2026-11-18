@@ -102,6 +102,9 @@ func Run() error {
 			ackMu.Lock()
 			delete(pendingAcks, ackID)
 			ackMu.Unlock()
+			if result.Kind == "session_action" {
+				_ = emit(workerproto.Result{Kind: "session_action_withdraw", RunID: result.RunID, AckID: ackID})
+			}
 			return workerproto.Command{}, ctx.Err()
 		}
 	}
@@ -136,6 +139,10 @@ func Run() error {
 		ack, err := awaitAck(ctx, workerproto.Result{RunID: runID, TaskID: taskID, Kind: "runtime_poll"})
 		return ack.RuntimeEvents, err
 	}})
+	sessionCtx = agent.WithSessionActionRequester(sessionCtx, func(ctx context.Context, result workerproto.Result) (*workerproto.SessionActionResult, error) {
+		ack, err := awaitAck(ctx, result)
+		return ack.SessionActionResult, err
+	})
 	agents = agent.NewSession(sessionCtx)
 	jobs := tools.NewBackgroundManager(func(ctx context.Context, job tools.BackgroundJob) error {
 		job.Error = workerproto.TextPreview(job.Error, workerproto.MaxErrorBytes)

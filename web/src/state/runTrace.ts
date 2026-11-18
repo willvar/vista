@@ -77,6 +77,7 @@ const toolOperationLabels: Record<string, string> = {
   project_instructions: 'traceOpFindInstructions', read_project_instruction: 'traceOpReadInstructions',
   list_skills: 'traceOpListSkills', read_skill: 'traceOpReadSkill', history_index: 'traceOpBrowseHistory',
   read_history: 'traceOpReadHistory', read_model_output: 'traceOpReadAnswer', read_tool_output: 'traceOpReadToolOutput',
+  list_sessions: 'manageSessions', read_session: 'traceOpBrowseHistory', close_sessions: 'closeSelected', delete_sessions: 'deleteSelected',
   list_resources: 'traceOpListResources', read_resource: 'traceOpReadResource',
   mcp_list_tools: 'traceOpListTools', mcp_call_tool: 'traceOpRemoteTool',
   memory: 'traceOpMemory',

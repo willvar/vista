@@ -7,12 +7,17 @@ import (
 	"strings"
 
 	"vista/internal/instance"
+	"vista/internal/provider"
 	"vista/internal/store"
 	"vista/internal/tools"
 	"vista/internal/workerproto"
 )
 
 var readToolOutputSchema = map[string]any{"type": "function", "function": map[string]any{"name": "read_tool_output", "description": "Read saved webfetch, shell, MCP, or other tool output in this Session by artifactId or jobId, or by callId from the current run. Continue at nextOffset without rerunning the original tool or downloading the URL again. Byte limit defaults to 8192 and can be up to 32768. Optional pattern searches saved text (Go regex, or literal=true) and returns matching lines, contextLines and byte positions. For jobId, also returns current status and deadline metadata for explicit inspection. Continue at nextOffset without rerunning the tool.", "parameters": map[string]any{"type": "object", "properties": map[string]any{"artifactId": map[string]any{"type": "string"}, "callId": map[string]any{"type": "string"}, "jobId": map[string]any{"type": "string"}, "offset": map[string]any{"type": "integer", "minimum": 0}, "limit": map[string]any{"type": "integer", "minimum": 4, "maximum": tools.MaxOutputPageBytes}, "pattern": map[string]any{"type": "string"}, "literal": map[string]any{"type": "boolean"}, "ignoreCase": map[string]any{"type": "boolean"}, "contextLines": map[string]any{"type": "integer", "minimum": 0, "maximum": tools.MaxToolResultLines}}}}}
+
+func (r *toolRuntime) readToolOutput(ctx context.Context, call provider.ToolCall) (string, error) {
+	return readToolOutput(ctx, call.Function.Arguments, r.parent)
+}
 
 func readToolOutput(ctx context.Context, arguments string, parent workerproto.Command) (string, error) {
 	var input struct {

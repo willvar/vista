@@ -470,6 +470,8 @@ export default { ...base, ...{
   "closeSessionConfirmTitle": "關閉會話？",
   "closeSelectedSessionsConfirmTitle": "關閉 {count} 個會話？",
   "closeSessionConfirmBody": "正在執行的任務和後臺程序將停止。聊天記錄會保留，可從「{manager}」重新開啟，但未完成的任務不會自動繼續。",
+  "agentCloseSessionsHelp": "只會關閉空閒會話，聊天記錄會保留。",
+  "agentDeleteSessionsHelp": "刪除後無法在 Vista 中恢復。",
   "closeAndStop": "關閉並停止",
   "closeSettings": "關閉設定",
   "backToConversation": "返回會話",

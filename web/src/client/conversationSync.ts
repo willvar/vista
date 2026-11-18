@@ -1,4 +1,4 @@
-import type { ConversationSnapshot, StreamEvent, SyncCheckpoint } from './types.ts'
+import type { ConversationSnapshot, SessionActionPreview, StreamEvent, SyncCheckpoint } from './types.ts'
 import type { VistaClient } from './vista.ts'
 
 export type ConversationSyncStatus = {
@@ -15,6 +15,7 @@ type Options = {
   inputQueue: () => { count: number; paused: boolean }
   applyEvent: (event: StreamEvent, live: boolean) => void
   applySnapshot: (snapshot: ConversationSnapshot) => void
+  applySessionAction?: (action: SessionActionPreview | null) => void
   applyCheckpoint?: (checkpoint: SyncCheckpoint) => void
   status: (status: ConversationSyncStatus) => void
   diagnostics: (value: ConversationSyncDiagnostics) => void
@@ -137,6 +138,7 @@ export function createConversationSync(options: Options) {
         try { options.applyEvent(event, true) }
         catch (error) { snapshotRequired = true; throw error }
       },
+      onSessionAction(action) { if (current()) options.applySessionAction?.(action) },
       onCheckpoint(point) {
         if (!current()) return
         if (point.session.id !== sessionId) throw new Error('Checkpoint belongs to another conversation')

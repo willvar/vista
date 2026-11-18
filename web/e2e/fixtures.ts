@@ -58,7 +58,7 @@ function modelCatalogFixture() {
   return catalogFixture = JSON.stringify(catalog)
 }
 
-type NativeOptions = { configuredProvider: boolean; imageModel: boolean; budgetModel: boolean; replyWithPrompt: boolean; followUpTool: boolean; questionTool: boolean; instructionTool: boolean; progressCalls: number; longProgress: boolean; terminalReasoning: boolean; interleavedOutput: boolean; emptyReply: boolean; detachedTask: boolean; backgroundProcess: boolean; fileChanges: boolean; providerOutput: ProviderOutput | undefined; modelFailure: ModelFailure | undefined }
+type NativeOptions = { configuredProvider: boolean; imageModel: boolean; budgetModel: boolean; replyWithPrompt: boolean; followUpTool: boolean; questionTool: boolean; instructionTool: boolean; sessionActionTool: boolean; progressCalls: number; longProgress: boolean; terminalReasoning: boolean; interleavedOutput: boolean; emptyReply: boolean; detachedTask: boolean; backgroundProcess: boolean; fileChanges: boolean; providerOutput: ProviderOutput | undefined; modelFailure: ModelFailure | undefined }
 
 const nativeDefaults: NativeOptions = {
   configuredProvider: true,
@@ -68,6 +68,7 @@ const nativeDefaults: NativeOptions = {
   followUpTool: false,
   questionTool: false,
   instructionTool: false,
+  sessionActionTool: false,
   progressCalls: 0,
   longProgress: false,
   terminalReasoning: false,
@@ -84,7 +85,7 @@ const nativeDefaults: NativeOptions = {
 // persistent data; ordinary cases retain the same per-test lifecycle.
 export const nativeFixture = {
   async use(options: Partial<NativeOptions>, use: (vista: VistaFixture, stop: () => Promise<string>) => Promise<void>, seed?: string) {
-    const { configuredProvider, imageModel, budgetModel, replyWithPrompt, followUpTool, questionTool, instructionTool, progressCalls, longProgress, terminalReasoning, interleavedOutput, emptyReply, detachedTask, backgroundProcess, fileChanges, providerOutput, modelFailure } = { ...nativeDefaults, ...options }
+    const { configuredProvider, imageModel, budgetModel, replyWithPrompt, followUpTool, questionTool, instructionTool, sessionActionTool, progressCalls, longProgress, terminalReasoning, interleavedOutput, emptyReply, detachedTask, backgroundProcess, fileChanges, providerOutput, modelFailure } = { ...nativeDefaults, ...options }
     if (!process.env.VISTA_CHROME) throw new Error('Set VISTA_CHROME to the isolated test browser executable')
     const binary = resolve(process.env.VISTA_BIN || join(import.meta.dirname, '../../bin/vista'))
     const root = resolve(import.meta.dirname, '../.vista/test-state')
@@ -242,6 +243,16 @@ export const nativeFixture = {
             name: 'read_resource', arguments: JSON.stringify({ hash: retainedImage[1] }),
           } }] }
         response.end(`data: ${JSON.stringify({ choices: [{ delta, finish_reason: read ? 'stop' : 'tool_calls' }] })}\n\ndata: [DONE]\n\n`)
+        return
+      }
+      const sessionAction = sessionActionTool && !titleRequest && /^(Close|Delete) sessions: ([a-f0-9,-]+)$/.exec(String(input.messages?.[lastUser]?.content))
+      if (sessionAction) {
+        const result = toolResults.find(message => message.tool_call_id === 'session-action')
+        const delta = result ? { content: `Session action result: ${result.content}` }
+          : { tool_calls: [{ index: 0, id: 'session-action', type: 'function', function: {
+            name: sessionAction[1].toLowerCase() + '_sessions', arguments: JSON.stringify({ sessionIds: sessionAction[2].split(',') }),
+          } }] }
+        response.end(`data: ${JSON.stringify({ choices: [{ delta, finish_reason: result ? 'stop' : 'tool_calls' }] })}\n\ndata: [DONE]\n\n`)
         return
       }
       if (instructionTool && !titleRequest) {
@@ -452,6 +463,7 @@ export const test = base.extend<NativeOptions & { vista: VistaFixture }>({
   followUpTool: [false, { option: true }],
   questionTool: [false, { option: true }],
   instructionTool: [false, { option: true }],
+  sessionActionTool: [false, { option: true }],
   progressCalls: [0, { option: true }],
   longProgress: [false, { option: true }],
   terminalReasoning: [false, { option: true }],
@@ -462,8 +474,8 @@ export const test = base.extend<NativeOptions & { vista: VistaFixture }>({
   fileChanges: [false, { option: true }],
   providerOutput: [undefined, { option: true }],
   modelFailure: [undefined, { option: true }],
-  vista: async ({ configuredProvider, imageModel, budgetModel, replyWithPrompt, followUpTool, questionTool, instructionTool, progressCalls, longProgress, terminalReasoning, interleavedOutput, emptyReply, detachedTask, backgroundProcess, fileChanges, providerOutput, modelFailure }, use) => {
-    await nativeFixture.use({ configuredProvider, imageModel, budgetModel, replyWithPrompt, followUpTool, questionTool, instructionTool, progressCalls, longProgress, terminalReasoning, interleavedOutput, emptyReply, detachedTask, backgroundProcess, fileChanges, providerOutput, modelFailure }, use)
+  vista: async ({ configuredProvider, imageModel, budgetModel, replyWithPrompt, followUpTool, questionTool, instructionTool, sessionActionTool, progressCalls, longProgress, terminalReasoning, interleavedOutput, emptyReply, detachedTask, backgroundProcess, fileChanges, providerOutput, modelFailure }, use) => {
+    await nativeFixture.use({ configuredProvider, imageModel, budgetModel, replyWithPrompt, followUpTool, questionTool, instructionTool, sessionActionTool, progressCalls, longProgress, terminalReasoning, interleavedOutput, emptyReply, detachedTask, backgroundProcess, fileChanges, providerOutput, modelFailure }, use)
   },
   page: async ({ page, vista }, use) => {
     await page.goto(vista.origin + '/')

@@ -24,25 +24,27 @@ import (
 // persist its effects, then notify readers or acknowledge committed work. It has
 // no process ownership; the caller decides what to do when consumption fails.
 type workerResultConsumer struct {
-	admitMedia         func() error
-	rpc                func(workerproto.Result)
-	done               <-chan struct{}
-	async              func(func())
-	refreshCredentials func(context.Context, modelcfg.Model) (modelcfg.Model, error)
-	mcpEndpoint        func(context.Context) (workerproto.MCPHost, error)
-	ctx                context.Context
-	store              *store.Store
-	sessionID          string
-	stateDir           string
-	send               func(workerproto.Command) error
-	changed            func(string)
-	diagnostic         func(modeltrace.Summary)
-	notify             func()
-	pollInput          func(string, *workerproto.CompletedReply) (*workerproto.Command, error)
-	metrics            func(workerproto.Metrics)
-	released           func()
-	finished           func()
-	runtimeReady       func()
+	admitMedia            func() error
+	sessionAction         func(workerproto.Result) error
+	withdrawSessionAction func(string)
+	rpc                   func(workerproto.Result)
+	done                  <-chan struct{}
+	async                 func(func())
+	refreshCredentials    func(context.Context, modelcfg.Model) (modelcfg.Model, error)
+	mcpEndpoint           func(context.Context) (workerproto.MCPHost, error)
+	ctx                   context.Context
+	store                 *store.Store
+	sessionID             string
+	stateDir              string
+	send                  func(workerproto.Command) error
+	changed               func(string)
+	diagnostic            func(modeltrace.Summary)
+	notify                func()
+	pollInput             func(string, *workerproto.CompletedReply) (*workerproto.Command, error)
+	metrics               func(workerproto.Metrics)
+	released              func()
+	finished              func()
+	runtimeReady          func()
 }
 
 func (a *App) workerResultConsumer(id string, w *worker) *workerResultConsumer {
@@ -55,10 +57,12 @@ func (a *App) workerResultConsumer(id string, w *worker) *workerResultConsumer {
 			}
 			return a.mcpHost.Endpoint(ctx)
 		},
-		send:       w.send,
-		notify:     func() { a.hub.notify(id) },
-		changed:    a.notifyWorkerState,
-		diagnostic: a.updates.diagnosticSaved,
+		send:                  w.send,
+		sessionAction:         func(result workerproto.Result) error { return a.requestSessionAction(id, w, result) },
+		withdrawSessionAction: func(requestID string) { a.withdrawSessionAction(id, w, requestID) },
+		notify:                func() { a.hub.notify(id) },
+		changed:               a.notifyWorkerState,
+		diagnostic:            a.updates.diagnosticSaved,
 		pollInput: func(runID string, reply *workerproto.CompletedReply) (*workerproto.Command, error) {
 			return a.pullInterjection(a.ctx, id, runID, reply)
 		},
@@ -108,6 +112,19 @@ func (c *workerResultConsumer) consumeFrame(frame []byte) error {
 
 func (c *workerResultConsumer) consume(result workerproto.Result) error {
 	switch result.Kind {
+	case "session_action":
+		if c.sessionAction == nil {
+			return errors.New("session actions are unavailable")
+		}
+		return c.sessionAction(result)
+	case "session_action_withdraw":
+		if _, err := uuid.Parse(result.AckID); err != nil {
+			return errors.New("invalid session action withdrawal")
+		}
+		if c.withdrawSessionAction != nil {
+			c.withdrawSessionAction(result.AckID)
+		}
+		return nil
 	case "runtime_event":
 		notice := result.RuntimeEvent
 		validStatus := false

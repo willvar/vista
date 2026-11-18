@@ -28,7 +28,6 @@ import (
 	"vista/internal/instance"
 	"vista/internal/mcphost"
 	"vista/internal/modelcatalog"
-	"vista/internal/modeltrace"
 	"vista/internal/network"
 	"vista/internal/platform"
 	"vista/internal/provider"
@@ -60,6 +59,8 @@ type App struct {
 	background             sync.WaitGroup
 	closeContext           context.CancelFunc
 	sessionMutations       sync.Map // Per-session HTTP/queued-dispatch serialization.
+	sessionActionMu        sync.Mutex
+	sessionActions         map[string]*pendingSessionAction
 	storageMu              sync.Mutex
 	skillsMu               sync.Mutex
 	agentSettingsMu        sync.Mutex
@@ -647,6 +648,10 @@ func (a *App) session(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
+	if len(bits) == 3 && bits[1] == "session-action" {
+		a.confirmSessionAction(w, r, id.String(), bits[2])
+		return
+	}
 	if r.Method != http.MethodGet && r.Method != http.MethodHead {
 		unlock := a.lockSessionMutation(id.String())
 		defer unlock()
@@ -770,10 +775,7 @@ func (a *App) session(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, err.Error(), 500)
 			return
 		}
-		for _, path := range paths {
-			_ = a.removeOutput(path)
-		}
-		_ = modeltrace.DeleteSession(a.dir, item.ID)
+		a.removeSessionOutputs(item.ID, paths)
 		w.WriteHeader(204)
 		return
 	}

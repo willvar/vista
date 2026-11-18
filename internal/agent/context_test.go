@@ -62,7 +62,7 @@ func TestPreparedContextRetainsTaskInstructionsHistoryAndToolOrder(t *testing.T)
 		t.Fatal(err)
 	}
 	const checklistJSON = `[{"text":"Inspect","status":"done"},{"text":"Verify","status":"pending"}]`
-	always := []string{"read_file", "read_tool_output", "search", "find_files", "webfetch", "websearch", "write_file", "apply_patch", "shell", "start_background", "stop_background", "update_background_timeout", "list_skills", "read_skill", "project_instructions", "read_project_instruction", "history_index", "read_history", "list_resources", "read_resource", "read_model_output"}
+	always := []string{"read_file", "read_tool_output", "search", "find_files", "webfetch", "websearch", "write_file", "apply_patch", "shell", "start_background", "stop_background", "update_background_timeout", "list_skills", "read_skill", "project_instructions", "read_project_instruction", "list_sessions", "read_session", "list_resources", "read_resource"}
 	for _, tc := range []struct {
 		name  string
 		depth int
@@ -104,7 +104,7 @@ func TestPreparedContextRetainsTaskInstructionsHistoryAndToolOrder(t *testing.T)
 			}
 			wantTools := slices.Clone(always)
 			if tc.depth == 0 {
-				wantTools = append(wantTools, "update_checklist", "edit_instructions", "question")
+				wantTools = append(wantTools, "close_sessions", "delete_sessions", "update_checklist", "edit_instructions", "question")
 			}
 			if tc.mcp {
 				if !strings.Contains(wantSystem, `[{"id":"files","name":"files"},{"id":"search","name":"search"}]`) {

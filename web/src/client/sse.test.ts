@@ -211,3 +211,18 @@ test('coverage detects a missing intermediate record without requiring consecuti
     assert.equal(errors, missed ? 1 : 0)
   }
 })
+
+test('session action previews and withdrawal do not advance the durable conversation cursor', async () => {
+  const controller = new AbortController()
+  const preview = { requestId: 'opaque', kind: 'delete', targets: [{ id: 'target', title: 'Archived' }] }
+  const controls: unknown[] = [], seen: number[] = []
+  const frame = (data: unknown) => `event: session-action\ndata: ${JSON.stringify(data)}\n\n`
+  await streamSessionEvents(async () => sseResponse(body(encoder.encode(frame(preview) + event(1) + frame(null)))), {
+    signal: controller.signal, after: () => 0,
+    onSessionAction(action) { controls.push(action); if (action === null) controller.abort() },
+    onEvent(item) { seen.push(item.sequence) },
+    onError(error) { throw error },
+  })
+  assert.deepEqual(controls, [preview, null])
+  assert.deepEqual(seen, [1])
+})

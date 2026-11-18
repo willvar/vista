@@ -13,12 +13,6 @@ type HistoryItem struct {
 	ImageCount int    `json:"imageCount,omitempty"`
 }
 
-func (s *Store) HasMessagesBefore(ctx context.Context, sessionID string, before int64) (bool, error) {
-	var exists bool
-	err := s.orm.WithContext(ctx).Raw("SELECT EXISTS(SELECT 1 FROM messages WHERE session_id=? AND sequence<?)", sessionID, before).Row().Scan(&exists)
-	return exists, err
-}
-
 func (s *Store) HistoryIndex(ctx context.Context, sessionID string, before int64, limit int) ([]HistoryItem, error) {
 	if before <= 0 || limit < 1 || limit > 10 {
 		return nil, errors.New("invalid history index range")

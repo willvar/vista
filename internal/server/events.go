@@ -342,6 +342,7 @@ func (a *App) eventStream(w http.ResponseWriter, r *http.Request, id string) {
 	heartbeat := time.NewTicker(15 * time.Second)
 	defer heartbeat.Stop()
 	syncDue := true
+	lastActionID := "initial"
 	writeEvent := func(event store.Event) bool {
 		event = summaryOutputEvent(event)
 		// Explicit coverage detects a lost frame without assuming contiguous
@@ -403,7 +404,21 @@ func (a *App) eventStream(w http.ResponseWriter, r *http.Request, id string) {
 				syncDue = true
 			}
 		}
-		if len(events) > 0 {
+		if action := a.sessionAction(id); action != nil && action.RequestID != lastActionID || action == nil && lastActionID != "" {
+			lastActionID = ""
+			if action != nil {
+				lastActionID = action.RequestID
+			}
+			b, err := json.Marshal(action)
+			if err != nil {
+				return
+			}
+			_ = controller.SetWriteDeadline(time.Now().Add(5 * time.Second))
+			if _, err = fmt.Fprintf(w, "event: session-action\ndata: %s\n\n", b); err != nil {
+				return
+			}
+			flusher.Flush()
+		} else if len(events) > 0 {
 			flusher.Flush()
 		}
 		select {

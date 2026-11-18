@@ -126,6 +126,7 @@ type sessionRow struct {
 
 	InputQueuePaused bool  `gorm:"column:input_queue_paused;not null;default:false"`
 	ReadSequence     int64 `gorm:"column:read_sequence;not null;default:0"`
+	OpenRevision     int64 `gorm:"column:open_revision;not null;default:0"`
 }
 
 func (sessionRow) TableName() string { return "sessions" }
@@ -337,30 +338,36 @@ func readSessions(db, query *gorm.DB, limit, offset int, sort SessionSort) ([]Se
 	return result, nil
 }
 func (s *Store) SetOpen(ctx context.Context, id string, open bool) error {
+	return s.orm.WithContext(ctx).Transaction(func(tx *gorm.DB) error { return setSessionOpen(tx, id, open) })
+}
+
+func setSessionOpen(tx *gorm.DB, id string, open bool) error {
 	value := 0
 	if open {
 		value = 1
 	}
-	return s.orm.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		if err := sessionRowsAffected(tx.Model(&sessionRow{}).Where("id = ?", id).Update("is_open", value)); err != nil {
-			return err
-		}
-		if !open {
-			return tx.Exec(`UPDATE runtime_events SET status='suppressed' WHERE session_id=? AND status IN ('pending','restart')`, id).Error
-		}
-		return nil
-	})
+	if err := sessionRowsAffected(tx.Model(&sessionRow{}).Where("id = ?", id).Updates(map[string]any{
+		"is_open": value, "open_revision": gorm.Expr("open_revision + CASE WHEN is_open<>? THEN 1 ELSE 0 END", value),
+	})); err != nil {
+		return err
+	}
+	if !open {
+		return tx.Exec(`UPDATE runtime_events SET status='suppressed' WHERE session_id=? AND status IN ('pending','restart')`, id).Error
+	}
+	return nil
 }
 func (s *Store) SetPinned(ctx context.Context, id string, pinned bool) error {
 	return sessionRowsAffected(s.orm.WithContext(ctx).Model(&sessionRow{}).Where("id = ?", id).Update("pinned", pinned))
 }
 func (s *Store) Delete(ctx context.Context, id string) error {
-	return s.orm.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		if err := sessionRowsAffected(tx.Where("id=?", id).Delete(&sessionRow{})); err != nil {
-			return err
-		}
-		return nil
-	})
+	return s.orm.WithContext(ctx).Transaction(func(tx *gorm.DB) error { return deleteSessionRows(tx, id) })
+}
+
+func deleteSessionRows(tx *gorm.DB, id string) error {
+	if err := sessionRowsAffected(tx.Where("id=?", id).Delete(&sessionRow{})); err != nil {
+		return err
+	}
+	return nil
 }
 func (s *Store) Get(ctx context.Context, id string) (Session, error) {
 	var row sessionRow

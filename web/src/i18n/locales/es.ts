@@ -498,6 +498,8 @@ export default {
   "closeSessionConfirmTitle": "¿Cerrar la sesión?",
   "closeSelectedSessionsConfirmTitle": "¿Cerrar {count} sesiones?",
   "closeSessionConfirmBody": "Las tareas en curso y los procesos en segundo plano se detendrán. El historial se conservará y podrás volver a abrir las sesiones en {manager}. Las tareas pendientes no se reanudarán automáticamente.",
+  "agentCloseSessionsHelp": "Solo se cerrarán las sesiones inactivas. Se conservará el historial.",
+  "agentDeleteSessionsHelp": "Las sesiones eliminadas no se pueden restaurar en Vista.",
   "closeAndStop": "Cerrar y detener",
   "closeSettings": "Cerrar ajustes",
   "backToConversation": "Volver a la conversación",

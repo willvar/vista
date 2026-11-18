@@ -498,6 +498,8 @@ export default {
   "closeSessionConfirmTitle": "Закрыть сессию?",
   "closeSelectedSessionsConfirmTitle": "Закрыть выбранные сессии ({count})?",
   "closeSessionConfirmBody": "Текущие задачи и фоновые процессы будут остановлены. История сохранится, а сессии можно будет снова открыть в разделе «{manager}». Незавершённые задачи не продолжатся автоматически.",
+  "agentCloseSessionsHelp": "Будут закрыты только неактивные сеансы. Их история сохранится.",
+  "agentDeleteSessionsHelp": "Удалённые сеансы нельзя восстановить в Vista.",
   "closeAndStop": "Закрыть и остановить",
   "closeSettings": "Закрыть настройки",
   "backToConversation": "Вернуться к разговору",
