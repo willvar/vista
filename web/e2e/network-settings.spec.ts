@@ -1,4 +1,5 @@
 import { test, expect } from './fixtures'
+import type { Locator } from '@playwright/test'
 import type { NetworkConfiguration } from '../src/client/network'
 import { expectFieldPair, settleLayout } from './layout-ready'
 
@@ -6,10 +7,20 @@ async function choose(page: import('@playwright/test').Page, control: import('@p
   await control.click()
   await page.getByRole('option', { name: label, exact: true }).click()
 }
+
+async function fillPort(port: Locator, value: string) {
+  await port.focus()
+  await expect(port).toBeFocused()
+  // Let Ark finish restoring the native caret before Playwright selects and inserts text.
+  await port.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))))
+  await port.fill(value)
+  await expect(port).toHaveValue(value)
+}
+
 async function fillProfile(dialog: import('@playwright/test').Locator, name: string) {
   await dialog.getByLabel(/^Profile name/).fill(name)
   await dialog.getByLabel(/^Server/).fill('proxy.example')
-  await dialog.getByLabel(/^Port/).fill('3128')
+  await fillPort(dialog.getByLabel(/^Port/), '3128')
 }
 
 test.describe('network configuration', () => {
@@ -147,7 +158,7 @@ test.describe('network configuration', () => {
     await expect(verify()).toHaveValue('On')
     await expect(ip).toHaveValue('2001:db8::1')
     await expect(port).toHaveValue('3128')
-    await port.fill('443')
+    await fillPort(port, '443')
     await choose(page, protocol, 'http')
     await expect(port).toHaveValue('80')
     await expect(ip).toHaveCount(0)
@@ -240,7 +251,7 @@ test.describe('network configuration', () => {
     await page.getByRole('button', { name: 'Add proxy profile', exact: true }).click()
     await fillProfile(editor, 'Unsaved profile')
     await editor.getByLabel(/^Server/).fill('127.0.0.1')
-    await editor.getByLabel(/^Port/).fill('1')
+    await fillPort(editor.getByLabel(/^Port/), '1')
     const panel = editor.locator('.network-check')
     await expect(panel.getByRole('heading')).toHaveCount(0)
     await expect(panel.locator('details, summary')).toHaveCount(0)
