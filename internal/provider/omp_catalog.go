@@ -22,6 +22,8 @@ type OMPModel struct {
 	API           string       `json:"api"`
 	Reasoning     bool         `json:"reasoning"`
 	Input         []string     `json:"input"`
+	Output        []string     `json:"output,omitempty"`
+	Kind          string       `json:"kind,omitempty"`
 	ContextWindow int          `json:"contextWindow"`
 	MaxTokens     int          `json:"maxTokens"`
 	SupportsTools *bool        `json:"supportsTools,omitempty"`
@@ -106,7 +108,7 @@ func decodeOMPCatalog(data []byte) (*OMPCatalogSnapshot, error) {
 		if err := validateCatalogModels(catalog.ModelsDev.Providers, catalog.ModelsDev.ModelCount); err != nil {
 			return nil, fmt.Errorf("invalid models.dev catalog: %w", err)
 		}
-		revision, err := catalogRevision(catalog.ModelsDev.Providers)
+		revision, err := catalog.ModelsDev.revision()
 		if err != nil || revision != catalog.ModelsDev.Revision {
 			return nil, errors.New("models.dev catalog digest does not match its metadata")
 		}
@@ -266,7 +268,7 @@ func catalogProviderCandidates(providerID string) []string {
 // modalities; its explicit no-tools, no-output-token rows describe generation
 // endpoints (including OpenAI images), rather than text conversations.
 func ompTextModel(model OMPModel) bool {
-	if !containsCatalogModality(model.Input, "text") || model.MaxTokens == 0 && model.SupportsTools != nil && !*model.SupportsTools {
+	if model.Kind != "" && model.Kind != "chat" || !containsCatalogModality(model.Input, "text") || model.MaxTokens == 0 && model.SupportsTools != nil && !*model.SupportsTools {
 		return false
 	}
 	switch model.API {

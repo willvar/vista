@@ -6,8 +6,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
+	"net/url"
 	"sync"
 	"time"
+	"vista/internal/codexauth"
 
 	modelcfg "vista/internal/model"
 )
@@ -137,4 +140,38 @@ func (c *CredentialCache) Resolve(ctx context.Context, source modelcfg.Model, ke
 	lead := min(time.Minute, max(time.Duration(0), expiry.Sub(now)/10))
 	entry.model, entry.refreshAt = resolved, expiry.Add(-lead)
 	return resolved, key, nil
+}
+
+// ResolveGenerationCredential uses the same private Worker refresh path, while
+// leaving the operation's independently selected media model unchanged.
+func ResolveGenerationCredential(ctx context.Context, source modelcfg.Model) (modelcfg.Model, error) {
+	source, err := refreshRequestCredentials(ctx, source)
+	if err != nil || source.ProviderID != "openai-codex" {
+		return source, err
+	}
+	if source.ResponsesRoute != modelcfg.ResponsesRouteCodex || (source.BaseURL != "" && source.BaseURL != codexBaseURL) {
+		return modelcfg.Model{}, errors.New("hosted image generation requires an official Codex connection")
+	}
+	ctx, source, err = source.BindNetwork(ctx)
+	if err != nil {
+		return modelcfg.Model{}, err
+	}
+	if source.CodexCredentialPath != "" {
+		cred, err := codexauth.NewClient().Token(ctx, source.CodexCredentialPath, "")
+		if err != nil {
+			return modelcfg.Model{}, err
+		}
+		source.APIKey = cred.AccessToken
+	}
+	base, _ := url.Parse(codexBaseURL)
+	source.BaseURL = codexResponsesEndpoint(base)
+	header := &http.Request{Header: make(http.Header)}
+	setCodexHeaders(header, source)
+	source.Headers = map[string]string{}
+	for name, values := range header.Header {
+		if len(values) == 1 {
+			source.Headers[name] = values[0]
+		}
+	}
+	return source, nil
 }

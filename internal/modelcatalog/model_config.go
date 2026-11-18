@@ -21,6 +21,8 @@ import (
 )
 
 type Configured struct {
+	Generation          *modelcfg.GenerationBinding `json:"generation,omitempty"`
+	modelKind           string
 	Disabled            bool                    `json:"disabled,omitempty"`
 	ProxyID             string                  `json:"proxyId,omitempty"`
 	Key                 string                  `json:"key"`
@@ -105,6 +107,7 @@ type Catalog struct {
 }
 
 type Info struct {
+	Kind             string   `json:"kind,omitempty"`
 	Disabled         bool     `json:"disabled,omitempty"`
 	ProxyID          string   `json:"proxyId,omitempty"`
 	Key              string   `json:"key"`
@@ -187,6 +190,9 @@ func ResolveCatalog(catalog *Catalog) error {
 func resolveWithOMPCatalog(catalog *Catalog, snapshot *provider.OMPCatalogSnapshot) error {
 	for index := range catalog.Models {
 		item := &catalog.Models[index]
+		if item.Generation != nil {
+			continue
+		}
 		resolved, err := snapshot.ResolveConfig(item.providerConfig())
 		if err != nil {
 			return err
@@ -268,7 +274,19 @@ func Validate(catalog Catalog) error {
 		return errors.New("configure at most 16 models")
 	}
 	seen := map[string]bool{}
+	chat := map[string]bool{}
 	for _, item := range catalog.Models {
+		if item.Generation != nil {
+			if item.Key != "generation-"+item.Generation.Kind || seen[item.Key] {
+				return errors.New("invalid generation setting key")
+			}
+			if err := validateGeneration(item); err != nil {
+				return err
+			}
+			seen[item.Key] = true
+			continue
+		}
+		chat[item.Key] = true
 		if item.CopilotAuth != nil {
 			if item.ProviderID != "github-copilot" {
 				return errors.New("Copilot login settings are only supported for GitHub Copilot")
@@ -321,7 +339,7 @@ func Validate(catalog Catalog) error {
 		}
 
 	}
-	if !seen[catalog.Default] && (len(catalog.Models) != 0 || catalog.Default != "") {
+	if !chat[catalog.Default] && (len(chat) != 0 || catalog.Default != "") {
 		return errors.New("default model key is not configured")
 	}
 	return nil
@@ -346,6 +364,9 @@ func (c Catalog) resolve(key string, allowDisabled bool) (modelcfg.Model, string
 	}
 	for _, item := range c.Models {
 		if item.Key == key {
+			if !item.ChatEligible() {
+				return modelcfg.Model{}, "", errors.New("model cannot be used for conversation")
+			}
 			if item.Disabled && !allowDisabled {
 				return modelcfg.Model{}, "", errors.New("this model connection is disabled")
 			}
@@ -366,7 +387,9 @@ func (c Catalog) resolve(key string, allowDisabled bool) (modelcfg.Model, string
 func (c Catalog) Public() []Info {
 	result := make([]Info, 0, len(c.Models))
 	for _, item := range c.Models {
-		result = append(result, item.Info())
+		if item.Generation == nil {
+			result = append(result, item.Info())
+		}
 	}
 	sort.Slice(result, func(i, j int) bool { return result[i].Key < result[j].Key })
 	return result
@@ -391,7 +414,7 @@ func (item Configured) Info() Info {
 	if item.ProviderID == "custom" || (item.Provider == "openai-chat" || item.Provider == "openai-responses") && (item.ProviderID == "" || item.ProviderID == "openai") {
 		baseURL = item.BaseURL
 	}
-	return Info{Disabled: item.Disabled, ProxyID: item.ProxyID, Key: item.Key, ConnectionID: item.ConnectionID, Name: item.Name, ModelName: modelName, Recognized: item.Recognized(), Provider: item.Provider, ProviderID: item.ProviderID, ID: item.ID, BaseURL: baseURL, Tools: item.Tools, Context: item.Context, InputLimit: item.inputLimit, OutputLimit: item.outputLimit, CatalogReasoning: item.catalogReasoning, Status: item.status, InputModalities: provider.SupportedInputModalities(item.Provider, item.EffectiveInputModalities()), OutputModalities: item.outputModalities, DiscoverySource: item.discoverySource, ReasoningOptions: options, ProcessingTiers: provider.ProcessingOptions(request)}
+	return Info{Kind: item.Kind(), Disabled: item.Disabled, ProxyID: item.ProxyID, Key: item.Key, ConnectionID: item.ConnectionID, Name: item.Name, ModelName: modelName, Recognized: item.Recognized(), Provider: item.Provider, ProviderID: item.ProviderID, ID: item.ID, BaseURL: baseURL, Tools: item.Tools, Context: item.Context, InputLimit: item.inputLimit, OutputLimit: item.outputLimit, CatalogReasoning: item.catalogReasoning, Status: item.status, InputModalities: provider.SupportedInputModalities(item.Provider, item.EffectiveInputModalities()), OutputModalities: item.outputModalities, DiscoverySource: item.discoverySource, ReasoningOptions: options, ProcessingTiers: provider.ProcessingOptions(request)}
 }
 
 // Recognized reports available catalog or explicit capability metadata, including
@@ -437,5 +460,19 @@ func (m Configured) WithStatus(status string) Configured {
 
 // Available reports whether the inventory permits selecting this model.
 func (m Configured) Available() bool {
-	return !m.Disabled && (m.status == "" || m.status == "active" || m.status == "deprecated")
+	return m.ChatEligible() && !m.Disabled && (m.status == "" || m.status == "active" || m.status == "deprecated")
+}
+
+func (m Configured) Kind() string {
+	if m.Generation != nil {
+		return m.Generation.Kind
+	}
+	if m.modelKind != "" {
+		return provider.ConversationCategory(m.modelKind)
+	}
+	return provider.ConversationCategory(provider.DeclaredModelKind(m.ProviderID, m.ID))
+}
+func (m Configured) ChatEligible() bool {
+	kind := m.Kind()
+	return m.Generation == nil && (kind == "" || kind == "chat") && (len(m.outputModalities) == 0 || slices.Contains(m.outputModalities, "text"))
 }

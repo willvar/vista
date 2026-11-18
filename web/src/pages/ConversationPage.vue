@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import GenerationCard from '../GenerationCard.vue'
+import { generationCards } from '../state/generationCards'
 import { computed, nextTick, onMounted, onUnmounted, ref, shallowRef, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { Empty as VEmpty, Alert as VAlert, Button as VButton, Modal as VModal, Spin as VSpin } from '../ui'
@@ -52,6 +54,7 @@ const { synchronization, snapshotReady, viewRevision, resynchronize, renderFailu
   modelByRun,
   hasOlder, hasNewer, lastEvent, loadOlder, readOutputIndexes, readDisplayOutput, releaseDisplayOutput, modelOutputLoading, modelOutputFailure,
   fullMessageText, resultsForMessage, resultsForTrace, traceSegment, trailingTrace, runReplyTurns, runActivityAnchor, firstRunSequence } = workspace.conversation
+const cards = computed(() => generationCards(processEvents.value))
 const runningJobs = computed(() => jobs.value.filter(jobActive).length)
 const showExecution = computed(() => agentWorking.value || compacting.value || !!compactionResult.value)
 const executionClock = computed(() => manualCompacting.value || compactionRequestPending.value || compactionResult.value ? null : runClock.value)
@@ -349,7 +352,8 @@ onUnmounted(() => {
             class="timeline-row message-row" :class="[row.message.role, { 'quote-source-target': quoteSourceKey === row.message.displayKey }]">
           <div v-if="history.missing.value.has(row.key)" class="message-output-loading" role="status">{{ t('outputLoading') }}</div>
           <article v-else :ref="observeReply" :data-session-id="selected.id" :data-context-summary="row.message.contextSummary || undefined" :data-reply-sequence="row.message.role === 'assistant' && !row.message.contextSummary && !row.message.progress ? row.message.sequence : undefined" :class="[row.message.role, { 'question-reply': row.message.questionCallId, 'main-output': row.message.progress, 'live-response': row.message.progress && !row.message.mainOutput?.complete && agentWorking }]"><Bubble :streaming="!!row.message.progress && !row.message.mainOutput?.complete && agentWorking" :content="row.message.content" :placement="row.message.role === 'user' ? 'end' : 'start'" :variant="row.message.role === 'user' ? 'filled' : 'borderless'" :styles="{ body: { maxWidth: '100%', width: row.message.role === 'assistant' ? '100%' : undefined } }"><template #header><div class="message-meta"><time :datetime="row.message.createdAt" :title="localTime(row.message.createdAt)">{{ localTime(row.message.createdAt) }}</time></div></template><template #content><div v-if="row.message.failure" class="markdown run-failure-message" :data-quote-role="row.message.role" role="alert">{{ row.message.content }}</div><MessageMarkdown v-else :content="row.message.content" :role="row.message.role" @failure="renderFailure" /><FailureHelp v-if="row.message.failure" :failure="{ kind: 'execution', runId: row.message.runId, error: row.message.content, sequence: row.message.sequence, messageId: row.message.id, createdAt: row.message.createdAt, provider: row.message.provider, modelId: row.message.modelId, modelKey: row.message.modelKey }" /><MessageImages v-if="row.message.imageCount && selected" :session-id="selected.id" :message-id="row.message.id" :count="row.message.imageCount!" /><small v-if="modelOutputLoading[displayOutputKey(row.message)]" class="message-output-loading" role="status">{{ t('outputLoading') }}</small><div v-if="modelOutputFailure[displayOutputKey(row.message)]" class="message-output-error"><small role="alert" :title="modelOutputFailure[displayOutputKey(row.message)]">{{ t('outputLoadFailed') }}</small><v-button @click="history.retry(row.message)">{{ t('retry') }}</v-button></div></template><template v-if="!row.message.progress" #footer><div class="reply-footer"><MessageActions :allow-mutation="row.message.role === 'user'" :mutation-disabled="busy || !selected.open" @edit="beginEditMessage(row.message)" @withdraw="requestWithdrawal(row.message)" :text="row.message.content" :full-text="row.message.mainOutput || needsFullMessageText(row.message) ? () => fullMessageText(row.message) : undefined" /><MessageUsage v-if="row.message.role === 'assistant'" :results="resultsForMessage(row.message)" :model-name="runModelName(row.message)" /></div></template></Bubble></article>
-        </TimelineItem></div>
+        <GenerationCard v-for="card in cards.get(row.message.sequence)" :key="card.key" :session-id="selected.id" :card="card" />
+          </TimelineItem></div>
 
         </div>
         <div v-if="scrolling.loading.value || history.prepending.value" class="history-loading" :class="{ 'history-loading-earlier': scrolling.presented.value }" role="status" :aria-label="t('uiLoading')"><v-spin /></div>

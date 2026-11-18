@@ -121,6 +121,7 @@ func (m *Configured) applyDiscoveredMetadata(row discoveryFields) {
 	if tools != nil && (m.Tools == nil || !*tools) {
 		m.Tools = tools
 	}
+	m.modelKind = row.text("type", "kind")
 	m.inputModalities = inventoryModalities(row.strings("input_modalities", "inputModalities"), architecture.strings("input_modalities"), modalities.strings("input"))
 	m.outputModalities = inventoryModalities(row.strings("output_modalities", "outputModalities"), architecture.strings("output_modalities"), modalities.strings("output"))
 	if vision := firstBoolean(row.boolean("supports_vision"), capabilities.boolean("vision")); vision != nil && m.inputModalities == nil {

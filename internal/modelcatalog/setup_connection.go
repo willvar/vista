@@ -181,7 +181,13 @@ func replaceConnection(ctx context.Context, raw Catalog, previous *Configured, s
 		foundDefault = foundDefault || model.Key == raw.Default
 	}
 	if !foundDefault {
-		raw.Default = retained[0].Key
+		raw.Default = firstReplacement
+		for _, row := range retained {
+			if row.Generation == nil {
+				raw.Default = row.Key
+				break
+			}
+		}
 		if replacingDefault {
 			raw.Default = firstReplacement
 		}

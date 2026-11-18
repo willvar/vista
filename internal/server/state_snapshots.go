@@ -8,6 +8,7 @@ import (
 )
 
 type publicModelCatalog struct {
+	ConversationDefault    string      `json:"conversationDefault"`
 	Default                string      `json:"default"`
 	Models                 []modelInfo `json:"models"`
 	ShowUnrecognizedModels bool        `json:"showUnrecognizedModels"`
@@ -27,8 +28,12 @@ func (a *App) publicModelsSnapshot(ctx context.Context) (publicModelCatalog, err
 	}
 	a.modelMu.RLock()
 	models, revision := a.models, a.modelRevision
+	configured := models
+	if a.baseModels.Default != "" {
+		configured.Default = a.baseModels.Default
+	}
 	a.modelMu.RUnlock()
-	return publicModelCatalog{Default: initialVisibleModelKey(models, prefs.ShowUnrecognizedModels), Models: models.Public(), ShowUnrecognizedModels: prefs.ShowUnrecognizedModels, SettingsRevision: a.modelSettingsVersion(revision)}, nil
+	return publicModelCatalog{Default: initialVisibleModelKey(models, prefs.ShowUnrecognizedModels), ConversationDefault: configuredChatKey(configured, prefs.ShowUnrecognizedModels), Models: models.Public(), ShowUnrecognizedModels: prefs.ShowUnrecognizedModels, SettingsRevision: a.modelSettingsVersion(revision)}, nil
 }
 
 func (a *App) addStateSnapshots(ctx context.Context, host string, point *stateCheckpoint, previous stateCheckpoint) error {

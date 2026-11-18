@@ -569,6 +569,7 @@ export function useProviderSettings({ client, error, stateSync, modelCatalog }: 
     agentSettingsResetKeys, canSaveAgentField,
     agentSettingsBusy, agentSettingsLoading, agentSettingsError, agentSettingsSaved, agentInstructionsConflict,
     loadAgentSettings, saveAgentSettings, modelDraft, modelFormOpen, chosenModels,
+    acceptModelSettings,
     providerDraftVersion, providerConflict, manualModelIDs, canReuseHeader, editingProvider, providerOptions, canSaveProvider,
     providerChoice, providerChoiceSchema, providerChoiceUISchema,
     selectedSetup, deploymentModelSelection, providerModelOptions, usesAPIKey, authenticationHeader,

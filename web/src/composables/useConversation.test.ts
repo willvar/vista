@@ -241,13 +241,13 @@ test('a verified snapshot stays available through stream failure and resets befo
   assert.equal(f.conversation.snapshotReady.value, false)
 })
 
-test('opening a conversation restores the saved manual model from its authoritative snapshot', async t => {
+test('opening a conversation follows the Settings default without rewriting its saved selection', async t => {
   const persisted: Session = { ...session('a'), manualModelKey: 'other' }
   const f = fixture(t, path => path === '/sessions/a/snapshot' ? Promise.resolve({ session: persisted,
     throughSequence: 0, messages: [], events: [], hasOlder: false, queuedInputs: [], hasOlderEvents: false }) : undefined)
   f.modelCatalog.value.models.push({ key: 'other', id: 'other-model', provider: 'openai-chat', recognized: true })
   await f.conversation.selectSession({ ...session('a') })
-  assert.equal(f.conversation.selectedModel.value, 'other')
+  assert.equal(f.conversation.selectedModel.value, 'example')
   assert.equal(f.conversation.selected.value?.manualModelKey, 'other')
 })
 
@@ -294,6 +294,7 @@ for (const timing of ['before response', 'after response', 'failed response'] as
       }
     })
     f.modelCatalog.value.models.push({ key: 'other', provider: 'openai-chat', id: 'other-model', recognized: true, reasoningOptions: ['low', 'high'] })
+    f.modelCatalog.value = { ...f.modelCatalog.value, conversationDefault: 'other' }
     const opening = f.conversation.selectSession({ ...session('a'),
       manualModelKey: 'other', pendingReply: questionPending() })
     const before = { model: f.conversation.selectedModel.value, reasoning: f.conversation.selectedReasoning.value }
@@ -454,9 +455,9 @@ for (const failed of [false, true]) {
 test('attachments use server capabilities from the selected model without a protocol whitelist', t => {
   const { conversation, modelCatalog } = fixture(t)
   modelCatalog.value.models.push({ key: 'new-protocol', provider: 'future-protocol', recognized: true, id: 'vision', inputModalities: ['text', 'image'] })
-  conversation.chooseModel('new-protocol')
+  modelCatalog.value = { ...modelCatalog.value, conversationDefault: 'new-protocol' }
   assert.equal(conversation.canAttachImage.value, true)
-  conversation.chooseModel('example')
+  modelCatalog.value = { ...modelCatalog.value, conversationDefault: 'example' }
   assert.equal(conversation.canAttachImage.value, false)
   modelCatalog.value.models[1]!.inputModalities = ['text']
   assert.equal(conversation.canAttachImage.value, false)
@@ -796,7 +797,7 @@ test('hiding an active unknown choice also excludes restored choices without swi
     { key: 'unknown', id: 'private-id', provider: 'openai-chat', recognized: false },
   ] }
   await conversation.selectSession({ ...session('a'), modelKey: 'unknown', manualModelKey: 'unknown' })
-  conversation.chooseModel('unknown')
+  modelCatalog.value = { ...modelCatalog.value, conversationDefault: 'unknown' }
   conversation.draft.value = 'Keep this draft'
   assert.equal(conversation.selectedModel.value, 'unknown')
 
@@ -804,9 +805,9 @@ test('hiding an active unknown choice also excludes restored choices without swi
   assert.equal(conversation.selectedModel.value, '')
   assert.equal(conversation.selected.value?.modelKey, 'unknown')
   assert.equal(conversation.draft.value, 'Keep this draft')
-  conversation.chooseModel('unknown')
+  modelCatalog.value = { ...modelCatalog.value, conversationDefault: 'unknown' }
   assert.equal(conversation.selectedModel.value, '')
-  conversation.chooseModel('example')
+  modelCatalog.value = { ...modelCatalog.value, conversationDefault: 'example' }
   assert.equal(conversation.selectedModel.value, 'example')
 })
 
@@ -817,7 +818,7 @@ test('hiding the only selected model clears selection without switching on reope
     { key: 'unknown', id: 'private-id', provider: 'openai-chat', recognized: false },
   ] }
   await conversation.selectSession(old)
-  conversation.chooseModel('unknown')
+  modelCatalog.value = { ...modelCatalog.value, conversationDefault: 'unknown' }
   assert.equal(conversation.selectedModel.value, 'unknown')
   modelCatalog.value = { ...modelCatalog.value, showUnrecognizedModels: false }
   assert.equal(conversation.selectedModel.value, '')
@@ -1073,7 +1074,8 @@ test('welcome view restores the last model, and reasoning after preferences and 
   ] }
   preferences.ready.value = true
   assert.equal(conversation.selected.value, null)
-  assert.equal(conversation.selectedModel.value, 'other')
+  assert.equal(conversation.selectedModel.value, 'example')
+  modelCatalog.value = { ...modelCatalog.value, conversationDefault: 'other' }
   assert.equal(conversation.selectedModel.value, 'other')
   assert.equal(conversation.selectedReasoning.value, 'high')
 })
@@ -1149,7 +1151,7 @@ test('the first welcome send creates one session and sends the exact chosen mode
     if (path === '/sessions/first/messages') return Promise.resolve({ runId: 'first-run', message: message('first-user', 1, 'first-run') })
   }, async item => { destinations.push(item.id) })
   modelCatalog.value.models.push({ key: 'second', id: 'model-second', provider: 'openai-chat', recognized: true, reasoningOptions: ['low', 'high'], inputModalities: ['text', 'image'] })
-  conversation.chooseModel('second')
+  modelCatalog.value = { ...modelCatalog.value, conversationDefault: 'second' }
   conversation.selectedReasoning.value = 'high'
   conversation.draft.value = 'Exact first message'
   conversation.addImages([new File(['png'], 'welcome.png', { type: 'image/png' })])
@@ -2009,7 +2011,6 @@ test('snapshot recovery preserves composer state and a send acknowledgement newe
   conversation.quoteSelection({ text: 'Keep this quote', role: 'assistant' })
   const image = new File(['image'], 'draft.png', { type: 'image/png' })
   conversation.attachedImages.value = [image]
-  conversation.chooseModel('example')
   conversation.selectedReasoning.value = 'high'
   rebuilding.resolve({ session: session('a'), throughSequence: 2, messages: original, events: [], hasOlder: false, queuedInputs: [], hasOlderEvents: false })
   await streams.get('a')!.beforeConnect!()

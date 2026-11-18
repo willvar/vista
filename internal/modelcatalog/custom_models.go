@@ -105,7 +105,7 @@ func discoverCustomPages(ctx context.Context, source Configured, endpoint string
 			model := source
 			model.ID = id
 			model.applyDiscoveredMetadata(row)
-			if model.inputModalities != nil && !slices.Contains(model.inputModalities, "text") || model.outputModalities != nil && !slices.Contains(model.outputModalities, "text") {
+			if !model.ChatEligible() || model.inputModalities != nil && !slices.Contains(model.inputModalities, "text") || model.outputModalities != nil && !slices.Contains(model.outputModalities, "text") {
 				continue
 			}
 			seenIDs[id] = true

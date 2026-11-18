@@ -7,7 +7,7 @@ const escape = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 // Mixed contract/state suites opt in per scenario with @responsive rather
 // than repeating every keyboard, value-rule and request assertion on phones.
 const responsiveFiles = [
-  'appearance', 'composer-sizing', 'drawer-swipe', 'images', 'layout',
+  'appearance', 'generation-tools', 'composer-sizing', 'drawer-swipe', 'images', 'layout',
   'main-outputs', 'modal-header', 'modal-motion', 'model-names', 'reduced-motion',
   'session-batch', 'session-bulk', 'session-reminders', 'settings-batch', 'settings-navigation',
   'sidebar-width', 'worker-status',
@@ -16,7 +16,7 @@ const responsiveTitles: Record<string, string> = {
   'agent-settings': 'full-screen instructions|Appearance and Personalization remain usable|Personalization saves delegation|automatic titles toggle',
   'compaction': 'short referenced summaries|an automatic summary appears|manual compaction preserves chat and draft|interrupted manual compaction',
   'execution-flow': 'execution messages appear|interleaved main and child|long chronological execution|new execution steps|expanded execution history|continuous history prepares|historical full text|earlier history uses one loading indicator|current action, timing|stopping a run|new runs clear|write_file diffs|truncated file and search|usage totals|multi-megabyte process logs|switching monitored processes|token usage uses',
-  'iteration': 'manual selection, pending controls|processing tier follows the selected model',
+  'iteration': 'configured defaults, pending controls|processing tier follows the selected model',
   'mcp-settings': 'MCP dialogs and long tools stay readable',
   'model-catalog': 'OMP and models.dev updates live|catalog conflicts identify',
   'onboarding': 'connect a provider and create the first session',
@@ -38,9 +38,9 @@ export const responsiveGrep = new RegExp([
 ].join('|'))
 
 const groups: Record<string, string[]> = {
-  conversation: ['background-process', 'compaction', 'composer-sizing', 'conversation-sync', 'detached', 'empty-reply', 'execution-flow', 'failure-analysis', 'follow-up', 'images', 'interjection', 'iteration', 'layout', 'main-outputs', 'message-revert', 'model-diagnostics', 'model-retry', 'provider-output', 'question', 'quoted-reply', 'usage', 'worker-status'],
+  conversation: ['generation-tools', 'background-process', 'compaction', 'composer-sizing', 'conversation-sync', 'detached', 'empty-reply', 'execution-flow', 'failure-analysis', 'follow-up', 'images', 'interjection', 'iteration', 'layout', 'main-outputs', 'message-revert', 'model-diagnostics', 'model-retry', 'provider-output', 'question', 'quoted-reply', 'usage', 'worker-status'],
   sessions: ['management-pagination', 'session-actions', 'agent-session-tools', 'session-batch', 'session-bulk', 'session-close', 'session-flow', 'session-manager', 'session-reminders', 'session-scope', 'state-sync'],
-  models: ['codex-login', 'model-catalog', 'model-names', 'model-visibility', 'onboarding', 'provider-errors', 'provider-import', 'provider-setup', 'selection-flow', 'selection-stats'],
+  models: ['generation-tools', 'codex-login', 'model-catalog', 'model-names', 'model-visibility', 'onboarding', 'provider-errors', 'provider-import', 'provider-setup', 'selection-flow', 'selection-stats'],
   personalization: ['agent-settings', 'long-term-instructions', 'extension-import', 'settings-batch'],
   skills: ['skills-settings', 'extension-import', 'settings-batch'],
   mcp: ['mcp-settings', 'extension-import', 'settings-batch'],
@@ -52,6 +52,7 @@ const groups: Record<string, string[]> = {
   operationProgress: ['environment-check', 'resource-storage', 'session-batch', 'settings-batch'],
 }
 const consumers: [RegExp, string[]][] = [
+  [/^internal\/(?:generation\/|resources\/generated\.go|server\/generation_settings\.go)|^web\/src\/(?:Generation|state\/generationCards)/, ['models', 'conversation']],
   [/^web\/src\/(?:App\.vue$|SessionActionDialog\.vue$|client\/(?:sse|conversationSync|types)\.)|^internal\/(?:server|store)\/session_actions\.go$|^internal\/agent\/tool_(?:session|history)\.go$/, ['sessions', 'conversation']],
   [/^web\/src\/ui\/TabbedModal\.vue$/, ['about']],
   [/^web\/src\/ui\/Tabs\.vue$/, ['controls', 'about', 'models', 'conversation']],

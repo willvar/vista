@@ -11,7 +11,7 @@ import { formatQuotedReply, quoteStoragePrefix, readQuotedReply, type QuotedRepl
 import { reasoningChoiceLabel } from '../ui/reasoning.ts'
 import { confirmInputEvent, projectInputQueue } from '../state/inputQueue.ts'
 import { jobActive } from '../state/jobs.ts'
-import { initialModelKey, visibleModels } from '../state/modelVisibility.ts'
+import { configuredConversationModel, visibleModels } from '../state/modelVisibility.ts'
 import { failureAnalysisPrompt, type FailureContext } from '../state/failureAnalysis.ts'
 
 export type ConversationOptions = {
@@ -124,21 +124,12 @@ export function useConversation({ client, sessions, modelCatalog, error, busy, r
   }
   function initializeWelcomeSelection() {
     if (selected.value) return
-    selectedModel.value = initialModelKey(modelCatalog.value, [rememberedModel.value?.key])
+    selectedModel.value = configuredConversationModel(modelCatalog.value)
   }
 
   function rememberSelectedModel() {
     const model = selectedModelInfo.value
     if (model) rememberedModel.value = { key: model.key, id: model.id, reasoningEffort: selectedReasoning.value }
-  }
-  function chooseModel(key: string) {
-    if (!visibleModels(modelCatalog.value).some(model => model.key === key)) return
-    if (key === selectedModel.value) return
-    selectedModel.value = key
-    localReasoning.value = undefined
-    selectedProcessingTier.value = ''
-    rememberSelectedModel()
-    void saveSelection({ manualModelKey: key, manualReasoningEffort: selectedReasoning.value, processingTier: '' })
   }
   let selectionVersion = 0
   let selectionSave = Promise.resolve()
@@ -458,13 +449,12 @@ export function useConversation({ client, sessions, modelCatalog, error, busy, r
     if (open && previous === false && synchronization.value.phase === 'stopped') currentScope?.sync?.reconnect('conversation reopened', true)
   }, { flush: 'sync' })
   watch(modelCatalog, catalog => {
-    if (!selected.value) initializeWelcomeSelection()
-    else {
-      const saved = selectedModel.value || selected.value.manualModelKey || selected.value.modelKey
-      selectedModel.value = saved ? visibleModels(catalog).find(model => model.key === saved)?.key || '' : initialModelKey(catalog)
+    const primary = configuredConversationModel(catalog)
+    if (selectedModel.value !== primary) {
+      selectedModel.value = primary
+      selectedProcessingTier.value = ''
     }
-  }, { flush: 'sync' })
-  watch([interactionPreferences.ready, rememberedModel, modelCatalog], initializeWelcomeSelection, { flush: 'sync', immediate: true })
+  }, { flush: 'sync', immediate: true })
 
   // Index loading is independent of the trace and of virtual row mounting.
   watch(() => [...new Set([...messages.value.filter(message => !message.contextSummary).map(message => message.runId), ...(state.hasNewer ? [] : [activeRunID.value])])].filter(Boolean), runs => {
@@ -566,9 +556,9 @@ export function useConversation({ client, sessions, modelCatalog, error, busy, r
 
   function restoreSelection(session: Session) {
     const saved = session.manualModelKey || session.modelKey
-    selectedModel.value = saved ? visibleModels(modelCatalog.value).find(model => model.key === saved)?.key || '' : initialModelKey(modelCatalog.value)
+    selectedModel.value = configuredConversationModel(modelCatalog.value)
     localReasoning.value = saved && session.manualReasoningEffort ? { modelKey: saved, effort: session.manualReasoningEffort } : undefined
-    selectedProcessingTier.value = selectedModel.value ? session.processingTier || '' : ''
+    selectedProcessingTier.value = selectedModel.value === saved ? session.processingTier || '' : ''
   }
   async function selectSession(session: Session) {
     clearSession()
@@ -1226,7 +1216,7 @@ export function useConversation({ client, sessions, modelCatalog, error, busy, r
     selectedReasoning, reasoningChoices, canAttachImage, attachedImages, attachedPreviewURLs,
     selectedProcessingTier, processingTiers, chooseProcessingTier,
      pendingInputs, inputQueuePaused, pendingBusy, mutateInput, resumeInputs, compaction, compacting, compactionResult, contextUsage, canCompact, compactSession, manualCompacting, compactionRequestPending, continueAfterCompaction, fillContinueDraft,
-    draft, quotedTexts, quoteSelection, removeQuote, agentWorking, agentStatus, hasTaskDetails, chooseModel, recallLastUserMessage,
+    draft, quotedTexts, quoteSelection, removeQuote, agentWorking, agentStatus, hasTaskDetails, recallLastUserMessage,
     synchronization, syncDiagnostics, snapshotReady, viewRevision, resynchronize, renderFailure,
     selectSession, clearSession, refreshConversation, loadOlderActivity, showRecentActivity, loadOlder, loadNewer, loadLatest, markRead,
     send, submitMessage, analyzingFailure, canAnalyzeFailure, analyzeFailure, canRetryFailure, retryFailure, submitQuestion, cancelExecution, readModelOutput, modelOutputLoading, modelOutputFailure,

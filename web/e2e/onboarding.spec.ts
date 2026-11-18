@@ -205,13 +205,7 @@ test.describe('first launch without a provider', () => {
     await expect(page).toHaveURL(url => url.pathname === '/')
     await expect(page.locator('.welcome')).toBeVisible()
     await expect(sender).toBeVisible()
-    const modelPicker = sender.locator('.composer-model')
-    const composerLabel = page.viewportSize()!.width <= 830 ? 'GPT-6 Luna' : 'E2E Provider · GPT-6 Luna'
-    await modelPicker.scrollIntoViewIfNeeded()
-    await modelPicker.click()
-    await page.locator('.ui-select-dropdown:visible .ui-select-item-option')
-      .filter({ hasText: 'GPT-6 Luna' }).first().click()
-    await expect(modelPicker.locator('.ui-select-selection-item')).toHaveText(composerLabel)
+    await expect(sender.locator('.composer-model')).toHaveCount(0)
 
     const catalog = await vista.api('/models') as { models: { name?: string; id: string; reasoningOptions?: string[] }[] }
     const reasoningOptions = catalog.models.find(model => model.name === 'E2E Provider' && model.id === vista.modelId)?.reasoningOptions || []
@@ -238,7 +232,7 @@ test.describe('first launch without a provider', () => {
     await closeSettings(page)
     await expect(page).toHaveURL(url => url.pathname === '/')
     await expect(sender.getByPlaceholder('Send a message')).toHaveValue('Hi')
-    await expect(modelPicker.locator('.ui-select-selection-item')).toHaveText(composerLabel)
+    await expect(sender.locator('.composer-model')).toHaveCount(0)
     await expect(reasoningPicker).toContainText(reasoningLabel)
     expect(await vista.api('/sessions')).toHaveLength(0)
     expect(creationRequests).toBe(0)

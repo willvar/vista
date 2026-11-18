@@ -409,6 +409,7 @@ func (a *App) handler() http.Handler {
 	mux.HandleFunc("/api/model-catalog", a.ompCatalog)
 	mux.HandleFunc("/api/user-agent", a.userAgentSettings)
 	mux.HandleFunc("/api/model-config", a.modelSettings)
+	mux.HandleFunc("/api/generation-models", a.generationCandidates)
 	mux.HandleFunc("/api/provider-config", a.providerSettings)
 	mux.HandleFunc("/api/provider-import", a.importProviders)
 	mux.HandleFunc("/api/extension-import", a.importExtensions)

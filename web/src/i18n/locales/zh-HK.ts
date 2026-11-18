@@ -485,5 +485,16 @@ export default { ...base, ...{
   "connectionUsageRoute": "網絡路徑",
   "connectionUsageRequests": "調用量",
   "connectionUsageConnect": "新連接就緒",
-  "connectionUsageOutcome_connection": "連接失敗"
+  "connectionUsageOutcome_connection": "連接失敗",
+  "generationVideo": "生成視頻",
+  "generationSeparateConnection": "獨立連接",
+  "generationNoFirstFrame": "此連接不能使用會話裏的私有圖片作為首幀。",
+  "generationKeepKey": "留空沿用已保存的密鑰",
+  "generationSettingsChanged": "設置已變化。請關閉並重新打開此表單。",
+  "generationWorkflow": "導入 ComfyUI API 工作流",
+  "generationWorkflowInvalid": "請選擇不超過 16 KiB 的 API 工作流 JSON 文件。",
+  "generationClear": "清除綁定",
+  "generationVideoRunning": "正在生成視頻…",
+  "generationFailed": "生成失敗；請查看執行詳情。",
+  "generationOpenVideo": "打開視頻資源"
 } }

@@ -42,6 +42,11 @@ Oh My Pi@overflow rules f1ac114d8d3438bee43010aee559bfe720ba3224; catalog blob 6
   Source: https://github.com/can1357/oh-my-pi
   LICENSE: 16c45f9d667442781f03fa198914cc39abcaa48ec5ed8f644643e554ca2fbf63
 
+OpenClaw@v2026.11.5 (e13cf15ece9bbd969b7362927c315362c90c97ff)
+  Use: Adapted media-provider wire protocols and regression cases
+  Source: https://github.com/openclaw/openclaw
+  LICENSE: 9efd316ecf1c4c60f6fd5d26433142fff2b6794d7d328e9bc6179b29bf9c82a4
+
 OpenCode@6dd40633a15ec82c5fa2f2c4ea17e22c2ba67084
   Use: Adapted prompt-cache policy, breakpoint selection and regression cases
   Source: https://github.com/anomalyco/opencode
@@ -746,7 +751,7 @@ models.dev@runtime catalog
   Source: https://github.com/anomalyco/models.dev
   LICENSE: dc2dc41c9fea2fd3c41c21c6f484844cab367800b88ff24781f980ad3a9d160a
 
-Go standard library@go1.27.3
+Go standard library@go1.27.4
   Use: Runtime
   Source: https://go.dev/LICENSE
   LICENSE: 911f8f5782931320f5b8d1160a76365b83aea6447ee6c04fa6d5591467db9dad
@@ -4106,6 +4111,32 @@ INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES WHATSOEVER RESULTING FROM LOSS
 OF USE, DATA OR PROFITS, WHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER
 TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF
 THIS SOFTWARE.
+
+========================================================================
+SHA-256: 9efd316ecf1c4c60f6fd5d26433142fff2b6794d7d328e9bc6179b29bf9c82a4
+========================================================================
+
+MIT License
+
+Copyright (c) 2026 OpenClaw Foundation
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
 
 ========================================================================
 SHA-256: a09cf172b475f76e0cb456e3cd346b1aa3fe5169ae5454f9f7fbe98b3e93c85f

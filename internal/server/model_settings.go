@@ -8,6 +8,7 @@ import (
 	"sort"
 
 	"vista/internal/copilotauth"
+	"vista/internal/generation"
 	modelcfg "vista/internal/model"
 	"vista/internal/modelcatalog"
 	"vista/internal/network"
@@ -52,6 +53,9 @@ func (a *App) writeModelSettings(w http.ResponseWriter) {
 	}
 	items := make([]modelSetting, 0, len(catalog.Models))
 	for _, model := range catalog.Models {
+		if model.Generation != nil {
+			continue
+		}
 		mode := "apiKey"
 		if model.ProviderID == "custom" {
 			mode = model.Authentication
@@ -82,7 +86,7 @@ func (a *App) writeModelSettings(w http.ResponseWriter) {
 		items = append(items, modelSetting{ConnectionKey: connectionKey, Disabled: model.Disabled, PromptCaching: model.PromptCaching, ResponsesRoute: model.ResponsesRoute, ProxyID: model.ProxyID, Kind: modelcatalog.SetupID(model), Key: model.Key, ConnectionID: model.ConnectionID, Name: model.Name, Provider: model.Provider, ProviderID: model.ProviderID, ID: model.ID, BaseURL: model.BaseURL, HasAPIKey: model.APIKey != "", Editable: exists && modelcatalog.Editable(model),
 			HeaderNames: headerNames, CopilotAuth: model.CopilotAuth, HasAccessToken: model.AccessToken != "", CredentialMode: mode, Region: model.Region, Project: model.Project, Location: model.Location, ResourceName: model.ResourceName, DeploymentID: model.DeploymentID, APIVersion: model.APIVersion})
 	}
-	jsonOut(w, map[string]any{"default": catalog.Default, "models": items, "settingsRevision": a.modelSettingsVersion(snapshot.revision)})
+	jsonOut(w, map[string]any{"default": catalog.Default, "models": items, "settingsRevision": a.modelSettingsVersion(snapshot.revision), "generation": catalog.GenerationSettings(), "generationAdapters": generation.Specs()})
 }
 
 func (a *App) modelSettings(w http.ResponseWriter, r *http.Request) {
@@ -90,12 +94,22 @@ func (a *App) modelSettings(w http.ResponseWriter, r *http.Request) {
 	case http.MethodGet:
 		a.writeModelSettings(w)
 	case http.MethodPatch:
-		r.Body = http.MaxBytesReader(w, r.Body, 8<<10)
+		r.Body = http.MaxBytesReader(w, r.Body, 32<<10)
 		var input struct {
-			Key string `json:"key"`
+			Key        string                       `json:"key"`
+			Revision   string                       `json:"revision,omitempty"`
+			Generation *modelcatalog.GenerationEdit `json:"generation,omitempty"`
 		}
 		if err := decodeSettingsRequest(r.Body, &input); err != nil {
 			settingsHTTPError(w, errors.New("invalid model settings request"), 400)
+			return
+		}
+		if input.Generation != nil && input.Key == "" {
+			if err := a.editGeneration(r.Context(), *input.Generation, input.Revision); err != nil {
+				settingsHTTPError(w, err, 400)
+				return
+			}
+			a.writeModelSettings(w)
 			return
 		}
 		if input.Key == "" || len(input.Key) > 64 {

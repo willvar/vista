@@ -6,6 +6,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/google/uuid"
+	"vista/internal/resources"
 	"vista/internal/workerproto"
 )
 
@@ -85,6 +86,18 @@ func prepareToolProgress(stateDir string, result workerproto.Result) (workerprot
 	}
 	if result.Status == "started" && (result.AckID == "" || len(result.AckID) > 64 || tool.ProviderExecuted) {
 		return result, false
+	}
+
+	if tool.SourceSequence < 0 || tool.MediaState != "" || tool.Generated != nil || tool.SourceSequence != 0 {
+		if tool.SourceSequence < 0 || name != "generate_image" && name != "generate_video" {
+			return result, false
+		}
+		if tool.MediaState != "" && (result.Status != "failed" || tool.MediaState != "stopped" && tool.MediaState != "canceled") {
+			return result, false
+		}
+		if ref := tool.Generated; ref != nil && (result.Status != "succeeded" || !resources.ValidHash(ref.Hash) || !resources.ValidResourceSize(ref.MediaType, ref.Bytes) || len(ref.Name) > 1024 || (name == "generate_image") != resources.ValidImageType(ref.MediaType)) {
+			return result, false
+		}
 	}
 	result.AckID = ""
 	copiedTool := *tool
