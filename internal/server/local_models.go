@@ -146,9 +146,28 @@ func (a *App) rebuildModelsLocked() {
 		catalog.Default = catalog.Models[0].Key
 	}
 	if !reflect.DeepEqual(a.models, catalog) {
+		previous := a.models
 		a.models = catalog
 		a.updates.notify("models", "status")
+		// Recheck durable continuations once per availability change. Run outside
+		// the publication path: selection takes modelMu and rechecks admission.
+		if a.ctx != nil && a.ctx.Err() == nil && a.store != nil && modelsBecameAvailable(previous, catalog) {
+			a.background.Go(a.launchReadyRuntimeContinuations)
+		}
 	}
+}
+
+func modelsBecameAvailable(previous, current modelCatalog) bool {
+	available := make(map[string]bool, len(previous.Models))
+	for _, model := range previous.Models {
+		available[model.Key] = model.Available()
+	}
+	for _, model := range current.Models {
+		if model.Available() && !available[model.Key] {
+			return true
+		}
+	}
+	return false
 }
 
 func inventoryModel(models []modelcatalog.InventoryModel, id string) (modelcatalog.InventoryModel, bool) {

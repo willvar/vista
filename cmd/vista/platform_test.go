@@ -62,14 +62,30 @@ func TestNativeApplication(t *testing.T) {
 	restartWaiting := make(chan string, 4)
 	var heldRestarts sync.Map
 	var restartEvidence atomic.Int32
+	const discoveredModel = "platform-discovered"
+	var delayInventory atomic.Bool
+	inventoryRequested, inventoryReady := make(chan struct{}, 1), make(chan struct{})
+	releaseInventory := sync.OnceFunc(func() { close(inventoryReady) })
 	longTask := strings.Repeat("界", workerproto.MaxPromptBytes/3)
 	longTask += strings.Repeat("x", workerproto.MaxPromptBytes-len(longTask))
 	model := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/v1/models" {
-			io.WriteString(w, `{"data":[{"id":"platform-fixture","input_modalities":["text"],"supports_tools":true}]}`)
+			if delayInventory.Load() {
+				select {
+				case inventoryRequested <- struct{}{}:
+				default:
+				}
+				select {
+				case <-inventoryReady:
+				case <-r.Context().Done():
+					return
+				}
+			}
+			fmt.Fprintf(w, `{"data":[{"id":"platform-fixture","input_modalities":["text"],"supports_tools":true},{"id":%q,"input_modalities":["text"],"supports_tools":true}]}`, discoveredModel)
 			return
 		}
 		var request struct {
+			Model    string
 			Messages []struct{ Role, Content string }
 			Tools    []json.RawMessage
 		}
@@ -144,6 +160,9 @@ func TestNativeApplication(t *testing.T) {
 			if !completed {
 				t.Error("restart lost a completed tool result")
 			}
+			if original == "resume-restart" && request.Model != discoveredModel {
+				t.Errorf("restart replaced the manually selected model: %q", request.Model)
+			}
 			restartEvidence.Add(1)
 			delta["content"] = "Restart continuation verified."
 		} else if last.Role == "user" && last.Content == "long-finish-reason" {
@@ -205,7 +224,7 @@ func TestNativeApplication(t *testing.T) {
 		chunk, _ := json.Marshal(map[string]any{"choices": []any{map[string]any{"delta": delta, "finish_reason": finish}}, "usage": map[string]int{"prompt_tokens": 100, "completion_tokens": 10, "total_tokens": 110}})
 		fmt.Fprintf(w, "data: %s\n\ndata: [DONE]\n\n", chunk)
 	}))
-	defer func() { resume(); model.Close() }()
+	defer func() { releaseInventory(); resume(); model.Close() }()
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
@@ -299,7 +318,7 @@ func TestNativeApplication(t *testing.T) {
 		}
 	}
 	// Persist and replace configuration through the same APIs as the WebUI.
-	api("POST", "/provider-config", map[string]any{"name": "Platform fixture", "providerId": "custom", "provider": "openai-chat", "credentialMode": "none", "baseUrl": model.URL + "/v1"}, nil)
+	api("POST", "/provider-config", map[string]any{"name": "Platform fixture", "providerId": "custom", "provider": "openai-chat", "credentialMode": "none", "baseUrl": model.URL + "/v1", "ids": []string{"platform-fixture"}}, nil)
 	for _, text := range []string{"First preference.", "Verified preference."} {
 		api("PUT", "/agent-settings", map[string]any{"instructions": text, "delegationDepth": 0}, nil)
 	}
@@ -470,10 +489,39 @@ func TestNativeApplication(t *testing.T) {
 	api("POST", sessionPath+"/cancel", nil, nil)
 	waitRun(runID, "interrupted")
 	waitGone(child)
+	findDiscoveredModel := func() string {
+		var catalog struct{ Models []struct{ Key, ID string } }
+		api("GET", "/models", nil, &catalog)
+		for _, model := range catalog.Models {
+			if model.ID == discoveredModel {
+				return model.Key
+			}
+		}
+		return ""
+	}
+	var discoveredKey string
+	for deadline := time.Now().Add(6 * time.Second); time.Now().Before(deadline); time.Sleep(25 * time.Millisecond) {
+		if discoveredKey = findDiscoveredModel(); discoveredKey != "" {
+			break
+		}
+	}
+	if discoveredKey == "" {
+		t.Fatal("the fixture's discovery-only model never appeared")
+	}
 	for _, action := range []string{"restart", "crash"} {
 		prompt := "resume-" + action
 		before := restartEvidence.Load()
-		interrupted := submit(prompt)
+		var interrupted string
+		if action == "restart" {
+			var run struct{ RunID string }
+			api("POST", sessionPath+"/messages", map[string]string{"content": prompt, "selectionMode": "manual", "modelKey": discoveredKey}, &run)
+			if run.RunID == "" {
+				t.Fatal("the delayed-discovery task did not start")
+			}
+			interrupted = run.RunID
+		} else {
+			interrupted = submit(prompt)
+		}
 		select {
 		case waiting := <-restartWaiting:
 			if waiting != prompt {
@@ -498,10 +546,25 @@ func TestNativeApplication(t *testing.T) {
 			if output, err := cli("start"); err != nil {
 				t.Fatalf("start after crash: %v %s", err, output)
 			}
-		} else if output, err := cli("restart"); err != nil {
-			t.Fatalf("restart active task: %v %s", err, output)
+		} else {
+			delayInventory.Store(true)
+			if output, err := cli("restart"); err != nil {
+				t.Fatalf("restart active task: %v %s", err, output)
+			}
 		}
 		waitRun(interrupted, "interrupted")
+		if action == "restart" {
+			select {
+			case <-inventoryRequested:
+			case <-time.After(3 * time.Second):
+				t.Fatal("restarted server did not request the custom inventory")
+			}
+			if findDiscoveredModel() != "" || restartEvidence.Load() != before {
+				t.Fatal("the interrupted task resumed before its saved model was discovered")
+			}
+			t.Log("Restart stayed ready without the custom inventory; now release discovery without a new message")
+			releaseInventory()
+		}
 		deadline := time.Now().Add(15 * time.Second)
 		var snapshot struct {
 			Session  store.Session
