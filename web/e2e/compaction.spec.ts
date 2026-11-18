@@ -205,10 +205,14 @@ test('manual compaction preserves chat and draft, and Tab completes Continue wit
   const release = vista.pauseModelReplies()
   try {
     await page.getByRole('button', { name: 'Compact context', exact: true }).click()
+    const accepted = page.waitForResponse(response =>
+      response.url() === `${vista.origin}/api/sessions/${session.id}/compact` && response.request().method() === 'POST')
     await page.getByRole('dialog', { name: 'Compact this context?', exact: true }).getByRole('button', { name: 'Compact context', exact: true }).click()
     await expect(page.locator('.compaction-progress')).toContainText('Compacting context')
     await expect(draft).toHaveValue('Keep my unsent draft')
     await expect(draft).toHaveAttribute('placeholder', 'Send a message')
+    // Optimistic progress can render before the server accepts the compaction.
+    expect((await accepted).status()).toBe(202)
     await page.reload()
     await expect(page.locator('.compaction-progress')).toContainText('Compacting context')
     await expect(draft).toBeDisabled()
