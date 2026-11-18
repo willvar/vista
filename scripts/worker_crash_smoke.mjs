@@ -13,6 +13,9 @@ mkdirSync(stateParent, { recursive: true })
 const state = mkdtempSync(join(stateParent, 'vista-worker-crash-'))
 const readRules = projectRulesFixture(state)
 const childPidFile = join(state, 'child.pid')
+const masterCrash = process.env.VISTA_CRASH_MASTER === '1'
+const resumedText = 'Unconfirmed shell outcome retained without retry.'
+let crashedRunId = ''
 let calls = 0
 const provider = createServer(async (request, response) => {
   if (request.url === '/v1/models') {
@@ -23,10 +26,26 @@ const provider = createServer(async (request, response) => {
   if (request.url !== '/v1/chat/completions') throw new Error(request.url)
   let raw = ''
   for await (const chunk of request) raw += chunk
-  if (readRules(JSON.parse(raw), response)) return
+  const body = JSON.parse(raw)
+  if (readRules(body, response)) return
   calls++
-  if (calls !== 1) throw new Error('side-effecting tool was replayed')
-  const args = JSON.stringify({ directory: state, command: `sleep 30 & echo $! > ${childPidFile}; wait`, timeoutSeconds: 60 })
+  if (calls === 2 && masterCrash) {
+    const notices = body.messages.filter(message => typeof message.content === 'string' && message.content.startsWith('Vista service restart.'))
+    const originalInputs = body.messages.filter(message => message.role === 'user' && message.content === 'run shell')
+    const unknown = body.messages.find(message => message.role === 'tool' && message.tool_call_id === 'call_shell'
+      && String(message.content).includes('side effects are unknown'))
+    if (notices.length !== 1 || notices[0].role !== 'user' || originalInputs.length !== 1 || !unknown) {
+      throw new Error('restart inference lost original input or unknown tool outcome')
+    }
+    const notice = JSON.parse(notices[0].content.slice(notices[0].content.indexOf('\n') + 1))
+    if (notice.kind !== 'service_restart' || notice.runId !== crashedRunId) throw new Error('restart notice refers to the wrong execution')
+    response.writeHead(200, { 'Content-Type': 'text/event-stream' })
+    response.end(`data: ${JSON.stringify({ choices: [{ delta: { content: resumedText }, finish_reason: 'stop' }] })}\n\ndata: [DONE]\n\n`)
+    return
+  }
+  if (calls !== 1) throw new Error('unexpected extra inference after process crash')
+  const output = "'" + childPidFile.replaceAll("'", "'\\''") + "'"
+  const args = JSON.stringify({ directory: state, command: `sleep 30 & echo $! >> ${output}; wait`, timeoutSeconds: 60 })
   const chunk = JSON.stringify({ choices: [{ delta: { tool_calls: [{ index: 0, id: 'call_shell', type: 'function', function: { name: 'shell', arguments: args } }] }, finish_reason: 'tool_calls' }] })
   response.writeHead(200, { 'Content-Type': 'text/event-stream' })
   response.end(`data: ${chunk}\n\ndata: [DONE]\n\n`)
@@ -46,7 +65,8 @@ try {
     return response.json()
   }
   const session = await api('/sessions', { method: 'POST', body: JSON.stringify({ title: 'crash cleanup' }) })
-  const run = await api(`/sessions/${session.id}/messages`, { method: 'POST', body: JSON.stringify({ content: 'run shell' }) })
+  const run = await api(`/sessions/${session.id}/messages`, { method: 'POST', body: JSON.stringify({ modelKey: 'openai', content: 'run shell' }) })
+  crashedRunId = run.runId
   for (let i = 0; i < 200 && !existsSync(childPidFile); i++) await new Promise(resolve => setTimeout(resolve, 25))
   if (!existsSync(childPidFile)) throw new Error('shell child never started')
   childPid = Number(readFileSync(childPidFile, 'utf8').trim())
@@ -58,7 +78,6 @@ try {
   if (!workerPid || !childPid) throw new Error(`missing process identities: worker=${workerPid} child=${childPid}`)
   const scriptDirectory = join(state, 'vista', 'state', 'shell-scripts', String(workerPid))
   if (readdirSync(scriptDirectory).length !== 1) throw new Error('active shell did not retain its private script')
-  const masterCrash = process.env.VISTA_CRASH_MASTER === '1'
   process.kill(masterCrash ? serverPid : workerPid, 'SIGKILL')
   if (masterCrash) {
     let childGone = false
@@ -78,14 +97,20 @@ try {
     const interrupted = events.some(event => event.kind === 'run_finished' && event.data.runId === run.runId && event.data.status === 'interrupted')
     const unknown = events.some(event => event.kind === 'tool' && event.data.runId === run.runId && event.data.status === 'unknown' && event.data.tool?.name === 'shell')
     const artifact = events.some(event => event.kind === 'artifact' && event.data.runId === run.runId && event.data.status === 'failed' && !event.data.complete)
-    if (status.sessions.workers === 1 && !status.sessions.running && interrupted && unknown && artifact) { recovered = true; break }
+    const resumed = events.find(event => event.kind === 'run_started' && event.data.runtime && event.data.runId !== run.runId)
+    const reply = resumed && events.some(event => event.kind === 'run_finished' && event.data.runId === resumed.data.runId
+      && event.data.status === 'succeeded' && event.data.message?.content === resumedText)
+    if (status.sessions.workers === 1 && !status.sessions.running && interrupted && unknown && artifact && (masterCrash ? reply : !resumed)) {
+      recovered = true; break
+    }
     await new Promise(resolve => setTimeout(resolve, 50))
   }
   if (!recovered) throw new Error('Worker did not recover with run marked interrupted')
   if (existsSync(scriptDirectory)) throw new Error('crashed Worker left command source on disk')
   let childAlive = true
   try { childAlive = !readFileSync(`/proc/${childPid}/status`, 'utf8').includes('State:\tZ') } catch { childAlive = false }
-  if (childAlive || calls !== 1) throw new Error(`orphan child=${childAlive}, model calls=${calls}`)
+  const launches = readFileSync(childPidFile, 'utf8').trim().split(/\s+/).length
+  if (childAlive || launches !== 1 || calls !== (masterCrash ? 2 : 1)) throw new Error(`orphan child=${childAlive}, shell launches=${launches}, model calls=${calls}`)
   console.log(masterCrash ? 'Server crash descendant cleanup passed' : 'Worker crash descendant cleanup passed')
 } catch (error) {
   try { console.error(readFileSync(join(state, 'vista', 'state', 'server.log'), 'utf8')) } catch {}

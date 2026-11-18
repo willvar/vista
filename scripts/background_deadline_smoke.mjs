@@ -89,7 +89,7 @@ try {
     throw new Error('background contract did not settle')
   }
   const create = () => api('/sessions', { method: 'POST', body: '{}' })
-  const send = (id, content) => api(`/sessions/${id}/messages`, { method: 'POST', body: JSON.stringify({ content }) })
+  const send = (id, content) => api(`/sessions/${id}/messages`, { method: 'POST', body: JSON.stringify({ modelKey: 'openai', content }) })
   const initialConfig=await api('/memory-config')
   await api('/memory-config',{method:'PUT',body:JSON.stringify({...initialConfig,concurrentRuns:1})})
   const timed = await create()

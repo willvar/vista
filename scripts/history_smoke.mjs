@@ -73,7 +73,7 @@ try {
   }
   const session = await api('/sessions', { method: 'POST', body: JSON.stringify({ title: 'history recall' }) })
   async function send(content) {
-    const run = await api(`/sessions/${session.id}/messages`, { method: 'POST', body: JSON.stringify({ content }) })
+    const run = await api(`/sessions/${session.id}/messages`, { method: 'POST', body: JSON.stringify({ modelKey: 'openai', content }) })
     for (let i = 0; i < 200; i++) {
       const events = await api(`/sessions/${session.id}/event-page?after=${run.event.sequence}`)
       const result = events.find(event => event.kind === 'run_finished' && event.data.runId === run.runId)

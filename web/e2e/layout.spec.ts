@@ -169,7 +169,7 @@ for (const modal of [
       }
     }
     if (modal.route === '/settings/general') {
-      await expectControlReachable(content.getByRole('combobox', { name: 'Model selection', exact: true }))
+      await expectControlReachable(content.locator('.language-setting').getByRole('combobox'))
       if (page.viewportSize()!.width > 830) {
         const viewport = page.viewportSize()!
         const widths = () => page.locator('.settings-page').evaluate(section => ({

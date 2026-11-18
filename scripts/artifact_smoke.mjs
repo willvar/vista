@@ -47,7 +47,7 @@ try {
     return response.json()
   }
   const session = await api('/sessions', { method: 'POST', body: JSON.stringify({ title: 'shell artifact' }) })
-  const run = await api(`/sessions/${session.id}/messages`, { method: 'POST', body: JSON.stringify({ content: 'run shell' }) })
+  const run = await api(`/sessions/${session.id}/messages`, { method: 'POST', body: JSON.stringify({ modelKey: 'openai', content: 'run shell' }) })
   let artifact
   for (let i = 0; i < 200; i++) {
     const artifacts = await api(`/sessions/${session.id}/artifacts`)

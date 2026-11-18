@@ -57,7 +57,15 @@ test('Chinese region selection keeps script groups, fixed defaults and the saved
       await options.getByText(regionName!, { exact: true }).click()
       await expect(page.locator('html')).toHaveAttribute('lang', locale)
       await expect(picker).toContainText(variant.label)
+      // Narrow layouts hide the settings directory while a section is open.
+      const back = page.locator('.settings-page .ui-modal-back')
+      const narrow = await back.isVisible()
+      if (narrow) {
+        await back.click()
+        await expect(page.locator('.settings-page')).toHaveClass(/settings-index/)
+      }
       await expect(page.getByRole('link', { name: messages[locale].modelConnections, exact: true })).toBeVisible()
+      if (narrow) await openSettingsSection(page, 'general')
       await expect.poll(() => page.evaluate(() => localStorage.getItem('vista-language'))).toBe(locale)
       await page.reload()
       await expect(page.locator('html')).toHaveAttribute('lang', locale)

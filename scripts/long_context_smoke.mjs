@@ -81,7 +81,15 @@ try {
     await new Promise(resolve => setTimeout(resolve, 25))
   }
   if (!compacted) throw new Error('manual compaction did not finish')
-  if (JSON.stringify(before) !== JSON.stringify(await api(`/sessions/${plain.id}/messages`))) throw new Error('manual compaction modified visible chat')
+  const after = await api(`/sessions/${plain.id}/messages`)
+  const originalIDs = new Set(before.map(message => message.id))
+  const added = after.filter(message => !originalIDs.has(message.id))
+  if (added.length !== 1 || !added[0].contextSummary || added[0].content !== 'Summary retained.') {
+    throw new Error('manual compaction did not add exactly one separate context summary')
+  }
+  if (JSON.stringify(before) !== JSON.stringify(after.filter(message => originalIDs.has(message.id)))) {
+    throw new Error('manual compaction modified existing chat')
+  }
   await send(plain, 'Continue')
   if (!JSON.stringify(requests.at(-1).messages).includes('Summary retained.')) throw new Error('checkpoint not reused')
   console.log('Reactive recovery, manual compaction, durable context and full chat history passed')

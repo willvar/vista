@@ -75,7 +75,7 @@ try {
   let api = await start()
   const session = await api('/sessions', { method: 'POST', body: JSON.stringify({ title: 'checklist' }) })
   async function run(prompt, expected, expectedText, expectedStatus = 'succeeded') {
-    const sent = await api(`/sessions/${session.id}/messages`, { method: 'POST', body: JSON.stringify({ content: prompt }) })
+    const sent = await api(`/sessions/${session.id}/messages`, { method: 'POST', body: JSON.stringify({ modelKey: 'openai', content: prompt }) })
     let finished = false
     for (let i = 0; i < 250; i++) {
       const events = await api(`/sessions/${session.id}/event-page?after=${sent.event.sequence}`)

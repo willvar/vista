@@ -53,10 +53,14 @@ async function handleProvider(request, response) {
   let raw = ''
   for await (const chunk of request) raw += chunk
   const body = JSON.parse(raw)
-  const prompt = body.messages.findLast(message => message.role === 'user')?.content
+  const isNotice = message => typeof message.content === 'string' && message.content.startsWith('Runtime completion event.')
+  if (body.messages.some(message => isNotice(message) && message.role !== 'user')) throw new Error('runtime evidence received privileged authority')
+  const prompt = body.messages.findLast(message => message.role === 'user' && !isNotice(message))?.content
   if (prompt?.startsWith('shell:') && readRules(body, response)) return
-  const userIndex = body.messages.findLastIndex(message => message.role === 'user')
-  const results = body.messages.slice(userIndex + 1).filter(message => message.role === 'tool')
+  const userIndex = body.messages.findLastIndex(message => message.role === 'user' && !isNotice(message))
+  const current = body.messages.slice(userIndex + 1)
+  const results = current.filter(message => message.role === 'tool')
+  const notices = current.filter(isNotice).map(message => JSON.parse(message.content.slice(message.content.indexOf('\n') + 1)))
   await delay(2500)
   response.writeHead(200, { 'Content-Type': 'text/event-stream' })
   const send = event => response.end(`data: ${JSON.stringify({ choices: [event] })}\n\ndata: [DONE]\n\n`)
@@ -75,7 +79,7 @@ async function handleProvider(request, response) {
     if (results.length === 0) return tool('shell', { directory: state, command: "sleep 3; printf '%65536s' x", timeoutSeconds: 15 }, 'call_shell')
     let shell = JSON.parse(results[0].content)
     if (shell.status === 'running') {
-      const notice = body.messages.filter(message => message.role === 'system' && message.content.includes('"kind":"tool"')).map(message => JSON.parse(message.content.slice(message.content.indexOf('\n') + 1))).find(event => event.sourceId === 'call_shell')
+      const notice = notices.find(event => event.kind === 'tool' && event.sourceId === 'call_shell')
       if (!notice) return text('waiting for shell')
       shell = JSON.parse(notice.content)
     }
@@ -96,7 +100,9 @@ async function handleProvider(request, response) {
   if (prompt?.startsWith('delegate:')) {
     counts.delegate++
     if (results.length === 0) return tool('delegate', { task: `child:${prompt.slice(9)}` }, 'call_child')
-    if (!body.messages.some(message => message.role === 'system' && message.content.includes('child result'))) return text('waiting for child')
+    const child = notices.find(event => event.kind === 'agent' && event.sourceId === 'main/call_child')
+    if (!child) return text('waiting for child')
+    if (child.status !== 'succeeded' || !child.content?.startsWith('child result ')) throw new Error('child completion result missing or unsuccessful')
     return text('subagent completed')
   }
   throw new Error(`unexpected model prompt: ${prompt}`)

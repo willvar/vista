@@ -43,7 +43,7 @@ try {
   })
   locker.stdin.write("BEGIN IMMEDIATE; SELECT 'LOCKED';\n")
   await Promise.race([locked, new Promise((_, reject) => setTimeout(() => reject(new Error('SQLite lock did not start')), 2000))])
-  const rejected = await api(`/sessions/${session.id}/messages`, { method: 'POST', body: JSON.stringify({ content: 'run while locked' }) })
+  const rejected = await api(`/sessions/${session.id}/messages`, { method: 'POST', body: JSON.stringify({ modelKey: 'openai', content: 'run while locked' }) })
   // Selection persistence can reject before run admission (400); a later
   // input write failure is 500. Neither path may reach the model.
   if (![400, 500].includes(rejected.status) || modelCalls !== 0) throw new Error(`locked write was not rejected without side effects: ${rejected.status}, calls=${modelCalls}`)
@@ -52,7 +52,7 @@ try {
   locker = null
   const saved = await api(`/sessions/${session.id}/messages`)
   if (saved.status !== 200 || saved.body.length !== 0) throw new Error('failed input was persisted')
-  const sent = await api(`/sessions/${session.id}/messages`, { method: 'POST', body: JSON.stringify({ content: 'run after unlock' }) })
+  const sent = await api(`/sessions/${session.id}/messages`, { method: 'POST', body: JSON.stringify({ modelKey: 'openai', content: 'run after unlock' }) })
   if (sent.status !== 202) throw new Error(`retry failed: ${sent.status} ${sent.body}`)
   let finished = false
   for (let attempt = 0; attempt < 200; attempt++) {

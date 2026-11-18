@@ -319,6 +319,22 @@ func TestNativeApplication(t *testing.T) {
 	}
 	// Persist and replace configuration through the same APIs as the WebUI.
 	api("POST", "/provider-config", map[string]any{"name": "Platform fixture", "providerId": "custom", "provider": "openai-chat", "credentialMode": "none", "baseUrl": model.URL + "/v1", "ids": []string{"platform-fixture"}}, nil)
+	findModelKey := func(id string) string {
+		var catalog struct{ Models []struct{ Key, ID string } }
+		api("GET", "/models", nil, &catalog)
+		for _, model := range catalog.Models {
+			if model.ID == id {
+				return model.Key
+			}
+		}
+		return ""
+	}
+	// Discovery also exposes a second model. Explicitly choose the fixture
+	// anchor rather than depending on the sole-visible-model default.
+	fixtureKey := findModelKey("platform-fixture")
+	if fixtureKey == "" {
+		t.Fatal("the fixture's configured model is missing")
+	}
 	var instructionVersion struct{ InstructionsSHA256 string }
 	api("GET", "/agent-settings", nil, &instructionVersion)
 	for _, text := range []string{"First preference.", "Verified preference."} {
@@ -359,7 +375,7 @@ func TestNativeApplication(t *testing.T) {
 			Input *store.QueuedInput
 			Event store.Event
 		}
-		api("POST", sessionPath+"/messages", map[string]string{"content": prompt}, &run)
+		api("POST", sessionPath+"/messages", map[string]string{"content": prompt, "modelKey": fixtureKey}, &run)
 		if prompt == "background-close" {
 			resume()
 			if run.Input == nil {
@@ -494,19 +510,9 @@ func TestNativeApplication(t *testing.T) {
 	api("POST", sessionPath+"/cancel", nil, nil)
 	waitRun(runID, "interrupted")
 	waitGone(child)
-	findDiscoveredModel := func() string {
-		var catalog struct{ Models []struct{ Key, ID string } }
-		api("GET", "/models", nil, &catalog)
-		for _, model := range catalog.Models {
-			if model.ID == discoveredModel {
-				return model.Key
-			}
-		}
-		return ""
-	}
 	var discoveredKey string
 	for deadline := time.Now().Add(6 * time.Second); time.Now().Before(deadline); time.Sleep(25 * time.Millisecond) {
-		if discoveredKey = findDiscoveredModel(); discoveredKey != "" {
+		if discoveredKey = findModelKey(discoveredModel); discoveredKey != "" {
 			break
 		}
 	}
@@ -519,7 +525,7 @@ func TestNativeApplication(t *testing.T) {
 		var interrupted string
 		if action == "restart" {
 			var run struct{ RunID string }
-			api("POST", sessionPath+"/messages", map[string]string{"content": prompt, "selectionMode": "manual", "modelKey": discoveredKey}, &run)
+			api("POST", sessionPath+"/messages", map[string]string{"content": prompt, "modelKey": discoveredKey}, &run)
 			if run.RunID == "" {
 				t.Fatal("the delayed-discovery task did not start")
 			}
@@ -564,7 +570,7 @@ func TestNativeApplication(t *testing.T) {
 			case <-time.After(3 * time.Second):
 				t.Fatal("restarted server did not request the custom inventory")
 			}
-			if findDiscoveredModel() != "" || restartEvidence.Load() != before {
+			if findModelKey(discoveredModel) != "" || restartEvidence.Load() != before {
 				t.Fatal("the interrupted task resumed before its saved model was discovered")
 			}
 			t.Log("Restart stayed ready without the custom inventory; now release discovery without a new message")

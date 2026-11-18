@@ -52,13 +52,15 @@ try {
     if (!item?.pid || !item.memory?.sampledAt) throw new Error(`Worker metrics unavailable for ${sessionId}`)
     return { pid: item.pid, rssBytes: item.memory.rssBytes, heapBytes: item.memory.heapBytes, heapObjects: item.memory.heapObjects, goroutines: item.memory.goroutines, gcCount: item.memory.gcCount, peakRssBytes: item.memory.peakRssBytes }
   }
+  // The environment connection exposes both Chat and Responses. The fixture serves Chat only.
+  const modelKey = 'openai'
   const sessions = []
   for (let i = 0; i < 20; i++) sessions.push(await api('/sessions', { method: 'POST', body: JSON.stringify({ title: `capacity ${i}` }) }))
   await new Promise(resolve => setTimeout(resolve, 5500))
   const idle = await api('/status')
   if (idle.sessions.workers !== 20 || idle.sessions.open !== 20 || idle.sessions.running !== 0) throw new Error(`idle state: ${JSON.stringify(idle.sessions)}`)
   const firstWorker = memoryRegression ? workerSnapshot(idle, sessions[0].id) : null
-  const sends = await Promise.all(sessions.map((session, i) => api(`/sessions/${session.id}/messages`, { method: 'POST', body: JSON.stringify({ content: `run ${i}` }) })))
+  const sends = await Promise.all(sessions.map((session, i) => api(`/sessions/${session.id}/messages`, { method: 'POST', body: JSON.stringify({ content: `run ${i}`, modelKey }) })))
   if (sends.length !== 20) throw new Error('not all sends accepted')
   const samples = []
   for (let i = 0; i < 5; i++) {
@@ -74,7 +76,7 @@ try {
   const checkpoints = []
   const workerCheckpoints = []
   for (let i = 0; i < extraTurns; i++) {
-    const sent = await api(`/sessions/${sessions[0].id}/messages`, { method: 'POST', body: JSON.stringify({ content: `repeat ${i}` }) })
+    const sent = await api(`/sessions/${sessions[0].id}/messages`, { method: 'POST', body: JSON.stringify({ content: `repeat ${i}`, modelKey }) })
     let cursor = sent.event.sequence
     let finished = false
     for (let poll = 0; poll < 100 && !finished; poll++) {

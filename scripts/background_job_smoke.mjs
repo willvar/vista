@@ -60,7 +60,7 @@ try {
     return response.json()
   }
   const session = await api('/sessions', { method: 'POST', body: JSON.stringify({ title: 'background job' }) })
-  const run = await api(`/sessions/${session.id}/messages`, { method: 'POST', body: JSON.stringify({ content: 'start a background job' }) })
+  const run = await api(`/sessions/${session.id}/messages`, { method: 'POST', body: JSON.stringify({ modelKey: 'openai', content: 'start a background job' }) })
   let job
   for (let i = 0; i < 200; i++) {
     const jobs = await api(`/sessions/${session.id}/jobs`)

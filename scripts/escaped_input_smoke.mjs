@@ -52,11 +52,11 @@ try {
     return response.json()
   }
   const session = await api('/sessions', { method: 'POST', body: JSON.stringify({ title: 'escaped input' }) })
-  const run = await api(`/sessions/${session.id}/messages`, { method: 'POST', body: JSON.stringify({ content: prompt }) })
+  const run = await api(`/sessions/${session.id}/messages`, { method: 'POST', body: JSON.stringify({ modelKey: 'openai', content: prompt }) })
   if (run.message.content !== prompt || run.event.data.content !== prompt) throw new Error('initial message changed during persistence')
   for (let attempt = 0; !firstRequestStarted && attempt < 200; attempt++) await new Promise(resolve => setTimeout(resolve, 50))
   if (!firstRequestStarted) throw new Error('initial model request did not start')
-  const queued = await api(`/sessions/${session.id}/messages`, { method: 'POST', body: JSON.stringify({ content: prompt }) })
+  const queued = await api(`/sessions/${session.id}/messages`, { method: 'POST', body: JSON.stringify({ modelKey: 'openai', content: prompt }) })
   if (queued.input.content !== prompt || queued.event.data.content !== prompt) throw new Error('queued message changed during persistence')
   releaseFirstReply()
   let cursor = queued.event.sequence

@@ -69,7 +69,7 @@ try {
     return response.json()
   }
   const sessions = await Promise.all(['alpha', 'beta'].map(title => api('/sessions', { method: 'POST', body: JSON.stringify({ title }) })))
-  const submitted = await Promise.all(sessions.map((session, index) => api(`/sessions/${session.id}/messages`, { method: 'POST', body: JSON.stringify({ content: `session ${['alpha', 'beta'][index]}: update the shared file` }) })))
+  const submitted = await Promise.all(sessions.map((session, index) => api(`/sessions/${session.id}/messages`, { method: 'POST', body: JSON.stringify({ modelKey: 'openai', content: `session ${['alpha', 'beta'][index]}: update the shared file` }) })))
   const finished = new Map()
   for (let attempt = 0; attempt < 300 && finished.size < 2; attempt++) {
     for (let index = 0; index < sessions.length; index++) {

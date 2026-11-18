@@ -86,7 +86,7 @@ try {
   await overflow.body?.cancel()
   let firstRun
   for (let round = 0; round < rounds; round++) {
-    const sends = await Promise.all(sessions.map((session, index) => api(`/sessions/${session.id}/messages`, { method: 'POST', body: JSON.stringify({ content: `long answer ${index} round ${round}` }) })))
+    const sends = await Promise.all(sessions.map((session, index) => api(`/sessions/${session.id}/messages`, { method: 'POST', body: JSON.stringify({ modelKey: 'openai', content: `long answer ${index} round ${round}` }) })))
     if (round === 0) firstRun = sends[0]
     const results = await Promise.all(sessions.map(async (session, index) => {
       let cursor = sends[index].event.sequence
