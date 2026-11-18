@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"sort"
-	"strings"
 	"time"
 
 	"vista/internal/agentconfig"
@@ -678,35 +677,6 @@ func (s *Store) EventsBefore(ctx context.Context, sessionID string, before int64
 	return out, nil
 }
 
-// ModelResultEvents returns persisted model calls for the runs on one message page.
-func (s *Store) ModelResultEvents(ctx context.Context, sessionID string, runIDs []string) ([]Event, error) {
-	if len(runIDs) == 0 {
-		return []Event{}, nil
-	}
-	if len(runIDs) > 100 {
-		return nil, errors.New("too many runs")
-	}
-	query := "SELECT sequence,kind,CAST(data AS BLOB) AS data,created_at FROM events WHERE session_id=? AND kind='model_result' AND json_extract(data,'$.runId') IN (" + strings.TrimRight(strings.Repeat("?,", len(runIDs)), ",") + ") ORDER BY sequence"
-	args := make([]any, 0, len(runIDs)+1)
-	args = append(args, sessionID)
-	for _, id := range runIDs {
-		args = append(args, id)
-	}
-	rows, err := s.orm.WithContext(ctx).Raw(query, args...).Rows()
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	out := []Event{}
-	for rows.Next() {
-		e := Event{SessionID: sessionID}
-		if err := rows.Scan(&e.Sequence, &e.Kind, &e.Data, &e.CreatedAt); err != nil {
-			return nil, err
-		}
-		out = append(out, e)
-	}
-	return out, rows.Err()
-}
 func (s *Store) MessagesAfter(ctx context.Context, sessionID string, after int64, limit int) ([]Message, error) {
 	if limit < 1 || limit > 200 {
 		return nil, errors.New("invalid message page size")

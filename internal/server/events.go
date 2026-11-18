@@ -40,29 +40,7 @@ type modelResultEvent struct {
 }
 
 func (a *App) messagesWithResults(r *http.Request, id string, items []store.Message) ([]messageWithResults, error) {
-	var runIDs, messageIDs []string
-	seen := map[string]bool{}
-	for _, item := range items {
-		if item.Role != "assistant" || item.RunID == "" {
-			continue
-		}
-		if !item.ContextSummary {
-			messageIDs = append(messageIDs, item.ID)
-		}
-		if !seen[item.RunID] {
-			runIDs = append(runIDs, item.RunID)
-			seen[item.RunID] = true
-		}
-	}
-	boundaries, err := a.store.MessageResultBoundaries(r.Context(), id, messageIDs)
-	if err != nil {
-		return nil, err
-	}
-	events, err := a.store.ModelResultEvents(r.Context(), id, runIDs)
-	if err != nil {
-		return nil, err
-	}
-	efforts, err := a.store.RunReasoningEfforts(r.Context(), runIDs)
+	events, boundaries, efforts, err := a.store.MessagePageResults(r.Context(), id, items)
 	if err != nil {
 		return nil, err
 	}

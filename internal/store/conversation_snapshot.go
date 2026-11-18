@@ -102,46 +102,26 @@ func (s *Store) ConversationSnapshot(ctx context.Context, id string) (Conversati
 		if len(snapshot.Events) > 0 {
 			snapshot.EventsBefore = snapshot.Events[0].Sequence
 		}
-		var runIDs, messageIDs []string
-		seen := map[string]bool{}
 		var activeRun string
 		for _, message := range snapshot.Messages {
 			if message.Role == "user" {
 				activeRun = message.RunID
 			}
-			if message.Role != "assistant" {
-				continue
-			}
-			if !message.ContextSummary {
-				messageIDs = append(messageIDs, message.ID)
-			}
-			if !seen[message.RunID] && message.RunID != "" {
-				runIDs = append(runIDs, message.RunID)
-				seen[message.RunID] = true
-			}
 		}
 		// Runtime continuations have no user row. Derive the latest conversational
 		// execution from its durable start instead of reusing the previous user run.
+		// Strip the outer column affinity so SQLite can seek the JSON expression index.
 		var latest struct{ ID string }
 		if err = view.orm.Raw(`SELECT r.id FROM runs r WHERE r.session_id=? AND
    (EXISTS(SELECT 1 FROM messages m WHERE m.session_id=r.session_id AND m.run_id=r.id AND m.role='user') OR
-    EXISTS(SELECT 1 FROM events e WHERE e.session_id=r.session_id AND e.kind='run_started' AND json_extract(e.data,'$.runId')=r.id))
+    EXISTS(SELECT 1 FROM events e WHERE e.session_id=r.session_id AND e.kind='run_started' AND json_extract(e.data,'$.runId')=+r.id))
    ORDER BY r.rowid DESC LIMIT 1`, id).Scan(&latest).Error; err != nil {
 			return err
 		}
 		if latest.ID != "" {
 			activeRun = latest.ID
 		}
-		if activeRun != "" && !seen[activeRun] {
-			runIDs = append(runIDs, activeRun)
-		}
-		if snapshot.Boundaries, err = view.MessageResultBoundaries(ctx, id, messageIDs); err != nil {
-			return err
-		}
-		if snapshot.Results, err = view.ModelResultEvents(ctx, id, runIDs); err != nil {
-			return err
-		}
-		if snapshot.Efforts, err = view.RunReasoningEfforts(ctx, runIDs); err != nil {
+		if snapshot.Results, snapshot.Boundaries, snapshot.Efforts, err = view.MessagePageResults(ctx, id, snapshot.Messages); err != nil {
 			return err
 		}
 		// Child traffic can push the latest root progress off the recent page.
@@ -164,12 +144,15 @@ func (s *Store) ConversationSnapshot(ctx context.Context, id string) (Conversati
 				Data      json.RawMessage
 				CreatedAt string
 			}
-			if err = view.orm.Raw(`SELECT sequence,kind,CAST(data AS BLOB) AS data,created_at FROM events WHERE sequence IN (
- SELECT MAX(sequence) FROM events WHERE session_id=? AND json_extract(data,'$.runId')=?
+			if err = view.orm.Raw(`WITH root AS NOT MATERIALIZED (
+ SELECT sequence,kind FROM events WHERE session_id=? AND json_extract(data,'$.runId')=?
  AND COALESCE(json_extract(data,'$.depth'),0)=0 AND COALESCE(json_extract(data,'$.taskId'),'main') IN ('','main')
  AND COALESCE(json_extract(data,'$.purpose'),'')=''
- AND kind IN ('model_request','model_retry','model_delta','model_reasoning_delta','model_result','tool','run_finished')
- GROUP BY CASE kind WHEN 'model_request' THEN 1 ELSE 0 END) AND session_id=? ORDER BY sequence`, id, activeRun, id).Scan(&root).Error; err != nil {
+ ) SELECT sequence,kind,CAST(data AS BLOB) AS data,created_at FROM events WHERE session_id=? AND sequence IN (
+  (SELECT sequence FROM root WHERE kind='model_request' ORDER BY sequence DESC LIMIT 1),
+  (SELECT sequence FROM root WHERE kind IN ('model_retry','model_delta','model_reasoning_delta','model_result','tool','run_finished')
+   ORDER BY sequence DESC LIMIT 1)
+ ) ORDER BY sequence`, id, activeRun, id).Scan(&root).Error; err != nil {
 				return err
 			}
 			var prefix []Event

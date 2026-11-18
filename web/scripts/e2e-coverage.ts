@@ -62,7 +62,7 @@ const consumers: [RegExp, string[]][] = [
   [/^web\/src\/composables\/useQuestionComposer/, ['conversation']],
   [/^web\/src\/state\/cacheUsage/, ['conversation']],
   [/^web\/src\/(?:pages\/SessionManager|Session|InlineSessionTitle)|^web\/src\/composables\/useSessions/, ['sessions']],
-  [/^internal\/store\/(?:main_outputs|model_output)/, ['conversation']],
+  [/^internal\/store\/(?:main_outputs|model_output|run_overview)/, ['conversation']],
   [/^internal\/store\/(?:restart|runtime_events|jobs|output_links|checklist)|^internal\/server\/(?:runtime_events|worker_lifecycle|memory_settings|execution)/, ['conversation', 'sessions', 'about']],
   [/^internal\/store\/compaction|^internal\/server\/(?:compaction|worker_results_context)/, ['conversation']],
   [/^internal\/store\/(?:display_messages|message_results|conversation_snapshot|records)|^internal\/server\/(?:events|compaction_messages|message_results)/, ['conversation', 'sessions', 'statistics']],

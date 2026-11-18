@@ -4,6 +4,7 @@ import { test, expect } from './fixtures'
 import { closeSettings } from './settings-navigation'
 import { sessionManagerAction } from './session-manager-actions'
 import { settleLayout } from './layout-ready'
+import { scrollToConversationEntry } from './conversation-scroll'
 
 test.beforeEach(async ({ vista }) => {
 })
@@ -340,10 +341,13 @@ test('long running tool and completed process keep Stop and Send reachable', asy
   await expect(page.locator('.conversation-execution .trace-last-activity')).toContainText('Last activity:')
   await expect(page.locator('.conversation-execution .trace-last-activity')).not.toContainText('UI geometry only')
   await expect(page.locator('.conversation-execution .trace-last-activity time')).toHaveAttribute('datetime', createdAt)
-  await expect(completedTrace.locator('.ui-thought-chain-node-title')).toHaveText('Use tool: UI geometry only')
   await expect(activeTrace.locator('.ui-thought-chain-node-title')).toHaveText('Use tool: UI geometry only')
-  await expect(completedTrace.locator('.trace-input-preview')).toHaveText('UI geometry only')
   await expect(activeTrace.locator('.trace-input-preview')).toHaveText('UI geometry only')
+  // On a short viewport the completed run may need to be brought into view
+  // before its execution details are requested.
+  await scrollToConversationEntry(page, '[data-timeline-key="layout-first-user"]', 1)
+  await expect(completedTrace.locator('.ui-thought-chain-node-title')).toHaveText('Use tool: UI geometry only')
+  await expect(completedTrace.locator('.trace-input-preview')).toHaveText('UI geometry only')
 
   const textarea = page.locator('.sender-card textarea')
   for (const draft of ['', eightLines]) {

@@ -1,5 +1,5 @@
 import { computed, hasInjectionContext, inject, nextTick, onScopeDispose, ref, shallowRef, watch, type InjectionKey, type Ref } from 'vue'
-import { displayBodyVersion as bodyVersion, displayOutputKey, needsFullMessageText, type ConversationItem, type DisplayBody } from '../state/mainOutputs.ts'
+import { displayBodyVersion as bodyVersion, displayOutputKey, needsFullDisplayText, type ConversationItem, type DisplayBody } from '../state/mainOutputs.ts'
 
 export const historyReadKey: InjectionKey<(key: symbol, pending: boolean) => void> = Symbol('historyReads')
 export function useHistoryRead(loading: Ref<boolean>) {
@@ -35,13 +35,11 @@ export function useConversationHistory(options: {
   revision: Ref<number>
   synchronized: () => boolean
   paused: () => boolean
-  indexes: (runs: string[]) => Promise<void>
   output: (item: ConversationItem, retry?: boolean) => Promise<ReadonlyMap<string, DisplayBody> | undefined>
   text: (item: ConversationItem) => string
   release?: (item: ConversationItem) => void
-  traceKeys: () => string[]
   hasOlder: () => boolean
-  older: () => Promise<void>
+  older: () => Promise<boolean | void>
 }) {
   const start = ref<number>()
   const items = shallowRef<ConversationItem[]>([])
@@ -50,7 +48,6 @@ export function useConversationHistory(options: {
   const failure = ref('')
   const prepending = ref(false)
   const missing = ref(new Set<string>())
-  const versions = new Map<string, string>()
   const failed = new Map<string, string>()
   const bodyRequests = new Map<string, Promise<void>>()
   const bodies = new Map<string, { version: string; text: string }>()
@@ -59,19 +56,17 @@ export function useConversationHistory(options: {
   const changedBodies = new Set<string>()
   const positions = new Map<string, number>()
   let visible = new Set<string>()
-  let visibleRegistered = false
-  const traces = ref(new Set<string>())
   const candidates = computed(() => start.value === undefined ? [] : options.items.value.filter(item => item.displaySequence >= start.value!))
   const candidatesByKey = computed(() => new Map(candidates.value.map(item => [item.displayKey, item])))
   const hasEarlier = computed(() => options.hasOlder() || start.value !== undefined && options.items.value.some(item => item.displaySequence < start.value!))
-  const settled = computed(() => !loading.value && options.traceKeys().every(key => traces.value.has(key)))
   let generation = 0
   let disposed = false
   let request: Promise<void> | undefined
-  let olderRequest: Promise<void> | undefined
+  let olderRequest: Promise<false | void> | undefined
   let changed = false
   let initialized = false
   let sessionIdentity: string | undefined
+  let opening = true
 
   function removeBody(key: string) {
     const body = bodies.get(key)
@@ -81,10 +76,9 @@ export function useConversationHistory(options: {
     changedBodies.add(key)
   }
   function trim() {
-    const pinned = visibleRegistered ? visible : new Set(candidates.value.slice(-batchSize).map(item => item.displayKey))
     for (const [key] of bodies) {
       if (bodies.size <= maxBodies && bodyBytes <= maxBodyBytes) break
-      if (!pinned.has(key)) removeBody(key)
+      if (!visible.has(key)) removeBody(key)
     }
   }
   function project(item: ConversationItem, previous?: ConversationItem): ConversationItem {
@@ -94,20 +88,20 @@ export function useConversationHistory(options: {
       return { ...item, content: options.text(item) }
     }
     const body = bodies.get(item.displayKey)
-    const content = body?.version === bodyVersion(item) ? body.text : item.content.slice(0, 8192)
+    const content = body?.version === bodyVersion(item) ? body.text : needsFullDisplayText(item) ? item.content.slice(0, 8192) : item.content
     const output = item.mainOutput, oldOutput = previous?.mainOutput
     const sameOutput = output && oldOutput ? sameFields(output, oldOutput, ['content', 'deltas', 'loaded']) : output === oldOutput
     if (previous && previous.content === content && sameOutput && sameFields(item, previous, ['content', 'mainOutput'])) return previous
     return { ...preview(item), content }
   }
   function publish() {
-    if (disposed || options.paused() || !settled.value || !options.synchronized() && !prepared.value) return
+    if (disposed || options.paused() || !options.synchronized() || start.value === undefined) return
     trim()
     if (sourceChanged || changedBodies.size) {
       const previous = items.value
       const absent = sourceChanged ? new Set<string>() : new Set(missing.value)
       const update = (item: ConversationItem, old?: ConversationItem) => {
-        if (needsBody(item) && bodies.get(item.displayKey)?.version !== bodyVersion(item)
+        if (needsFullDisplayText(item) && bodies.get(item.displayKey)?.version !== bodyVersion(item)
           && failed.get(item.displayKey) !== bodyVersion(item)) absent.add(item.displayKey)
         else absent.delete(item.displayKey)
         return project(item, old)
@@ -120,7 +114,7 @@ export function useConversationHistory(options: {
           positions.set(item.displayKey, index)
           return update(item, oldByKey.get(item.displayKey))
         })
-        for (const key of versions.keys()) if (!positions.has(key)) { versions.delete(key); removeBody(key) }
+        for (const key of bodies.keys()) if (!positions.has(key)) removeBody(key)
         for (const key of failed.keys()) if (!positions.has(key)) failed.delete(key)
       } else {
         // Visibility changes affect only evicted/rehydrated bodies, not every
@@ -156,11 +150,9 @@ export function useConversationHistory(options: {
       removeBody(item.displayKey)
       if (body) {
         failed.delete(item.displayKey)
-        versions.set(item.displayKey, version)
         bodies.set(item.displayKey, body)
         bodyBytes += body.text.length * 2
       } else {
-        versions.delete(item.displayKey)
         if (texts) failed.delete(item.displayKey)
         else failed.set(item.displayKey, version)
       }
@@ -178,7 +170,7 @@ export function useConversationHistory(options: {
     if (pending) return pending
     const requested = new Map(candidates.value.filter(row => displayOutputKey(row) === key).map(row => [row.displayKey, bodyVersion(row)]))
     let stale = false
-    const reading = (latest.mainOutput || needsFullMessageText(latest) ? options.output(latest, retry)
+    const reading = (latest.mainOutput || needsFullDisplayText(latest) ? options.output(latest, retry)
       : Promise.resolve(new Map([[latest.displayKey, { version: bodyVersion(latest), text: options.text(latest) }]]))).then(texts => {
       if (disposed || current !== generation) return
       stale = cacheGroup(candidates.value.filter(row => displayOutputKey(row) === key), requested, texts)
@@ -195,24 +187,24 @@ export function useConversationHistory(options: {
   }
   function retry(item: ConversationItem) { return prepareBody(item, true) }
   function prepare(): Promise<void> {
+    if (!options.session() || !options.synchronized()) return Promise.resolve()
+    // Publish the recent window immediately. Only the bodies in the measured
+    // viewport (or its prepared destination) need to be hydrated.
+    if (start.value === undefined) start.value = options.items.value.slice(-batchSize)[0]?.displaySequence ?? 0
+    publish()
     changed = true
     if (request) return request
-    if (!options.session() || !options.synchronized() && !prepared.value) return Promise.resolve()
     const current = generation
     loading.value = true
     failure.value = ''
     const pending = Promise.resolve().then(async () => {
       do {
         changed = false
-        const initial = start.value === undefined
-        const batch = initial ? options.items.value.slice(-batchSize) : candidates.value
-        await options.indexes(batch.map(item => item.runId))
         if (disposed || current !== generation) return
-        if (initial && start.value === undefined) start.value = options.items.value.slice(-batchSize)[0]?.displaySequence ?? 0
         const groups = new Map<string, ConversationItem[]>()
-        for (const item of candidates.value) {
-          if (!needsBody(item) || failed.get(item.displayKey) === bodyVersion(item) || versions.get(item.displayKey) === bodyVersion(item)
-            && (!visible.has(item.displayKey) || bodies.get(item.displayKey)?.version === bodyVersion(item))) continue
+        for (const id of visible) {
+          const item = candidatesByKey.value.get(id)
+          if (!item || !needsBody(item) || failed.get(id) === bodyVersion(item) || bodies.get(id)?.version === bodyVersion(item)) continue
           const key = displayOutputKey(item)
           const group = groups.get(key) || []
           group.push(item)
@@ -222,7 +214,7 @@ export function useConversationHistory(options: {
         await Promise.all(Array.from({ length: Math.min(4, outputs.length) }, async () => {
           while (outputs.length && current === generation && !disposed) {
             const group = outputs.shift()!
-            await prepareBody(group[0]!)
+            if (group.some(row => visible.has(row.displayKey))) await prepareBody(group[0]!)
           }
         }))
         if (disposed || current !== generation) return
@@ -236,36 +228,39 @@ export function useConversationHistory(options: {
     return pending
   }
   function setVisible(keys: string[]) {
-    if (visibleRegistered && keys.length === visible.size && keys.every(key => visible.has(key))) return
-    visibleRegistered = true
+    if (keys.length === visible.size && keys.every(key => visible.has(key))) return
     visible = new Set(keys)
     for (const key of keys) {
       const body = bodies.get(key)
       if (body) { bodies.delete(key); bodies.set(key, body) }
     }
-    if (options.paused()) return
-    publish()
-    if (keys.some(key => missing.value.has(key))) void prepare()
+    void prepare()
   }
-  function traceReady(key: string, ready: boolean) {
-    if (traces.value.has(key) === ready) return
-    const next = new Set(traces.value)
-    if (ready) next.add(key)
-    else next.delete(key)
-    traces.value = next
+  function retainWindow() { opening = false }
+  function settleOpening() {
+    if (!opening || start.value === undefined) return
+    opening = false
+    // The saved reply can render before the index inserts older fragments.
+    // Keep the opening window bounded without resetting a browsed window.
+    const first = options.items.value.slice(-batchSize)[0]?.displaySequence
+    if (first !== undefined && first > start.value) {
+      sourceChanged = true; start.value = first; void prepare()
+    }
   }
   async function earlier() {
-    if (olderRequest || loading.value || prepending.value || !hasEarlier.value) return olderRequest
+    if (olderRequest || prepending.value || !hasEarlier.value) return olderRequest
+    retainWindow()
     const current = generation
     prepending.value = true
     olderRequest = (async () => {
       const before = start.value ?? Infinity
-      if (!options.items.value.some(item => item.displaySequence < before)) await options.older()
+      if (!options.items.value.some(item => item.displaySequence < before) && await options.older() === false) return false
       if (disposed || current !== generation) return
       const preceding = options.items.value.filter(item => item.displaySequence < before).slice(-batchSize)
-      if (preceding.length) { sourceChanged = true; start.value = preceding[0]!.displaySequence; await prepare() }
-      else prepending.value = false
-    })().finally(() => { if (current === generation) olderRequest = undefined })
+      if (preceding.length) { sourceChanged = true; start.value = preceding[0]!.displaySequence; void prepare() }
+    })().finally(() => {
+      if (current === generation) { olderRequest = undefined; prepending.value = false }
+    })
     return olderRequest
   }
   watch([options.session, options.revision], () => {
@@ -278,19 +273,26 @@ export function useConversationHistory(options: {
     sourceChanged = true
     request = undefined; olderRequest = undefined; changed = false; prepending.value = false
     if (changedSession) {
+      opening = true
       start.value = undefined; items.value = []; prepared.value = false
-      visible.clear(); visibleRegistered = false; missing.value = new Set()
-      versions.clear(); failed.clear(); bodies.clear(); bodyBytes = 0; changedBodies.clear(); positions.clear()
+      visible.clear(); missing.value = new Set()
+      failed.clear(); bodies.clear(); bodyBytes = 0; changedBodies.clear(); positions.clear()
     } else if (start.value !== undefined && !candidates.value.length) {
       start.value = options.items.value.slice(-batchSize)[0]?.displaySequence ?? 0
     }
     loading.value = false
-    traces.value = new Set()
     void nextTick(prepare)
   }, { immediate: true, flush: 'sync' })
-  watch(options.items, () => { sourceChanged = true; void prepare() }, { flush: 'post' })
+  watch(options.items, next => {
+    // An output inferred from a recent event can start earlier once its index
+    // arrives. Keep the displayed window's first row by key, not its old offset.
+    const first = next.find(row => row.displayKey === items.value[0]?.displayKey)
+    if (first && start.value !== undefined && first.displaySequence < start.value) start.value = first.displaySequence
+    sourceChanged = true
+    void prepare()
+  }, { flush: 'post' })
   watch(options.synchronized, ready => { if (ready) void prepare() }, { flush: 'post' })
-  watch([settled, options.paused], () => { publish(); if (!options.paused() && [...visible].some(key => missing.value.has(key))) void prepare() }, { flush: 'post' })
+  watch(options.paused, paused => { if (!paused) void prepare() }, { flush: 'post' })
   onScopeDispose(() => { disposed = true; generation++ })
-  return { items, candidates, start, prepared, loading, failure, prepending, hasEarlier, earlier, traceReady, prepare, retry, missing, setVisible }
+  return { items, candidates, start, prepared, loading, failure, prepending, hasEarlier, earlier, prepare, retry, missing, setVisible, settleOpening, retainWindow }
 }

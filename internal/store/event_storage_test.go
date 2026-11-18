@@ -46,7 +46,9 @@ func TestEventReadersAcceptSQLiteJSONTextWithoutLosingData(t *testing.T) {
 	}{
 		{"forward page", func() ([]Event, error) { return st.EventsAfter(ctx, "session", 0, 100) }, originals},
 		{"backward page", func() ([]Event, error) { return st.EventsBefore(ctx, "session", 0, 100) }, originals},
-		{"model results", func() ([]Event, error) { return st.ModelResultEvents(ctx, "session", []string{"run"}) }, turnEvents[:1]},
+		{"model results", func() ([]Event, error) {
+			return st.modelResultEvents(ctx, "session", []replyResultRange{{"run", 0, turnEvents[0].Sequence}})
+		}, turnEvents[:1]},
 		{"model turn", func() ([]Event, error) { return st.RunTurnEvents(ctx, "session", "run", 1, 0) }, turnEvents},
 		{"single event", func() ([]Event, error) {
 			event, err := st.RunEvent(ctx, "session", "run", originals[len(originals)-1].Sequence)

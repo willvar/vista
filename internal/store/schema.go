@@ -28,6 +28,7 @@ func (s *Store) initializeSchema() error {
   )`,
 		`CREATE UNIQUE INDEX IF NOT EXISTS one_running_run_per_session ON runs(session_id) WHERE status='running'`,
 		`CREATE INDEX IF NOT EXISTS runs_by_session ON runs(session_id,created_at DESC,id DESC)`,
+		`CREATE INDEX IF NOT EXISTS runs_by_session_row ON runs(session_id)`,
 		`CREATE TABLE IF NOT EXISTS agent_tasks (
    session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
    run_id TEXT NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
@@ -52,6 +53,7 @@ func (s *Store) initializeSchema() error {
    output_turn INTEGER NOT NULL DEFAULT 0, output_bytes INTEGER NOT NULL DEFAULT 0
   )`,
 		`CREATE INDEX IF NOT EXISTS messages_by_session ON messages(session_id, sequence)`,
+		`CREATE INDEX IF NOT EXISTS messages_by_run_role ON messages(session_id,run_id,role,sequence)`,
 		`CREATE TABLE IF NOT EXISTS resources (
    hash TEXT PRIMARY KEY, media_type TEXT NOT NULL, bytes INTEGER NOT NULL, created_at TEXT NOT NULL
   )`,
@@ -84,7 +86,12 @@ func (s *Store) initializeSchema() error {
    sequence INTEGER NOT NULL, kind TEXT NOT NULL, data BLOB NOT NULL,
    created_at TEXT NOT NULL, PRIMARY KEY(session_id, sequence)
   )`,
-		`CREATE INDEX IF NOT EXISTS events_model_results ON events(session_id) WHERE kind='model_result'`,
+		`CREATE INDEX IF NOT EXISTS events_by_run ON events(session_id,json_extract(data,'$.runId'),sequence)`,
+		`CREATE INDEX IF NOT EXISTS events_model_results_by_run ON events(session_id,json_extract(data,'$.runId'),sequence) WHERE kind='model_result'`,
+		`DROP INDEX IF EXISTS events_model_results`,
+		`CREATE INDEX IF NOT EXISTS events_reverts ON events(session_id,sequence) WHERE kind='conversation_reverted'`,
+		`CREATE INDEX IF NOT EXISTS events_run_starts ON events(session_id,json_extract(data,'$.runId')) WHERE kind='run_started'`,
+		`CREATE INDEX IF NOT EXISTS events_context_notices ON events(session_id,sequence) WHERE kind='context_notice'`,
 		`CREATE INDEX IF NOT EXISTS events_checklists ON events(session_id,json_extract(data,'$.runId'),sequence) WHERE kind='checklist'`,
 		`CREATE UNIQUE INDEX IF NOT EXISTS events_model_history ON events(session_id,json_extract(data,'$.runId'),json_extract(data,'$.turn'),json_extract(data,'$.status'),COALESCE(json_extract(data,'$.history.index'),0)) WHERE kind='model_history'`,
 		`CREATE TABLE IF NOT EXISTS model_output_chunks (

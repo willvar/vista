@@ -21,10 +21,10 @@ export function useConversationScroll(options: {
   const atEnd = ref(true)
   const presented = ref(false)
   const jumpPhase = ref<'preparing' | 'scrolling' | null>(null)
-  const locating = ref<string>()
+  const location = shallowRef<{ controller: AbortController; followedEnd: boolean; key?: string; lost?: () => void }>()
   type Anchor = { key: string; within: number }
-  const preparation = shallowRef<{ id: number; from: Anchor; target: Anchor; start: number; end: number; follow: boolean; locate?: boolean } | null>(null)
-  const loading = computed(() => !presented.value || !!preparation.value)
+  const preparation = shallowRef<{ id: number; from: Anchor; target: Anchor; start: number; end: number; follow: boolean; locate?: boolean; corrections?: number } | null>(null)
+  const loading = computed(() => !presented.value || !!location.value || !!preparation.value)
   const locked = computed(() => !!preparation.value && !preparation.value.locate)
   const overscan = 6
   let lastReady: Anchor | undefined
@@ -57,13 +57,21 @@ export function useConversationScroll(options: {
   let touchTarget: EventTarget | null = null
 
   function cancelLocation() {
-    locating.value = undefined
+    location.value?.controller.abort()
+    location.value = undefined
     if (!preparation.value?.locate) return
-    const from = !applying ? preparation.value.from : undefined
+    const from = preparation.value.from
     preparation.value = null
     applying = false
     cancelAnimationFrame(revealFrame)
-    if (from) virtualizer.value.scrollToOffset(offsetFor(from))
+    virtualizer.value.cancelScroll()
+    if (indices.value.has(from.key)) virtualizer.value.scrollToOffset(offsetFor(from))
+  }
+  function loseLocation() {
+    const active = location.value
+    if (!active) return
+    restoreLocation(active.controller.signal)
+    active.lost?.()
   }
   function takeControl() {
     cancelLocation()
@@ -100,7 +108,7 @@ export function useConversationScroll(options: {
     const reachedEnd = input && inputAtEnd
     input = false
     motion.value = false
-    if (locked.value) return
+    if (locked.value || location.value) return
     updatePosition()
     following.value = reachedEnd || atEnd.value
     void nextTick(() => { measureVisible(); syncEnd(); maybeEarlier() })
@@ -145,6 +153,13 @@ export function useConversationScroll(options: {
     const range = virtualizer.value.calculateRange()
     return range ? visible.value.filter(item => item.index >= range.startIndex && item.index <= range.endIndex) : []
   })
+  const demand = computed(() => {
+    if (!presented.value) return []
+    const pending = preparation.value
+    if (!pending) return viewport.value
+    const padding = pending.locate ? overscan : 0
+    return visible.value.filter(item => item.index >= pending.start - padding && item.index <= pending.end + padding)
+  })
   function anchorAt(offset: number): Anchor | undefined {
     const item = virtualizer.value.getVirtualItemForOffset(offset)
     return item ? { key: String(item.key), within: Math.max(0, offset - item.start) } : undefined
@@ -187,10 +202,10 @@ export function useConversationScroll(options: {
     if (pending.locate) {
       const viewport = element.value
       const node = [...(viewport?.querySelectorAll<HTMLElement>('[data-timeline-key]') || [])].find(row => row.dataset.timelineKey === pending.target.key)
-      if (!viewport || !node || !destinationReady(pending) || Math.abs(viewport.scrollTop - offsetFor(pending.target)) > 3) return
+      if (!viewport || !node || !destinationReady(pending)) return false
       const box = node.getBoundingClientRect(), bounds = viewport.getBoundingClientRect()
-      if (box.bottom <= bounds.top || box.top >= bounds.bottom) return
-      locating.value = undefined
+      if (box.bottom <= bounds.top || box.top >= bounds.bottom) return false
+      location.value = undefined
     }
     preparation.value = null
     applying = false
@@ -199,19 +214,20 @@ export function useConversationScroll(options: {
     updatePosition()
     following.value = pending.follow || atEnd.value
     lastReady = anchorAt(element.value?.scrollTop || 0)
-    maybeEarlier()
+    if (!pending.locate) maybeEarlier()
+    return true
   }
   function updatePreparation() {
     if (!presented.value) return
-    if (applying) {
-      if (preparation.value?.locate) finishPreparation(preparation.value)
-      return
-    }
+    const target = location.value?.key
+    // A rollback can remove a resolved target. Never scroll a stale index or
+    // wait indefinitely for a row that cannot be mounted again.
+    if (target && !indices.value.has(target)) { loseLocation(); return }
+    if (applying) return
     cancelAnimationFrame(revealFrame)
     const pending = preparation.value
-    if (!pending && locating.value) {
-      if (indices.value.has(locating.value)) prepareDestination(offsetFor({ key: locating.value, within: 0 }), locating.value)
-      else if (lastReady) virtualizer.value.scrollToOffset(offsetFor(lastReady))
+    if (!pending && location.value) {
+      if (target) prepareDestination(offsetFor({ key: target, within: 0 }), target)
       return
     }
     if (pending) {
@@ -224,14 +240,24 @@ export function useConversationScroll(options: {
       if (!destinationReady(pending)) return
       // Wait for measurements and TanStack's after-commit anchor correction.
       revealFrame = requestAnimationFrame(() => { revealFrame = requestAnimationFrame(async () => {
-        if (preparation.value?.id !== pending.id) return
+        if (preparation.value !== pending) return
+        const targetIndex = indices.value.get(pending.target.key)
+        if (pending.locate && targetIndex === undefined) { loseLocation(); return }
         applying = true
-        if (pending.locate) virtualizer.value.scrollToIndex(indices.value.get(pending.target.key)!, { align: 'start' })
+        if (pending.locate) virtualizer.value.scrollToOffset(offsetFor(pending.target))
         else if (pending.follow) virtualizer.value.scrollToEnd()
         else virtualizer.value.scrollToOffset(offsetFor(pending.target))
         await nextTick(); await frame(); await frame()
-        if (preparation.value?.id !== pending.id) return
-        finishPreparation(pending)
+        if (preparation.value !== pending) return
+        const rangeNow = pending.locate ? rangeAt(offsetFor(pending.target)) : pending
+        const stable = rangeNow.start === pending.start && rangeNow.end === pending.end
+        if (stable && finishPreparation(pending)) return
+        // Rebuild the destination after a layout change. Only count corrections
+        // where the measured range stayed stable but we could not reveal it.
+        applying = false
+        const corrections = stable && destinationReady(pending) ? (pending.corrections || 0) + 1 : 0
+        if (corrections >= 3) loseLocation()
+        else preparation.value = { ...pending, corrections }
       }) })
       return
     }
@@ -243,7 +269,7 @@ export function useConversationScroll(options: {
     lastReady = anchorAt(element.value?.scrollTop || 0)
     updatePosition()
   }
-  watch([presented, paused, following, jumpPhase, preparation, locating, indices, options.missing,
+  watch([presented, paused, following, jumpPhase, preparation, location, indices, options.missing,
     readRevision, measurementRevision,
     () => viewport.value.map(item => `${item.key}/${item.start}/${item.size}`).join('|')], updatePreparation, { flush: 'post' })
   // Focus navigation and text selection can scroll without taking input
@@ -264,6 +290,12 @@ export function useConversationScroll(options: {
   }
   const showJumpToLatest = computed(() => presented.value && !jumpPhase.value && !atEnd.value)
   const totalSize = computed(() => virtualizer.value.getTotalSize())
+  watch(totalSize, (_, previous) => {
+    const viewport = element.value
+    // A cold body can grow in place, without an append. Only preserve an end
+    // the reader actually occupied before its measured size changed.
+    if (viewport && !jumpPhase.value && previous - viewport.clientHeight - viewport.scrollTop <= 3) syncEnd()
+  }, { flush: 'post' })
   // The Vue adapter updates options before the DOM commits. Finish TanStack's
   // layout lifecycle afterwards as well, so a bottom correction clamped by
   // the previous spacer height is retried against the new scroll range.
@@ -276,7 +308,7 @@ export function useConversationScroll(options: {
   }
   function maybeEarlier() {
     const viewport = element.value
-    if (!presented.value || locked.value || following.value || !viewport) return
+    if (!presented.value || locked.value || location.value || following.value || !viewport) return
     if (viewport.scrollTop < Math.max(240, viewport.clientHeight * .75)) void options.earlier()
   }
   function onScroll() {
@@ -290,7 +322,6 @@ export function useConversationScroll(options: {
     }
     if (preparation.value) {
       if (!applying) virtualizer.value.scrollToOffset(offsetFor(preparation.value.from))
-      else if (preparation.value.locate) finishPreparation(preparation.value)
       return
     }
     const range = rangeAt(offset)
@@ -348,12 +379,31 @@ export function useConversationScroll(options: {
     smoothCommand = false
     virtualizer.value.cancelScroll()
   }
-  function locate(key: string) {
+  function beginLocation() {
+    const followedEnd = location.value?.followedEnd ?? following.value
     inspect()
     preparation.value = null
     applying = false
     cancelAnimationFrame(revealFrame)
-    locating.value = key
+    clearTimeout(idleTimer)
+    input = false; motion.value = false
+    const controller = new AbortController()
+    location.value = { controller, followedEnd }
+    return controller.signal
+  }
+  function restoreLocation(signal: AbortSignal) {
+    const active = location.value
+    if (!active || active.controller.signal !== signal) return
+    cancelLocation()
+    // The attempt must not turn a reader who was following the latest reply
+    // into an older-history reader when late trace measurements arrive.
+    if (active.followedEnd) follow()
+  }
+  function revealLocation(signal: AbortSignal, key: string, lost: () => void) {
+    const pending = location.value
+    if (!pending || pending.controller.signal !== signal || !indices.value.has(key)) return false
+    location.value = { ...pending, key, lost }
+    return true
   }
   function onPointerDown(event: PointerEvent) {
     if (locked.value) { event.preventDefault(); return }
@@ -361,14 +411,14 @@ export function useConversationScroll(options: {
     if ((event.target as Element | null)?.closest('.run-trace')) inspect()
   }
   function follow(behavior: ScrollBehavior | null = 'auto', preserveLocation = false) {
-    if (!preserveLocation) locating.value = undefined
+    if (!preserveLocation) cancelLocation()
     preparation.value = null
     applying = false
     cancelAnimationFrame(revealFrame)
     jumpPhase.value = null
     clearTimeout(idleTimer)
     input = false; motion.value = false
-    following.value = !locating.value
+    following.value = !location.value
     smoothCommand = behavior === 'smooth'
     if (behavior) virtualizer.value.scrollToEnd({ behavior })
     else virtualizer.value.cancelScroll()
@@ -401,7 +451,7 @@ export function useConversationScroll(options: {
   watch(options.prepared, () => { void present() }, { immediate: true, flush: 'post' })
   watch(options.session, () => {
     generation++
-    locating.value = undefined
+    cancelLocation()
     presented.value = false
     preparation.value = null
     applying = false
@@ -447,7 +497,7 @@ export function useConversationScroll(options: {
     })
     viewportObserver.observe(viewport)
   }, { flush: 'post' })
-  onScopeDispose(() => { generation++; locating.value = undefined; preparation.value = null; applying = false; clearTimeout(idleTimer); cancelAnimationFrame(revealFrame); releaseTouchTarget(); window.removeEventListener('blur', onBlur); viewportObserver?.disconnect() })
-  return { virtualizer, visible, viewport, totalSize, placeholders, presented, loading, locked, following, showJumpToLatest, dragging,
-    measure, follow, beginJump, jump, inspect, locate, locating, onScroll, onWheel, onTouchStart, onTouchMove, onTouchEnd, onPointerDown, onKeyDown }
+  onScopeDispose(() => { generation++; location.value?.controller.abort(); location.value = undefined; preparation.value = null; applying = false; clearTimeout(idleTimer); cancelAnimationFrame(revealFrame); releaseTouchTarget(); window.removeEventListener('blur', onBlur); viewportObserver?.disconnect() })
+  return { virtualizer, visible, viewport, demand, totalSize, placeholders, presented, loading, locked, following, showJumpToLatest, dragging,
+    measure, follow, beginJump, jump, inspect, beginLocation, revealLocation, restoreLocation, onScroll, onWheel, onTouchStart, onTouchMove, onTouchEnd, onPointerDown, onKeyDown }
 }

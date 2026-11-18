@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"path/filepath"
+	"reflect"
 	"testing"
 
 	"vista/internal/workerproto"
@@ -365,5 +366,59 @@ func TestPendingQueueSharesSnapshotReadTransaction(t *testing.T) {
 	}
 	if string(fields["queuedInputs"]) != "[]" {
 		t.Fatalf("empty queue is not an explicit array: %s", fields["queuedInputs"])
+	}
+}
+
+// Both views keep their latest page fixed while unrelated earlier events grow.
+func TestConversationViewsWithUnrelatedOlderEvents(t *testing.T) {
+	s := revertStore(t)
+	ctx := context.Background()
+	seed := func(sql string, args ...any) {
+		t.Helper()
+		if _, err := execSQL(ctx, s.orm, sql, args...); err != nil {
+			t.Fatal(err)
+		}
+	}
+	older := func(first, last int) {
+		seed(`WITH RECURSIVE n(i) AS (VALUES(?) UNION ALL SELECT i+1 FROM n WHERE i<?)
+ INSERT INTO events(session_id,sequence,kind,data,created_at)
+ SELECT 's',i,CASE WHEN i%5=0 THEN 'model_result' ELSE 'tool' END,
+ CAST('{"runId":"unrelated"}' AS BLOB),'older' FROM n`, first, last)
+	}
+	seed(`INSERT INTO events(session_id,sequence,kind,data,created_at) VALUES('s',100000,'internal',x'7b7d','boundary')`)
+	older(1, 999)
+	if _, _, err := s.BeginRun(ctx, "s", "recent", "question", "Read the latest reply"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.RecordModelRequest(ctx, "s", "recent", "openai-chat", "model"); err != nil {
+		t.Fatal(err)
+	}
+	seed(`WITH RECURSIVE n(i) AS (VALUES(100003) UNION ALL SELECT i+1 FROM n WHERE i<100112)
+ INSERT INTO events(session_id,sequence,kind,data,created_at)
+ SELECT 's',i,'model_result',CAST('{"runId":"recent","turn":1}' AS BLOB),'recent' FROM n`)
+	if _, err := s.FinishRun(ctx, "s", "recent", "reply", "succeeded", "Saved answer"); err != nil {
+		t.Fatal(err)
+	}
+	// A detached task can have a result after the reply. It belongs to the
+	// run but must not be loaded as model usage for the message page.
+	seed(`INSERT INTO events(session_id,sequence,kind,data,created_at)
+ SELECT 's',MAX(sequence)+1,'model_result',CAST('{"runId":"recent","depth":1}' AS BLOB),'detached' FROM events WHERE session_id='s'`)
+	read := func() (ConversationSnapshot, RunOverview) {
+		t.Helper()
+		snapshot, err := s.ConversationSnapshot(ctx, "s")
+		if err != nil || len(snapshot.Results) != 110 || len(snapshot.Messages) != 2 || snapshot.CurrentRun == nil || snapshot.CurrentRun.ID != "recent" {
+			t.Fatalf("unexpected snapshot: %d results, %d messages, run %+v, err %v", len(snapshot.Results), len(snapshot.Messages), snapshot.CurrentRun, err)
+		}
+		overview, err := s.RunOverview(ctx, "s", "recent")
+		if err != nil || overview.ModelCalls != 1 || overview.FirstSequence <= 100000 || overview.ThroughSequence != snapshot.ThroughSequence {
+			t.Fatalf("unexpected overview: %+v %v", overview, err)
+		}
+		return snapshot, overview
+	}
+	small, smallRun := read()
+	older(1000, 99999)
+	large, largeRun := read()
+	if !reflect.DeepEqual(small, large) || !reflect.DeepEqual(smallRun, largeRun) {
+		t.Fatal("unrelated history changed the latest conversation page or execution")
 	}
 }

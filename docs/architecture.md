@@ -138,6 +138,7 @@ The regular WebUI Restart intentionally keeps the actual port; it does not promo
 `GET /api/sessions/<id>/snapshot` reads the core conversation view and its `throughSequence` boundary in one SQLite transaction.
 It includes current execution/pending state, the latest formal reply sequence, bounded recent messages/events, message result metadata, and the latest rollback sequence.
 Older root progress outside the recent event page is included separately from its pagination boundary.
+Snapshot and run-overview lookups seek by event kind or run and sequence; model results are read only for the saved reply and summary intervals on the message page.
 Full outputs, execution indexes, feedback, and context estimates load independently and cannot gate the SSE subscription.
 
 The same transaction supplies `queuedInputs`: every current queued/paused input, with only its ID, status, text and optional image count, not terminal history or delivery configuration.

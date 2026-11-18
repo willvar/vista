@@ -74,13 +74,13 @@ test.describe('persistent main output', () => {
       const messages = await vista.api(`/sessions/${id}/messages`)
       expect(messages).toHaveLength(2)
       expect(messages[1].modelResults).toHaveLength(7)
+      const outputs = await vista.api(`/sessions/${id}/runs/${messages[0].runId}/main-outputs`)
       const check = async () => {
         await expect(page.locator('.message-space')).toHaveClass(/virtualized/)
         await expect(page.locator('.message-space')).toHaveAttribute('data-count', '8')
         await expect(page.locator('.run-trace')).toHaveCount(1)
         await expect(page.locator('.trace-steps')).toHaveAttribute('data-step-count', '13')
         await expect(page.locator('[data-display-key^="reasoning/"]')).toHaveCount(0)
-        const outputs = await vista.api(`/sessions/${id}/runs/${messages[0].runId}/main-outputs`)
         for (let i = 0; i < 6; i++) {
           const row = await scrollToConversationEntry(page, `[data-display-key="output/${messages[0].runId}/main/${i + 1}"]`, outputs[i].sequence)
           await expect(row).toContainText(`Progress ${i + 1}.`)
@@ -101,7 +101,7 @@ test.describe('persistent main output', () => {
       await check()
       await page.locator('article.assistant:not(.main-output)').scrollIntoViewIfNeeded()
       await page.screenshot({ path: testInfo.outputPath('reply-model-footer.png'), animations: 'disabled' })
-      await scrollToConversationEntry(page, `[data-display-key="output/${messages[0].runId}/main/1"]`, 1)
+      await scrollToConversationEntry(page, `[data-display-key="output/${messages[0].runId}/main/1"]`, outputs[0].sequence)
       await page.screenshot({ path: testInfo.outputPath('persistent-main-text.png'), animations: 'disabled' })
       await expect(page.locator('.run-trace .trace-reasoning').first()).toHaveText('Private progress reasoning.')
       await expect(page.locator('.trace-reasoning button, .trace-reasoning .ui-thought-chain')).toHaveCount(0)

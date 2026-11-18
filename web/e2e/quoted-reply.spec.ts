@@ -8,9 +8,10 @@ test.use({ replyWithPrompt: true })
 const passage = 'A quoted passage with café and 中文🙂.'
 const secondPassage = 'A separate paragraph can be quoted alongside the first.'
 
-for (const scenario of ['covered missing', 'older missing', 'opening valid', 'older valid', 'older long valid', 'older long interrupted'] as const) {
+for (const scenario of ['covered missing', 'older missing', 'opening valid', 'opening read error', 'opening switch', 'older valid', 'older long valid', 'older long interrupted'] as const) {
   const long = scenario.startsWith('older long')
-  const valid = scenario.endsWith('valid') || long
+  const opening = scenario.startsWith('opening ')
+  const valid = scenario.endsWith('valid') || long || opening
   historyTest(`quote source navigation stops at its sequence boundary: ${scenario}`, { tag: valid ? '@responsive' : [] }, async ({ page, vista, historySeed }) => {
     historyTest.setTimeout(90_000)
     const base = `/sessions/${historySeed.sessionId}`
@@ -39,7 +40,19 @@ for (const scenario of ['covered missing', 'older missing', 'opening valid', 'ol
       })
       observer.observe(document, { childList: true, subtree: true, attributes: true, attributeFilter: ['class'] })
     })
-    if (scenario === 'opening valid') await page.addInitScript(() => {
+    const other = scenario === 'opening switch' ? await vista.api('/sessions', { method: 'POST', body: JSON.stringify({ title: 'Other conversation' }) }) : null
+    let releaseIndex = () => {}
+    let indexStarted = false
+    if (opening) {
+      const held = new Promise<void>(resolve => { releaseIndex = resolve })
+      await page.route(`**/api${path}*`, async route => {
+        indexStarted = true
+        await held
+        if (scenario === 'opening read error') await route.fulfill({ status: 503, body: 'Fixture index unavailable' })
+        else await route.continue()
+      })
+    }
+    if (opening) await page.addInitScript(() => {
       const observer = new MutationObserver(() => {
         const source = document.querySelector<HTMLElement>('.sender-quote-source')
         if (!source || document.querySelector('.messages')?.getAttribute('aria-busy') !== 'true') return
@@ -55,7 +68,37 @@ for (const scenario of ['covered missing', 'older missing', 'opening valid', 'ol
     })
     await page.goto(vista.origin + base)
     const list = page.locator('.messages')
-    await expect(list).toHaveAttribute('aria-busy', 'false')
+    if (opening) {
+      try {
+        await expect(page.locator('body')).toHaveAttribute('data-quote-opening', 'true')
+        await expect.poll(() => indexStarted).toBe(true)
+        await expect(page.locator('article.assistant:not(.main-output)')).toContainText('Final progress answer.')
+        await expect(page.locator('.quote-source-target')).not.toBeInViewport()
+        if (other) {
+          const drawer = page.locator('.mobile-sessions-trigger')
+          if (await drawer.isVisible()) await drawer.click()
+          await page.locator('.session-card').filter({ hasText: 'Other conversation' }).click()
+          await expect(page).toHaveURL(`${vista.origin}/sessions/${other.id}`)
+          await expect(list).toHaveAttribute('aria-busy', 'false')
+        }
+      } finally { releaseIndex() }
+      if (other) {
+        await expect(page.locator('.quote-source-target')).toHaveCount(0)
+        await expect(page.locator('.history-loading')).toHaveCount(0)
+        expect(vista.modelRequests).toHaveLength(0)
+        return
+      }
+      if (scenario === 'opening read error') {
+        await expect(page.locator('.error')).toContainText('Output could not be loaded.')
+        await expect(page.locator('.sender-quote p')).toHaveText('Preserved quote')
+        await expect(list).toHaveAttribute('aria-busy', 'false')
+        await expect(page.locator('article.assistant:not(.main-output)')).toContainText('Final progress answer.')
+        expect(vista.modelRequests).toHaveLength(0)
+        return
+      }
+    } else {
+      await expect(list).toHaveAttribute('aria-busy', 'false')
+    }
     const start = Number(await list.getAttribute('data-history-start'))
     const before = reads.length
     let release = () => {}, started = Promise.resolve()
@@ -74,8 +117,7 @@ for (const scenario of ['covered missing', 'older missing', 'opening valid', 'ol
       })
     }
     try {
-      if (scenario === 'opening valid') await expect(page.locator('body')).toHaveAttribute('data-quote-opening', 'true')
-      else await page.locator('.sender-quote-source').click()
+      if (scenario !== 'opening valid') await page.locator('.sender-quote-source').click()
       await started
       if (scenario === 'older long valid') await expect(page.locator('article.assistant:not(.main-output)')).toBeInViewport()
       release()
@@ -90,6 +132,12 @@ for (const scenario of ['covered missing', 'older missing', 'opening valid', 'ol
         await expect(page.locator('.quote-source-target')).toContainText(long ? 'Long progress ending.' : 'Saved progress text.')
         await expect(list).toHaveAttribute('aria-busy', 'false')
         expect(await list.locator('[data-timeline-key]').count()).toBeLessThan(35)
+        if (scenario === 'opening valid') {
+          // The viewport and the click share one paginated index read.
+          const indexPages = reads.filter(read => new URL(read).pathname === `/api${path}`)
+          expect(indexPages).toHaveLength(2)
+          expect(new Set(indexPages).size).toBe(2)
+        }
         if (long) {
           await page.getByRole('button', { name: 'Jump to latest', exact: true }).click()
           await expect(list).toHaveAttribute('aria-busy', 'false')
@@ -260,6 +308,7 @@ test('quotes append, persist with their own session draft, and can be removed in
   await page.locator('.sender-quote-source').first().click()
   await expect(page.locator('.quote-source-target')).toContainText(passage)
   await expect(page.locator('.quote-source-target')).toBeInViewport()
+  await expect(page.locator('.messages')).toHaveAttribute('aria-busy', 'false')
   await selectText(page.locator('article.user [data-quote-role]'), passage)
   await quoteSelected(page, isMobile)
   await expect(page.locator('.sender-quote-header strong')).toHaveText(['Quote 1', 'Quote 2', 'Quote 3'])

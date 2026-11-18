@@ -32,6 +32,14 @@ export function needsFullMessageText(message: Pick<Message, 'content' | 'outputT
   return (message.outputTurn || 0) > 0 && (message.outputBytes || 0) > encoder.encode(message.content).length
 }
 
+export function needsFullDisplayText(item: ConversationItem) {
+  // A terminal fragment retains the saved reply's bytes for whole-reply copy.
+  // Its own display text only needs to cover the corresponding indexed span.
+  const span = item.mainOutput?.spans.find(span => span.sequence === item.displaySequence)
+  return span ? span.endOffset - span.offset > encoder.encode(item.content).length
+    : needsFullMessageText(item)
+}
+
 export function mergeMainOutputs(records: readonly MainOutputRecord[], page: readonly MainOutput[]): MainOutputRecord[] {
   const merged = new Map(records.map(output => [mainOutputKey(output), output]))
   const turns = new Map<string, MainOutput[]>()
@@ -156,7 +164,11 @@ export function conversationItems(messages: readonly Message[], outputs: readonl
   const items: ConversationItem[] = messages.flatMap(message => {
     const output = message.role === 'assistant' && message.outputTurn ? byTurn.get(`${message.runId}/${message.outputTurn}`) : undefined
     const rows: ConversationItem[] = output ? outputRows(output, message) : [{
-      ...message, content: message.content, displayKey: message.id, displaySequence: message.sequence,
+      ...message, content: message.content,
+      // Keep the first fragment's identity when its lazy index is attached.
+      displayKey: message.role === 'assistant' && message.outputTurn && message.outputBytes && !message.contextSummary
+        ? mainOutputKey({ runId: message.runId, taskId: 'main', turn: message.outputTurn }) : message.id,
+      displaySequence: message.sequence,
     }]
     return rows
   })

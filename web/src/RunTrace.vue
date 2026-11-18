@@ -25,9 +25,10 @@ const props = defineProps<{
   viewState?: RunTraceViewState
   layout: Record<string, TimelineLayout>
   paused: boolean
+  detailed: boolean
   placeholders: Set<string>
 }>()
-const emit = defineEmits<{ inspect: [event?: Event]; ready: [value: boolean]; entries: [value: TraceTimelineEntry[]]; measure: [element: Element | null] }>()
+const emit = defineEmits<{ inspect: [event?: Event]; entries: [value: TraceTimelineEntry[]]; measure: [element: Element | null] }>()
 const { t } = useI18n()
 const { client, statusLabel, historicalModelLabel, debugMode } = useWorkspace()
 const stoppingTasks = ref<Record<string, boolean>>({})
@@ -54,12 +55,11 @@ const expandedNodes = computed({ get: () => view.value.nodes, set: value => { vi
 const segmentComplete = computed(() => props.through !== undefined)
 const segmentActive = computed(() => props.active && !segmentComplete.value)
 const segmentResults = computed(() => (props.modelResults || []).filter(result => result.runId === props.runId && inRunTraceRange(result.sequence, props)))
-const { events, ready, loading, failure, load, overviewFailure, loadOverview, loadNode, nodeLoading, nodeFailure, loadedSequences } = useRunHistory(client, props, expanded, () => view.value.history)
-watch(ready, value => emit('ready', value), { immediate: true, flush: 'post' })
+const { events, loading, failure, load, overviewFailure, loadOverview, loadNode, nodeLoading, nodeFailure, loadedSequences } = useRunHistory(client, props, expanded, () => view.value.history)
 const received = computed(() => buildRunTrace(events.value, { runId: props.runId, after: props.after, through: props.through, replyTurns: props.replyTurns, active: segmentActive.value, modelResults: segmentResults.value }))
 const trace = shallowRef(received.value)
-watch([received, ready, () => props.paused], () => {
-  if (ready.value && !props.paused) trace.value = received.value
+watch([received, () => props.paused], () => {
+  if (!props.paused) trace.value = received.value
 }, { immediate: true, flush: 'post' })
 const agents = computed(() => buildTraceAgentHierarchy(trace.value.tasks))
 const agentsById = computed(() => new Map(agents.value.map(agent => [agent.task.id, agent])))
@@ -133,7 +133,9 @@ function expandNodes(keys: string[]) {
     if (node) hydrateNode(node)
   }
 }
-watch(hasDetails, details => { expanded.value = details }, { immediate: true })
+// The measured viewport starts the first read. Once started, let that range
+// finish: inserting its pages can briefly move every trace row off screen.
+watch([hasDetails, () => props.detailed], ([details, visible]) => { if (details && visible) expanded.value = true }, { immediate: true })
 const orphanAgents = computed(() => agents.value.filter(entry => entry.task.id !== 'main' && !entry.task.nodes.length))
 const showStatus = computed(() => !!overviewFailure.value || debugMode.value || !!failure.value || emptyReply.value)
 const entries = computed<TraceTimelineEntry[]>(() => [
@@ -142,8 +144,7 @@ const entries = computed<TraceTimelineEntry[]>(() => [
     estimate: node.kind === 'reasoning' || node.kind === 'text' ? Math.max(72, Math.min(1200, node.body.length / 50 * 26)) : 68 })),
   ...orphanAgents.value.map(agent => ({ key: `agent/${agent.task.id}`, sequence: agent.task.sequence, lastSequence: agent.task.lastSequence, estimate: 120 })),
 ])
-watch([entries, () => props.paused], () => { if (!props.paused && ready.value) emit('entries', entries.value) }, { immediate: true, flush: 'post' })
-watch(ready, value => { if (value && !props.paused) emit('entries', entries.value) }, { flush: 'post' })
+watch([entries, () => props.paused], () => { if (!props.paused) emit('entries', entries.value) }, { immediate: true, flush: 'post' })
 function retryPage() { emit('inspect'); void load() }
 watch(() => [props.sessionId, props.runId, props.after], () => {
   expandedNodes.value = []

@@ -1,4 +1,5 @@
 import { coreSnapshot, installConversationStream } from './conversation-fixture'
+import { scrollToConversationEntry } from './conversation-scroll'
 import { closeSettings } from './settings-navigation'
 import type { Page } from '@playwright/test'
 import type { Message, QueuedInput, StreamEvent } from '../src/client/types'
@@ -132,9 +133,11 @@ test('sending from older history returns the conversation to the latest position
   const distance = () => scroller.evaluate(element => element.scrollHeight - element.scrollTop - element.clientHeight)
   const scrollable = () => scroller.evaluate(element => element.scrollHeight - element.clientHeight)
   await expect.poll(() => scrollable()).toBeGreaterThan(0)
-  await scroller.dispatchEvent('wheel', { deltaY: -100 })
-  await scroller.evaluate(element => { element.scrollTop = 0; element.dispatchEvent(new Event('scroll')) })
-  await expect.poll(() => scroller.evaluate(element => element.scrollTop)).toBe(0)
+  // Prepending history and measuring traces changes physical offsets. What
+  // matters is reaching an actual old row before sending from that viewport.
+  const old = await scrollToConversationEntry(page, '[data-timeline-key="recall-message-3"]', 4)
+  await expect(old).toBeInViewport()
+  await expect.poll(distance).toBeGreaterThan(3)
 
   await page.locator('.sender-card textarea').fill('Return to the newest message')
   await page.getByRole('button', { name: 'Send', exact: true }).click()

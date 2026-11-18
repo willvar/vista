@@ -74,7 +74,7 @@ export function useConversation({ client, sessions, modelCatalog, error, busy, r
   const modelOutputFailure = ref<Record<string, string>>({})
   const modelOutputRequests = new Map<string, Promise<OutputView>>()
   const mainOutputRequests = new Map<string, Promise<MainOutputRecord>>()
-  const indexedRuns = new Map<string, { request: Promise<void> }>()
+  const indexedRuns = new Map<string, { request: Promise<boolean> }>()
   const displayMessages = computed(() => conversationItems(messages.value, state.mainOutputs, state.hasOlder, state.hasNewer))
   const inputQueue = computed(() => projectInputQueue(state))
   const pendingInputs = computed(() => inputQueue.value.items)
@@ -478,14 +478,12 @@ export function useConversation({ client, sessions, modelCatalog, error, busy, r
     for (const key of mainOutputRequests.keys()) if (!keys.has(key)) mainOutputRequests.delete(key)
     modelOutputLoading.value = Object.fromEntries(Object.entries(modelOutputLoading.value).filter(([key]) => keys.has(key)))
     modelOutputFailure.value = Object.fromEntries(Object.entries(modelOutputFailure.value).filter(([key]) => keys.has(key)))
-    // Index the initial preparation batch only. Earlier batches request their
-    // indexes before joining the continuous timeline.
-    void readOutputIndexes(messages.value.slice(-20).map(message => message.runId))
   })
-  function loadMainOutputIndex(scope: Scope, runId: string): Promise<void> {
+  function loadMainOutputIndex(scope: Scope, runId: string): Promise<boolean> {
+    if (!hasVisibleRun(runId)) return Promise.resolve(false)
     const pending = indexedRuns.get(runId)
     if (pending) return pending.request
-    const token = { request: Promise.resolve() }
+    const token = { request: Promise.resolve(false) }
     indexedRuns.set(runId, token)
     const retained = () => current(scope) && indexedRuns.get(runId) === token && hasVisibleRun(runId)
     token.request = Promise.resolve().then(async () => {
@@ -494,25 +492,30 @@ export function useConversation({ client, sessions, modelCatalog, error, busy, r
       try {
         do {
           const page = await request<MainOutput[]>(scope, `/sessions/${encodeURIComponent(scope.id)}/runs/${encodeURIComponent(runId)}/main-outputs${before ? `?before=${before}` : ''}`)
-          if (!retained()) return
+          if (!retained()) return false
           outputs.push(...page)
           if (page.length < 100) break
           const next = page[0]?.sequence
           if (!next || before && next >= before) throw new Error('Main output index did not advance')
           before = next
         } while (retained())
-        if (retained()) state.mainOutputs = pruneConversationWindow({ ...state, mainOutputs: mergeMainOutputs(state.mainOutputs, outputs) }).mainOutputs
-      } catch (failure) {
-        if (retained()) { indexedRuns.delete(runId); report(scope, failure) }
+        if (!retained()) return false
+        state.mainOutputs = pruneConversationWindow({ ...state, mainOutputs: mergeMainOutputs(state.mainOutputs, outputs) }).mainOutputs
+        return true
+      } catch {
+        // These indexes are optional for the visible snapshot. An explicit
+        // navigation handles failure without making background retries noisy.
+        if (retained()) indexedRuns.delete(runId)
+        return false
       }
     })
     return token.request
   }
   async function readOutputIndexes(runs: string[]) {
     const scope = currentScope
-    if (!scope || !current(scope)) return
-    await Promise.all([...new Set(runs)].filter(Boolean).map(runId => loadMainOutputIndex(scope, runId)))
-    await Promise.all([...indexedRuns.values()].map(entry => entry.request))
+    if (!scope || !current(scope)) return false
+    const reads = await Promise.all([...new Set(runs)].filter(Boolean).map(runId => loadMainOutputIndex(scope, runId)))
+    return current(scope) && reads.every(Boolean)
   }
 
   function clearSession() {
@@ -631,15 +634,17 @@ export function useConversation({ client, sessions, modelCatalog, error, busy, r
   async function loadOlder() {
     const scope = currentScope
     const first = state.messages[0]
-    if (!scope || !current(scope) || !first || paging.value) return
+    if (!scope || !current(scope) || !first || paging.value) return false
+    const view = viewRevision.value
     paging.value = true
     try {
       const page = await request<Message[]>(scope, `/sessions/${scope.id}/messages?before=${first.sequence}`)
-      if (!current(scope)) return
+      if (!current(scope) || view !== viewRevision.value) return false
       const next = [...page, ...state.messages]
       state.messages = [...new Map(next.map(message => [message.id, message])).values()].sort((a, b) => a.sequence - b.sequence)
       state.hasOlder = page.length === 100
-    } catch (failure) { report(scope, failure) }
+      return true
+    } catch (failure) { report(scope, failure); return false }
     finally { if (current(scope)) paging.value = false }
   }
   async function loadNewer() {
@@ -1195,9 +1200,12 @@ export function useConversation({ client, sessions, modelCatalog, error, busy, r
     // releases the shared source cache before history prepares its projection.
     if (!message.mainOutput) return loadFullModelOutput(message)
       .then(output => new Map([[message.displayKey, { version: displayBodyVersion({ ...message, outputBytes: output.availableBytes }), text: output.content }]]), () => undefined)
-    const replies = messages.value.filter(row => row.runId === message.runId && row.role === 'assistant' && row.outputTurn === message.outputTurn)
-    return loadMainOutput(message.mainOutput).then(output =>
-      new Map(conversationItems(replies, [output]).map(row => [row.displayKey, { version: displayBodyVersion(row), text: row.content }])), () => undefined)
+    return loadMainOutput(message.mainOutput).then(output => {
+      // A streaming fragment may have become the saved reply while this read
+      // was pending. Project the returned text with the current reply metadata.
+      const replies = messages.value.filter(row => row.runId === message.runId && row.role === 'assistant' && row.outputTurn === message.outputTurn)
+      return new Map(conversationItems(replies, [output]).map(row => [row.displayKey, { version: displayBodyVersion(row), text: row.content }]))
+    }, () => undefined)
   }
   function releaseDisplayOutput(message: ConversationItem) {
     if (refs.modelOutput.value[message.id]) {

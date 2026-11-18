@@ -132,11 +132,13 @@ test('returning to an evicted window reloads indexes and ignores earlier in-flig
   const reply: Message = { ...message('reply-a', 2, 'run-a', 'assistant'), outputTurn: 1, outputBytes: 12000 }
   conversation.messages.value = [reply]
   await nextTick()
+  await conversation.readOutputIndexes(['run-a'])
   const first = conversation.readModelOutput(reply)
   conversation.messages.value = [message('off-window', 3, 'elsewhere')]
   await nextTick()
   conversation.messages.value = [reply]
   await nextTick()
+  await conversation.readOutputIndexes(['run-a'])
   const second = conversation.readModelOutput(reply)
   old.resolve({ content: 'stale', offset: 0, nextOffset: 5, availableBytes: 5 })
   await first
@@ -1446,10 +1448,11 @@ test('split output snapshots retain the terminal reply version and complete hist
   const history = scope.run(() => useConversationHistory({
     items: conversation.displayMessages, session: () => conversation.selected.value?.id, revision: conversation.viewRevision,
     synchronized: () => conversation.snapshotReady.value, paused: () => false,
-    indexes: conversation.readOutputIndexes, output: conversation.readDisplayOutput,
+    output: conversation.readDisplayOutput,
     text: row => row.content, release: conversation.releaseDisplayOutput,
-    traceKeys: () => [], hasOlder: () => false, older: async () => {},
+    hasOlder: () => false, older: async () => {},
   }))!
+  history.setVisible(conversation.displayMessages.value.map(row => row.displayKey))
   await nextTick(); await new Promise(resolve => setImmediate(resolve))
   assert.deepEqual(history.items.value.filter(row => row.outputTurn === 1).map(row => row.content), [opening, answer])
   assert.equal(history.missing.value.size, 0)
@@ -1515,10 +1518,11 @@ for (const failures of [1, 2]) test(`summary history recovers its full body afte
   const history = scope.run(() => useConversationHistory({
     items: conversation.displayMessages, session: () => conversation.selected.value?.id, revision: conversation.viewRevision,
     synchronized: () => conversation.snapshotReady.value, paused: () => false,
-    indexes: conversation.readOutputIndexes, output: conversation.readDisplayOutput,
+    output: conversation.readDisplayOutput,
     text: row => row.mainOutput ? row.content : conversation.modelOutput.value[row.id]?.content ?? row.content,
-    release: conversation.releaseDisplayOutput, traceKeys: () => [], hasOlder: () => false, older: async () => {},
+    release: conversation.releaseDisplayOutput, hasOlder: () => false, older: async () => {},
   }))!
+  history.setVisible(conversation.displayMessages.value.map(row => row.displayKey))
   const settle = async () => { await nextTick(); await new Promise(resolve => setImmediate(resolve)) }
   await settle()
   assert.equal(history.prepared.value, true)
@@ -1727,6 +1731,8 @@ for (const fail of [false, true]) {
       if (path.includes('/main-outputs?before=5')) { signal = options?.signal; paths.push(path); return loading.promise }
     })
     await conversation.selectSession(session('a'))
+    assert.equal(paths.length, 0, 'Only the visible consumer starts the read')
+    void conversation.readOutputIndexes([conversation.messages.value[0]!.runId])
     await new Promise(resolve => setImmediate(resolve))
     assert.equal(paths.length, 2)
     assert.equal(conversation.mainOutputs.value.length, 0, 'A partial index must not insert history rows before all index pages arrive')
@@ -1992,6 +1998,7 @@ test('snapshot recovery preserves composer state and a send acknowledgement newe
   })
   await conversation.selectSession(session('a'))
   await nextTick()
+  await conversation.readOutputIndexes(['old'])
   const previousStream = streams.get('a')!
   conversation.resynchronize()
   await started.promise
@@ -2013,6 +2020,7 @@ test('snapshot recovery preserves composer state and a send acknowledgement newe
   assert.equal(conversation.quotedTexts.value[0]?.text, 'Keep this quote')
   assert.equal(conversation.attachedImages.value[0], image)
   assert.equal(conversation.selectedReasoning.value, 'high')
+  await conversation.readOutputIndexes(['old'])
   assert.equal(indexes, 2)
   assert.equal(previousStream.signal.aborted, true)
   assert.equal(conversation.lastEvent.value, 2, 'A POST acknowledgement cannot skip missing records')
@@ -2130,11 +2138,12 @@ test('manual body retry racing model_result preserves the complete projection', 
   const history = scope.run(() => useConversationHistory({
     items: conversation.displayMessages, session: () => conversation.selected.value?.id, revision: conversation.viewRevision,
     synchronized: () => conversation.snapshotReady.value, paused: () => false,
-    indexes: conversation.readOutputIndexes, output: conversation.readDisplayOutput,
+    output: conversation.readDisplayOutput,
     text: row => row.mainOutput ? row.content : conversation.modelOutput.value[row.id]?.content ?? row.content,
     release: row => { releases++; conversation.releaseDisplayOutput(row) },
-    traceKeys: () => [], hasOlder: () => false, older: async () => {},
+    hasOlder: () => false, older: async () => {},
   }))!
+  history.setVisible(conversation.displayMessages.value.map(row => row.displayKey))
   const settle = async () => { await nextTick(); await new Promise(resolve => setImmediate(resolve)) }
   await settle()
   assert.equal(attempts, 1)
@@ -2169,10 +2178,11 @@ for (const mode of ['retry-only', 'retry-then-copy', 'copy-then-retry'] as const
     const history = scope.run(() => useConversationHistory({
       items: conversation.displayMessages, session: () => conversation.selected.value?.id, revision: conversation.viewRevision,
       synchronized: () => conversation.snapshotReady.value, paused: () => false,
-      indexes: conversation.readOutputIndexes, output: conversation.readDisplayOutput,
+      output: conversation.readDisplayOutput,
       text: row => row.mainOutput ? row.content : conversation.modelOutput.value[row.id]?.content ?? row.content,
-      release: conversation.releaseDisplayOutput, traceKeys: () => [], hasOlder: () => false, older: async () => {},
+      release: conversation.releaseDisplayOutput, hasOlder: () => false, older: async () => {},
     }))!
+    history.setVisible(conversation.displayMessages.value.map(row => row.displayKey))
     const settle = async () => { await nextTick(); await new Promise(resolve => setImmediate(resolve)) }
     await settle()
     assert.equal(history.items.value[0]?.content, preview)
@@ -2197,6 +2207,31 @@ for (const mode of ['retry-only', 'retry-then-copy', 'copy-then-retry'] as const
 }
 
 
+test('a split output read in flight uses the reply committed while it was pending', async t => {
+  const loading = deferred<OutputView>()
+  const { conversation, streams } = fixture(t, path => path.includes('/model-output?') ? loading.promise : undefined)
+  await conversation.selectSession(session('a'))
+  const runId = 'interleaved', first = 'Opening. ', tail = 'Final answer.', full = first + tail
+  conversation.activeRunID.value = runId
+  const emit = (sequence: number, kind: string, data: object) => streams.get('a')!.onEvent({
+    sequence, kind, data: { runId, taskId: 'main', turn: 1, ...data },
+  })
+  emit(2, 'model_delta', { content: first, offset: 0 })
+  emit(3, 'model_reasoning_delta', { content: 'Checking.' })
+  emit(4, 'model_delta', { content: tail, offset: first.length })
+  const part = conversation.displayMessages.value.find(row => row.mainOutput?.runId === runId)!
+  const pending = conversation.readDisplayOutput(part)
+  emit(5, 'model_result', {})
+  emit(6, 'run_finished', { status: 'succeeded', message: {
+    ...message('the-saved-reply', 6, runId, 'assistant'), content: full, outputTurn: 1, outputBytes: full.length,
+  } })
+  loading.resolve({ content: full, offset: 0, nextOffset: full.length, availableBytes: full.length, lastSequence: 4, complete: true })
+  const hydrated = await pending
+  const terminal = conversation.displayMessages.value.find(row => row.id === 'the-saved-reply')!
+  assert.equal(terminal.content, tail)
+  assert.deepEqual(hydrated?.get(terminal.displayKey), { version: displayBodyVersion(terminal), text: tail })
+})
+
 test('body hydration cannot label an older snapshot with a later completed SSE version', async t => {
   const prefix = 'x'.repeat(10000), tail = '尾部🚀-complete'
   const full = prefix + tail
@@ -2218,7 +2253,6 @@ test('body hydration cannot label an older snapshot with a later completed SSE v
   const history = scope.run(() => useConversationHistory({
     items: conversation.displayMessages, session: () => conversation.selected.value?.id, revision: conversation.viewRevision,
     synchronized: () => conversation.snapshotReady.value, paused: () => false,
-    indexes: conversation.readOutputIndexes,
     output: async row => {
       const body = await conversation.readDisplayOutput(row)
       if (injectTail) {
@@ -2229,8 +2263,9 @@ test('body hydration cannot label an older snapshot with a later completed SSE v
       return body
     },
     text: row => row.mainOutput ? row.content : conversation.modelOutput.value[row.id]?.content ?? row.content,
-    release: conversation.releaseDisplayOutput, traceKeys: () => [], hasOlder: () => false, older: async () => {},
+    release: conversation.releaseDisplayOutput, hasOlder: () => false, older: async () => {},
   }))!
+  history.setVisible(conversation.displayMessages.value.map(row => row.displayKey))
   const settle = async () => { await nextTick(); await new Promise(resolve => setImmediate(resolve)) }
   await settle()
   assert.equal(Buffer.byteLength(history.items.value.find(row => row.runId === 'tail-race' && row.outputTurn === 1)?.content ?? ''), Buffer.byteLength(full))

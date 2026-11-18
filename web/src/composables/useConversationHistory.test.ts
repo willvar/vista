@@ -10,8 +10,8 @@ const deferred = () => { let resolve!: () => void; const promise = new Promise<v
 const body = (row: ConversationItem, text: string) => [row.displayKey, { version: displayBodyVersion(row), text }] as const
 function defaults(items = ref([item(1)])) {
   return { items, session: () => 'a', revision: ref(0), synchronized: () => true, paused: () => false,
-    indexes: async (_runs: string[]) => {}, output: async (row: ConversationItem) => new Map([body(row, row.content)]), text: (row: ConversationItem) => row.content,
-    traceKeys: () => [] as string[], hasOlder: () => false, older: async () => {} }
+    output: async (row: ConversationItem) => new Map([body(row, row.content)]), text: (row: ConversationItem) => row.content,
+    hasOlder: () => false, older: async () => {} }
 }
 
 test('short referenced summaries load missing UTF-8 bytes without rereading complete text', async () => {
@@ -30,6 +30,7 @@ test('short referenced summaries load missing UTF-8 bytes without rereading comp
       text: row => loaded.get(row.id) ?? row.content,
       release: row => { loaded.delete(row.id) },
     }))!
+  history.setVisible(source.value.map(row => row.displayKey))
     await settle()
     assert.equal(history.prepared.value, true)
     assert.deepEqual(reads, ['1'])
@@ -65,6 +66,7 @@ test('all fragments of one reply prepare from one shared body before releasing i
       records.value = records.value.map(record => ({ ...record, content: '', contentSequence: 0, deltas: [], loaded: false }))
     },
   }))!
+  history.setVisible(source.value.map(row => row.displayKey))
   await settle()
   assert.equal(history.prepared.value, true)
   assert.deepEqual(history.items.value.map(row => row.content), fragments)
@@ -99,6 +101,7 @@ test('retry restores every shared fragment and respects a paused history view', 
       records.value = records.value.map(record => ({ ...record, content: '', contentSequence: 0, deltas: [], loaded: false }))
     },
   }))!
+  history.setVisible(source.value.map(row => row.displayKey))
   try {
     await settle()
     assert.equal(reads, 1)
@@ -128,6 +131,7 @@ test('a late body retry cannot update a newly selected session', async () => {
     output: async () => { if (++reads === 1) return undefined; await gate.promise; return new Map(source.value.map(row => body(row, 'Recovered previous-session body'))) },
     text: row => row.outputTurn ? 'Recovered previous-session body' : row.content, release: () => { releases++ },
   }))!
+  history.setVisible(source.value.map(row => row.displayKey))
   try {
     await settle()
     const retry = history.retry(history.items.value[0]!)
@@ -152,6 +156,7 @@ test('authoritative recovery retries a failed body after clearing its view error
   const history = scope.run(() => useConversationHistory({ ...defaults(source), revision,
     output: async row => ++reads > 1 ? new Map([body(row, full)]) : undefined, text: () => full,
   }))!
+  history.setVisible(source.value.map(row => row.displayKey))
   try {
     await settle()
     assert.equal(history.items.value[0]!.content, 'Preview.')
@@ -163,29 +168,85 @@ test('authoritative recovery retries a failed body after clearing its view error
   } finally { scope.stop() }
 })
 
-test('history prepares indexes, full bodies and execution sources before exposing its first batch', async () => {
-  const scope = effectScope(), index = deferred(), text = deferred()
-  const source = ref(Array.from({ length: 80 }, (_, index) => ({ ...item(index + 1), outputTurn: index + 1, outputBytes: 9000 })))
+test('history publishes complete messages while hydrating only the visible missing body', async () => {
+  const scope = effectScope(), text = deferred()
+  const source = ref(Array.from({ length: 80 }, (_, i) => i === 79 ? item(80) : { ...item(i + 1), outputTurn: i + 1, outputBytes: 9000 }))
   const reads: number[] = []
   const history = scope.run(() => useConversationHistory({ ...defaults(source),
-    indexes: () => index.promise, output: async row => { reads.push(row.sequence); await text.promise; return new Map([body(row, row.content)]) }, traceKeys: () => ['execution'],
+    output: async row => { reads.push(row.sequence); await text.promise; return new Map([body(row, 'x'.repeat(9000))]) },
   }))!
   await settle()
-  assert.equal(history.prepared.value, false)
-  assert.equal(history.items.value.length, 0)
-  assert.equal(reads.length, 0)
-  index.resolve()
+  assert.equal(history.prepared.value, true)
+  assert.equal(history.items.value[0]?.sequence, 61)
+  assert.equal(history.items.value.at(-1)?.content, 'text')
+  assert.deepEqual(reads, [])
+  history.setVisible(['79', '80'])
   await settle()
-  assert.equal(reads.length, 4)
+  assert.deepEqual(reads, [79])
+  assert.ok(history.missing.value.has('79'))
+  assert.equal(history.items.value.at(-1)?.content, 'text')
   text.resolve()
   await settle()
-  assert.deepEqual(reads.sort((a, b) => a - b), Array.from({ length: 20 }, (_, index) => index + 61))
-  assert.equal(history.prepared.value, false)
-  history.traceReady('execution', true)
-  await settle()
-  assert.equal(history.prepared.value, true)
-  assert.equal(history.items.value[0]!.sequence, 61)
+  assert.ok(!history.missing.value.has('79'))
+  assert.ok(history.missing.value.has('78'))
   scope.stop()
+})
+
+test('a complete saved reply does not hide its final fragment while the turn body is pending', async () => {
+  const scope = effectScope(), waiting = deferred()
+  const first = 'Opening🙂. ', tail = 'Final answer🙂.', full = first + tail
+  const bytes = Buffer.byteLength(full), split = Buffer.byteLength(first)
+  const index = { runId: 'split', taskId: 'main', turn: 1, createdAt: '', bytes, complete: true }
+  const records = mergeMainOutputs([], [
+    { ...index, sequence: 2, lastSequence: 2, offset: 0, endOffset: split },
+    { ...index, sequence: 4, lastSequence: 4, offset: split, endOffset: bytes },
+  ])
+  const reply = { ...item(6), runId: 'split', outputTurn: 1, outputBytes: bytes, content: full }
+  const rows = ref(conversationItems([reply], records))
+  const history = scope.run(() => useConversationHistory({ ...defaults(rows), output: async () => { await waiting.promise; return undefined } }))!
+  history.setVisible(rows.value.map(row => row.displayKey))
+  try {
+    await settle()
+    assert.equal(history.items.value.at(-1)?.content, tail)
+    assert.equal(history.missing.value.size, 0)
+    rows.value = conversationItems([{ ...reply, content: first }], records)
+    await settle()
+    assert.ok(history.missing.value.has(rows.value.at(-1)!.displayKey))
+  } finally { waiting.resolve(); scope.stop() }
+})
+
+test('a late opening index bounds the recent window without resetting a browsed prefix', async () => {
+  const scope = effectScope(), source = ref([item(1), item(111)])
+  const history = scope.run(() => useConversationHistory(defaults(source)))!
+  try {
+    await settle()
+    assert.deepEqual(history.items.value.map(row => row.sequence), [1, 111])
+    source.value = Array.from({ length: 111 }, (_, i) => item(i + 1))
+    history.settleOpening()
+    await settle()
+    assert.equal(history.start.value, 92)
+    assert.equal(history.items.value.length, 20)
+    await history.earlier()
+    history.settleOpening()
+    await settle()
+    assert.equal(history.start.value, 72)
+    assert.equal(history.items.value.at(-1)?.sequence, 111)
+  } finally { scope.stop() }
+})
+
+test('navigation claims the provisional window before its first index resolves', async () => {
+  const scope = effectScope(), source = ref([item(1), item(111)])
+  const history = scope.run(() => useConversationHistory(defaults(source)))!
+  try {
+    // The click may precede even the first snapshot render.
+    history.retainWindow()
+    await settle()
+    source.value = Array.from({ length: 111 }, (_, i) => item(i + 1))
+    history.settleOpening()
+    await settle()
+    assert.equal(history.start.value, 1)
+    assert.equal(history.items.value.find(row => row.sequence === 11)?.displayKey, '11')
+  } finally { scope.stop() }
 })
 
 test('earlier history extends the continuous list and retains its latest end', async () => {
@@ -203,22 +264,6 @@ test('earlier history extends the continuous list and retains its latest end', a
   await settle()
   assert.deepEqual(history.items.value.map(row => row.sequence), source.value.map(row => row.sequence))
   assert.equal(history.hasEarlier.value, false)
-  scope.stop()
-})
-
-test('old preparation cannot publish into a newly selected session', async () => {
-  const scope = effectScope(), session = ref('a'), index = deferred(), source = ref([item(1)])
-  const history = scope.run(() => useConversationHistory({ ...defaults(source), session: () => session.value,
-    indexes: () => session.value === 'a' ? index.promise : Promise.resolve(),
-  }))!
-  await settle()
-  session.value = 'b'
-  source.value = [item(10)]
-  await settle()
-  assert.deepEqual(history.items.value.map(row => row.id), ['10'])
-  index.resolve()
-  await settle()
-  assert.deepEqual(history.items.value.map(row => row.id), ['10'])
   scope.stop()
 })
 
@@ -312,21 +357,14 @@ test('body eviction preserves all indexes and rehydrates only the newly visible 
 
 test('authoritative recovery prepares a replacement without discarding the browsed prefix', async () => {
   const scope = effectScope(), source = ref(Array.from({ length: 60 }, (_, index) => item(index + 1))), revision = ref(0)
-  let gate = Promise.resolve()
-  const history = scope.run(() => useConversationHistory({ ...defaults(source), revision, indexes: () => gate }))!
+  const history = scope.run(() => useConversationHistory({ ...defaults(source), revision }))!
   await settle()
   await history.earlier()
   await settle()
-  const retained = history.items.value
-  const read = deferred()
-  gate = read.promise
   source.value = [...source.value, item(61)]
   revision.value++
   await settle()
   assert.equal(history.prepared.value, true)
-  assert.equal(history.items.value, retained)
-  read.resolve()
-  await settle()
   assert.equal(history.items.value[0]!.sequence, 21)
   assert.equal(history.items.value.at(-1)!.sequence, 61)
   scope.stop()
@@ -341,6 +379,7 @@ test('a final message reuses its already prepared complete streaming body', asyn
     outputTurn: 1, outputBytes: text.length, mainOutput: record, progress: true, content: text }])
   let reads = 0
   const history = scope.run(() => useConversationHistory({ ...defaults(source), output: async row => { reads++; return new Map([body(row, row.content)]) } }))!
+  history.setVisible(source.value.map(row => row.displayKey))
   await settle()
   source.value = [{ ...item(6), id: 'formal-reply', displayKey: 'output/run/main/1', displaySequence: 2, runId: 'run',
     outputTurn: 1, outputBytes: text.length, content: 'Short persisted preview.' }]
