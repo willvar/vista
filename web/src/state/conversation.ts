@@ -2,11 +2,13 @@ import type { Artifact, Job, Message, ModelDraft, ModelInfo, ModelResultView, Ou
 import { jobActive } from './jobs.ts'
 import { reduceMainOutputEvent, type MainOutputRecord } from './mainOutputs.ts'
 import { isInputQueueEvent, projectInputQueue, reduceInputQueue } from './inputQueue.ts'
+import { isTimelineEvent } from './conversationTimeline.ts'
 
 export type ReplyTraceSegment = {
   key: string
   runId: string
-  anchorId: string
+  anchorId?: string
+  firstSequence?: number
   after: number
   through?: number
   startedAt: string
@@ -53,6 +55,24 @@ export function replyTraceSegments(messages: readonly Message[], activeRunId = '
     if (pending.length) retain(undefined, true)
   }
   return segments
+}
+
+// Runtime continuations do not create user messages. Give activity beyond the
+// last covered reply its own range, with the key the next reply will use.
+export function trailingTraceSegment(segments: ReadonlyMap<string, ReplyTraceSegment>, runId: string, events: readonly StreamEvent[], active: boolean, startedAt = ''): ReplyTraceSegment | undefined {
+  let after = 0
+  for (const segment of segments.values()) {
+    if (segment.runId !== runId) continue
+    if (segment.through === undefined) return
+    after = Math.max(after, segment.through)
+  }
+  const first = events.find(event => event.data?.runId === runId && event.sequence > after && (
+    event.kind === 'agent_task' && !!event.data.task?.id && event.data.task.id !== 'main'
+    || event.kind === 'run_finished' && event.data.emptyReply
+    || isTimelineEvent(event) && event.kind !== 'message'
+      && (event.kind !== 'model_delta' || !!event.data.depth || !!event.data.taskId && event.data.taskId !== 'main')
+  ))
+  if (first) return { key: `${runId}/${after}`, runId, after, firstSequence: first.sequence, startedAt, active }
 }
 
 export type ConversationState = {

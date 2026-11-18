@@ -3,7 +3,7 @@ import type { VistaClient } from '../client/vista'
 import { VistaAPIError } from '../client/vista.ts'
 import { createConversationSync, type ConversationSyncStatus, type ConversationSyncDiagnostics } from '../client/conversationSync.ts'
 import type { Artifact, ConversationSnapshot, CompactionStatus, ContextUsage, Job, MainOutput, Message, ModelCatalog, OutputView, QuestionAnswer, QueuedInput, SendMessageResult, Session, StreamEvent } from '../client/types'
-import { appendMessage, createConversationState, messageResults, runResults, pruneConversationWindow, reduceConversationEvent, replyTraceSegments } from '../state/conversation.ts'
+import { appendMessage, createConversationState, messageResults, runResults, pruneConversationWindow, reduceConversationEvent, replyTraceSegments, trailingTraceSegment, type ReplyTraceSegment } from '../state/conversation.ts'
 import { toolOperationLabelKey, compactTraceText, toolSummaryText } from '../state/runTrace.ts'
 import { conversationItems, displayBodyVersion, displayOutputKey, hydrateMainOutput, mainOutputKey, mainOutputText, mergeMainOutputs, type ConversationItem, type MainOutputRecord } from '../state/mainOutputs.ts'
 import { useInteractionPreferences, type InteractionPreferences, type SelectionMode, type SelectionTier } from './useInteractionPreferences.ts'
@@ -716,6 +716,15 @@ export function useConversation({ client, sessions, modelCatalog, error, busy, r
 
   function hasVisibleRun(runId: string) { return !!runId && (messages.value.some(message => message.runId === runId) || !state.hasNewer && activeRunID.value === runId) }
   const traceSegments = computed(() => replyTraceSegments(messages.value, agentWorking.value ? activeRunID.value : '', state.hasNewer))
+  const trailingTrace = computed(() => {
+    const runId = activeRunID.value, active = agentWorking.value
+    if (!runId || state.hasNewer) return
+    // Keep the latest unanchored run visible if it ends without a reply.
+    if (!active && (selected.value?.executing || !processEvents.value.some(event => event.data?.runId === runId
+      && event.kind === 'run_finished' && !event.data.message && event.sequence > state.latestMessageSequence))) return
+    return trailingTraceSegment(traceSegments.value, runId, processEvents.value, active,
+      state.runClock?.id === runId ? state.runClock.startedAt : '')
+  })
   function traceSegment(message: Message) { return traceSegments.value.get(message.id)! }
   function runActivityAnchor(message: Message) {
     return traceSegment(message)?.anchorId === message.id
@@ -728,9 +737,8 @@ export function useConversation({ client, sessions, modelCatalog, error, busy, r
     return messages.value.filter(message => message.runId === runId && message.role === 'assistant' && message.outputTurn)
       .map(message => message.outputTurn!)
   }
-  function resultsForTrace(message: Message) {
-    const segment = traceSegment(message)
-    return segment ? resultsForRun(message.runId).filter(result => result.sequence > segment.after && (!segment.through || result.sequence <= segment.through)) : []
+  function resultsForTrace(segment: ReplyTraceSegment) {
+    return resultsForRun(segment.runId).filter(result => result.sequence > segment.after && (!segment.through || result.sequence <= segment.through))
   }
   function liveDrafts(message: Message) {
     if (message.runId !== activeRunID.value || !agentWorking.value) return []
@@ -1232,7 +1240,7 @@ export function useConversation({ client, sessions, modelCatalog, error, busy, r
     synchronization, syncDiagnostics, snapshotReady, viewRevision, resynchronize, renderFailure,
     selectSession, clearSession, refreshConversation, loadOlderActivity, showRecentActivity, loadOlder, loadNewer, loadLatest, markRead,
     send, submitMessage, analyzingFailure, canAnalyzeFailure, analyzeFailure, canRetryFailure, retryFailure, submitQuestion, cancelExecution, readModelOutput, modelOutputLoading, modelOutputFailure,
-    fullMessageText, resultsForMessage, resultsForRun, resultsForTrace, traceSegment, runStartedAt, runReplyTurns, runActivityAnchor, firstRunSequence, liveDrafts,
+    fullMessageText, resultsForMessage, resultsForRun, resultsForTrace, traceSegment, trailingTrace, runStartedAt, runReplyTurns, runActivityAnchor, firstRunSequence, liveDrafts,
     hasVisibleRun, chooseImages, addImages, pasteImages, dropImages, removeImage,
   }
 }

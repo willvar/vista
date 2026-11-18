@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { appendMessage, createConversationState, messageResults, runResults, reduceConversationEvent, replyTraceSegments } from './conversation.ts'
+import { appendMessage, createConversationState, messageResults, runResults, reduceConversationEvent, replyTraceSegments, trailingTraceSegment } from './conversation.ts'
 import type { Message, Session, StreamEvent } from '../client/types'
 
 const session: Session = { id: 'session-a', title: 'Example', modelKey: '', open: true, running: true, executing: true, createdAt: '' }
@@ -97,6 +97,31 @@ test('reply trace scopes remain separate across steering, followups and off-page
   assert.equal(page.get(lastReply.id)?.after, 251)
   assert.equal(page.get(lastReply.id)?.anchorId, lastReply.id)
   assert.equal(replyTraceSegments([firstReply], '', true).get(firstReply.id)?.through, 251)
+})
+
+test('unanchored activity uses the next reply range without claiming older rows', () => {
+  const written = { ...message('first-reply', 8, 'continued', 'assistant'), resultsAfter: 0 }
+  const segments = replyTraceSegments([written], 'continued')
+  const reasoning = event(10, 'model_reasoning_delta', { runId: 'continued', turn: 2, content: 'review' })
+  const tool = event(11, 'tool', { runId: 'continued', tool: { name: 'read_file' } })
+  const unchanged = [
+    { ...reasoning, sequence: 7 },
+    { ...tool, data: { ...tool.data, runId: 'other' } },
+    event(9, 'model_request', { runId: 'continued', turn: 2 }),
+    event(12, 'model_delta', { runId: 'continued', turn: 2, content: 'ordinary assistant text' }),
+    event(13, 'tool', { runId: 'continued', tool: { name: 'update_checklist' } }),
+  ]
+  assert.equal(trailingTraceSegment(segments, 'continued', unchanged, true), undefined)
+  assert.deepEqual(trailingTraceSegment(segments, 'continued', [reasoning, tool], true), {
+    key: 'continued/8', runId: 'continued', after: 8, firstSequence: 10, startedAt: '', active: true,
+  })
+  assert.equal(trailingTraceSegment(new Map(), 'continued', [reasoning], true)?.key, 'continued/0')
+  const followup = message('followup', 9, 'continued')
+  assert.equal(trailingTraceSegment(replyTraceSegments([written, followup], 'continued'), 'continued', [reasoning], true), undefined)
+  const final = { ...message('last-reply', 14, 'continued', 'assistant'), resultsAfter: 8 }
+  const ended = replyTraceSegments([written, final])
+  assert.equal(ended.get(final.id)?.key, 'continued/8')
+  assert.equal(trailingTraceSegment(ended, 'continued', [reasoning], false), undefined)
 })
 
 test('event sequence replay cannot duplicate draft tokens or model usage', () => {

@@ -512,6 +512,82 @@ test('runtime continuation keeps full streamed text through model completion and
   expect(fixture.unexpected).toEqual([])
 })
 
+for (const answered of [false, true]) test(`runtime continuation shows live execution ${answered ? 'after' : 'before'} its first reply @responsive`, async ({ page, mockOrigin }) => {
+  const runId = 'runtime-live-trace', createdAt = '2026-01-01T12:00:00Z'
+  const events: StreamEvent[] = [{ sequence: 1, kind: 'run_started', createdAt, data: { runId, runtime: true } }]
+  const messages: Message[] = []
+  if (answered) {
+    events.push({ sequence: 2, kind: 'model_reasoning_delta', createdAt, data: { runId, turn: 1, content: 'First phase completed.' } })
+    const first: Message = { id: 'first-reply', runId, role: 'assistant', sequence: 3, content: 'First reply.', createdAt, resultsAfter: 0 }
+    events.push({ sequence: first.sequence, kind: 'message', createdAt, data: first })
+    messages.push(first)
+  }
+  const turn = answered ? 2 : 1
+  const fixture = await mockExecution(page, mockOrigin, events, { messages })
+  await expect.poll(() => fixture.sseRequests).toBe(1)
+
+  fixture.append('model_request', { turn, provider: 'openai-chat', id: 'gpt-6-astra' })
+  fixture.append('model_reasoning_delta', { turn, content: 'Checking the remaining work.' })
+  const reasoning = page.locator('.trace-reasoning').filter({ hasText: 'Checking the remaining work.' })
+  await expect(reasoning).toBeVisible()
+  // A new trace uses the existing overview and a compact history page. Updates
+  // within that range must not initiate a fresh snapshot or another history read.
+  const pages = [...fixture.historyPages], overviews = [...fixture.overviewReads]
+  expect(pages.filter(query => !query)).toEqual([''])
+  expect(pages).toHaveLength(answered ? 3 : 2)
+  expect(overviews).toHaveLength(answered ? 2 : 1)
+  const call = { callId: 'continue-read', name: 'read_file', summary: '/fixture/check.txt' }
+  fixture.append('tool', { turn, status: 'started', tool: call })
+  fixture.append('tool', { turn, status: 'succeeded', tool: call, content: JSON.stringify({ content: 'Checked data.' }) })
+  const tool = page.locator('.trace-input-preview').filter({ hasText: '/fixture/check.txt' })
+  await expect(tool).toBeVisible()
+  await expect(page.locator('.message-row.user')).toHaveCount(0)
+  expect(fixture.historyPages).toEqual(pages)
+  expect(fixture.overviewReads).toEqual(overviews)
+
+  // An active snapshot must present the same range before any further SSE output.
+  await page.reload()
+  await expect(reasoning).toBeVisible()
+  await expect(tool).toBeVisible()
+  await expect.poll(() => fixture.sseRequests).toBe(2)
+  const traceId = await reasoning.getAttribute('id')
+  const reply: Message = { id: 'end-reply', runId, role: 'assistant', sequence: fixture.events.at(-1)!.sequence + 1,
+    content: 'Continuation finished.', createdAt, resultsAfter: answered ? 3 : 0 }
+  fixture.session.executing = false
+  fixture.messages.push(reply)
+  fixture.append('run_finished', { status: 'succeeded', message: reply })
+  const final = page.locator('.message-row.assistant').filter({ hasText: reply.content })
+  await expect(final).toHaveCount(1)
+  await expect(reasoning).toHaveCount(1)
+  await expect(reasoning).toHaveAttribute('id', traceId!)
+  await expect(tool).toHaveCount(1)
+  expect(await reasoning.evaluate(element => element.getBoundingClientRect().top)).toBeLessThan(await final.evaluate(element => element.getBoundingClientRect().top))
+  await expect(page.locator('.message-row.user')).toHaveCount(0)
+  expect(fixture.unexpected).toEqual([])
+})
+
+test('runtime-only completion stays below an older reply @responsive', async ({ page, mockOrigin }) => {
+  const runId = 'without-reply', createdAt = '2026-01-01T12:00:00Z'
+  const oldReply: Message = { id: 'older-reply', sequence: 4, runId: 'older-run', role: 'assistant', content: 'Older reply.', createdAt }
+  const fixture = await mockExecution(page, mockOrigin,
+    [{ sequence: 5, kind: 'run_started', createdAt, data: { runId, runtime: true } }], { messages: [oldReply] })
+  await expect.poll(() => fixture.sseRequests).toBe(1)
+  fixture.append('model_reasoning_delta', { turn: 1, content: 'Work without a text reply.' })
+  await expect(page.locator('.trace-reasoning')).toContainText('Work without a text reply.')
+  fixture.session.executing = false
+  fixture.append('run_finished', { status: 'succeeded', emptyReply: true, message: null })
+  const status = page.locator('.trace-empty-reply'), previous = page.locator('.message-row.assistant')
+  const assertOrder = async () => {
+    await expect(status).toBeVisible()
+    await expect(previous).toHaveText(/Older reply\./)
+    expect(await status.evaluate(element => element.getBoundingClientRect().top)).toBeGreaterThan(await previous.evaluate(element => element.getBoundingClientRect().top))
+  }
+  await assertOrder()
+  await page.reload()
+  await assertOrder()
+  expect(fixture.unexpected).toEqual([])
+})
+
 test('patch diffs and path/content searches expand inline @responsive', async ({ page, mockOrigin }) => {
   const runId='file-capabilities'
   const source: StreamEvent[]=[]

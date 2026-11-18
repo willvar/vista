@@ -21,6 +21,7 @@ import BackgroundProcesses from '../BackgroundProcesses.vue'
 import { conversationTimeline, recentSentMessage, type TimelineLayout, type TraceTimelineEntry } from '../state/conversationTimeline'
 import { createRunTraceView, type RunTraceViewState } from '../state/runTraceView'
 import type { Message } from '../client/types'
+import type { ReplyTraceSegment } from '../state/conversation'
 import MessageUsage from '../MessageUsage.vue'
 import MessageActions from '../MessageActions.vue'
 import FailureHelp from '../FailureHelp.vue'
@@ -50,7 +51,7 @@ const { synchronization, snapshotReady, viewRevision, resynchronize, renderFailu
   contextUsage, canCompact, compactSession, compacting, compactionResult, compaction, manualCompacting, compactionRequestPending,
   modelByRun,
   hasOlder, hasNewer, lastEvent, loadOlder, readOutputIndexes, readDisplayOutput, releaseDisplayOutput, modelOutputLoading, modelOutputFailure,
-  fullMessageText, resultsForMessage, resultsForTrace, traceSegment, runReplyTurns, runActivityAnchor, firstRunSequence } = workspace.conversation
+  fullMessageText, resultsForMessage, resultsForTrace, traceSegment, trailingTrace, runReplyTurns, runActivityAnchor, firstRunSequence } = workspace.conversation
 const runningJobs = computed(() => jobs.value.filter(jobActive).length)
 const showExecution = computed(() => agentWorking.value || compacting.value || !!compactionResult.value)
 const executionClock = computed(() => manualCompacting.value || compactionRequestPending.value || compactionResult.value ? null : runClock.value)
@@ -88,15 +89,17 @@ const history = useConversationHistory({
 const traceSources = computed(() => {
   if (history.start.value === undefined) return []
   const runs = new Set(history.candidates.value.map(message => message.runId))
-  return workspace.conversation.messages.value.filter(message => runs.has(message.runId)
-    && runActivityAnchor(message) && (traceSegment(message).through ?? Infinity) >= history.start.value!).map(message => ({
-      message, segment: traceSegment(message), replyTurns: runReplyTurns(message.runId), modelResults: resultsForTrace(message),
-    }))
+  const sources: { segment: ReplyTraceSegment; message?: Message }[] = workspace.conversation.messages.value
+    .filter(message => runs.has(message.runId) && runActivityAnchor(message) && (traceSegment(message).through ?? Infinity) >= history.start.value!)
+    .map(message => ({ message, segment: traceSegment(message) }))
+  if (trailingTrace.value) sources.push({ segment: trailingTrace.value })
+  return sources.map(source => ({ ...source, replyTurns: runReplyTurns(source.segment.runId), modelResults: resultsForTrace(source.segment) }))
 })
 watch(traceSources, sources => { expectedTraces.value = sources.map(source => source.segment.key) }, { immediate: true, flush: 'sync' })
 const timeline = computed(() => history.prepared.value ? conversationTimeline(history.items.value,
   Object.fromEntries(expectedTraces.value.map(key => [key, traceEntries.value[key] || []])),
-  history.items.value[0]?.displaySequence ?? Infinity) : [])
+  history.hasEarlier.value ? history.items.value[0]?.displaySequence ?? Infinity : 0) : [])
+const empty = computed(() => !messages.value.length && !timeline.value.length)
 const scrolling = useConversationScroll({ element: messageList, rows: timeline, session: () => selected.value?.id,
   prepared: history.prepared, missing: history.missing, paused, earlier: history.earlier })
 const { showJumpToLatest } = scrolling
@@ -124,11 +127,13 @@ function receiveTrace(key: string, entries: TraceTimelineEntry[]) {
   traceEntries.value = { ...traceEntries.value, [key]: entries }
 }
 const traceViews = ref<Record<string, RunTraceViewState>>({})
-watch(() => workspace.conversation.messages.value.map(message => traceSegment(message)?.key), keys => {
+watch(() => [...workspace.conversation.messages.value.map(message => traceSegment(message)?.key), trailingTrace.value?.key], keys => {
   const retained = new Set(keys)
   for (const key of Object.keys(traceViews.value)) if (!retained.has(key)) delete traceViews.value[key]
+  const entries = Object.entries(traceEntries.value).filter(([key]) => retained.has(key))
+  if (entries.length !== Object.keys(traceEntries.value).length) traceEntries.value = Object.fromEntries(entries)
 })
-function traceView(message: Message) { return traceViews.value[traceSegment(message).key] ||= createRunTraceView() }
+function traceView(key: string) { return traceViews.value[key] ||= createRunTraceView() }
 let readObserver: IntersectionObserver | undefined
 const visibleReplies = new Set<HTMLElement>()
 function markVisibleReplies() {
@@ -247,18 +252,18 @@ onUnmounted(() => {
         <div class="workspace-body">
         <div class="conversation-column" :class="{ 'has-execution': showExecution }">
         <div class="conversation-history">
-        <div ref="messageList" class="messages" :class="{ empty: !messages.length, 'history-preparing': !scrolling.presented.value, 'history-scroll-locked': scrolling.locked.value }"
+        <div ref="messageList" class="messages" :class="{ empty, 'history-preparing': !scrolling.presented.value, 'history-scroll-locked': scrolling.locked.value }"
           :data-history-start="history.items.value[0]?.displaySequence" :data-history-loading="history.loading.value" :aria-busy="scrolling.loading.value" :inert="!scrolling.presented.value" @scroll="scrolling.onScroll" @wheel="scrolling.onWheel"
           @touchstart="scrolling.onTouchStart" @touchmove="scrolling.onTouchMove" @touchend.passive="scrolling.onTouchEnd" @touchcancel.passive="scrolling.onTouchEnd"
           @pointerdown.capture="scrolling.onPointerDown" @keydown.capture="scrolling.onKeyDown">
-          <v-empty v-if="!messages.length" class="vista-empty-state conversation-empty" :description="t('conversationEmpty')" />
+          <v-empty v-if="empty" class="vista-empty-state conversation-empty" :description="t('conversationEmpty')" />
           <div class="message-space virtualized" :style="{ height: `${scrolling.totalSize.value}px` }" :data-count="history.items.value.length" :data-row-count="timeline.length">
           <RenderGuard v-for="source in traceSources" :key="`${source.segment.key}/${viewRevision}`" :reset-key="source.segment.key" @failure="error => { renderFailure(error); history.traceReady(source.segment.key, true) }"><RunTrace
             :key="`${source.segment.key}/${viewRevision}`"
             @ready="ready => history.traceReady(source.segment.key, ready)"
             :session-id="selected.id"
-            :run-id="source.message.runId"
-            :view-state="traceView(source.message)"
+            :run-id="source.segment.runId"
+            :view-state="traceView(source.segment.key)"
             :paused="paused" :layout="traceLayouts[source.segment.key] || {}" :placeholders="scrolling.placeholders.value"
             @entries="entries => receiveTrace(source.segment.key, entries)" @measure="scrolling.measure"
             :events="processEvents"
@@ -266,12 +271,12 @@ onUnmounted(() => {
             :after="source.segment.after"
             :through="source.segment.through"
             :status="agentStatus"
-            :before="Math.max(source.message.sequence, lastEvent) + 1"
-            :first="firstRunSequence(source.message.runId)"
+            :before="Math.max(source.message?.sequence ?? 0, lastEvent) + 1"
+            :first="source.segment.firstSequence ?? firstRunSequence(source.segment.runId)"
             :reply-turns="source.replyTurns"
             :model-results="source.modelResults"
             :started-at="source.segment.startedAt"
-            :model-name="runModelName(source.message)"
+            :model-name="source.message ? runModelName(source.message) : undefined"
             @inspect="scrolling.inspect"
           >
             <template #tool-output="{ node, expanded }">
@@ -279,7 +284,7 @@ onUnmounted(() => {
                 :session-id="selected.id"
                 :node="node"
                 :expanded="expanded"
-                :run-id="source.message.runId"
+                :run-id="source.segment.runId"
                 :all-artifacts="artifacts"
                 :all-jobs="jobs"
                 @open-job="id => processes?.open(id)"

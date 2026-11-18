@@ -699,8 +699,8 @@ test('a reply before a followup stays in the timeline while the same run continu
   assert.equal(conversation.runActivityAnchor(followup), true)
   assert.equal(conversation.traceSegment(followup).active, true)
   assert.equal(conversation.traceSegment(followup).after, 5)
-  assert.deepEqual(conversation.resultsForTrace(question).map(result => result.turn), [1])
-  assert.deepEqual(conversation.resultsForTrace(followup).map(result => result.turn), [2])
+  assert.deepEqual(conversation.resultsForTrace(conversation.traceSegment(question)).map(result => result.turn), [1])
+  assert.deepEqual(conversation.resultsForTrace(conversation.traceSegment(followup)).map(result => result.turn), [2])
   stream.onEvent({ sequence: 10, kind: 'model_result', data: { runId: 'run-a', turn: 3, modelResult: { provider: 'openai-chat', id: 'model', finishReason: 'stop' } } })
   stream.onEvent({ sequence: 11, kind: 'run_finished', data: { runId: 'run-a', status: 'succeeded', message: finalAnswer } })
   assert.deepEqual(conversation.messages.value.filter(item => item.runId === 'run-a').map(item => item.id), ['question', 'first-answer', 'followup', 'final-answer'])
@@ -711,12 +711,27 @@ test('a reply before a followup stays in the timeline while the same run continu
   assert.equal(conversation.runActivityAnchor(question), true)
   assert.equal(conversation.runActivityAnchor(followup), true)
   assert.equal(conversation.runActivityAnchor(finalAnswer), false)
-  assert.deepEqual(conversation.resultsForTrace(followup).map(result => result.turn), [2, 3])
+  assert.deepEqual(conversation.resultsForTrace(conversation.traceSegment(followup)).map(result => result.turn), [2, 3])
   assert.equal(conversation.traceSegment(question).through, 5)
   assert.equal(conversation.traceSegment(followup).through, undefined)
   assert.equal(conversation.agentWorking.value, false)
 })
 
+
+test('runtime-only execution keeps its recent trace when ending without text', async t => {
+  const { conversation, streams } = fixture(t)
+  await conversation.selectSession(session('a'))
+  const stream = streams.get('a')!
+  stream.onEvent({ sequence: 2, kind: 'run_started', data: { runId: 'continuation', runtime: true } })
+  stream.onEvent({ sequence: 3, kind: 'model_reasoning_delta', data: { runId: 'continuation', turn: 1, content: 'Checking' } })
+  const tail = conversation.trailingTrace.value
+  assert.equal(tail?.key, 'continuation/0')
+  assert.equal(tail?.active, true)
+  stream.onEvent({ sequence: 4, kind: 'run_finished', data: { runId: 'continuation', status: 'succeeded', emptyReply: true, message: null } })
+  assert.equal(conversation.trailingTrace.value?.key, tail?.key)
+  assert.equal(conversation.trailingTrace.value?.active, false)
+  assert.ok(!conversation.messages.value.some(item => item.runId === 'continuation'))
+})
 
 test('title synchronization preserves the execution and pending question just updated by SSE', async t => {
   const { conversation, sessions, streams } = fixture(t)
