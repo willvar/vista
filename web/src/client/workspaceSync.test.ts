@@ -203,13 +203,12 @@ test('all small settings payloads are delivered directly and replayed to a newly
     providerLogins: [{ id: 'login', status: 'connected' }],
     mcp: { servers: [], maxServers: 4, defaultDirectory: '/workspace', logins: [] },
     storage: { phase: 'idle', deletedBytes: 2, deletedCount: 1 },
-    memories: { total: 0, maxCount: 128, maxBytes: 4096, maxTotalBytes: 32768 },
   }
-  const revisions = Object.fromEntries(['models', 'catalog', 'provider-login', 'mcp', 'storage', 'memories'].map(topic => [topic, 1]))
+  const revisions = Object.fromEntries(['models', 'catalog', 'provider-login', 'mcp', 'storage'].map(topic => [topic, 1]))
   f.point(revisions, 'server-a', 0, snapshots)
   await until(() => f.sync.snapshot()?.catalog?.revision === 'catalog')
   const delivered: WorkspaceSnapshots[] = []
-  f.sync.subscribe(['models', 'catalog', 'provider-login', 'mcp', 'storage', 'memories'], async (_, __, value) => { delivered.push(value) })
+  f.sync.subscribe(['models', 'catalog', 'provider-login', 'mcp', 'storage'], async (_, __, value) => { delivered.push(value) })
   await until(() => delivered.length === 1)
   for (const key of Object.keys(snapshots)) assert.deepEqual(delivered[0]![key as keyof WorkspaceSnapshots], snapshots[key as keyof WorkspaceSnapshots])
   f.point(revisions)
@@ -223,12 +222,12 @@ test('a new subscriber serializes its initial read with arriving checkpoints', a
   f.sync.start(); await until(() => f.sinks.length === 1)
   f.point(); await until(() => f.connections.at(-1)?.phase === 'ready')
   let reads = 0, release: (() => void) | undefined
-  f.sync.subscribe(['memories'], async () => {
+  f.sync.subscribe(['skills'], async () => {
     reads++
     if (reads === 1) await new Promise<void>(resolve => { release = resolve })
   })
   await until(() => !!release)
-  f.point(); f.point({ memories: 1 })
+  f.point(); f.point({ skills: 1 })
   release!()
   await until(() => reads === 2)
   assert.equal(f.sinks.length, 1)

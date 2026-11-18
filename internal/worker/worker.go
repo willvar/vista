@@ -342,7 +342,7 @@ func Run() error {
 					pending = result.Pending
 					return nil
 				}
-				needsAck := result.Kind == "media_admission" || result.Kind == "resource_import" || result.Kind == "memory_change" || result.Kind == "checklist" || result.Kind == "context_notice" || result.Kind == "model_history" ||
+				needsAck := result.Kind == "media_admission" || result.Kind == "resource_import" || result.Kind == "checklist" || result.Kind == "context_notice" || result.Kind == "model_history" ||
 					result.Kind == "runtime_event" || result.Kind == "runtime_delivered" || result.Kind == "reply_checkpoint" ||
 					(result.Kind == "tool" || result.Kind == "artifact") && result.Status == "started" ||
 					result.Kind == "agent_task"

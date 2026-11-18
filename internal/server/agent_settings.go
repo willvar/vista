@@ -1,13 +1,16 @@
 package server
 
 import (
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"net/http"
+	"path/filepath"
 
 	"vista/internal/agentconfig"
+	"vista/internal/tools"
 )
 
 type presentRawMessage struct {
@@ -24,7 +27,7 @@ func (m *presentRawMessage) UnmarshalJSON(data []byte) error {
 func (a *App) agentSettings(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
-		instructions, err := agentconfig.Read(a.configDir)
+		instructions, err := agentconfig.ReadSnapshot(a.configDir)
 		if err != nil {
 			http.Error(w, fmt.Sprintf("could not read global instructions: %v", err), http.StatusInternalServerError)
 			return
@@ -35,10 +38,11 @@ func (a *App) agentSettings(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		w.Header().Set("Cache-Control", "no-store")
-		jsonOut(w, map[string]any{"instructions": instructions, "instructionsPath": agentconfig.InstructionsPath(a.configDir), "delegationDepth": settings.DelegationDepth, "maxDelegationDepth": agentconfig.MaxDelegationDepth, "automaticTitles": settings.AutomaticTitles})
+		jsonOut(w, map[string]any{"instructions": instructions.Content, "instructionsSha256": instructions.SHA256, "instructionsPath": agentconfig.InstructionsPath(a.configDir), "delegationDepth": settings.DelegationDepth, "maxDelegationDepth": agentconfig.MaxDelegationDepth, "automaticTitles": settings.AutomaticTitles})
 	case http.MethodPut:
 		var input struct {
 			Instructions    *string           `json:"instructions"`
+			ExpectedSHA256  string            `json:"expectedSha256"`
 			DelegationDepth presentRawMessage `json:"delegationDepth"`
 			AutomaticTitles presentRawMessage `json:"automaticTitles"`
 		}
@@ -55,6 +59,16 @@ func (a *App) agentSettings(w http.ResponseWriter, r *http.Request) {
 		if input.Instructions == nil && !input.DelegationDepth.set && !input.AutomaticTitles.set {
 			http.Error(w, "instructions, delegationDepth or automaticTitles are required", http.StatusBadRequest)
 			return
+		}
+		if input.Instructions != nil && input.ExpectedSHA256 == "" || input.Instructions == nil && input.ExpectedSHA256 != "" {
+			http.Error(w, "instruction writes require expectedSha256 from GET /api/agent-settings", http.StatusBadRequest)
+			return
+		}
+		if input.Instructions != nil && input.ExpectedSHA256 != "missing" {
+			if decoded, err := hex.DecodeString(input.ExpectedSHA256); err != nil || len(decoded) != 32 {
+				http.Error(w, "expectedSha256 must be a SHA-256 digest or missing", http.StatusBadRequest)
+				return
+			}
 		}
 		var depth *int
 		if input.DelegationDepth.set {
@@ -79,11 +93,22 @@ func (a *App) agentSettings(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 		}
+		var instructionsSHA256 string
 		if input.Instructions != nil {
-			if err := agentconfig.Write(a.configDir, *input.Instructions); err != nil {
-				http.Error(w, fmt.Sprintf("could not save global instructions: %v", err), http.StatusInternalServerError)
+			stateDir := a.dir
+			if stateDir == "" {
+				stateDir = filepath.Join(a.configDir, "state")
+			}
+			result, err := agentconfig.WriteChecked(r.Context(), stateDir, a.configDir, input.ExpectedSHA256, *input.Instructions)
+			if err != nil {
+				if errors.Is(err, tools.ErrConflict) {
+					http.Error(w, "global instructions changed; reload before saving", http.StatusConflict)
+				} else {
+					http.Error(w, fmt.Sprintf("could not save global instructions: %v", err), http.StatusInternalServerError)
+				}
 				return
 			}
+			instructionsSHA256 = result.SHA256
 		}
 		if depth != nil || automaticTitles != nil {
 			if err := agentconfig.UpdateSettings(a.configDir, depth, automaticTitles); err != nil {
@@ -91,7 +116,11 @@ func (a *App) agentSettings(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 		}
-		w.WriteHeader(http.StatusNoContent)
+		if input.Instructions != nil {
+			jsonOut(w, map[string]string{"instructionsSha256": instructionsSHA256})
+		} else {
+			w.WriteHeader(http.StatusNoContent)
+		}
 	default:
 		http.Error(w, "method", http.StatusMethodNotAllowed)
 	}

@@ -58,24 +58,16 @@ func commandSecrets(command workerproto.Command) []string {
 
 func toolSummary(call provider.ToolCall) string {
 	var input struct {
-		Task         string `json:"task"`
-		Path         string `json:"path"`
-		Root         string `json:"root"`
-		URL          string `json:"url"`
-		Query        string `json:"query"`
-		Directory    string `json:"directory"`
-		Server       string `json:"server"`
-		Name         string `json:"name"`
-		Text         string `json:"text"`
-		PreviousText string `json:"previousText"`
+		Task      string `json:"task"`
+		Path      string `json:"path"`
+		Root      string `json:"root"`
+		URL       string `json:"url"`
+		Query     string `json:"query"`
+		Directory string `json:"directory"`
+		Server    string `json:"server"`
+		Name      string `json:"name"`
 	}
 	_ = json.Unmarshal([]byte(call.Function.Arguments), &input)
-	if call.Function.Name == "memory" {
-		if input.Text != "" {
-			return textPrefix(input.Text, 300)
-		}
-		return textPrefix(input.PreviousText, 300)
-	}
 	summary := input.Path
 	if input.Task != "" {
 		summary = input.Task

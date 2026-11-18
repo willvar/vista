@@ -13,10 +13,6 @@ import (
 // their data; the guarded compatibility steps only fill genuinely missing state.
 func (s *Store) initializeSchema() error {
 	for _, q := range []string{
-		`CREATE TABLE IF NOT EXISTS memories (
-   id TEXT PRIMARY KEY, text TEXT NOT NULL UNIQUE,
-   created_at TEXT NOT NULL, updated_at TEXT NOT NULL
-  )`,
 		`CREATE TABLE IF NOT EXISTS sessions (
    id TEXT PRIMARY KEY, title TEXT NOT NULL, is_open INTEGER NOT NULL, model_key TEXT NOT NULL DEFAULT '',
    pending_kind TEXT NOT NULL DEFAULT '', pending_content TEXT NOT NULL DEFAULT '', pending_run_id TEXT NOT NULL DEFAULT '',

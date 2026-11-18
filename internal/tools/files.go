@@ -68,6 +68,16 @@ func WriteFile(ctx context.Context, stateDir, path, expectedSHA256, content stri
 }
 
 func WriteFileWithDiff(ctx context.Context, stateDir, path, expectedSHA256, content string) (FileWrite, error) {
+	if len(content) > maxFileBytes {
+		return FileWrite{}, errors.New("new file exceeds 1 MiB")
+	}
+	return WriteTextWithDiff(ctx, stateDir, path, expectedSHA256, content)
+}
+
+// WriteTextWithDiff shares atomic, optimistic writes with settings editors.
+// Callers enforce their own input budgets; existing instruction files are not
+// restricted by the generic write_file tool's transfer limit.
+func WriteTextWithDiff(ctx context.Context, stateDir, path, expectedSHA256, content string) (FileWrite, error) {
 	if err := ctx.Err(); err != nil {
 		return FileWrite{}, err
 	}
@@ -75,8 +85,8 @@ func WriteFileWithDiff(ctx context.Context, stateDir, path, expectedSHA256, cont
 	if err != nil {
 		return FileWrite{}, err
 	}
-	if len(content) > maxFileBytes || !utf8.ValidString(content) {
-		return FileWrite{}, errors.New("new file exceeds 1 MiB or is not UTF-8 text")
+	if !utf8.ValidString(content) {
+		return FileWrite{}, errors.New("new file is not UTF-8 text")
 	}
 	if expectedSHA256 != "missing" {
 		if len(expectedSHA256) != 64 {

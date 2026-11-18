@@ -41,7 +41,7 @@ make build
 
 ## Configuration and state directories
 
-Settings manages service connections, model web access, MCP, global instructions, memory, skills, and resource storage.
+Settings manages service connections, model web access, MCP, global instructions, skills, and resource storage.
 
 Configuration and conversations are stored under these directories, with runtime data in `state/`:
 

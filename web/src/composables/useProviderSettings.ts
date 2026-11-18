@@ -71,6 +71,8 @@ export function useProviderSettings({ client, error, stateSync, modelCatalog }: 
   const agentInstructions = ref('')
   const agentInstructionsPath = ref('')
   const savedAgentInstructions = ref('')
+  const agentInstructionsSHA256 = ref('missing')
+  const agentInstructionsConflict = ref(false)
   const delegationDepth = ref(1)
   const savedDelegationDepth = ref(1)
   const maxDelegationDepth = ref(8)
@@ -84,7 +86,7 @@ export function useProviderSettings({ client, error, stateSync, modelCatalog }: 
   type AgentField = 'instructions' | 'delegationDepth' | 'automaticTitles'
   const agentSettingsResetKeys = reactive<Record<AgentField, number>>({ instructions: 0, delegationDepth: 0, automaticTitles: 0 })
   function canSaveAgentField(field: AgentField) {
-    return !agentSettingsLoading.value && !agentSettingsBusy.value && (field === 'instructions' ? agentInstructions.value !== savedAgentInstructions.value : field === 'delegationDepth' ? delegationDepth.value !== savedDelegationDepth.value : automaticTitles.value !== savedAutomaticTitles.value)
+    return !agentSettingsLoading.value && !agentSettingsBusy.value && !(field === 'instructions' && agentInstructionsConflict.value) && (field === 'instructions' ? agentInstructions.value !== savedAgentInstructions.value : field === 'delegationDepth' ? delegationDepth.value !== savedDelegationDepth.value : automaticTitles.value !== savedAutomaticTitles.value)
   }
   const agentSettingsDraft = computed<Record<string, unknown>>({
     get: () => ({ instructions: agentInstructions.value, delegationDepth: delegationDepth.value, automaticTitles: automaticTitles.value }),
@@ -106,7 +108,7 @@ export function useProviderSettings({ client, error, stateSync, modelCatalog }: 
   watch([agentInstructions, delegationDepth, automaticTitles], () => { agentSettingsSaved.value = false }, { flush: 'sync' })
   let agentSettingsRevision = 0
   onScopeDispose(() => { agentSettingsRevision++ })
-  async function loadAgentSettings() {
+  async function loadAgentSettings(onlyInstructions = false) {
     const revision = ++agentSettingsRevision
     agentSettingsLoading.value = true
     agentSettingsError.value = ''
@@ -116,22 +118,28 @@ export function useProviderSettings({ client, error, stateSync, modelCatalog }: 
       if (revision !== agentSettingsRevision) return
       agentInstructions.value = result.instructions
       agentInstructionsPath.value = result.instructionsPath
+      agentInstructionsSHA256.value = result.instructionsSha256
+      agentInstructionsConflict.value = false
       savedAgentInstructions.value = result.instructions
-      delegationDepth.value = result.delegationDepth
-      savedDelegationDepth.value = result.delegationDepth
-      maxDelegationDepth.value = result.maxDelegationDepth
-      automaticTitles.value = result.automaticTitles
-      savedAutomaticTitles.value = result.automaticTitles
-      agentSettingsResetKey.value++
-      for (const field of ['instructions', 'delegationDepth', 'automaticTitles'] as const) agentSettingsResetKeys[field]++
+      agentSettingsResetKeys.instructions++
+      if (!onlyInstructions) {
+        delegationDepth.value = result.delegationDepth
+        savedDelegationDepth.value = result.delegationDepth
+        maxDelegationDepth.value = result.maxDelegationDepth
+        automaticTitles.value = result.automaticTitles
+        savedAutomaticTitles.value = result.automaticTitles
+        agentSettingsResetKey.value++
+        agentSettingsResetKeys.delegationDepth++
+        agentSettingsResetKeys.automaticTitles++
+      }
     } catch (e) { if (revision === agentSettingsRevision) agentSettingsError.value = String(e) }
     finally { if (revision === agentSettingsRevision) agentSettingsLoading.value = false }
   }
   async function saveAgentSettings(field: AgentField) {
     if (!canSaveAgentField(field)) return
     // Keep partial-update semantics: unchanged fields may have been edited elsewhere.
-    const input: Partial<Pick<AgentSettings, 'instructions' | 'delegationDepth' | 'automaticTitles'>> = {}
-    if (field === 'instructions' && agentInstructions.value !== savedAgentInstructions.value) input.instructions = agentInstructions.value
+    const input: Partial<Pick<AgentSettings, 'instructions' | 'delegationDepth' | 'automaticTitles'>> & { expectedSha256?: string } = {}
+    if (field === 'instructions' && agentInstructions.value !== savedAgentInstructions.value) { input.instructions = agentInstructions.value; input.expectedSha256 = agentInstructionsSHA256.value }
     if (field === 'delegationDepth' && delegationDepth.value !== savedDelegationDepth.value) input.delegationDepth = delegationDepth.value
     if (field === 'automaticTitles' && automaticTitles.value !== savedAutomaticTitles.value) input.automaticTitles = automaticTitles.value
     const revision = agentSettingsRevision
@@ -139,15 +147,18 @@ export function useProviderSettings({ client, error, stateSync, modelCatalog }: 
     agentSettingsError.value = ''
     agentSettingsSaved.value = false
     try {
-      await api('/agent-settings', { method: 'PUT', body: JSON.stringify(input) })
+      const saved = await api<{ instructionsSha256?: string } | undefined>('/agent-settings', { method: 'PUT', body: JSON.stringify(input) })
       if (revision !== agentSettingsRevision) return
-      if (input.instructions !== undefined) savedAgentInstructions.value = input.instructions
+      if (input.instructions !== undefined) { savedAgentInstructions.value = input.instructions; agentInstructionsSHA256.value = saved!.instructionsSha256! }
       if (input.delegationDepth !== undefined) savedDelegationDepth.value = input.delegationDepth
       if (input.automaticTitles !== undefined) savedAutomaticTitles.value = input.automaticTitles
       agentSettingsResetKey.value++
-      for (const key of Object.keys(input) as AgentField[]) agentSettingsResetKeys[key]++
+      for (const key of ['instructions', 'delegationDepth', 'automaticTitles'] as const) if (input[key] !== undefined) agentSettingsResetKeys[key]++
       agentSettingsSaved.value = true
-    } catch (e) { if (revision === agentSettingsRevision) agentSettingsError.value = String(e) }
+    } catch (e) { if (revision === agentSettingsRevision) {
+      if (field === 'instructions' && e instanceof VistaAPIError && e.status === 409) { agentInstructionsConflict.value = true; agentSettingsError.value = t('configEditorChanged') }
+      else agentSettingsError.value = String(e)
+    } }
     finally { agentSettingsBusy.value = false }
   }
   const emptyDraft = () => ({ promptCaching: {} as PromptCaching, proxyId: '', key: '', kind: '', apiFormat: 'openai-chat', headers: [] as { name: string; value: string }[], copilotAuth: { enterpriseUrl: '', clientId: '' }, name: '', providerId: '', baseUrl: '', apiKey: '', credentialMode: 'apiKey', accessToken: '', region: '', project: '', location: '', resourceName: '', deploymentId: '', apiVersion: '' })
@@ -543,7 +554,7 @@ export function useProviderSettings({ client, error, stateSync, modelCatalog }: 
     maxDelegationDepth,
     agentSettingsDraft, agentSettingsSchema, agentSettingsResetKey,
     agentSettingsResetKeys, canSaveAgentField,
-    agentSettingsBusy, agentSettingsLoading, agentSettingsError, agentSettingsSaved,
+    agentSettingsBusy, agentSettingsLoading, agentSettingsError, agentSettingsSaved, agentInstructionsConflict,
     loadAgentSettings, saveAgentSettings, modelDraft, modelFormOpen, chosenModels,
     providerDraftVersion, providerConflict, manualModelIDs, canReuseHeader, editingProvider, providerOptions, canSaveProvider,
     providerChoice, providerChoiceSchema, providerChoiceUISchema,

@@ -58,6 +58,12 @@ func (s *projectInstructionState) prepare(ctx context.Context, call provider.Too
 	var input struct{ Path, Root, Directory string }
 	var targets []string
 	switch call.Function.Name {
+	case "edit_instructions":
+		_, path, err := instructionEditTarget(call)
+		if err != nil {
+			return "", err
+		}
+		targets = []string{path}
 	case "apply_patch":
 		var patch tools.PatchInput
 		if err := decodeArguments(call.Function.Arguments, &patch); err != nil {

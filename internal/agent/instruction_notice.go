@@ -8,7 +8,7 @@ import (
 
 func scopedInstructionTool(name string) bool {
 	switch name {
-	case "apply_patch", "read_file", "write_file", "search", "find_files", "shell", "start_background", "read_resource", "read_skill":
+	case "edit_instructions", "apply_patch", "read_file", "write_file", "search", "find_files", "shell", "start_background", "read_resource", "read_skill":
 		return true
 	}
 	return false

@@ -3,7 +3,6 @@ package server
 import (
 	"encoding/json"
 	"fmt"
-	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
@@ -21,23 +20,15 @@ func TestChangedSettingsPushPublicSnapshotsAndUnchangedTopicsStayEmpty(t *testin
 		mcpLogins:      map[string]*mcpLogin{"mcp-login": {ID: "mcp-login", Status: "pending", AuthorizationURL: "https://mcp.test/authorization-secret"}},
 		storageStatus:  resourceStorageStatus{Phase: "running", Action: "clean", DeletedCount: 2, DeletedBytes: 100}}
 	before := app.updates.snapshot()
-	w := httptest.NewRecorder()
-	app.memories(w, httptest.NewRequest("POST", "/api/memories", strings.NewReader(`{"action":"add","text":"Use concise answers."}`)))
-	if w.Code != 200 {
-		t.Fatal(w.Body.String())
-	}
 	app.updates.notify("models", "catalog", "mcp", "provider-login", "storage")
 	point, err := app.stateUpdate(consumer.ctx, "localhost", before)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if point.Models == nil || point.Models.Default != "model" || len(point.Models.Models) != 1 || point.Catalog == nil || point.ProviderLogins == nil || len(*point.ProviderLogins) != 1 || point.MCP == nil || len(point.MCP.Servers) != 1 || len(point.MCP.Logins) != 1 || point.Storage == nil || point.Storage.DeletedCount != 2 || point.Memories == nil || point.Memories.Total != 1 {
+	if point.Models == nil || point.Models.Default != "model" || len(point.Models.Models) != 1 || point.Catalog == nil || point.ProviderLogins == nil || len(*point.ProviderLogins) != 1 || point.MCP == nil || len(point.MCP.Servers) != 1 || len(point.MCP.Logins) != 1 || point.Storage == nil || point.Storage.DeletedCount != 2 {
 		t.Fatalf("missing changed state: %+v", point)
 	}
 	data, _ := json.Marshal(point)
-	if strings.Contains(string(data), "Use concise answers.") {
-		t.Fatal("full memory contents leaked into the global stream")
-	}
 	for _, secret := range []string{"model-secret", "header-secret", "device-secret", "https://auth.test/secret", "mcp-secret", "client-secret", "mcp-header-secret", "authorization-secret"} {
 		if strings.Contains(string(data), secret) {
 			t.Fatalf("shared state exposed %q", secret)
@@ -55,27 +46,6 @@ func TestChangedSettingsPushPublicSnapshotsAndUnchangedTopicsStayEmpty(t *testin
 	_ = json.Unmarshal(data, &fields)
 	if len(fields) != 2 {
 		t.Fatalf("unchanged heartbeat repeated state: %s", data)
-	}
-}
-
-func TestWorkerMemoryChangeNotifiesOnlyAfterCommit(t *testing.T) {
-	consumer, _ := newResultConsumerTest(t)
-	app := &App{store: consumer.store}
-	consumer.changed = app.notifyWorkerState
-	change := workerproto.MemoryChange{Action: "add", ID: uuid.NewString(), Text: "Prefer examples."}
-	result := workerproto.Result{Kind: "memory_change", RunID: "run", Memory: &change, AckID: "ack"}
-	if err := consumer.consume(result); err != nil {
-		t.Fatal(err)
-	}
-	point, err := app.stateUpdate(consumer.ctx, "localhost", stateCheckpoint{Revisions: map[string]uint64{}})
-	if err != nil || point.Memories == nil || point.Memories.Total != 1 || point.Revisions["memories"] != 1 || point.Sessions != nil || point.Status != nil {
-		t.Fatalf("memory commit was not isolated: %+v %v", point, err)
-	}
-	if err := consumer.consume(result); err != nil {
-		t.Fatal(err)
-	}
-	if app.updates.snapshot().Revisions["memories"] != 1 {
-		t.Fatal("rejected duplicate published a change")
 	}
 }
 

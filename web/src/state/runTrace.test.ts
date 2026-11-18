@@ -14,6 +14,13 @@ test('patch results retain committed file diffs even when later writes failed', 
   assert.equal(toolOperationLabelKey('subagent/apply_patch'), 'traceOpPatch')
 })
 
+test('long-term instruction edits reuse file diff rendering without changing historical memory output', () => {
+  const diff = { path: '/project/AGENTS.md', created: false, unified: '--- AGENTS.md\n+++ AGENTS.md\n@@ -1 +1 @@\n-old\n+new\n' }
+  assert.equal(toolOperationLabelKey('edit_instructions'), 'traceOpEditInstructions')
+  assert.deepEqual(projectToolOutput(JSON.stringify({ path: diff.path, diff }), 'edit_instructions').diff, { ...diff, omitted: undefined })
+  assert.equal(toolOperationLabelKey('memory'), 'traceOpMemory')
+})
+
 test('path discovery, count-only searches and saved-output matches have distinct views', () => {
   const found=projectToolOutput(JSON.stringify({ paths:['/project/app.ts'],truncated:false }),'find_files')
   assert.deepEqual(found.search?.paths,['/project/app.ts'])

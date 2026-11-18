@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import { installMockStateStream } from './state-stream-fixture'
 import { openSettingsSection } from './settings-navigation'
 import { test, expect } from './frontend-fixture'
@@ -5,8 +6,8 @@ import type { Locator, Page } from '@playwright/test'
 import { fillTextFixture } from './text-fixture'
 
 async function mockAgentSettings(page: Page, origin: string, section = 'general') {
-  const saved = { instructions: 'Keep responses concise.', instructionsPath: '/home/test/.config/vista/AGENTS.md', delegationDepth: 1, maxDelegationDepth: 8, automaticTitles: true }
-  const puts: { instructions?: string; delegationDepth?: number; automaticTitles?: boolean }[] = []
+  const saved = { instructions: 'Keep responses concise.', instructionsPath: '/home/test/.config/vista/AGENTS.md', instructionsSha256: createHash('sha256').update('Keep responses concise.').digest('hex'), delegationDepth: 1, maxDelegationDepth: 8, automaticTitles: true }
+  const puts: { instructions?: string; expectedSha256?: string; delegationDepth?: number; automaticTitles?: boolean }[] = []
   const forbidden: string[] = []
   const unexpected: string[] = []
   await page.addInitScript(() => {
@@ -20,7 +21,6 @@ async function mockAgentSettings(page: Page, origin: string, section = 'general'
     const reply = (json: unknown) => route.fulfill({ json })
     if (path === '/activity' && method === 'POST') return route.fulfill({ status: 204 })
     if (path === '/agent-settings' && method === 'GET') return reply(saved)
-    if (path === '/memories' && method === 'GET') return reply({ memories: [], maxCount: 128, maxBytes: 4096, maxTotalBytes: 32768 })
     if (path === '/agent-settings' && method === 'PUT') {
       const body = request.postDataJSON()
       puts.push(body)
@@ -28,6 +28,10 @@ async function mockAgentSettings(page: Page, origin: string, section = 'general'
         || body.delegationDepth !== undefined && (!Number.isInteger(body.delegationDepth) || body.delegationDepth < 0 || body.delegationDepth > saved.maxDelegationDepth)
         || body.automaticTitles !== undefined && typeof body.automaticTitles !== 'boolean') {
         return route.fulfill({ status: 400, body: 'Invalid settings' })
+      }
+      if (body.instructions !== undefined) {
+        if (body.expectedSha256 !== saved.instructionsSha256) return route.fulfill({ status: 409, body: 'Instructions changed' })
+        saved.instructionsSha256 = createHash('sha256').update(body.instructions).digest('hex')
       }
       Object.assign(saved, body)
       return reply(saved)
@@ -173,7 +177,7 @@ test('Personalization saves delegation depth and instructions independently', as
   fixture.saved.delegationDepth = 4
   await saveInstructions.click()
   await expect.poll(() => fixture.puts.length).toBe(5)
-  expect(fixture.puts[4]).toEqual({ instructions: 'Use project instructions before changing code.\n保留用户指定的限制。' })
+  expect(fixture.puts[4]).toEqual({ instructions: 'Use project instructions before changing code.\n保留用户指定的限制。', expectedSha256: createHash('sha256').update('Keep responses concise.').digest('hex') })
   expect(fixture.saved.delegationDepth).toBe(4)
   await page.reload()
   await settings.getByRole('button', { name: 'Full-screen editor', exact: true }).click()
@@ -233,7 +237,7 @@ test('full-screen instructions keep an unsaved draft, focus the editor and save 
   await expect(editor).toHaveValue('中'.repeat(18000))
   await fillTextFixture(editor, draft)
   await save.click()
-  await expect.poll(() => fixture.puts).toEqual([{ instructions: draft }])
+  await expect.poll(() => fixture.puts).toEqual([{ instructions: draft, expectedSha256: createHash('sha256').update('Keep responses concise.').digest('hex') }])
   await expect(save).toBeDisabled()
   await page.reload()
   await expand.click()

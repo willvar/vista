@@ -12,12 +12,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/google/uuid"
 	"vista/internal/buildinfo"
 	"vista/internal/instance"
 	"vista/internal/provider"
 	"vista/internal/store"
-	"vista/internal/workerproto"
 )
 
 func resetFixture(t *testing.T) (*appHandler, http.Handler) {
@@ -76,9 +74,6 @@ func TestResetAllReopensEmptyDataAndKeepsInstanceLock(t *testing.T) {
 	if _, err := app.store.Create(ctx, "old-session", "old conversation"); err != nil {
 		t.Fatal(err)
 	}
-	if err := app.store.ChangeMemory(ctx, workerproto.MemoryChange{Action: "add", ID: uuid.NewString(), Text: "old preference"}); err != nil {
-		t.Fatal(err)
-	}
 	oldPreferences, err := app.store.Preferences(ctx)
 	if err != nil {
 		t.Fatal(err)
@@ -117,10 +112,6 @@ func TestResetAllReopensEmptyDataAndKeepsInstanceLock(t *testing.T) {
 	if err != nil || counts.Total != 0 || counts.Jobs != 0 {
 		t.Fatalf("conversations survived reset: %+v %v", counts, err)
 	}
-	memories, err := h.app.store.Memories(ctx)
-	if err != nil || len(memories) != 0 {
-		t.Fatalf("memory survived reset: %+v %v", memories, err)
-	}
 	resources, err := h.app.store.ResourceStorage(ctx)
 	if err != nil || resources.TotalCount != 0 {
 		t.Fatalf("resource originals survived reset: %+v %v", resources, err)
@@ -145,7 +136,7 @@ func TestResetAllReopensEmptyDataAndKeepsInstanceLock(t *testing.T) {
 	if contents, _ := os.ReadFile(logPath); string(contents) != "new generation" {
 		t.Fatalf("open log handle was detached from its path: %q", contents)
 	}
-	for _, path := range []string{"/api/status", "/api/models", "/api/sessions", "/api/agent-settings", "/api/mcp-config", "/api/search-config", "/api/user-agent", "/api/skills", "/api/memories"} {
+	for _, path := range []string{"/api/status", "/api/models", "/api/sessions", "/api/agent-settings", "/api/mcp-config", "/api/search-config", "/api/user-agent", "/api/skills"} {
 		w := httptest.NewRecorder()
 		handler.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "http://127.0.0.1:5186"+path, nil))
 		if w.Code != http.StatusOK {

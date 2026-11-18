@@ -192,6 +192,10 @@ func (r *toolRuntime) writeFile(ctx context.Context, call provider.ToolCall) (st
 	if err != nil {
 		return "", err
 	}
+	return r.fileWriteResult(ctx, call, result)
+}
+
+func (r *toolRuntime) fileWriteResult(ctx context.Context, call provider.ToolCall, result tools.FileWrite) (string, error) {
 	// Persist the diff independently of the bounded model/event summary. A
 	// presentation failure must not turn an already committed write into a
 	// retryable tool error (which could repeat the side effect).

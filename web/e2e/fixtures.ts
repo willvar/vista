@@ -58,7 +58,7 @@ function modelCatalogFixture() {
   return catalogFixture = JSON.stringify(catalog)
 }
 
-type NativeOptions = { configuredProvider: boolean; imageModel: boolean; budgetModel: boolean; replyWithPrompt: boolean; followUpTool: boolean; questionTool: boolean; memoryTool: boolean; progressCalls: number; longProgress: boolean; terminalReasoning: boolean; interleavedOutput: boolean; emptyReply: boolean; detachedTask: boolean; backgroundProcess: boolean; fileChanges: boolean; providerOutput: ProviderOutput | undefined; modelFailure: ModelFailure | undefined }
+type NativeOptions = { configuredProvider: boolean; imageModel: boolean; budgetModel: boolean; replyWithPrompt: boolean; followUpTool: boolean; questionTool: boolean; instructionTool: boolean; progressCalls: number; longProgress: boolean; terminalReasoning: boolean; interleavedOutput: boolean; emptyReply: boolean; detachedTask: boolean; backgroundProcess: boolean; fileChanges: boolean; providerOutput: ProviderOutput | undefined; modelFailure: ModelFailure | undefined }
 
 const nativeDefaults: NativeOptions = {
   configuredProvider: true,
@@ -67,7 +67,7 @@ const nativeDefaults: NativeOptions = {
   replyWithPrompt: false,
   followUpTool: false,
   questionTool: false,
-  memoryTool: false,
+  instructionTool: false,
   progressCalls: 0,
   longProgress: false,
   terminalReasoning: false,
@@ -84,7 +84,7 @@ const nativeDefaults: NativeOptions = {
 // persistent data; ordinary cases retain the same per-test lifecycle.
 export const nativeFixture = {
   async use(options: Partial<NativeOptions>, use: (vista: VistaFixture, stop: () => Promise<string>) => Promise<void>, seed?: string) {
-    const { configuredProvider, imageModel, budgetModel, replyWithPrompt, followUpTool, questionTool, memoryTool, progressCalls, longProgress, terminalReasoning, interleavedOutput, emptyReply, detachedTask, backgroundProcess, fileChanges, providerOutput, modelFailure } = { ...nativeDefaults, ...options }
+    const { configuredProvider, imageModel, budgetModel, replyWithPrompt, followUpTool, questionTool, instructionTool, progressCalls, longProgress, terminalReasoning, interleavedOutput, emptyReply, detachedTask, backgroundProcess, fileChanges, providerOutput, modelFailure } = { ...nativeDefaults, ...options }
     if (!process.env.VISTA_CHROME) throw new Error('Set VISTA_CHROME to the isolated test browser executable')
     const binary = resolve(process.env.VISTA_BIN || join(import.meta.dirname, '../../bin/vista'))
     const root = resolve(import.meta.dirname, '../.vista/test-state')
@@ -136,7 +136,7 @@ export const nativeFixture = {
       try { input = JSON.parse(body) } catch { response.writeHead(400).end(); return }
       const titleRequest = providerOutput === 'responses' ? body.includes('Write a short, specific title')
         : messageText(input.messages?.[0]?.content).startsWith('Write a short, specific title')
-      if (!titleRequest && !providerOutput && fileChanges
+      if (!titleRequest && !providerOutput && (fileChanges || instructionTool)
         && readRules(input, response)) return
       // Strip fixture-only rule bootstrap entries before capturing business
       // requests. Decode a separate copy so cache and image blocks stay intact.
@@ -244,22 +244,25 @@ export const nativeFixture = {
         response.end(`data: ${JSON.stringify({ choices: [{ delta, finish_reason: read ? 'stop' : 'tool_calls' }] })}\n\ndata: [DONE]\n\n`)
         return
       }
-      if (memoryTool && !titleRequest) {
-        const currentPrompt = input.messages?.[lastUser]?.content
-        const tools = toolResults
+      if (instructionTool && !titleRequest) {
+        const currentPrompt = String(input.messages?.[lastUser]?.content)
+        const operations = toolResults.filter(message => !String(message.content).includes('"status":"instructions_required"'))
+        const project = currentPrompt.includes('project')
+        const target = project ? { scope: 'project', directory: workspacePath } : { scope: 'global' }
         let args: object | undefined
-        if (currentPrompt === 'Remember concise answers' && !tools.length) args = { action: 'add', text: 'Keep answers concise.' }
-        if (currentPrompt === 'Forget my preference') {
-          if (!tools.length) args = { action: 'list' }
-          else if (tools.length === 1) {
-            const memory = JSON.parse(String(tools[0].content)).memories[0]
-            args = { action: 'remove', id: memory.id, previousText: memory.text }
+        if (['Remember concise answers', 'Forget my preference', 'Remember project pnpm', 'Change project npm'].includes(currentPrompt)) {
+          if (!operations.length) args = { action: 'read', ...target }
+          else if (operations.length === 1) {
+            const snapshot = JSON.parse(String(operations[0].content))
+            args = currentPrompt === 'Forget my preference' ? { action: 'replace', ...target, expectedSha256: snapshot.sha256, oldText: 'Keep answers concise.\n', text: '' }
+              : currentPrompt === 'Change project npm' ? { action: 'replace', ...target, expectedSha256: snapshot.sha256, oldText: 'Use pnpm.', text: 'Use npm.' }
+              : { action: 'append', ...target, expectedSha256: snapshot.sha256, text: project ? 'Use pnpm.' : 'Keep answers concise.' }
           }
-        }
-        if (args) {
-          const tool_calls = [{ index: 0, id: `memory-${tools.length}`, type: 'function', function: { name: 'memory', arguments: JSON.stringify(args) } }]
-          response.end(`data: ${JSON.stringify({ choices: [{ delta: { tool_calls }, finish_reason: 'tool_calls' }] })}\n\ndata: [DONE]\n\n`)
-          return
+          if (args) {
+            const tool_calls = [{ index: 0, id: `instructions-${toolResults.length}`, type: 'function', function: { name: 'edit_instructions', arguments: JSON.stringify(args) } }]
+            response.end(`data: ${JSON.stringify({ choices: [{ delta: { tool_calls }, finish_reason: 'tool_calls' }] })}\n\ndata: [DONE]\n\n`)
+            return
+          }
         }
       }
       if (fileChanges && !titleRequest && String(input.messages?.[lastUser]?.content).startsWith('Edit files')
@@ -448,7 +451,7 @@ export const test = base.extend<NativeOptions & { vista: VistaFixture }>({
   replyWithPrompt: [false, { option: true }],
   followUpTool: [false, { option: true }],
   questionTool: [false, { option: true }],
-  memoryTool: [false, { option: true }],
+  instructionTool: [false, { option: true }],
   progressCalls: [0, { option: true }],
   longProgress: [false, { option: true }],
   terminalReasoning: [false, { option: true }],
@@ -459,8 +462,8 @@ export const test = base.extend<NativeOptions & { vista: VistaFixture }>({
   fileChanges: [false, { option: true }],
   providerOutput: [undefined, { option: true }],
   modelFailure: [undefined, { option: true }],
-  vista: async ({ configuredProvider, imageModel, budgetModel, replyWithPrompt, followUpTool, questionTool, memoryTool, progressCalls, longProgress, terminalReasoning, interleavedOutput, emptyReply, detachedTask, backgroundProcess, fileChanges, providerOutput, modelFailure }, use) => {
-    await nativeFixture.use({ configuredProvider, imageModel, budgetModel, replyWithPrompt, followUpTool, questionTool, memoryTool, progressCalls, longProgress, terminalReasoning, interleavedOutput, emptyReply, detachedTask, backgroundProcess, fileChanges, providerOutput, modelFailure }, use)
+  vista: async ({ configuredProvider, imageModel, budgetModel, replyWithPrompt, followUpTool, questionTool, instructionTool, progressCalls, longProgress, terminalReasoning, interleavedOutput, emptyReply, detachedTask, backgroundProcess, fileChanges, providerOutput, modelFailure }, use) => {
+    await nativeFixture.use({ configuredProvider, imageModel, budgetModel, replyWithPrompt, followUpTool, questionTool, instructionTool, progressCalls, longProgress, terminalReasoning, interleavedOutput, emptyReply, detachedTask, backgroundProcess, fileChanges, providerOutput, modelFailure }, use)
   },
   page: async ({ page, vista }, use) => {
     await page.goto(vista.origin + '/')

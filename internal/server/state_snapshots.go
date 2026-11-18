@@ -5,8 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"strconv"
-
-	"vista/internal/store"
 )
 
 type publicModelCatalog struct {
@@ -58,15 +56,6 @@ func (a *App) addStateSnapshots(ctx context.Context, host string, point *stateCh
 		storage := a.resourceStorageSnapshot()
 		point.Storage = &storage
 	}
-	if changed("memories") {
-		total, err := a.store.MemoryCount(ctx)
-		if err != nil {
-			return err
-		}
-		// Contents belong to the manager's requested page, not every browser
-		// with an application stream open. A revision wakes only active views.
-		point.Memories = &memorySummary{total, store.MaxMemories, store.MaxMemoryBytes, store.MaxMemoriesBytes}
-	}
 	if changed("server-config") {
 		version := point.Epoch + ":" + strconv.FormatUint(point.Revisions["server-config"], 10)
 		// Invalid or unreadable settings are a view-local HTTP error. Keep the
@@ -101,8 +90,8 @@ func (point *stateCheckpoint) limitPayload() error {
 	}
 	omit := map[string]func(){
 		"models": func() { point.Models = nil }, "diagnostics": func() { point.Diagnostics = nil },
-		"sessions": func() { point.Sessions = nil }, "memories": func() { point.Memories = nil },
-		"mcp": func() { point.MCP = nil }, "catalog": func() { point.Catalog = nil },
+		"sessions": func() { point.Sessions = nil },
+		"mcp":      func() { point.MCP = nil }, "catalog": func() { point.Catalog = nil },
 		"providerLogins": func() { point.ProviderLogins = nil }, "storage": func() { point.Storage = nil },
 		"network": func() { point.Network = nil },
 		"status":  func() { point.Status = nil }, "serverConfig": func() { point.ServerConfig = nil },

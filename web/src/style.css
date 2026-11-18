@@ -1426,27 +1426,6 @@ body {
 .instructions-directory-file code { font: inherit; font-family: var(--font-mono, monospace); }
 .instructions-directory-file small { display: block; margin-top: 4px; color: var(--muted); font-size: inherit; }
 .instructions-local-example .instructions-local-scope { margin: 12px 0 0; color: var(--muted); font-size: var(--font-size-small); line-height: 1.7; }
-.memory-flow { display: grid; grid-template-columns: minmax(0,1fr) 20px minmax(0,1.25fr) 24px minmax(0,1fr); grid-template-rows: repeat(2,1fr); align-items: center; }
-.memory-flow>.personalization-figure-node { margin-block: 8px; }
-.memory-flow-past { grid-area: 1 / 1; }
-.memory-flow-retain { grid-area: 1 / 2; }
-.memory-flow-stored,.memory-flow-current { padding: 12px 8px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); }
-.memory-flow-stored { grid-area: 1 / 3; }
-.memory-flow-stored small { font-size: inherit; color: var(--muted); }
-.memory-flow-current { grid-area: 2 / 3; }
-.memory-flow-join { grid-area: 1 / 4 / 3 / 5; align-self: stretch; width: 100%; height: 100%; overflow: visible; }
-.memory-flow-join path { fill: none; stroke: var(--border-strong); stroke-width: 1; stroke-linecap: round; stroke-linejoin: round; vector-effect: non-scaling-stroke; }
-.memory-flow-task { grid-area: 1 / 5 / 3 / 6; }
-.memory-flow-reuse,.memory-flow-context { display: none; }
-@media(max-width:600px) {
-  .memory-flow { grid-template-columns: minmax(0,1fr) 24px minmax(0,1fr); grid-template-rows: auto 24px auto; }
-  .memory-flow>.personalization-figure-node { margin-block: 0; }
-  .memory-flow-current { grid-area: 3 / 1; }
-  .memory-flow-task { grid-area: 3 / 3; }
-  .memory-flow-join { display: none; }
-  .memory-flow-reuse { display: block; grid-area: 2 / 3; align-self: stretch; justify-self: center; width: 1px; height: auto; }
-  .memory-flow-context { display: block; grid-area: 3 / 2; }
-}
 .delegation-depth-examples { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 12px; }
 .delegation-depth-example { display: flex; flex-direction: column; align-items: center; gap: 10px; min-width: 0; text-align: center; }
 .delegation-depth-example>strong { font-size: 20px; font-weight: 600; }
@@ -1902,8 +1881,7 @@ body {
 }
 .settings-content .general-setting+.general-setting,
 .personalization-settings-content>.delegation-depth-setting,
-.appearance-settings-content>.automatic-title-setting,
-.personalization-settings-content>.memory-settings {
+.appearance-settings-content>.automatic-title-setting {
   padding-top: 24px;
   border-top: 1px solid var(--border-subtle);
 }

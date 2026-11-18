@@ -25,7 +25,7 @@ func TestAutomaticTitlesPartialSettings(t *testing.T) {
 	}
 	request := func(body string) *httptest.ResponseRecorder {
 		w := httptest.NewRecorder()
-		app.agentSettings(w, httptest.NewRequest(http.MethodPut, "/api/agent-settings", strings.NewReader(body)))
+		app.agentSettings(w, httptest.NewRequest(http.MethodPut, "/api/agent-settings", strings.NewReader(instructionVersionBody(t, app.configDir, body))))
 		return w
 	}
 	for _, tc := range []struct {
@@ -37,7 +37,11 @@ func TestAutomaticTitlesPartialSettings(t *testing.T) {
 		{`{"instructions":"Keep preferences separate.","delegationDepth":3}`, false, 3},
 		{`{"automaticTitles":true}`, true, 3},
 	} {
-		if w := request(tc.body); w.Code != http.StatusNoContent {
+		want := http.StatusNoContent
+		if strings.Contains(tc.body, `"instructions"`) {
+			want = http.StatusOK
+		}
+		if w := request(tc.body); w.Code != want {
 			t.Fatalf("save: %d %s", w.Code, w.Body.String())
 		}
 		w := httptest.NewRecorder()

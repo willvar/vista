@@ -73,7 +73,7 @@ func builtinTools() toolSet {
 		{readResourceSchema, (*toolRuntime).readResource, toolAlways},
 		{readModelOutputSchema, (*toolRuntime).readModelOutput, toolAlways},
 		{updateChecklistSchema, (*toolRuntime).updateChecklist, toolMain},
-		{memorySchema, (*toolRuntime).memory, toolMain},
+		{editInstructionsSchema, (*toolRuntime).editInstructions, toolMain},
 		{questionSchema, nil, toolMain},
 		{mcpListToolsSchema, (*toolRuntime).mcpListTools, toolMCP},
 		{mcpCallToolSchema, (*toolRuntime).mcpCallTool, toolMCP},

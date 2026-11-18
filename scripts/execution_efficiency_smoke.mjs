@@ -151,7 +151,8 @@ try {
   assert.equal(bundle.owner, `connection:${savedModel.connectionId}`)
   assert.equal(bundle.values.apiKey, providerKey)
   assert.deepEqual(Object.keys(savedModel).sort(), ['authentication', 'baseUrl', 'connectionId', 'credentialRef', 'id', 'key', 'name', 'provider', 'providerId'], 'derived catalog fields were written into user settings')
-  await api('/agent-settings', { method: 'PUT', body: JSON.stringify({ instructions }) })
+  const instructionVersion = await api('/agent-settings')
+  await api('/agent-settings', { method: 'PUT', body: JSON.stringify({ instructions, expectedSha256: instructionVersion.instructionsSha256 }) })
   const session = await api('/sessions', { method: 'POST', body: '{}' })
   const sent = await api(`/sessions/${session.id}/messages`, { method: 'POST', body: JSON.stringify({ content: 'Inspect evidence in parallel.', modelKey: configured.key }) })
   const events = []

@@ -53,7 +53,7 @@ async function mockSearchSettings(page: Page, origin: string) {
       if (path === '/network-config') return reply({ config: { globalProxy: '', profiles: [] }, revision: 'network-fixture', version: 'mock-state:0' })
       if (path === '/preferences') return reply({ userId: 'settings-user', lastMode: 'manual', lastTier: 'speed', manualModelKey: '', reasoningByModelId: {}, feedbackInvitationSeen: true })
       if (path === '/models') return reply({ default: '', models: [] })
-      if (path === '/agent-settings') return reply({ instructions: '', instructionsPath: '/home/test/.config/vista/AGENTS.md', delegationDepth: 1, maxDelegationDepth: 3 })
+      if (path === '/agent-settings') return reply({ instructions: '', instructionsPath: '/home/test/.config/vista/AGENTS.md', instructionsSha256: 'missing', automaticTitles: true, delegationDepth: 1, maxDelegationDepth: 3 })
       if (path === '/sessions') return reply([])
       if (path === '/status') return reply({ state: 'running', sessions: { total: 0, open: 0, closed: 0, running: 0, workers: 0 }, workerMetrics: [] })
     }

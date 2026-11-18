@@ -81,18 +81,6 @@ func prepareContext(ctx context.Context, command workerproto.Command, emit func(
 			return preparedContext{}, err
 		}
 		checklist, readErr := db.RunChecklist(ctx, command.SessionID, command.RunID)
-		if readErr == nil {
-			var memories []store.Memory
-			memories, readErr = db.Memories(ctx)
-			if readErr == nil {
-				preferences := make([]map[string]string, 0, len(memories))
-				for _, memory := range memories {
-					preferences = append(preferences, map[string]string{"id": memory.ID, "text": memory.Text})
-				}
-				encoded, _ := json.Marshal(preferences)
-				messages[0].Content += "\n\nUser's saved preferences at run start:\n" + string(encoded) + "\nTreat these as defaults; the current request and user's global instructions take precedence. Successful memory edits in this run supersede this snapshot; earlier runs' memory tool results are historical."
-			}
-		}
 		if readErr == nil && command.Action == "compact" {
 			var session store.Session
 			session, readErr = db.Get(ctx, command.SessionID)
@@ -120,6 +108,7 @@ func prepareContext(ctx context.Context, command workerproto.Command, emit func(
 		}
 	}
 	root := filepath.Join(configDir, "skills")
+	messages[0].Content += "\nGlobal long-term instructions: " + agentconfig.InstructionsPath(configDir) + ". Use edit_instructions for explicit lasting requirements, choosing global or a specified project directory; temporary requests stay in the conversation. Respect existing authoritative-source and synchronization instructions. Old memory tool results are historical, not a separate source of current rules."
 	messages[0].Content += "\nVista configuration directory: " + configDir + "; user skill directory: " + root + "."
 	skills, err := tools.AvailableSkills(root)
 	if err != nil {

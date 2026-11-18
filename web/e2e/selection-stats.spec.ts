@@ -66,7 +66,7 @@ async function mockSettings(page: Page, origin: string) {
       return reply(preferences)
     }
     if (path === '/models') return reply({ default: 'luna', models: [{ key: 'luna', name: 'Example', provider: 'openai-chat', id: 'gpt-6-luna', tools: true, reasoningOptions: ['low', 'high'] }] })
-    if (path === '/agent-settings') return reply({ instructions: '', instructionsPath: '/home/test/.config/vista/AGENTS.md', delegationDepth: 1, maxDelegationDepth: 8 })
+    if (path === '/agent-settings') return reply({ instructions: '', instructionsPath: '/home/test/.config/vista/AGENTS.md', instructionsSha256: 'missing', automaticTitles: true, delegationDepth: 1, maxDelegationDepth: 8 })
     if (path === '/status') return reply({ state: 'running', sessions: { total: 1, open: 1, closed: 0, running: 0, workers: 0 }, workerMetrics: [] })
     if (path === '/sessions') return reply([session])
     if (path.endsWith('/snapshot')) return reply(coreSnapshot(session))

@@ -413,7 +413,6 @@ func (a *App) handler() http.Handler {
 	mux.HandleFunc("/api/provider-auth/copilot", a.startProviderLogin)
 	mux.HandleFunc("/api/provider-auth/copilot/", a.providerLoginStatus)
 	mux.HandleFunc("/api/agent-settings", a.agentSettings)
-	mux.HandleFunc("/api/memories", a.memories)
 	mux.HandleFunc("/api/search-config", a.searchSettings)
 	mux.HandleFunc("/api/mcp-config", a.mcpSettings)
 	mux.HandleFunc("/api/mcp-servers/", a.mcpServerAction)

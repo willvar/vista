@@ -88,7 +88,7 @@ func TestPreparedContextRetainsTaskInstructionsHistoryAndToolOrder(t *testing.T)
 				t.Fatal(err)
 			}
 			wantSystem := prepared.systemBase
-			for _, fragment := range []string{systemPrompt, "Runtime OS: " + runtime.GOOS + "; shell: " + platform.ShellName(), "User's global instructions:\nKeep user constraints.", "User's saved preferences at run start:\n[]", "Vista configuration directory: " + config, "user skill directory: " + skills} {
+			for _, fragment := range []string{systemPrompt, "Runtime OS: " + runtime.GOOS + "; shell: " + platform.ShellName(), "User's global instructions:\nKeep user constraints.", "Vista configuration directory: " + config, "user skill directory: " + skills} {
 				if !strings.Contains(wantSystem, fragment) {
 					t.Fatalf("runtime context omitted %q", fragment)
 				}
@@ -104,7 +104,7 @@ func TestPreparedContextRetainsTaskInstructionsHistoryAndToolOrder(t *testing.T)
 			}
 			wantTools := slices.Clone(always)
 			if tc.depth == 0 {
-				wantTools = append(wantTools, "update_checklist", "memory", "question")
+				wantTools = append(wantTools, "update_checklist", "edit_instructions", "question")
 			}
 			if tc.mcp {
 				if !strings.Contains(wantSystem, `[{"id":"files","name":"files"},{"id":"search","name":"search"}]`) {

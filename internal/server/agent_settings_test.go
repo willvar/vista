@@ -1,7 +1,9 @@
 package server
 
 import (
+	"crypto/sha256"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -20,7 +22,7 @@ func TestAgentSettingsAPI(t *testing.T) {
 	}
 	request := func(method, body string) *httptest.ResponseRecorder {
 		recorder := httptest.NewRecorder()
-		app.agentSettings(recorder, httptest.NewRequest(method, "/api/agent-settings", strings.NewReader(body)))
+		app.agentSettings(recorder, httptest.NewRequest(method, "/api/agent-settings", strings.NewReader(instructionVersionBody(t, app.configDir, body))))
 		return recorder
 	}
 	result := request(http.MethodGet, "")
@@ -30,7 +32,7 @@ func TestAgentSettingsAPI(t *testing.T) {
 	if err := json.Unmarshal(result.Body.Bytes(), &initial); err != nil || result.Code != http.StatusOK || initial.InstructionsPath != filepath.Join(app.configDir, "AGENTS.md") {
 		t.Fatalf("initial settings: %d %s", result.Code, result.Body.String())
 	}
-	if result := request(http.MethodPut, `{"instructions":"Reply in Chinese."}`); result.Code != http.StatusNoContent {
+	if result := request(http.MethodPut, `{"instructions":"Reply in Chinese."}`); result.Code != http.StatusOK {
 		t.Fatalf("save settings: %d %s", result.Code, result.Body.String())
 	}
 	if _, err := os.Stat(filepath.Join(app.configDir, "AGENTS.md")); err != nil {
@@ -59,7 +61,7 @@ func TestAgentSettingsDelegationDepthAPI(t *testing.T) {
 	}
 	request := func(method, body string) *httptest.ResponseRecorder {
 		recorder := httptest.NewRecorder()
-		app.agentSettings(recorder, httptest.NewRequest(method, "/api/agent-settings", strings.NewReader(body)))
+		app.agentSettings(recorder, httptest.NewRequest(method, "/api/agent-settings", strings.NewReader(instructionVersionBody(t, app.configDir, body))))
 		return recorder
 	}
 	check := func(instructions string, depth int) {
@@ -87,7 +89,11 @@ func TestAgentSettingsDelegationDepthAPI(t *testing.T) {
 		{`{"instructions":"retained","delegationDepth":1}`, "retained", 1},
 		{`{"delegationDepth":0}`, "retained", 0},
 	} {
-		if result := request(http.MethodPut, update.body); result.Code != http.StatusNoContent {
+		want := http.StatusNoContent
+		if strings.Contains(update.body, `"instructions"`) {
+			want = http.StatusOK
+		}
+		if result := request(http.MethodPut, update.body); result.Code != want {
 			t.Fatalf("update %s: %d %s", update.body, result.Code, result.Body.String())
 		}
 		check(update.instructions, update.depth)
@@ -120,8 +126,8 @@ func TestAgentSettingsPreserveLongExternalAndEditedInstructions(t *testing.T) {
 				t.Fatal(err)
 			}
 			w := httptest.NewRecorder()
-			app.agentSettings(w, httptest.NewRequest(http.MethodPut, "/api/agent-settings", strings.NewReader(string(body))))
-			if w.Code != http.StatusNoContent {
+			app.agentSettings(w, httptest.NewRequest(http.MethodPut, "/api/agent-settings", strings.NewReader(instructionVersionBody(t, app.configDir, string(body)))))
+			if w.Code != http.StatusOK {
 				t.Fatalf("long instructions were rejected: %d %s", w.Code, w.Body.String())
 			}
 		}
@@ -156,5 +162,68 @@ func TestAgentSettingsReadErrorsIdentifyFailedDocument(t *testing.T) {
 				t.Fatalf("unhelpful read error: %d %s", w.Code, w.Body.String())
 			}
 		})
+	}
+}
+
+// Tests that write instructions carry the version they just read. Dedicated
+// stale-write tests below intentionally retain an earlier version.
+func instructionVersionBody(t *testing.T, directory, body string) string {
+	t.Helper()
+	var input map[string]any
+	if json.Unmarshal([]byte(body), &input) != nil {
+		return body
+	}
+	if _, ok := input["instructions"]; !ok {
+		return body
+	}
+	data, err := os.ReadFile(filepath.Join(directory, "AGENTS.md"))
+	if os.IsNotExist(err) {
+		input["expectedSha256"] = "missing"
+	} else if err != nil {
+		t.Fatal(err)
+	} else {
+		input["expectedSha256"] = fmt.Sprintf("%x", sha256.Sum256(data))
+	}
+	encoded, err := json.Marshal(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(encoded)
+}
+
+func TestInstructionSettingsRejectStaleOrUnversionedEdits(t *testing.T) {
+	app := &App{configDir: t.TempDir(), dir: t.TempDir()}
+	if err := os.Chmod(app.configDir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	request := func(body string) *httptest.ResponseRecorder {
+		w := httptest.NewRecorder()
+		app.agentSettings(w, httptest.NewRequest(http.MethodPut, "/api/agent-settings", strings.NewReader(body)))
+		return w
+	}
+	if w := request(`{"instructions":"Unversioned"}`); w.Code != http.StatusBadRequest {
+		t.Fatal(w.Code, w.Body.String())
+	}
+	w := request(`{"instructions":"First rule.","expectedSha256":"missing"}`)
+	var first struct {
+		InstructionsSHA256 string `json:"instructionsSha256"`
+	}
+	if w.Code != http.StatusOK || json.Unmarshal(w.Body.Bytes(), &first) != nil || first.InstructionsSHA256 != fmt.Sprintf("%x", sha256.Sum256([]byte("First rule."))) {
+		t.Fatal(w.Code, w.Body.String())
+	}
+	// A model/file writer shares the very same AGENTS.md, not a second store.
+	if err := os.WriteFile(filepath.Join(app.configDir, "AGENTS.md"), []byte("Changed by another writer."), 0600); err != nil {
+		t.Fatal(err)
+	}
+	body, _ := json.Marshal(map[string]any{"instructions": "Stale draft", "expectedSha256": first.InstructionsSHA256, "delegationDepth": 3})
+	if w := request(string(body)); w.Code != http.StatusConflict {
+		t.Fatal(w.Code, w.Body.String())
+	}
+	if text, _ := agentconfig.Read(app.configDir); text != "Changed by another writer." {
+		t.Fatal("stale draft overwrote current rules")
+	}
+	settings, err := agentconfig.ReadSettings(app.configDir)
+	if err != nil || settings.DelegationDepth != agentconfig.DefaultDelegationDepth {
+		t.Fatal("conflicting instruction save changed other settings", err)
 	}
 }

@@ -1,14 +1,14 @@
 import { streamSSE } from './sse.ts'
 import type { NetworkConfiguration } from './network.ts'
-import type { ServerStatus, SessionListSnapshot, ModelCatalog, OMPCatalogInfo, LoginUpdate, MCPState, ResourceStorageStatus, MemorySummary, ServerConfig } from './types.ts'
+import type { ServerStatus, SessionListSnapshot, ModelCatalog, OMPCatalogInfo, LoginUpdate, MCPState, ResourceStorageStatus, ServerConfig } from './types.ts'
 import type { ModelDiagnosticSummary } from './modelDiagnostics.ts'
 
-export const stateTopics = ['sessions', 'status', 'models', 'catalog', 'provider-login', 'mcp', 'storage', 'memories', 'diagnostics', 'statistics', 'skills', 'selection-stats', 'server-config', 'network'] as const
+export const stateTopics = ['sessions', 'status', 'models', 'catalog', 'provider-login', 'mcp', 'storage', 'diagnostics', 'statistics', 'skills', 'selection-stats', 'server-config', 'network'] as const
 export type StateTopic = typeof stateTopics[number]
 export type StateConnection = { phase: 'connecting' | 'ready' | 'error' | 'stopped'; error?: string }
 export type WorkspaceSnapshots = {
   sessions?: SessionListSnapshot; status?: ServerStatus; models?: ModelCatalog; catalog?: OMPCatalogInfo
-  providerLogins?: LoginUpdate[]; mcp?: MCPState; storage?: ResourceStorageStatus; memories?: MemorySummary
+  providerLogins?: LoginUpdate[]; mcp?: MCPState; storage?: ResourceStorageStatus
   network?: NetworkConfiguration
   serverConfig?: ServerConfig
   diagnostics?: { after: number; through: number; records: ModelDiagnosticSummary[] }
@@ -20,7 +20,7 @@ type Listener = {
   active: boolean; lifetime: AbortController; seen: Partial<Record<StateTopic, number>>; epoch: string; attempt: number; pending?: Promise<void>
 }
 const snapshotKeys = { sessions: 'sessions', status: 'status', models: 'models', catalog: 'catalog',
-  'provider-login': 'providerLogins', mcp: 'mcp', storage: 'storage', memories: 'memories', diagnostics: 'diagnostics', statistics: undefined, skills: undefined, 'selection-stats': undefined, 'server-config': 'serverConfig', network: 'network' } as const
+  'provider-login': 'providerLogins', mcp: 'mcp', storage: 'storage', diagnostics: 'diagnostics', statistics: undefined, skills: undefined, 'selection-stats': undefined, 'server-config': 'serverConfig', network: 'network' } as const
 type Options = {
   open: (metrics: boolean, signal: AbortSignal) => Promise<Response>
   status: (status: StateConnection) => void
@@ -134,7 +134,6 @@ export function createWorkspaceSync(options: Options) {
         if (point.providerLogins !== undefined && (!Array.isArray(point.providerLogins) || point.providerLogins.some(login => !login?.id || typeof login.status !== 'string'))) throw new Error('Invalid login snapshot')
         if (point.mcp !== undefined && (!point.mcp || !Array.isArray(point.mcp.servers) || !Array.isArray(point.mcp.logins))) throw new Error('Invalid MCP snapshot')
         if (point.storage !== undefined && (!point.storage || typeof point.storage.phase !== 'string')) throw new Error('Invalid storage snapshot')
-        if (point.memories !== undefined && (!point.memories || !Number.isSafeInteger(point.memories.total) || point.memories.total < 0)) throw new Error('Invalid memories summary')
         if (point.serverConfig !== undefined && (!point.serverConfig || typeof point.serverConfig.revision !== 'string'
           || typeof point.serverConfig.version !== 'string' || !point.serverConfig.schema || !point.serverConfig.config
           || !Number.isSafeInteger(point.serverConfig.config.port) || point.serverConfig.config.port < 1 || point.serverConfig.config.port > 65535

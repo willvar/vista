@@ -7,7 +7,6 @@ import { Empty as VEmpty, Alert as VAlert, Button as VButton, Input as VInput, M
 import WorkspaceModal from '../WorkspaceModal.vue'
 import ConfirmPopover from '../ConfirmPopover.vue'
 import ModelSelectionStats from '../ModelSelectionStats.vue'
-import MemorySettings from '../MemorySettings.vue'
 import SearchSettings from '../SearchSettings.vue'
 import MCPSettings from '../MCPSettings.vue'
 import SkillsSettings from '../SkillsSettings.vue'
@@ -92,7 +91,6 @@ function back() {
 }
 const mcpModalOpen = ref(false)
 const skillModalOpen = ref(false)
-const memoryModalOpen = ref(false)
 const searchModalOpen = ref(false)
 const networkModalOpen = ref(false)
 const storageModalOpen = ref(false)
@@ -103,6 +101,7 @@ const providerImportOpen = ref(false)
 const providerImport = ref<InstanceType<typeof ConfigurationImport>>()
 const importedCount = ref(0)
 const instructionsEditorOpen = ref(false)
+const instructionsReloadOpen = ref(false)
 const delegationEditorOpen = ref(false)
 const aboutAdvancedOpen = ref(false)
 const instructionsDocument = computed<Record<string, unknown>>({ get: () => ({ instructions: agentInstructions.value }), set: value => { if (typeof value.instructions === 'string') agentInstructions.value = value.instructions } })
@@ -117,7 +116,7 @@ const {
   maxDelegationDepth,
   agentSettingsDraft, agentSettingsSchema,
   agentSettingsResetKeys, canSaveAgentField,
-  agentSettingsBusy, agentSettingsLoading, agentSettingsError, agentSettingsSaved,
+  agentSettingsBusy, agentSettingsLoading, agentSettingsError, agentSettingsSaved, agentInstructionsConflict,
   loadAgentSettings, saveAgentSettings, modelDraft, modelFormOpen, chosenModels,
   providerDraftVersion, providerConflict, manualModelIDs, canReuseHeader, editingProvider, providerOptions, canSaveProvider,
   providerChoice, providerChoiceSchema, providerChoiceUISchema,
@@ -212,7 +211,7 @@ watch(() => route.fullPath, () => {
 <template>
 <WorkspaceModal ref="modal" :open="true" width="max-content" :title="settingsTitle" :page-class="settingsIndex ? 'settings-page settings-index' : 'settings-page'"
   :close-label="t('closeSettings')" :back-label="t(settingsIndex ? 'backToConversation' : 'backToSettings')"
-  :keyboard="!providerDisconnectTarget && !modelFormOpen && !providerImportOpen && !mcpModalOpen && !skillModalOpen && !memoryModalOpen && !searchModalOpen && !networkModalOpen && !providerDiscardOpen && !proxyBindingTarget && !storageModalOpen && !resetModalOpen && !restartModalOpen && !statisticsModalOpen && !instructionsEditorOpen && !delegationEditorOpen && !aboutAdvancedOpen" @cancel="backToWorkspace" @back="back">
+  :keyboard="!providerDisconnectTarget && !modelFormOpen && !providerImportOpen && !mcpModalOpen && !skillModalOpen && !searchModalOpen && !networkModalOpen && !providerDiscardOpen && !proxyBindingTarget && !storageModalOpen && !resetModalOpen && !restartModalOpen && !statisticsModalOpen && !instructionsEditorOpen && !delegationEditorOpen && !aboutAdvancedOpen" @cancel="backToWorkspace" @back="back">
         <template #header-actions>
             <v-button v-if="route.name === 'settings-about'" variant="text" class="icon-button" :aria-label="t('advancedSettings')" :title="t('advancedSettings')" @click="aboutAdvancedOpen = true"><template #icon><IconAdjustments aria-hidden="true" /></template></v-button>
             <v-button v-if="canImport" variant="text" class="icon-button" :aria-label="t(importTitleKey)" :title="t(importTitleKey)" :disabled="importKind === 'providers' ? settingsBusy : headerAction?.disabled" @click="importedCount = 0; providerImport?.show()"><template #icon><IconFileImport aria-hidden="true" /></template></v-button>
@@ -251,6 +250,7 @@ watch(() => route.fullPath, () => {
           <section class="agent-instructions-form" aria-labelledby="global-instructions-heading">
             <div class="general-setting">
               <div class="agent-instructions-heading"><h3 id="global-instructions-heading">{{ t('globalInstructions') }}</h3><v-button :disabled="agentSettingsLoading || agentSettingsBusy" @click="instructionsEditorOpen = true"><IconMaximize aria-hidden="true" />{{ t('fullscreenEdit') }}</v-button></div>
+              <p>{{ t('longTermInstructionsHint') }}</p>
               <figure id="global-instructions-hint" class="personalization-figure instructions-figure" :aria-label="t('instructionsFigureLabel')">
                 <div class="instructions-figure-heading"><span>{{ t('instructionsFramework') }}</span><small>{{ t('instructionsGlobalScope') }}</small></div>
                 <div class="instructions-workflow">
@@ -279,7 +279,6 @@ watch(() => route.fullPath, () => {
               <p class="instructions-local-scope">{{ t('instructionsLocalScope') }}</p>
             </aside>
           </section>
-          <MemorySettings @modal-open="memoryModalOpen = $event" />
           <section class="delegation-depth-setting general-setting" aria-labelledby="delegation-heading">
             <div class="agent-instructions-heading"><h3 id="delegation-heading">{{ t('delegationDepth') }}</h3><v-button :disabled="agentSettingsLoading || agentSettingsBusy" @click="delegationEditorOpen = true"><IconPencil aria-hidden="true" />{{ t('edit') }}</v-button></div>
             <div class="general-setting">
@@ -350,12 +349,15 @@ watch(() => route.fullPath, () => {
         </div>
       </WorkspaceModal>
   <AboutAdvancedSettings :open="aboutAdvancedOpen" :client="workspace.client" :status="serverStatus" v-model:debug-mode="debugMode" @cancel="aboutAdvancedOpen = false" />
-  <v-modal :open="instructionsEditorOpen" :title="t('globalInstructions')" :closable="false" :close-disabled="agentSettingsBusy" :keyboard="!agentSettingsBusy" :mask-closable="!agentSettingsBusy" :z-index="1200" width="100%"
+  <v-modal :open="instructionsEditorOpen" :title="t('globalInstructions')" :closable="false" :close-disabled="agentSettingsBusy" :keyboard="!agentSettingsBusy && !instructionsReloadOpen" :mask-closable="!agentSettingsBusy && !instructionsReloadOpen" :z-index="1200" width="100%"
     class="instructions-editor-modal" wrap-class-name="instructions-editor-wrap" destroy-on-hidden :initial-focus-el="instructionsFocus"
     @cancel="instructionsEditorOpen = false">
     <template #header-actions><v-button :disabled="agentSettingsBusy" @click="instructionsEditorOpen = false"><IconMinimize aria-hidden="true" />{{ t('exitFullscreenEdit') }}</v-button></template>
     <v-alert v-if="agentSettingsError" type="error" role="alert" :message="agentSettingsError" />
     <v-alert v-if="agentSettingsSaved" type="success" role="status" :message="t('agentSettingsSaved')" />
+    <ConfirmPopover v-if="agentInstructionsConflict" popover-class="instructions-reload-popover" :z-index="1300" :show="instructionsReloadOpen" :message="t('configEditorDiscard')" :confirm-text="t('configEditorReload')" :cancel-text="t('cancel')" @update:show="instructionsReloadOpen = $event" @confirm="instructionsReloadOpen = false; loadAgentSettings(true)">
+            <template #trigger><v-button @click="instructionsReloadOpen = true">{{ t('configEditorReload') }}</v-button></template>
+          </ConfirmPopover>
     <template #footer><v-button variant="primary" :loading="agentSettingsBusy" :disabled="!agentFieldValidity.instructions || !canSaveAgentField('instructions')" @click="saveAgentSettings('instructions')">{{ t('saveChanges') }}</v-button></template>
     <SchemaForm id="fullscreen-agent-instructions" v-model="instructionsDocument" :schema="instructionsSchema" :uischema="instructionsUISchema" class="instructions-editor-input"
       :disabled="agentSettingsLoading || agentSettingsBusy" :reset-key="agentSettingsResetKeys.instructions" @validity="agentFieldValidity.instructions = $event" />

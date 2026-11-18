@@ -34,7 +34,7 @@ const maxStateEventStreams = maxEventStreams
 const maxStateFrameBytes = 512 << 10
 const maxStateSnapshotBytes = maxStateFrameBytes - len("event: state\ndata: \n\n")
 
-var stateTopics = []string{"sessions", "status", "models", "catalog", "provider-login", "mcp", "storage", "memories", "diagnostics", "statistics", "skills", "selection-stats", "server-config", "network"}
+var stateTopics = []string{"sessions", "status", "models", "catalog", "provider-login", "mcp", "storage", "diagnostics", "statistics", "skills", "selection-stats", "server-config", "network"}
 
 type stateCheckpoint struct {
 	Network        *networkConfigView         `json:"network,omitempty"`
@@ -48,7 +48,6 @@ type stateCheckpoint struct {
 	ProviderLogins *[]loginUpdate             `json:"providerLogins,omitempty"`
 	MCP            *mcpStateSnapshot          `json:"mcp,omitempty"`
 	Storage        *resourceStorageStatus     `json:"storage,omitempty"`
-	Memories       *memorySummary             `json:"memories,omitempty"`
 	Diagnostics    *diagnosticChanges         `json:"diagnostics,omitempty"`
 	ServerConfig   *serverConfigState         `json:"serverConfig,omitempty"`
 }
@@ -360,8 +359,6 @@ func (a *App) notifyWorkerState(kind string) {
 		a.updates.notify("sessions", "status")
 	case "input_delivered":
 		a.updates.notify("sessions")
-	case "memory_changed":
-		a.updates.notify("memories")
 	case "token_usage":
 		a.updates.notify("statistics")
 	case "resource_changed":

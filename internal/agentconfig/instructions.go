@@ -1,12 +1,16 @@
 package agentconfig
 
 import (
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"os"
 	"path/filepath"
 	"unicode/utf8"
 
 	"vista/internal/platform"
+	"vista/internal/tools"
 )
 
 const filename = "AGENTS.md"
@@ -16,18 +20,37 @@ func InstructionsPath(dir string) string {
 	return filepath.Join(dir, filename)
 }
 
+type InstructionSnapshot struct {
+	Content string
+	SHA256  string
+}
+
 func Read(dir string) (string, error) {
+	snapshot, err := ReadSnapshot(dir)
+	return snapshot.Content, err
+}
+
+func ReadSnapshot(dir string) (InstructionSnapshot, error) {
 	data, err := os.ReadFile(InstructionsPath(dir))
 	if errors.Is(err, os.ErrNotExist) {
-		return "", nil
+		return InstructionSnapshot{SHA256: "missing"}, nil
 	}
 	if err != nil {
-		return "", err
+		return InstructionSnapshot{}, err
 	}
 	if err := validate(string(data)); err != nil {
-		return "", err
+		return InstructionSnapshot{}, err
 	}
-	return string(data), nil
+	hash := sha256.Sum256(data)
+	return InstructionSnapshot{Content: string(data), SHA256: hex.EncodeToString(hash[:])}, nil
+}
+
+func WriteChecked(ctx context.Context, stateDir, dir, expectedSHA256, instructions string) (tools.FileWrite, error) {
+	info, err := os.Stat(dir)
+	if err != nil || !info.IsDir() || !platform.PrivateMode(info.Mode()) {
+		return tools.FileWrite{}, errors.New("Vista configuration directory must be private")
+	}
+	return tools.WriteTextWithDiff(ctx, stateDir, InstructionsPath(dir), expectedSHA256, instructions)
 }
 
 func Write(dir, instructions string) error {

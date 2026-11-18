@@ -68,7 +68,7 @@ export function buildTraceAgentHierarchy(tasks: readonly RunTraceTask[]): TraceA
 
 const toolOperationLabels: Record<string, string> = {
   shell: 'traceOpShell', bash: 'traceOpShell', shell_background: 'traceOpBackground', background: 'traceOpBackground',
-  read_file: 'traceOpRead', read: 'traceOpRead', write_file: 'traceOpWrite', write: 'traceOpWrite',
+  read_file: 'traceOpRead', read: 'traceOpRead', write_file: 'traceOpWrite', edit_instructions: 'traceOpEditInstructions', write: 'traceOpWrite',
   apply_patch: 'traceOpPatch', find_files: 'traceOpFindFiles',
   list_files: 'traceOpList', search_files: 'traceOpSearch', search: 'traceOpSearch', grep: 'traceOpSearch',
   delegate: 'traceOpDelegate', await_agent: 'traceOpAwaitAgent', cancel_agent: 'traceOpCancelAgent',
@@ -144,7 +144,7 @@ export function projectToolOutput(raw: string, toolName?: string): Pick<RunTrace
       if (diffs.length) return { body: '', rawBody: raw, diffs, error: error || undefined }
     }
     if (error) return { body: preview, error, rawBody: raw }
-    if (operation === 'traceOpWrite' && fields.diff && typeof fields.diff === 'object') {
+    if (['traceOpWrite', 'traceOpEditInstructions'].includes(operation) && fields.diff && typeof fields.diff === 'object') {
       const diff = fields.diff as Record<string, unknown>
       if (typeof diff.path === 'string' && typeof diff.created === 'boolean' && typeof diff.unified === 'string') {
         return { body: '', rawBody: raw, diff: { path: diff.path, created: diff.created, ...(diff.deleted === true ? { deleted: true } : {}), unified: diff.unified, omitted: diff.omitted === 'too_large' || diff.omitted === 'unavailable' ? diff.omitted : undefined } }

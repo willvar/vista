@@ -196,8 +196,6 @@ func (c *workerResultConsumer) consume(result workerproto.Result) error {
 			}
 		}
 		return nil
-	case "memory_change":
-		return c.memoryChange(result)
 	case "model_credentials":
 		return c.credentials(result)
 	case "mcp_host":

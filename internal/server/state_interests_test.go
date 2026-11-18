@@ -13,7 +13,6 @@ import (
 	"testing/synctest"
 	"time"
 
-	"vista/internal/resources"
 	"vista/internal/store"
 	"vista/internal/workerproto"
 )
@@ -101,13 +100,13 @@ func TestUnsubscribedViewsDoNotLoadOrPushTheirSnapshots(t *testing.T) {
 	c, _ := newResultConsumerTest(t)
 	a := &App{store: c.store, storageStatus: resourceStorageStatus{Phase: "idle", Stats: &store.ResourceStorage{TotalCount: 1}}}
 	before := a.updates.snapshot()
-	a.updates.notify("storage", "memories", "diagnostics", "skills", "selection-stats")
+	a.updates.notify("storage", "diagnostics", "skills", "selection-stats")
 	point, err := a.stateUpdateScoped(c.ctx, "localhost", before, map[string]bool{"models": true})
-	if err != nil || point.Storage != nil || point.Memories != nil || point.Diagnostics != nil || point.Revisions["storage"] != 1 {
+	if err != nil || point.Storage != nil || point.Diagnostics != nil || point.Revisions["storage"] != 1 {
 		t.Fatal(point, err)
 	}
 	point, err = a.stateUpdateScoped(c.ctx, "localhost", before, map[string]bool{"storage": true})
-	if err != nil || point.Storage == nil || point.Storage.Stats.TotalCount != 1 || point.Memories != nil {
+	if err != nil || point.Storage == nil || point.Storage.Stats.TotalCount != 1 {
 		t.Fatal(point, err)
 	}
 }
@@ -320,22 +319,33 @@ func TestStorageChangeDuringScanSchedulesAnotherPass(t *testing.T) {
 	client, _, leave, _ := a.updates.subscribeClient()
 	defer leave()
 	setTestInterests(t, a, client.id, "storage")
-	unlock, err := (resources.Library{StateDir: a.dir}).Lock(ctx)
-	if err != nil {
-		t.Fatal(err)
+	// Hold the shared SQL connection: scans now use backend-native file
+	// coordination rather than the former whole-library file lock.
+	transaction := a.store.ResourceControl().DB.WithContext(ctx).Begin()
+	if transaction.Error != nil {
+		t.Fatal(transaction.Error)
+	}
+	defer transaction.Rollback()
+	scanStatus := func() resourceStorageStatus {
+		a.storageMu.Lock()
+		defer a.storageMu.Unlock()
+		return a.storageStatus
 	}
 	done := make(chan struct{})
 	go func() { a.syncResourceStorage(); close(done) }()
 	defer func() { cancel(); <-done }()
 	deadline := time.Now().Add(3 * time.Second)
-	for a.resourceStorageSnapshot().Phase != "running" && time.Now().Before(deadline) {
+	for scanStatus().Phase != "running" && time.Now().Before(deadline) {
 		time.Sleep(10 * time.Millisecond)
 	}
-	// The first scan is blocked on the cross-process library lock. A later
+	if scanStatus().Phase != "running" {
+		t.Fatal("automatic scan did not enter the blocked phase")
+	}
+	// The first scan is blocked on the database connection. A later
 	// commit must retain its dirty generation after that scan completes.
 	time.Sleep(30 * time.Millisecond)
 	a.invalidateResourceStorage()
-	unlock()
+	transaction.Rollback()
 	deadline = time.Now().Add(3 * time.Second)
 	for time.Now().Before(deadline) {
 		a.storageMu.Lock()
@@ -357,24 +367,34 @@ func TestClosingLastStorageViewCancelsBlockedAutomaticScan(t *testing.T) {
 	client, _, leave, _ := a.updates.subscribeClient()
 	defer leave()
 	setTestInterests(t, a, client.id, "storage")
-	unlock, err := (resources.Library{StateDir: a.dir}).Lock(ctx)
-	if err != nil {
-		t.Fatal(err)
+	// Hold the shared SQL connection: scans now use backend-native file
+	// coordination rather than the former whole-library file lock.
+	transaction := a.store.ResourceControl().DB.WithContext(ctx).Begin()
+	if transaction.Error != nil {
+		t.Fatal(transaction.Error)
 	}
-	defer unlock()
+	scanStatus := func() resourceStorageStatus {
+		a.storageMu.Lock()
+		defer a.storageMu.Unlock()
+		return a.storageStatus
+	}
+	defer transaction.Rollback()
 	done := make(chan struct{})
 	go func() { a.syncResourceStorage(); close(done) }()
 	defer func() { cancel(); <-done }()
 	deadline := time.Now().Add(3 * time.Second)
-	for a.resourceStorageSnapshot().Phase != "running" && time.Now().Before(deadline) {
+	for scanStatus().Phase != "running" && time.Now().Before(deadline) {
 		time.Sleep(10 * time.Millisecond)
+	}
+	if scanStatus().Phase != "running" {
+		t.Fatal("automatic scan did not enter the blocked phase")
 	}
 	setTestInterests(t, a, client.id)
 	deadline = time.Now().Add(3 * time.Second)
-	for a.resourceStorageSnapshot().Phase == "running" && time.Now().Before(deadline) {
+	for scanStatus().Phase == "running" && time.Now().Before(deadline) {
 		time.Sleep(10 * time.Millisecond)
 	}
-	status := a.resourceStorageSnapshot()
+	status := scanStatus()
 	if status.Phase != "idle" || status.Error != "" || status.Stats != nil {
 		t.Fatal("last viewer did not cancel scan cleanly", status)
 	}

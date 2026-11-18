@@ -319,8 +319,13 @@ func TestNativeApplication(t *testing.T) {
 	}
 	// Persist and replace configuration through the same APIs as the WebUI.
 	api("POST", "/provider-config", map[string]any{"name": "Platform fixture", "providerId": "custom", "provider": "openai-chat", "credentialMode": "none", "baseUrl": model.URL + "/v1", "ids": []string{"platform-fixture"}}, nil)
+	var instructionVersion struct{ InstructionsSHA256 string }
+	api("GET", "/agent-settings", nil, &instructionVersion)
 	for _, text := range []string{"First preference.", "Verified preference."} {
-		api("PUT", "/agent-settings", map[string]any{"instructions": text, "delegationDepth": 0}, nil)
+		api("PUT", "/agent-settings", map[string]any{"instructions": text, "expectedSha256": instructionVersion.InstructionsSHA256, "delegationDepth": 0}, &instructionVersion)
+		if len(instructionVersion.InstructionsSHA256) != 64 {
+			t.Fatal("instruction write did not return its committed version")
+		}
 	}
 	var session store.Session
 	api("POST", "/sessions", map[string]string{"title": "platform check"}, &session)
@@ -390,7 +395,7 @@ func TestNativeApplication(t *testing.T) {
 	}
 	// Cover the complete delegate registration/ACK, child request, terminal
 	// progress and report collection path with the largest permitted prompt.
-	api("PUT", "/agent-settings", map[string]any{"instructions": "Verified preference.", "delegationDepth": 1}, nil)
+	api("PUT", "/agent-settings", map[string]any{"delegationDepth": 1}, nil)
 	workerPID := func() int {
 		var status struct {
 			WorkerMetrics []struct {

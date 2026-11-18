@@ -104,7 +104,6 @@ type Result struct {
 	RPCID           string             `json:"rpcId,omitempty"`
 	Resource        *resources.Ref     `json:"resource,omitempty"`
 	DiagnosticID    string             `json:"diagnosticId,omitempty"`
-	Memory          *MemoryChange      `json:"memory,omitempty"`
 	Credential      *CredentialRequest `json:"credential,omitempty"`
 	TaskID          string             `json:"taskId,omitempty"`
 	ParentTaskID    string             `json:"parentTaskId,omitempty"`
