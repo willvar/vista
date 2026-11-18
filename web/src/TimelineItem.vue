@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, inject, onMounted, onUnmounted, onUpdated, provide, ref, watch } from 'vue'
+import { computed, inject, onMounted, onUnmounted, provide, ref, watch } from 'vue'
 import type { TimelineLayout } from './state/conversationTimeline'
 import { historyReadKey } from './composables/useConversationHistory'
 import { timelineReadKey } from './composables/useConversationScroll'
@@ -22,8 +22,8 @@ const held = computed(() => props.paused || reads.value.size > 0)
 const position = computed(() => ({ position: 'absolute' as const, top: '0', left: '0', width: '100%',
   transform: `translateY(${props.layout.start}px)`, height: held.value ? `${props.layout.size}px` : undefined,
   overflow: held.value ? 'clip' : undefined }))
+// Register on mount; the virtualizer observes later size changes after layout.
 onMounted(() => emit('measure', element.value))
-onUpdated(() => emit('measure', element.value))
 onUnmounted(() => { reportRead?.(String(props.layout.key), false); emit('measure', null) })
 </script>
 

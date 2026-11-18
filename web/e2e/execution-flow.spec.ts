@@ -1068,6 +1068,52 @@ test('opening a short conversation keeps following when content grows before a q
   expect(fixture.unexpected).toEqual([])
 })
 
+test('keeps following when a reasoning row follows a shrinking streamed reply', { tag: '@responsive' }, async ({ page, mockOrigin }) => {
+  const runId = 'interleaved-follow', createdAt = '2026-01-01T12:00:00Z'
+  const messages: Message[] = Array.from({ length: 18 }, (_, index) => ({
+    id: `message-${index}`, sequence: index + 1, runId: index === 17 ? runId : `earlier-${index}`, role: index % 2 && index !== 17 ? 'assistant' : 'user',
+    content: `Prior message ${index + 1}.\n\n` + 'Previous conversation paragraph.\n\n'.repeat(index % 4), createdAt,
+  }))
+  const fixture = await mockExecution(page, mockOrigin,
+    [{ sequence: messages.length + 1, kind: 'run_started', createdAt, data: { runId } }], { messages })
+  const scroller = page.locator('.messages')
+  await expect.poll(() => fixture.sseRequests).toBe(1)
+  await expect(scroller).toHaveAttribute('aria-busy', 'false')
+
+  const main = { turn: 1, taskId: 'main' }
+  fixture.append('model_request', { ...main, provider: 'openai-chat', id: 'gpt-6-astra' })
+  fixture.append('model_reasoning_delta', { ...main, content: 'Initial reasoning before the reply.' })
+  await expect(scroller).toContainText('Initial reasoning before the reply.')
+  fixture.append('model_delta', { ...main,
+    content: 'Streamed paragraph before the next block.\n\n'.repeat(25) + 'End of the first streamed block.' })
+  await expect(scroller.locator('.live-response')).toContainText('End of the first streamed block.')
+  await expect.poll(() => distanceToLatest(page)).toBeLessThanOrEqual(3)
+  // Let the previous programmatic scroll settle, including the virtualizer's
+  // scroll-idle debounce. This is a live update while already resting at the end.
+  await page.waitForTimeout(250)
+
+  fixture.append('model_reasoning_delta', { turn: 1, taskId: 'child-follow', depth: 1, content: 'Later reasoning from a child task.' })
+  await expect(scroller.getByText('Later reasoning from a child task.', { exact: true })).toBeAttached()
+  await expect.poll(() => distanceToLatest(page), { message: 'The new reasoning row remains at the bottom' }).toBeLessThanOrEqual(3)
+
+  fixture.append('model_delta', { ...main,
+    content: 'New paragraph after the transition.\n\n'.repeat(12) + 'End of the continued reply.' })
+  await expect(scroller).toContainText('End of the continued reply.')
+  await expect.poll(() => distanceToLatest(page)).toBeLessThanOrEqual(3)
+
+  const reply: Message = {
+    id: 'saved-reply', runId, role: 'assistant', outputTurn: 1, createdAt,
+    sequence: fixture.events.at(-1)!.sequence + 1,
+    content: fixture.events.filter(event => event.kind === 'model_delta').map(event => event.data.content).join(''),
+  }
+  fixture.messages.push(reply)
+  fixture.session.executing = false
+  fixture.append('run_finished', { status: 'succeeded', message: reply })
+  await expect(scroller.locator(`[data-reply-sequence="${reply.sequence}"]`)).toBeInViewport()
+  await expect.poll(() => fixture.session.readSequence, { message: 'The streamed reply is marked read after it is saved' }).toBe(reply.sequence)
+  expect(fixture.unexpected).toEqual([])
+})
+
 test('jump to latest appears after native focus scrolling', async ({ page, mockOrigin }) => {
   const runId = 'native-focus-scroll', createdAt = '2026-01-01T12:00:00Z'
   const messages: Message[] = Array.from({ length: 20 }, (_, index) => ({
