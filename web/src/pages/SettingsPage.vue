@@ -14,6 +14,7 @@ import ProviderLogin from '../ProviderLogin.vue'
 import ConfigurationImport from '../ConfigurationImport.vue'
 import OMPCatalogSettings from '../OMPCatalogSettings.vue'
 import AboutAdvancedSettings from '../AboutAdvancedSettings.vue'
+import EnvironmentCheckSettings from '../EnvironmentCheckSettings.vue'
 import ResetVistaSettings from '../ResetVistaSettings.vue'
 import RestartVistaSettings from '../RestartVistaSettings.vue'
 import SchemaForm from '../SchemaForm.vue'
@@ -94,6 +95,7 @@ const instructionsEditorOpen = ref(false)
 const instructionsReloadOpen = ref(false)
 const delegationEditorOpen = ref(false)
 const aboutAdvancedOpen = ref(false)
+const environmentCheckOpen = ref(false)
 const instructionsDocument = computed<Record<string, unknown>>({ get: () => ({ instructions: agentInstructions.value }), set: value => { if (typeof value.instructions === 'string') agentInstructions.value = value.instructions } })
 const instructionsSchema = computed(() => ({ type: 'object' as const, additionalProperties: false, required: ['instructions'], properties: { instructions: { type: 'string' as const, title: t('globalInstructions') } } }))
 const instructionsUISchema = computed(() => ({ type: 'Control' as const, scope: '#/properties/instructions', options: { multi: true, rows: 24, placeholder: t('globalInstructionsPlaceholder') } }))
@@ -204,7 +206,7 @@ watch(() => route.fullPath, () => {
 <template>
 <WorkspaceModal ref="modal" :open="true" width="max-content" :title="settingsTitle" :page-class="settingsIndex ? 'settings-page settings-index' : 'settings-page'"
   :close-label="t('closeSettings')" :back-label="t(settingsIndex ? 'backToConversation' : 'backToSettings')"
-  :keyboard="!providerDisconnectTarget && !modelFormOpen && !providerImportOpen && !mcpModalOpen && !skillModalOpen && !searchModalOpen && !networkModalOpen && !providerDiscardOpen && !proxyBindingTarget && !storageModalOpen && !resetModalOpen && !restartModalOpen && !statisticsModalOpen && !instructionsEditorOpen && !delegationEditorOpen && !aboutAdvancedOpen" @cancel="backToWorkspace" @back="back">
+  :keyboard="!providerDisconnectTarget && !modelFormOpen && !providerImportOpen && !mcpModalOpen && !skillModalOpen && !searchModalOpen && !networkModalOpen && !providerDiscardOpen && !proxyBindingTarget && !storageModalOpen && !resetModalOpen && !restartModalOpen && !statisticsModalOpen && !instructionsEditorOpen && !delegationEditorOpen && !aboutAdvancedOpen && !environmentCheckOpen" @cancel="backToWorkspace" @back="back">
         <template #header-actions>
             <v-button v-if="route.name === 'settings-about'" variant="text" class="icon-button" :aria-label="t('advancedSettings')" :title="t('advancedSettings')" @click="aboutAdvancedOpen = true"><template #icon><IconAdjustments aria-hidden="true" /></template></v-button>
             <v-button v-if="canImport" variant="text" class="icon-button" :aria-label="t(importTitleKey)" :title="t(importTitleKey)" :disabled="importKind === 'providers' ? settingsBusy : headerAction?.disabled" @click="importedCount = 0; providerImport?.show()"><template #icon><IconFileImport aria-hidden="true" /></template></v-button>
@@ -320,6 +322,7 @@ watch(() => route.fullPath, () => {
             <p class="about-tagline">{{ t('vistaTagline') }}</p>
           </div>
           <OMPCatalogSettings ref="sectionActions" :client="workspace.client" />
+          <EnvironmentCheckSettings :client="workspace.client" @modal-open="environmentCheckOpen = $event" />
           <ResetVistaSettings v-if="debugMode" @modal-open="resetModalOpen = $event" />
           <RestartVistaSettings @modal-open="restartModalOpen = $event" />
           <dl v-if="serverStatus" class="about-build-info">

@@ -65,6 +65,7 @@ type App struct {
 	skillsMu               sync.Mutex
 	agentSettingsMu        sync.Mutex
 	serverConfigMu         sync.Mutex
+	environmentCheck       environmentCheck
 	listenerPort           func() int
 	listenerHost           string
 	portChange             func(http.ResponseWriter, *http.Request, RuntimeConfig, string, bool)
@@ -389,6 +390,8 @@ func (a *App) handler() http.Handler {
 	mux.HandleFunc("/api/server-config", a.serverConfigHTTP)
 	mux.HandleFunc("/api/network-config", a.networkConfigHTTP)
 	mux.HandleFunc("/api/network-check", a.networkCheckHTTP)
+	mux.HandleFunc("POST /api/environment-check", a.environmentCheckHTTP)
+	mux.HandleFunc("GET "+environmentCallback+"{challenge}", a.environmentCallbackHTTP)
 	// A cross-origin image load is a narrow, credential-free readiness signal
 	// for a user-confirmed port move; it exposes no application state.
 	mux.HandleFunc("/api/port-ready.svg", func(w http.ResponseWriter, r *http.Request) {

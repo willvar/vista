@@ -48,7 +48,7 @@ const groups: Record<string, string[]> = {
   search: ['search-settings'],
   network: ['network-settings', 'provider-setup', 'codex-login', 'search-settings', 'mcp-settings', 'settings-navigation', 'state-sync', 'modal-header'],
   controls: ['controls'],
-  about: ['about-advanced', 'capacity-settings', 'model-catalog', 'reset-settings', 'resource-destination', 'resource-storage', 'user-agent', 'ui-contracts', 'onboarding', 'execution-flow'],
+  about: ['about-advanced', 'capacity-settings', 'environment-check', 'model-catalog', 'reset-settings', 'resource-destination', 'resource-storage', 'user-agent', 'ui-contracts', 'onboarding', 'execution-flow'],
   statistics: ['statistics'],
 }
 const consumers: [RegExp, string[]][] = [
@@ -72,7 +72,7 @@ const consumers: [RegExp, string[]][] = [
   [/^web\/src\/(?:Skill)|^internal\/skill/, ['skills', 'conversation']],
   [/^web\/src\/MCP|^internal\/mcp/, ['mcp', 'conversation']],
   [/^web\/src\/(?:Search|WebPreview)|^internal\/web(?:search|fetch)/, ['search', 'conversation']],
-  [/^web\/src\/(?:About|Capacity|ResourceStorage|UserAgent|Reset|Restart)|^internal\/(?:capacity|useragent|buildinfo)/, ['about']],
+  [/^web\/src\/(?:About|Capacity|EnvironmentCheck|ResourceStorage|UserAgent|Reset|Restart)|^internal\/(?:capacity|useragent|buildinfo|server\/environment_check)/, ['about']],
   [/^web\/src\/(?:Statistics|Usage)|^internal\/(?:activity|usage)/, ['statistics']],
 ]
 
