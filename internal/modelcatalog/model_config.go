@@ -180,6 +180,7 @@ func Read(dir string) (Catalog, bool, error) {
 	if catalog.Default == "demo" && len(catalog.Models) == 1 && catalog.Models[0].Key == "demo" && catalog.Models[0].Provider == "" {
 		catalog = Catalog{Models: []Configured{}}
 	}
+	catalog.promoteLegacyGenerationConnections()
 	return catalog, true, nil
 }
 
@@ -190,7 +191,7 @@ func ResolveCatalog(catalog *Catalog) error {
 func resolveWithOMPCatalog(catalog *Catalog, snapshot *provider.OMPCatalogSnapshot) error {
 	for index := range catalog.Models {
 		item := &catalog.Models[index]
-		if item.Generation != nil {
+		if item.Generation != nil || item.generationOnly() {
 			continue
 		}
 		resolved, err := snapshot.ResolveConfig(item.providerConfig())
@@ -270,11 +271,12 @@ func FromEnvironment() (Catalog, error) {
 }
 
 func Validate(catalog Catalog) error {
-	if len(catalog.Models) > 16 {
+	if len(catalog.Models) > 19 {
 		return errors.New("configure at most 16 models")
 	}
 	seen := map[string]bool{}
 	chat := map[string]bool{}
+	connections := 0
 	for _, item := range catalog.Models {
 		if item.Generation != nil {
 			if item.Key != "generation-"+item.Generation.Kind || seen[item.Key] {
@@ -286,7 +288,13 @@ func Validate(catalog Catalog) error {
 			seen[item.Key] = true
 			continue
 		}
-		chat[item.Key] = true
+		connections++
+		if connections > 16 {
+			return errors.New("configure at most 16 models or media service connections")
+		}
+		if !item.generationOnly() {
+			chat[item.Key] = true
+		}
 		if item.CopilotAuth != nil {
 			if item.ProviderID != "github-copilot" {
 				return errors.New("Copilot login settings are only supported for GitHub Copilot")
@@ -301,8 +309,10 @@ func Validate(catalog Catalog) error {
 		if item.Key == "" || len(item.Key) > 64 || !ValidCustomProviderName(item.Name) || len(item.ProviderID) > 64 || len(item.ID) > 200 || len(item.BaseURL) > 2048 || len(item.InstanceURL) > 2048 || len(item.APIKey) > 4096 || len(item.AuthToken) > 4096 || item.Context < 0 || !item.ResponsesRoute.Valid() || seen[item.Key] {
 			return errors.New("model key or value exceeds limits or is duplicated")
 		}
-		if err := provider.ValidateCatalogOptions(item.providerConfig(), item.providerMetadata()); err != nil {
-			return err
+		if !item.generationOnly() {
+			if err := provider.ValidateCatalogOptions(item.providerConfig(), item.providerMetadata()); err != nil {
+				return err
+			}
 		}
 		for _, ch := range item.Key {
 			if !(ch >= 'a' && ch <= 'z' || ch >= 'A' && ch <= 'Z' || ch >= '0' && ch <= '9' || ch == '_' || ch == '-') {
@@ -314,6 +324,12 @@ func Validate(catalog Catalog) error {
 			if !(ch >= 'a' && ch <= 'z' || ch >= 'A' && ch <= 'Z' || ch >= '0' && ch <= '9' || ch == '_' || ch == '-' || ch == '.') {
 				return errors.New("provider ID permits only letters, digits, underscores, hyphens and periods")
 			}
+		}
+		if item.generationOnly() {
+			if err := validateGenerationOnlyConnection(item); err != nil {
+				return err
+			}
+			continue
 		}
 		if item.Provider == "" {
 			return errors.New("model API format is required")
@@ -387,7 +403,7 @@ func (c Catalog) resolve(key string, allowDisabled bool) (modelcfg.Model, string
 func (c Catalog) Public() []Info {
 	result := make([]Info, 0, len(c.Models))
 	for _, item := range c.Models {
-		if item.Generation == nil {
+		if item.Generation == nil && !item.generationOnly() {
 			result = append(result, item.Info())
 		}
 	}
@@ -474,5 +490,5 @@ func (m Configured) Kind() string {
 }
 func (m Configured) ChatEligible() bool {
 	kind := m.Kind()
-	return m.Generation == nil && (kind == "" || kind == "chat") && (len(m.outputModalities) == 0 || slices.Contains(m.outputModalities, "text"))
+	return m.Generation == nil && !m.generationOnly() && (kind == "" || kind == "chat") && (len(m.outputModalities) == 0 || slices.Contains(m.outputModalities, "text"))
 }

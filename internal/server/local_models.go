@@ -140,10 +140,14 @@ func (a *App) rebuildModelsLocked() bool {
 			seenModels[identity] = true
 		}
 	}
-	if len(catalog.Models) == 0 {
+	if !seenKeys[catalog.Default] {
 		catalog.Default = ""
-	} else if !seenKeys[catalog.Default] {
-		catalog.Default = catalog.Models[0].Key
+		for _, row := range catalog.Models {
+			if row.ChatEligible() {
+				catalog.Default = row.Key
+				break
+			}
+		}
 	}
 	if !reflect.DeepEqual(a.models, catalog) {
 		previous := a.models

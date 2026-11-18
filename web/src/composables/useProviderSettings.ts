@@ -181,6 +181,9 @@ export function useProviderSettings({ client, error, stateSync, modelCatalog }: 
   }, { flush: 'sync' })
   const editingProvider = computed(() => settings.value.models.find(model => model.key === modelDraft.value.key))
   const providerOptions = computed(() => providerSetups.value
+    // Prefer the shared native setup. A media-only entry for the same service
+    // is still editable when it already exists (e.g. previously saved URLs).
+    .filter(setup => !setup.generationOnly || setup.id === modelDraft.value.kind || !providerSetups.value.some(other => other.id === setup.id.slice('media-'.length)))
     .map(setup => ({ label: setup.id === 'custom' ? t('customProvider') : setup.name, value: setup.id, searchText: `${setup.id} ${setup.name} ${setup.aliases || ''} ${setup.id === 'custom' ? t('customProvider') : ''}` }))
     .sort((a, b) => a.label.localeCompare(b.label, 'en', { sensitivity: 'base' })))
   const providerChoice = computed<Record<string, unknown>>({ get: () => ({ kind: modelDraft.value.kind }), set: value => { if (typeof value.kind === 'string' && value.kind !== modelDraft.value.kind) changeProvider(value.kind) } })
@@ -495,9 +498,9 @@ export function useProviderSettings({ client, error, stateSync, modelCatalog }: 
     try {
       const saved = await api<ModelSettings>('/provider-config', { method: editingProvider.value ? 'PUT' : 'POST', signal: request.signal, body: JSON.stringify({
         key: form.key, name: form.name.trim(), proxyId: form.proxyId, revision: editingProvider.value ? providerDraftVersion.value : undefined,
-        provider: form.kind === 'custom' ? form.apiFormat : 'catalog',
+        provider: selectedSetup.value?.generationOnly ? 'generation' : form.kind === 'custom' ? form.apiFormat : 'catalog',
         headers: form.kind === 'custom' ? Object.fromEntries(form.headers.map(header => [header.name.trim(), header.value])) : undefined,
-        providerId: form.kind,
+        providerId: selectedSetup.value?.generationOnly ? form.kind.slice('media-'.length) : form.kind,
         promptCaching: form.kind === 'custom' ? form.promptCaching : undefined,
         baseUrl: form.baseUrl.trim(), apiKey: usesAPIKey.value ? form.apiKey : '',
         credentialMode: form.credentialMode, accessToken: form.credentialMode === 'accessToken' ? form.accessToken : '',

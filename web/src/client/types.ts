@@ -10,14 +10,14 @@ export type ModelInfo = { kind?: string; disabled?: boolean; proxyId?: string; k
 export type CopilotAuthOptions = { enterpriseUrl?: string; clientId?: string }
 export type PromptCaching = { format?: 'auto' | 'none' | 'openai' | 'anthropic' | 'alibaba' | 'bedrock' | 'gemini'; key?: boolean; retention?: 'in_memory' | '24h'; ttl?: '5m' | '1h' | '30m' | '12h'; cachedContent?: { name: string; sha256: string; messages: number } }
 export type ModelSetting = {
-  disabled?: boolean; connectionKey?: string;
+  disabled?: boolean; connectionKey?: string; generationAdapters?: Partial<Record<GenerationKind, string[]>>;
   promptCaching?: PromptCaching; responsesRoute?: '' | 'codex-compatible' | 'codex';
   proxyId?: string; headerNames?: string[]; copilotAuth?: CopilotAuthOptions; key: string; connectionId?: string; kind?: string; name?: string; provider: string; providerId?: string; id: string; baseUrl?: string; hasApiKey: boolean; hasAccessToken?: boolean; credentialMode?: string; region?: string; project?: string; location?: string; resourceName?: string; deploymentId?: string; apiVersion?: string; editable: boolean }
 export type GenerationKind = 'image' | 'video' | 'decision'
 export type GenerationAdapter = { id: string; name: string; baseUrl: string; kinds: GenerationKind[]; frame: boolean }
-export type GenerationSetting = { kind: GenerationKind; adapter: string; model: string; connection?: string; baseUrl?: string; proxyId?: string; options?: unknown; hasApiKey?: boolean; hasWorkflow?: boolean }
+export type GenerationSetting = { kind: GenerationKind; adapter: string; model: string; connection?: string; options?: unknown; hasWorkflow?: boolean }
 export type ModelSettings = { default: string; models: ModelSetting[]; settingsRevision?: string; generation?: GenerationSetting[]; generationAdapters?: GenerationAdapter[] }
-export type ProviderSetup = { id: string; name: string; aliases?: string; baseUrl?: string; fields?: string[]; credentialModes?: string[]; apiFormats?: string[]; models?: { id: string; name: string }[] }
+export type ProviderSetup = { id: string; name: string; generationOnly?: boolean; aliases?: string; baseUrl?: string; fields?: string[]; credentialModes?: string[]; apiFormats?: string[]; models?: { id: string; name: string }[] }
 export type AgentSettings = { instructions: string; instructionsPath: string; instructionsSha256: string; delegationDepth: number; maxDelegationDepth: number; automaticTitles: boolean }
 export type PageInfo = { page: number; pageSize: number; total: number; version: string }
 export type SessionPage = PageInfo & { items: Session[] }

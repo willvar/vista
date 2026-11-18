@@ -17,6 +17,7 @@ import (
 
 	"vista/internal/model"
 	"vista/internal/network"
+	"vista/internal/provider"
 	"vista/internal/useragent"
 )
 
@@ -47,14 +48,16 @@ func newRequest(ctx context.Context, target model.GenerationTarget) (request, er
 		return request{}, errors.New("no compatible generation adapter is configured")
 	}
 	base := m.BaseURL
-	if base == "" && target.Connection != nil {
+	if target.Connection != nil {
 		base = connectionMediaBase(spec, *target.Connection)
 		m.APIKey = target.Connection.APIKey
 		m.Network = target.Connection.Network
 		m.ProxyID = target.Connection.ProxyID
 		m.Headers = target.Connection.Headers
+		m.Custom, m.Authentication = target.Connection.Custom, target.Connection.Authentication
+		m.OpenAIOrganization, m.OpenAIProject = target.Connection.OpenAIOrganization, target.Connection.OpenAIProject
 	}
-	if base == "" {
+	if base == "" && !m.Custom {
 		base = spec.Base
 	}
 	parsed, err := Endpoint(base)
@@ -65,7 +68,7 @@ func newRequest(ctx context.Context, target model.GenerationTarget) (request, er
 	if err != nil {
 		return request{}, err
 	}
-	if m.APIKey == "" && m.ProviderID != "comfy" && m.ProviderID != "litellm" {
+	if m.APIKey == "" && !m.Custom && m.ProviderID != "comfy" && m.ProviderID != "litellm" {
 		return request{}, errors.New("this generation connection requires credentials")
 	}
 	target.Model = m
@@ -73,6 +76,12 @@ func newRequest(ctx context.Context, target model.GenerationTarget) (request, er
 }
 
 func connectionMediaBase(spec Spec, source model.Model) string {
+	if source.Custom {
+		return provider.CustomBaseURL(source.BaseURL, source.Provider)
+	}
+	if source.BaseURL == "" {
+		return spec.Base
+	}
 	base := strings.TrimRight(source.BaseURL, "/")
 	switch spec.ID {
 	case "google":
@@ -81,11 +90,17 @@ func connectionMediaBase(spec Spec, source model.Model) string {
 		}
 		return base + "/v1beta"
 	case "minimax", "minimax-portal":
-		return strings.TrimSuffix(strings.TrimSuffix(base, "/anthropic"), "/v1")
+		return strings.TrimSuffix(strings.TrimSuffix(base, "/v1"), "/anthropic")
 	case "alibaba", "qwen":
 		return strings.TrimSuffix(base, "/compatible-mode/v1")
-	case "openai-codex":
-		return base
+	case "together":
+		return strings.TrimSuffix(base, "/v1")
+	case "novita":
+		return strings.TrimSuffix(strings.TrimSuffix(base, "/v1"), "/openai")
+	case "microsoft-foundry":
+		if strings.HasSuffix(base, "/openai") {
+			return base + "/v1"
+		}
 	}
 	return base
 }
@@ -210,23 +225,33 @@ func (c request) send(method, raw string, body io.Reader, extra http.Header, aut
 		req.Header.Set("Content-Type", "application/json")
 	}
 	if auth {
-		for k, v := range c.target.Model.Headers {
-			req.Header.Set(k, v)
-		}
-		if c.key != "" {
-			switch c.target.Model.ProviderID {
-			case "google":
-				req.Header.Set("x-goog-api-key", c.key)
-			case "fal":
-				req.Header.Set("Authorization", "Key "+c.key)
-			case "pixverse":
-				req.Header.Set("API-KEY", c.key)
-			case "microsoft-foundry":
-				req.Header.Set("api-key", c.key)
-			case "comfy":
-				req.Header.Set("X-API-Key", c.key)
-			default:
-				req.Header.Set("Authorization", "Bearer "+c.key)
+		if c.target.Model.Custom {
+			provider.ApplyCustomRequestHeaders(req.Header, c.target.Model.Authentication, c.key, c.target.Model.Headers)
+		} else {
+			for k, v := range c.target.Model.Headers {
+				req.Header.Set(k, v)
+			}
+			if c.target.Model.OpenAIOrganization != "" {
+				req.Header.Set("OpenAI-Organization", c.target.Model.OpenAIOrganization)
+			}
+			if c.target.Model.OpenAIProject != "" {
+				req.Header.Set("OpenAI-Project", c.target.Model.OpenAIProject)
+			}
+			if c.key != "" {
+				switch c.target.Model.ProviderID {
+				case "google":
+					req.Header.Set("x-goog-api-key", c.key)
+				case "fal":
+					req.Header.Set("Authorization", "Key "+c.key)
+				case "pixverse":
+					req.Header.Set("API-KEY", c.key)
+				case "microsoft-foundry":
+					req.Header.Set("api-key", c.key)
+				case "comfy":
+					req.Header.Set("X-API-Key", c.key)
+				default:
+					req.Header.Set("Authorization", "Bearer "+c.key)
+				}
 			}
 		}
 		for k, v := range extra {

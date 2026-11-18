@@ -232,6 +232,8 @@ func SameConnection(first, second Configured) bool {
 
 // Save validates the resolved copy, but writes only the raw user configuration.
 func Save(dir string, raw Catalog) (Catalog, error) {
+	raw.Models = slices.Clone(raw.Models)
+	raw.promoteLegacyGenerationConnections()
 	resolved := raw
 	resolved.Models = append([]Configured(nil), raw.Models...)
 	if err := ResolveCatalog(&resolved); err != nil {

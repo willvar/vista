@@ -20,14 +20,8 @@ func (a *App) editGeneration(ctx context.Context, edit modelcatalog.GenerationEd
 	if revision == "" || revision != a.modelSettingsVersion(snapshot.revision) {
 		return modelcatalog.NewSettingsError("settings_conflict", "Model settings changed. Reload them before saving.", nil)
 	}
-	if edit.ProxyID != "" {
-		settings, err := network.Load(a.configDir)
-		if err != nil {
-			return err
-		}
-		if _, err = settings.Select(edit.ProxyID); err != nil {
-			return err
-		}
+	if !snapshot.exists && edit.Connection != "" {
+		return errors.New("save the service connection in Settings before assigning a specialized model")
 	}
 	raw, err := snapshot.raw.EditGeneration(edit)
 	if err != nil {
@@ -40,18 +34,6 @@ func (a *App) editGeneration(ctx context.Context, edit modelcatalog.GenerationEd
 
 // Only candidate metadata for the requested adapter is loaded, on demand in
 // the settings view. The shared models topic doesn't carry separate rosters.
-func upstreamGenerationCatalogAdapter(id string) string {
-	switch id {
-	case "openai-codex":
-		return "openai"
-	case "together":
-		return "togetherai"
-	case "minimax-portal":
-		return "minimax"
-	}
-	return id
-}
-
 func (a *App) generationCandidates(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "method", 405)
@@ -62,40 +44,28 @@ func (a *App) generationCandidates(w http.ResponseWriter, r *http.Request) {
 		settingsHTTPError(w, errors.New("unknown generation adapter"), 400)
 		return
 	}
-	id = upstreamGenerationCatalogAdapter(id)
+	id = generation.CatalogProviderID(id)
 	w.Header().Set("Cache-Control", "no-store")
 	jsonOut(w, provider.SpecializedModels(id, kind))
 }
 
 func (a *App) generationTargets(ctx context.Context) []model.GenerationTarget {
-	catalog := a.modelsSnapshot()
+	// Media keeps using the saved account even if discovery replaces its chat anchor.
+	a.modelMu.RLock()
+	catalog := a.baseModels
+	a.modelMu.RUnlock()
 	ctx = network.WithConfigDir(ctx, a.configDir)
 	var targets []model.GenerationTarget
 	for _, row := range catalog.Models {
 		if row.Generation == nil {
 			continue
 		}
-		target, key := catalog.GenerationTarget(row)
-		if metadata, found := provider.SpecializedModel(upstreamGenerationCatalogAdapter(row.ProviderID), row.ID, target.Kind); found {
+		target := catalog.GenerationTarget(row)
+		if metadata, found := provider.SpecializedModel(generation.CatalogProviderID(row.ProviderID), row.ID, target.Kind); found {
 			target.InputModalities = metadata.Input
 		}
-		if key != "" {
-			// Copy the saved source, not a discovery result supplied by the model.
-			// Resolve renewable credentials lazily in the worker at tool dispatch.
-			source, _, err := catalog.ResolveEnabled(key)
-			if err != nil {
-				target.Error = "The selected connection is unavailable."
-			} else {
-				source.Key = key
-				source.CredentialRef = provider.CredentialReference(source)
-				target.Connection = &source
-			}
-		}
-		source := &target.Model
-		if target.Connection != nil {
-			source = target.Connection
-		}
-		if target.Error == "" {
+		source := target.Connection
+		if source != nil {
 			_, bound, err := source.BindNetwork(ctx)
 			if err != nil {
 				target.Error = "The generation connection's network profile is unavailable."

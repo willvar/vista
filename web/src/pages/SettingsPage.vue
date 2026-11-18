@@ -313,8 +313,8 @@ watch(() => route.fullPath, () => {
           </v-empty>
           <v-alert v-if="settingsError && !modelFormOpen" type="error" role="alert" :message="settingsError" />
           <v-alert v-if="importedCount" type="success" role="status" :message="t('providerImportSuccess', { count: importedCount })" />
-          <div v-if="settings.models.length" class="default-model-setting"><label>{{ t('defaultModel') }}<v-select :value="modelCatalog.conversationDefault ?? modelCatalog.default" :options="defaultModelChoices" show-search option-filter-prop="searchText" option-label-prop="fullLabel" :disabled="settingsBusy" @update:value="setDefaultModel(String($event))" /></label></div>
-          <GenerationSettings :settings="settings" :client="workspace.client" @saved="acceptModelSettings" />
+          <div v-if="settings.models.some(model => model.provider !== 'generation')" class="default-model-setting"><label>{{ t('defaultModel') }}<v-select :value="modelCatalog.conversationDefault ?? modelCatalog.default" :options="defaultModelChoices" show-search option-filter-prop="searchText" option-label-prop="fullLabel" :disabled="settingsBusy" @update:value="setDefaultModel(String($event))" /></label></div>
+          <GenerationSettings :settings="settings" :client="workspace.client" @saved="acceptModelSettings" @connect="startProviderConnection" />
           <div class="model-visibility-setting general-setting"><div><label for="show-unrecognized-models">{{ t('showUnrecognizedModels') }}</label><p id="model-visibility-hint">{{ t('showUnrecognizedModelsHint') }}</p></div><v-switch id="show-unrecognized-models" :checked="showUnrecognizedModels" :loading="visibilityBusy" :aria-label="t('showUnrecognizedModels')" aria-describedby="model-visibility-hint" @update:checked="setShowUnrecognizedModels($event === true)" /></div>
           <div v-if="providerGroups.length" class="configured-providers">
             <h3>{{ t('connectedProviders') }}</h3>

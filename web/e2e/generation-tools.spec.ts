@@ -14,45 +14,67 @@ function waitListening(server: Server) {
     })
   })
 }
-async function bind(vista: VistaFixture, kind: string, adapter: string, endpoint: string, model: string) {
+const testKey = 'fixture-media-credential'
+async function connect(vista: VistaFixture, endpoint: string) {
+  const settings = await vista.api('/provider-config', { method: 'POST', body: JSON.stringify({
+    name: 'Existing test gateway', provider: 'openai-responses', providerId: 'custom',
+    baseUrl: endpoint + '/gateway', credentialMode: 'x-api-key', apiKey: testKey, headers: { 'X-Fixture-Account': 'account-a' },
+  }) })
+  expect(JSON.stringify(settings)).not.toContain(testKey)
+  return settings.models.find((row: { name?: string }) => row.name === 'Existing test gateway').connectionId as string
+}
+async function bind(vista: VistaFixture, kind: string, adapter: string, connection: string, model: string) {
   const settings = await vista.api('/model-config')
   return vista.api('/model-config', { method: 'PATCH', body: JSON.stringify({ revision: settings.settingsRevision,
-    generation: { kind, adapter, model, baseUrl: endpoint, apiKey: 'media-test-key' },
+    generation: { kind, adapter, model, connection },
   }) })
 }
 
 test.use({ replyWithPrompt: true, imageModel: true })
 
-test('uses Settings bindings, preserves slow media across steering and finds originals by ID', async ({ page, vista }) => {
-  const requests: { path: string; body?: any }[] = []
+test('binds media and decisions to one saved gateway without re-entering credentials', async ({ page, vista }) => {
+  const requests: { path: string; hasSavedAuth: boolean; body?: any }[] = []
   let ready = false
   const fixture = createServer(async (req, res) => {
     const path = req.url || ''
     const chunks: Buffer[] = []
     for await (const part of req) chunks.push(Buffer.from(part as Uint8Array))
     const body = chunks.length ? JSON.parse(Buffer.concat(chunks).toString()) : undefined
-    requests.push({ path, body })
+    const hasSavedAuth = req.headers['x-api-key'] === testKey && req.headers['x-fixture-account'] === 'account-a' && !req.headers.authorization
+    requests.push({ path, body, hasSavedAuth })
     res.setHeader('content-type', 'application/json')
-    if (path === '/images/generations') return res.end(JSON.stringify({ data: [{ b64_json: png.toString('base64') }] }))
-    if (path === '/videos/generations') return res.end(JSON.stringify({ request_id: 'job-saved' }))
-    if (path === '/videos/job-saved') return res.end(JSON.stringify(ready ? { status: 'done', video: { url: '/video-resource' } } : { status: 'pending' }))
-    if (path === '/video-resource') { res.setHeader('content-type', 'video/mp4'); return res.end(mp4) }
-    if (path === '/systemone') return res.end(JSON.stringify({ answers: { ready: { type: 'noul', noul: 0.97 } } }))
+    if (path === '/gateway/models') return res.end(JSON.stringify({ data: [{ id: 'gateway-chat', input_modalities: ['text'] }] }))
+    if (path === '/gateway/images/generations') return res.end(JSON.stringify({ data: [{ b64_json: png.toString('base64') }] }))
+    if (path === '/gateway/videos/generations') return res.end(JSON.stringify({ request_id: 'job-saved' }))
+    if (path === '/gateway/videos/job-saved') return res.end(JSON.stringify(ready ? { status: 'done', video: { url: '/gateway/video-resource' } } : { status: 'pending' }))
+    if (path === '/gateway/video-resource') { res.setHeader('content-type', 'video/mp4'); return res.end(mp4) }
+    if (path === '/gateway/systemone') return res.end(JSON.stringify({ answers: { ready: { type: 'noul', noul: 0.97 } } }))
     res.writeHead(404).end()
   })
   try {
     const endpoint = await waitListening(fixture)
-    await bind(vista, 'video', 'xai', endpoint, 'fixture-video')
-    await bind(vista, 'decision', 'openrouter', endpoint, 'fixture-decider')
+    const connection = await connect(vista, endpoint)
+    await bind(vista, 'video', 'xai', connection, 'fixture-video')
+    await bind(vista, 'decision', 'openrouter', connection, 'fixture-decider')
     await page.goto(`${vista.origin}/settings/models`)
-    await page.getByRole('button', {name:'Generate images', exact: true}).click()
+    await page.getByRole('button', { name: 'Generate images', exact: true }).click()
     const form = page.locator('.generation-fields').locator('xpath=ancestor::*[@role="dialog"][1]')
-    await form.getByRole('combobox', { name: 'Provider', exact:true }).selectOption('xai')
-    await form.getByLabel('Model', { exact:true }).fill('fixture-image')
-    await form.getByLabel('Base URL', { exact:true }).fill(endpoint)
-    await form.getByLabel('API Key', { exact:true }).fill('media-test-key')
-    await form.getByRole('button', { name:'Save changes', exact:true }).click()
+    const connections = form.getByRole('combobox', { name: 'Service connections', exact: true })
+    await expect(connections.getByRole('option', { name: 'Existing test gateway', exact: true })).toHaveCount(1)
+    await expect(connections).toHaveValue('') // The fixture also has a compatible chat connection.
+    await connections.selectOption(connection)
+    await form.getByRole('combobox', { name: 'Media API format', exact: true }).selectOption('openai')
+    await form.getByLabel('Model', { exact: true }).fill('fixture-image')
+    await expect(form.locator('input[type=password], input[autocomplete=new-password]')).toHaveCount(0)
+    await expect(form.getByLabel('Base URL', { exact: true })).toHaveCount(0)
+    const save = page.waitForRequest(r => r.method() === 'PATCH' && new URL(r.url()).pathname === '/api/model-config')
+    await form.getByRole('button', { name: 'Save changes', exact: true }).click()
+    expect((await save).postDataJSON().generation).toEqual({ kind: 'image', connection, adapter: 'openai', model: 'fixture-image' })
     await expect(form).toBeHidden()
+    const settings = await vista.api('/model-config')
+    expect(settings.models.filter((row: { name?: string }) => row.name === 'Existing test gateway')).toHaveLength(1)
+    expect(settings.generation.map((row: { connection: string }) => row.connection)).toEqual([connection, connection, connection])
+    expect(JSON.stringify(settings)).not.toContain(testKey)
     await closeSettings(page)
     const sender = page.locator('.sender-card textarea')
     await expect(page.locator('.composer-model')).toHaveCount(0)
@@ -79,12 +101,13 @@ test('uses Settings bindings, preserves slow media across steering and finds ori
     await expect(video).toHaveAttribute('data-generation-status', 'succeeded')
     const link = await video.getByRole('link').getAttribute('href')
     expect(await (await page.request.get(vista.origin + link)).body()).toEqual(mp4)
-    const submissions = requests.filter(r => r.path === '/videos/generations')
+    const submissions = requests.filter(r => r.path === '/gateway/videos/generations')
     expect(submissions).toHaveLength(1)
     expect(submissions[0]?.body.image.url).toBe('data:image/png;base64,' + png.toString('base64'))
     await sender.fill('Fixture decision')
     await sender.press('Enter')
-    await expect.poll(() => requests.some(r => r.path === '/systemone')).toBe(true)
+    await expect.poll(() => requests.some(r => r.path === '/gateway/systemone')).toBe(true)
+    expect(requests.filter(r => ['/gateway/images/generations', '/gateway/videos/generations', '/gateway/systemone'].includes(r.path)).every(r => r.hasSavedAuth)).toBe(true)
     await page.reload()
     await expect(video).toHaveAttribute('data-generation-status', 'succeeded')
     const outsider = await vista.api('/sessions', { method: 'POST', body: '{}' })
@@ -98,12 +121,13 @@ for (const stop of ['media', 'execution'] as const) {
     let posts = 0
     const fixture = createServer((req, res) => {
       res.setHeader('content-type', 'application/json')
-      if (req.url === '/videos/generations' && req.method === 'POST') { posts++; return res.end('{"request_id":"still-pending"}') }
-      if (req.url === '/videos/still-pending') return res.end('{"status":"pending"}')
+      if (req.url === '/gateway/videos/generations' && req.method === 'POST') { posts++; return res.end('{"request_id":"still-pending"}') }
+      if (req.url === '/gateway/videos/still-pending') return res.end('{"status":"pending"}')
+      if (req.url === '/gateway/models') return res.end(JSON.stringify({ data: [{ id: 'gateway-chat', input_modalities: ['text'] }] }))
       res.writeHead(404).end()
     })
     try {
-      await bind(vista, 'video', 'xai', await waitListening(fixture), 'fixture-video')
+      await bind(vista, 'video', 'xai', await connect(vista, await waitListening(fixture)), 'fixture-video')
       await page.goto(vista.origin)
       const sender = page.locator('.sender-card textarea')
       await sender.fill('Fixture video')
@@ -122,3 +146,40 @@ for (const stop of ['media', 'execution'] as const) {
     } finally { fixture.closeAllConnections(); await new Promise<void>(r => fixture.close(() => r())) }
   })
 }
+
+test.describe('without an existing provider', () => {
+  test.use({ configuredProvider: false })
+
+  test('adds a media-only service in the common connection editor and reuses it', async ({ page, vista }) => {
+    await page.goto(`${vista.origin}/settings/models`)
+    await page.getByRole('button', { name: 'Generate images', exact: true }).click()
+    const fields = page.locator('.generation-fields')
+    await expect(fields.getByText('Connect a compatible service first.')).toBeVisible()
+    await fields.getByRole('button', { name: 'Connect provider', exact: true }).click()
+    const editor = page.locator('.provider-connection-modal')
+    await editor.getByRole('combobox', { name: 'Provider', exact: true }).click()
+    await page.getByRole('option', { name: 'fal', exact: true }).click()
+    await editor.getByLabel('Base URL', { exact: true }).fill('http://127.0.0.1:9')
+    await editor.locator('input[type=password]').fill(testKey)
+    await editor.getByRole('button', { name: 'Connect provider', exact: true }).click()
+    await expect(editor).toBeHidden()
+    const settings = await vista.api('/model-config')
+    expect(settings.default).toBe('')
+    expect(settings.models).toHaveLength(1)
+    expect((await vista.api('/models')).models).toEqual([])
+    const connection = settings.models[0].connectionId
+    for (const [label, model] of [['Generate images', 'fixture-image'], ['Generate videos', 'fixture-video']] as const) {
+      await page.getByRole('button', { name: label, exact: true }).click()
+      const form = fields.locator('xpath=ancestor::*[@role="dialog"][1]')
+      await expect(form.getByRole('combobox', { name: 'Service connections', exact: true })).toHaveValue(connection)
+      await expect(form.locator('input[type=password]')).toHaveCount(0)
+      await form.getByLabel('Model', { exact: true }).fill(model)
+      await form.getByRole('button', { name: 'Save changes', exact: true }).click()
+      await expect(form).toBeHidden()
+    }
+    const saved = await vista.api('/model-config')
+    expect(saved.models).toHaveLength(1)
+    expect(saved.generation.map((row: { connection: string }) => row.connection)).toEqual([connection, connection])
+    expect(JSON.stringify(saved)).not.toContain(testKey)
+  })
+})

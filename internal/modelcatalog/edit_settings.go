@@ -117,7 +117,7 @@ func ChangeConnection(ctx context.Context, raw Catalog, exists bool, method stri
 		if !foundDefault {
 			raw.Default = ""
 			for _, row := range retained {
-				if row.Generation == nil {
+				if row.ChatEligible() {
 					raw.Default = row.Key
 					break
 				}
@@ -136,6 +136,9 @@ func ChangeConnection(ctx context.Context, raw Catalog, exists bool, method stri
 	ctx, err = input.configured().ConnectionContext(ctx)
 	if err != nil {
 		return Catalog{}, err
+	}
+	if setup.GenerationOnly {
+		return saveGenerationConnection(raw, previous, input)
 	}
 	return replaceConnection(ctx, raw, previous, setup, input)
 }

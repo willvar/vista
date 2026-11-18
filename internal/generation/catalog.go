@@ -59,6 +59,21 @@ func Find(id, kind string) (Spec, bool) {
 	return Spec{}, false
 }
 
+// CatalogProviderID maps a wire adapter to its metadata roster.
+func CatalogProviderID(adapter string) string {
+	switch adapter {
+	case "openai-codex":
+		return "openai"
+	case "together":
+		return "togetherai"
+	case "minimax-portal":
+		return "minimax"
+	case "novita":
+		return "novita-ai"
+	}
+	return adapter
+}
+
 func Endpoint(raw string) (*url.URL, error) {
 	u, err := url.Parse(raw)
 	if err != nil || u.Hostname() == "" || (u.Scheme != "http" && u.Scheme != "https") || u.User != nil || u.RawQuery != "" || u.ForceQuery || u.Fragment != "" || len(raw) > 2048 || strings.ContainsAny(u.EscapedPath(), "\\\r\n") {

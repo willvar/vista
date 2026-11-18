@@ -16,31 +16,32 @@ import (
 )
 
 type modelSetting struct {
-	ConnectionKey  string                  `json:"connectionKey,omitempty"`
-	Disabled       bool                    `json:"disabled,omitempty"`
-	PromptCaching  *modelcfg.PromptCaching `json:"promptCaching,omitempty"`
-	ResponsesRoute modelcfg.ResponsesRoute `json:"responsesRoute,omitempty"`
-	ProxyID        string                  `json:"proxyId,omitempty"`
-	Kind           string                  `json:"kind,omitempty"`
-	Key            string                  `json:"key"`
-	ConnectionID   string                  `json:"connectionId,omitempty"`
-	Name           string                  `json:"name,omitempty"`
-	Provider       string                  `json:"provider"`
-	ProviderID     string                  `json:"providerId,omitempty"`
-	ID             string                  `json:"id"`
-	BaseURL        string                  `json:"baseUrl,omitempty"`
-	HeaderNames    []string                `json:"headerNames,omitempty"`
-	CopilotAuth    *copilotauth.Options    `json:"copilotAuth,omitempty"`
-	HasAPIKey      bool                    `json:"hasApiKey"`
-	Editable       bool                    `json:"editable"`
-	HasAccessToken bool                    `json:"hasAccessToken"`
-	CredentialMode string                  `json:"credentialMode,omitempty"`
-	Region         string                  `json:"region,omitempty"`
-	Project        string                  `json:"project,omitempty"`
-	Location       string                  `json:"location,omitempty"`
-	ResourceName   string                  `json:"resourceName,omitempty"`
-	DeploymentID   string                  `json:"deploymentId,omitempty"`
-	APIVersion     string                  `json:"apiVersion,omitempty"`
+	GenerationAdapters map[string][]string     `json:"generationAdapters,omitempty"`
+	ConnectionKey      string                  `json:"connectionKey,omitempty"`
+	Disabled           bool                    `json:"disabled,omitempty"`
+	PromptCaching      *modelcfg.PromptCaching `json:"promptCaching,omitempty"`
+	ResponsesRoute     modelcfg.ResponsesRoute `json:"responsesRoute,omitempty"`
+	ProxyID            string                  `json:"proxyId,omitempty"`
+	Kind               string                  `json:"kind,omitempty"`
+	Key                string                  `json:"key"`
+	ConnectionID       string                  `json:"connectionId,omitempty"`
+	Name               string                  `json:"name,omitempty"`
+	Provider           string                  `json:"provider"`
+	ProviderID         string                  `json:"providerId,omitempty"`
+	ID                 string                  `json:"id"`
+	BaseURL            string                  `json:"baseUrl,omitempty"`
+	HeaderNames        []string                `json:"headerNames,omitempty"`
+	CopilotAuth        *copilotauth.Options    `json:"copilotAuth,omitempty"`
+	HasAPIKey          bool                    `json:"hasApiKey"`
+	Editable           bool                    `json:"editable"`
+	HasAccessToken     bool                    `json:"hasAccessToken"`
+	CredentialMode     string                  `json:"credentialMode,omitempty"`
+	Region             string                  `json:"region,omitempty"`
+	Project            string                  `json:"project,omitempty"`
+	Location           string                  `json:"location,omitempty"`
+	ResourceName       string                  `json:"resourceName,omitempty"`
+	DeploymentID       string                  `json:"deploymentId,omitempty"`
+	APIVersion         string                  `json:"apiVersion,omitempty"`
 }
 
 func (a *App) writeModelSettings(w http.ResponseWriter) {
@@ -59,6 +60,8 @@ func (a *App) writeModelSettings(w http.ResponseWriter) {
 		mode := "apiKey"
 		if model.ProviderID == "custom" {
 			mode = model.Authentication
+		} else if model.Provider == "generation" && (model.ProviderID == "comfy" || model.ProviderID == "litellm") && model.APIKey == "" {
+			mode = "none"
 		}
 		headerNames := make([]string, 0, len(model.Headers))
 		for name := range model.Headers {
@@ -83,7 +86,15 @@ func (a *App) writeModelSettings(w http.ResponseWriter) {
 				}
 			}
 		}
-		items = append(items, modelSetting{ConnectionKey: connectionKey, Disabled: model.Disabled, PromptCaching: model.PromptCaching, ResponsesRoute: model.ResponsesRoute, ProxyID: model.ProxyID, Kind: modelcatalog.SetupID(model), Key: model.Key, ConnectionID: model.ConnectionID, Name: model.Name, Provider: model.Provider, ProviderID: model.ProviderID, ID: model.ID, BaseURL: model.BaseURL, HasAPIKey: model.APIKey != "", Editable: exists && modelcatalog.Editable(model),
+		adapters := map[string][]string{}
+		if connectionKey == model.Key {
+			for _, kind := range []string{modelcfg.ImageOutput, modelcfg.VideoOutput, modelcfg.DecisionOutput} {
+				if ids := model.GenerationAdapters(kind); len(ids) > 0 {
+					adapters[kind] = ids
+				}
+			}
+		}
+		items = append(items, modelSetting{GenerationAdapters: adapters, ConnectionKey: connectionKey, Disabled: model.Disabled, PromptCaching: model.PromptCaching, ResponsesRoute: model.ResponsesRoute, ProxyID: model.ProxyID, Kind: modelcatalog.SetupID(model), Key: model.Key, ConnectionID: model.ConnectionID, Name: model.Name, Provider: model.Provider, ProviderID: model.ProviderID, ID: model.ID, BaseURL: model.BaseURL, HasAPIKey: model.APIKey != "", Editable: exists && modelcatalog.Editable(model),
 			HeaderNames: headerNames, CopilotAuth: model.CopilotAuth, HasAccessToken: model.AccessToken != "", CredentialMode: mode, Region: model.Region, Project: model.Project, Location: model.Location, ResourceName: model.ResourceName, DeploymentID: model.DeploymentID, APIVersion: model.APIVersion})
 	}
 	jsonOut(w, map[string]any{"default": catalog.Default, "models": items, "settingsRevision": a.modelSettingsVersion(snapshot.revision), "generation": catalog.GenerationSettings(), "generationAdapters": generation.Specs()})

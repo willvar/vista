@@ -175,6 +175,21 @@ func replaceConnection(ctx context.Context, raw Catalog, previous *Configured, s
 		}
 		retained = append(retained, model)
 	}
+	// Older bindings used a model anchor rather than the connection identity.
+	// The provider editor can replace that anchor while keeping the account.
+	for i, row := range retained {
+		if row.Generation == nil {
+			continue
+		}
+		for _, before := range old {
+			if row.Generation.Connection == before.Key {
+				binding := *row.Generation
+				binding.Connection = connectionID
+				retained[i].Generation = &binding
+				break
+			}
+		}
+	}
 	raw.Models = retained
 	foundDefault := false
 	for _, model := range retained {
@@ -183,7 +198,7 @@ func replaceConnection(ctx context.Context, raw Catalog, previous *Configured, s
 	if !foundDefault {
 		raw.Default = firstReplacement
 		for _, row := range retained {
-			if row.Generation == nil {
+			if row.ChatEligible() {
 				raw.Default = row.Key
 				break
 			}

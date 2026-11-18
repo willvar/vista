@@ -14,7 +14,7 @@ import (
 
 func TestBuiltInSetupsRequireOMPModels(t *testing.T) {
 	for _, setup := range ProviderSetups() {
-		if setup.ID == "custom" || LocalProvider(setup.ID) {
+		if setup.GenerationOnly || setup.ID == "custom" || LocalProvider(setup.ID) {
 			continue
 		}
 		if len(provider.CatalogTextModelIDs(setup.ID)) == 0 {
@@ -33,7 +33,7 @@ func TestBuiltInSetupsRequireOMPModels(t *testing.T) {
 
 func TestCatalogProviderSetupLifecycle(t *testing.T) {
 	for _, setup := range ProviderSetups() {
-		if automaticSetup(setup.ID) {
+		if setup.GenerationOnly || automaticSetup(setup.ID) {
 			continue
 		}
 		t.Run(setup.ID, func(t *testing.T) {

@@ -263,7 +263,10 @@ func TestImageSpecializedProtocols(t *testing.T) {
 				setup.Options = json.RawMessage(`{"workflow":{"1":{"inputs":{"text":""}},"3":{"inputs":{}}},"promptNode":"1","outputNode":"3"}`)
 			}
 			if id == "openai-codex" {
-				setup.Connection = &model.Model{ID: "chat-carrier"}
+				source := setup.Model
+				source.ID = "chat-carrier"
+				setup.Model.BaseURL, setup.Model.APIKey = "", ""
+				setup.Connection = &source
 			}
 			req, err := newRequest(t.Context(), setup)
 			if err != nil {

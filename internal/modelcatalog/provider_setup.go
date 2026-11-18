@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"vista/internal/copilotauth"
+	"vista/internal/generation"
 	modelcfg "vista/internal/model"
 	"vista/internal/provider"
 )
@@ -20,6 +21,7 @@ type SetupModel struct {
 // ProviderSetup describes the supported connection forms, not protocol routing.
 // Routes, credentials and model capabilities remain owned by provider.
 type ProviderSetup struct {
+	GenerationOnly  bool         `json:"generationOnly,omitempty"`
 	ID              string       `json:"id"`
 	Name            string       `json:"name"`
 	Aliases         string       `json:"aliases,omitempty"`
@@ -68,6 +70,14 @@ var providerSetups = []ProviderSetup{
 }
 
 func setupFor(id string) (ProviderSetup, bool) {
+	if service, ok := strings.CutPrefix(id, generationSetupPrefix); ok {
+		for _, spec := range generation.Specs() {
+			if spec.ID == service && service != "openai-codex" {
+				return generationSetup(spec), true
+			}
+		}
+		return ProviderSetup{}, false
+	}
 	for _, setup := range providerSetups {
 		if setup.ID == id && supportedSetup(id) {
 			return setup, true
@@ -90,7 +100,7 @@ func automaticSetup(id string) bool {
 
 func catalogInventorySetup(id string) bool {
 	_, ok := setupFor(id)
-	return ok && !automaticSetup(id) && id != "azure"
+	return ok && !strings.HasPrefix(id, generationSetupPrefix) && !automaticSetup(id) && id != "azure"
 }
 
 func ProviderSetups() []ProviderSetup {
@@ -117,11 +127,19 @@ func ProviderSetups() []ProviderSetup {
 			setup.Models = append(setup.Models, SetupModel{ID: id, Name: provider.ModelDisplayNameFor(setup.ID, id)})
 		}
 	}
+	for _, spec := range generation.Specs() {
+		if spec.ID != "openai-codex" {
+			setups = append(setups, generationSetup(spec))
+		}
+	}
 	return setups
 }
 
 // SetupID is computed from raw persisted configuration, before catalog routing.
 func SetupID(model Configured) string {
+	if model.generationOnly() {
+		return generationSetupPrefix + model.ProviderID
+	}
 	if model.Provider == "catalog" || LocalProvider(model.ProviderID) || model.ProviderID == "github-copilot" {
 		if _, ok := setupFor(model.ProviderID); ok {
 			return model.ProviderID
@@ -157,7 +175,9 @@ func (input ConnectionInput) configured() Configured {
 // credential inputs reuse a saved secret only for the same destination.
 func prepareSetup(input *ConnectionInput, previous *Configured) (ProviderSetup, error) {
 	id := "custom"
-	if input.Provider == "catalog" || LocalProvider(input.ProviderID) || input.ProviderID == "github-copilot" {
+	if input.Provider == generationProvider {
+		id = generationSetupPrefix + input.ProviderID
+	} else if input.Provider == "catalog" || LocalProvider(input.ProviderID) || input.ProviderID == "github-copilot" {
 		id = input.ProviderID
 	}
 	setup, ok := setupFor(id)
@@ -178,7 +198,17 @@ func prepareSetup(input *ConnectionInput, previous *Configured) (ProviderSetup, 
 			return setup, errors.New("connection field is unsupported for this provider: " + field)
 		}
 	}
-	if id == "custom" {
+	if setup.GenerationOnly {
+		if input.BaseURL == "" {
+			input.BaseURL = setup.BaseURL
+		}
+		if _, err := generation.Endpoint(input.BaseURL); err != nil {
+			return setup, err
+		}
+		if input.Name == "" {
+			input.Name = setup.Name
+		}
+	} else if id == "custom" {
 		if !provider.IsCustomProtocol(input.Provider) || input.ProviderID != "custom" || !ValidCustomProviderBaseURL(input.BaseURL) {
 			return setup, errors.New("choose a conversation API format and enter an HTTP or HTTPS service address")
 		}

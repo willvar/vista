@@ -64,7 +64,7 @@ func (r *toolRuntime) generationTarget(ctx context.Context, kind string) (model.
 		if t.Error != "" {
 			return t, errors.New(t.Error)
 		}
-		if t.Connection != nil && t.Connection.CredentialRef != "" {
+		if t.Connection != nil {
 			source, err := provider.ResolveGenerationCredential(ctx, *t.Connection)
 			if err != nil {
 				return t, err

@@ -9,8 +9,7 @@ const (
 )
 
 // GenerationBinding is stored with the existing model connection settings. It
-// never contains credentials; a dedicated connection reuses its outer secret
-// fields, or Connection names a saved credential source.
+// never contains credentials; Connection names the saved credential source.
 type GenerationBinding struct {
 	Kind       string          `json:"kind"`
 	Connection string          `json:"connection,omitempty"`
