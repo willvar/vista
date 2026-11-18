@@ -75,7 +75,6 @@ func (s *Store) Revert(ctx context.Context, sessionID, messageID string, sequenc
 		return Event{}, err
 	}
 	for _, q := range []string{
-		`DELETE FROM model_reply_feedback WHERE message_id IN (SELECT id FROM messages WHERE session_id=? AND sequence>=?)`,
 		`DELETE FROM model_output_chunks WHERE session_id=? AND event_sequence>=?`,
 		`DELETE FROM jobs WHERE session_id=? AND id IN (SELECT json_extract(data,'$.id') FROM events WHERE session_id=jobs.session_id AND kind='job' GROUP BY json_extract(data,'$.id') HAVING MIN(sequence)>=?)`,
 		`DELETE FROM artifacts WHERE session_id=? AND id IN (SELECT json_extract(data,'$.id') FROM events WHERE session_id=artifacts.session_id AND kind='artifact' GROUP BY json_extract(data,'$.id') HAVING MIN(sequence)>=?)`,

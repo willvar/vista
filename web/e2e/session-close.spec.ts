@@ -3,7 +3,6 @@ import { selectSessions, sessionManagerAction } from './session-manager-actions'
 import type { Page } from '@playwright/test'
 
 test.beforeEach(async ({ vista }) => {
-  await vista.api('/preferences', { method: 'PATCH', body: JSON.stringify({ feedbackInvitationSeen: true }) })
 })
 
 function trackCloseRequests(page: Page) {

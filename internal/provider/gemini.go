@@ -114,6 +114,7 @@ func geminiTurnWithReasoning(ctx context.Context, model modelcfg.Model, messages
 	if err != nil {
 		return Turn{}, err
 	}
+	applyProcessingBody(model, body)
 	encoded, err := json.Marshal(body)
 	if err != nil {
 		return Turn{}, err
@@ -150,6 +151,7 @@ func geminiTurnWithReasoning(ctx context.Context, model modelcfg.Model, messages
 	pendingSignature := ""
 	finished := false
 	finishReason := ""
+	reportedTier := response.Header.Get("x-gemini-service-tier")
 	var usage *ModelUsage
 	defer retainStreamResult(&result, &text, &finishReason, &usage)
 	for scanner.Scan() {
@@ -179,6 +181,8 @@ func geminiTurnWithReasoning(ctx context.Context, model modelcfg.Model, messages
 		var chunk struct {
 			Error         json.RawMessage `json:"error"`
 			UsageMetadata *struct {
+				ProcessingTier  string `json:"serviceTier"`
+				TrafficType     string `json:"trafficType"`
 				PromptTokens    int64  `json:"promptTokenCount"`
 				CandidateTokens int64  `json:"candidatesTokenCount"`
 				CachedTokens    *int64 `json:"cachedContentTokenCount"`
@@ -208,6 +212,11 @@ func geminiTurnWithReasoning(ctx context.Context, model modelcfg.Model, messages
 		}
 		if chunk.UsageMetadata != nil {
 			u := chunk.UsageMetadata
+			if u.TrafficType != "" {
+				reportedTier = u.TrafficType
+			} else if u.ProcessingTier != "" && reportedTier == "" {
+				reportedTier = u.ProcessingTier
+			}
 			if !validReportedTokens(u.PromptTokens) || !validReportedTokens(u.CandidateTokens) || u.CachedTokens != nil && !validReportedTokens(*u.CachedTokens) || !validReportedTokens(u.ThoughtTokens) {
 				return Turn{}, errors.New("Gemini reported invalid token usage")
 			}
@@ -313,7 +322,7 @@ func geminiTurnWithReasoning(ctx context.Context, model modelcfg.Model, messages
 	if payload.Len() != 0 || !finished {
 		return Turn{}, errors.New("Gemini stream ended without a complete response")
 	}
-	return Turn{Text: text.String(), Calls: calls, FinishReason: finishReason, Usage: usage}, nil
+	return Turn{ReportedProcessingTier: reportedTier, Text: text.String(), Calls: calls, FinishReason: finishReason, Usage: usage}, nil
 }
 
 func geminiContents(messages []ChatMessage) ([]map[string]any, string, error) {

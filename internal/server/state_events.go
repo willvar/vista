@@ -34,7 +34,7 @@ const maxStateEventStreams = maxEventStreams
 const maxStateFrameBytes = 512 << 10
 const maxStateSnapshotBytes = maxStateFrameBytes - len("event: state\ndata: \n\n")
 
-var stateTopics = []string{"sessions", "status", "models", "catalog", "provider-login", "mcp", "storage", "diagnostics", "statistics", "skills", "selection-stats", "server-config", "network"}
+var stateTopics = []string{"sessions", "status", "models", "catalog", "provider-login", "mcp", "storage", "diagnostics", "statistics", "connection-statistics", "skills", "server-config", "network"}
 
 type stateCheckpoint struct {
 	Network        *networkConfigView         `json:"network,omitempty"`
@@ -229,7 +229,7 @@ func (a *App) stateEvents(w http.ResponseWriter, r *http.Request) {
 			// as the clock. Check the deadline before rearming, so it is not lost.
 			if !now.Before(clockDeadline) {
 				var topics []string
-				for _, topic := range []string{"statistics", "selection-stats"} {
+				for _, topic := range []string{"statistics"} {
 					if interests[topic] {
 						topics = append(topics, topic)
 					}
@@ -321,7 +321,6 @@ func (a *App) stateMutations(next http.Handler) http.Handler {
 			switch {
 			case len(parts) == 1 && r.Method == http.MethodDelete:
 				a.invalidateResourceStorage()
-				a.updates.notify("selection-stats")
 				a.updates.notify("sessions", "status")
 			case len(parts) == 1 && r.Method == http.MethodPatch,
 				len(parts) == 2 && parts[1] == "read":
@@ -361,10 +360,10 @@ func (a *App) notifyWorkerState(kind string) {
 		a.updates.notify("sessions")
 	case "token_usage":
 		a.updates.notify("statistics")
+	case "call_usage":
+		a.updates.notify("connection-statistics")
 	case "resource_changed":
 		a.invalidateResourceStorage()
-	case "model_observation":
-		a.updates.notify("selection-stats")
 	}
 }
 

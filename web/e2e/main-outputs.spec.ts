@@ -6,7 +6,6 @@ test.describe('interleaved reply text and reasoning', () => {
   test.use({ providerOutput: 'responses', interleavedOutput: true })
 
   test('opening, reasoning and answer keep their order during execution, recovery and reload', async ({ page, context, vista }) => {
-    await vista.api('/preferences', { method: 'PATCH', body: JSON.stringify({ feedbackInvitationSeen: true }) })
     await context.grantPermissions(['clipboard-read', 'clipboard-write'])
     await page.reload()
     const release = vista.pauseModelReplies(true)
@@ -63,7 +62,6 @@ test.describe('persistent main output', () => {
   test.use({ progressCalls: 6 })
 
   test('six progress bodies survive tools, final reply and refresh with one process entry', async ({ page, vista }, testInfo) => {
-    await vista.api('/preferences', { method: 'PATCH', body: JSON.stringify({ feedbackInvitationSeen: true }) })
     await page.reload()
     const release = vista.pauseModelReplies(true)
     try {
@@ -114,7 +112,6 @@ test.describe('persistent main output', () => {
   })
 
   test('cancelled streaming body remains readable after refresh', async ({ page, vista }) => {
-    await vista.api('/preferences', { method: 'PATCH', body: JSON.stringify({ feedbackInvitationSeen: true }) })
     await page.reload()
     const release = vista.pauseModelReplies(true)
     try {
@@ -134,7 +131,6 @@ test.describe('persistent main output', () => {
   })
 
   test('failed run retains progress and actual tool steps without duplicating the error after refresh', async ({ page, vista }, testInfo) => {
-    await vista.api('/preferences', { method: 'PATCH', body: JSON.stringify({ feedbackInvitationSeen: true }) })
     await page.reload()
     await page.locator('.sender-card textarea').fill('Fail progress')
     await page.locator('.sender-card textarea').press('Enter')
@@ -164,7 +160,6 @@ test.describe('persistent main output', () => {
 historyTest.describe('long progress history', () => {
   historyTest('prepares complete long bodies in a continuous timeline with bounded mounted rows', async ({ context, vista, historySeed }, testInfo) => {
     test.setTimeout(90_000)
-    await vista.api('/preferences', { method: 'PATCH', body: JSON.stringify({ feedbackInvitationSeen: true }) })
     const session = (await vista.api('/sessions')).find((item: { id: string }) => item.id === historySeed.sessionId)
     expect(session.executing).toBe(false)
     expect(vista.modelRequests).toHaveLength(0)

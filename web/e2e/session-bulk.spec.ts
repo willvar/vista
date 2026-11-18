@@ -2,7 +2,6 @@ import { test, expect } from './fixtures'
 import { selectSessions } from './session-manager-actions'
 
 test('bulk session actions respect visible selection, keep the manager open and isolate delete confirmation', async ({ page, vista }, testInfo) => {
-  await vista.api('/preferences', { method: 'PATCH', body: JSON.stringify({ feedbackInvitationSeen: true }) })
   const first = await vista.api('/sessions', { method: 'POST', body: JSON.stringify({ title: 'Bulk visible A' }) })
   const second = await vista.api('/sessions', { method: 'POST', body: JSON.stringify({ title: 'Bulk visible B' }) })
   const untouched = await vista.api('/sessions', { method: 'POST', body: JSON.stringify({ title: 'Unrelated session' }) })

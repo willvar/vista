@@ -22,26 +22,26 @@ import (
 )
 
 type Session struct {
-	ID                       string        `json:"id"`
-	Title                    string        `json:"title"`
-	ModelKey                 string        `json:"modelKey"`
-	Pending                  *PendingReply `json:"pendingReply,omitempty"`
-	Open                     bool          `json:"open"`
-	Pinned                   bool          `json:"pinned"`
-	Running                  bool          `json:"running"`
-	Executing                bool          `json:"executing"`
-	CreatedAt                string        `json:"createdAt"`
-	UpdatedAt                string        `json:"updatedAt,omitempty"`
-	SelectionMode            string        `json:"selectionMode"`
-	SelectionTier            string        `json:"selectionTier"`
-	ManualModelKey           string        `json:"manualModelKey"`
-	ManualReasoningEffort    string        `json:"manualReasoningEffort"`
-	SelectionReasoningEffort string        `json:"selectionReasoningEffort"`
-	InputQueuePaused         bool          `json:"inputQueuePaused"`
-	ReadSequence             int64         `json:"readSequence"`
-	LatestReplySequence      int64         `json:"latestReplySequence"`
-	LatestRunStatus          string        `json:"latestRunStatus"`
-	PendingInputCount        int           `json:"pendingInputCount"`
+	ID        string        `json:"id"`
+	Title     string        `json:"title"`
+	ModelKey  string        `json:"modelKey"`
+	Pending   *PendingReply `json:"pendingReply,omitempty"`
+	Open      bool          `json:"open"`
+	Pinned    bool          `json:"pinned"`
+	Running   bool          `json:"running"`
+	Executing bool          `json:"executing"`
+	CreatedAt string        `json:"createdAt"`
+	UpdatedAt string        `json:"updatedAt,omitempty"`
+
+	ManualModelKey        string `json:"manualModelKey"`
+	ManualReasoningEffort string `json:"manualReasoningEffort"`
+	ProcessingTier        string `json:"processingTier,omitempty"`
+
+	InputQueuePaused    bool   `json:"inputQueuePaused"`
+	ReadSequence        int64  `json:"readSequence"`
+	LatestReplySequence int64  `json:"latestReplySequence"`
+	LatestRunStatus     string `json:"latestRunStatus"`
+	PendingInputCount   int    `json:"pendingInputCount"`
 }
 
 type PendingReply struct {
@@ -96,12 +96,11 @@ type QueuedInput struct {
 	RunID           string `json:"runId"`
 	ModelKey        string `json:"modelKey"`
 	ReasoningEffort string `json:"reasoningEffort,omitempty"`
-	SelectionMode   string `json:"selectionMode,omitempty"`
-	SelectionTier   string `json:"selectionTier,omitempty"`
-	Status          string `json:"status"`
-	Content         string `json:"content"`
-	ImageCount      int    `json:"imageCount,omitempty"`
-	CreatedAt       string `json:"createdAt"`
+
+	Status     string `json:"status"`
+	Content    string `json:"content"`
+	ImageCount int    `json:"imageCount,omitempty"`
+	CreatedAt  string `json:"createdAt"`
 }
 
 type Store struct {
@@ -111,39 +110,32 @@ type Store struct {
 }
 
 type sessionRow struct {
-	ID                       string `gorm:"column:id;primaryKey"`
-	Title                    string `gorm:"column:title"`
-	ModelKey                 string `gorm:"column:model_key"`
-	IsOpen                   int    `gorm:"column:is_open"`
-	Pinned                   bool   `gorm:"column:pinned;not null;default:false"`
-	PendingKind              string `gorm:"column:pending_kind"`
-	PendingContent           string `gorm:"column:pending_content"`
-	PendingRunID             string `gorm:"column:pending_run_id"`
-	CreatedAt                string `gorm:"column:created_at"`
-	SelectionMode            string `gorm:"column:selection_mode;not null;default:manual"`
-	SelectionTier            string `gorm:"column:selection_tier;not null;default:speed"`
-	ManualModelKey           string `gorm:"column:manual_model_key;not null;default:''"`
-	ManualReasoningEffort    string `gorm:"column:manual_reasoning_effort;not null;default:''"`
-	SelectionReasoningEffort string `gorm:"column:selection_reasoning_effort;not null;default:''"`
-	InputQueuePaused         bool   `gorm:"column:input_queue_paused;not null;default:false"`
-	ReadSequence             int64  `gorm:"column:read_sequence;not null;default:0"`
+	ID             string `gorm:"column:id;primaryKey"`
+	Title          string `gorm:"column:title"`
+	ModelKey       string `gorm:"column:model_key"`
+	IsOpen         int    `gorm:"column:is_open"`
+	Pinned         bool   `gorm:"column:pinned;not null;default:false"`
+	PendingKind    string `gorm:"column:pending_kind"`
+	PendingContent string `gorm:"column:pending_content"`
+	PendingRunID   string `gorm:"column:pending_run_id"`
+	CreatedAt      string `gorm:"column:created_at"`
+
+	ManualModelKey        string `gorm:"column:manual_model_key;not null;default:''"`
+	ManualReasoningEffort string `gorm:"column:manual_reasoning_effort;not null;default:''"`
+	ProcessingTier        string `gorm:"not null;default:''"`
+
+	InputQueuePaused bool  `gorm:"column:input_queue_paused;not null;default:false"`
+	ReadSequence     int64 `gorm:"column:read_sequence;not null;default:0"`
 }
 
 func (sessionRow) TableName() string { return "sessions" }
 
 func sessionFromRow(row sessionRow) Session {
 	item := Session{ID: row.ID, Title: row.Title, ModelKey: row.ModelKey, Open: row.IsOpen == 1, Pinned: row.Pinned, CreatedAt: row.CreatedAt}
-	item.SelectionMode, item.SelectionTier = row.SelectionMode, row.SelectionTier
 	item.ManualModelKey, item.ManualReasoningEffort = row.ManualModelKey, row.ManualReasoningEffort
-	item.SelectionReasoningEffort, item.InputQueuePaused = row.SelectionReasoningEffort, row.InputQueuePaused
+	item.ProcessingTier, item.InputQueuePaused = row.ProcessingTier, row.InputQueuePaused
 	item.ReadSequence = row.ReadSequence
-	if item.SelectionMode == "" {
-		item.SelectionMode = "manual"
-	}
-	if item.SelectionTier == "" {
-		item.SelectionTier = "speed"
-	}
-	if item.ManualModelKey == "" && item.SelectionMode == "manual" {
+	if item.ManualModelKey == "" {
 		item.ManualModelKey = item.ModelKey
 	}
 	if row.PendingKind != "" {
@@ -258,7 +250,7 @@ func OpenReadOnly(path string) (*Store, error) {
 }
 func (s *Store) Close() error { return s.db.Close() }
 func (s *Store) Create(ctx context.Context, id, title string) (Session, error) {
-	item := Session{ID: id, Title: title, Open: true, CreatedAt: time.Now().UTC().Format(time.RFC3339), SelectionMode: "manual", SelectionTier: "speed"}
+	item := Session{ID: id, Title: title, Open: true, CreatedAt: time.Now().UTC().Format(time.RFC3339)}
 	err := s.orm.WithContext(ctx).Create(&sessionRow{ID: id, Title: title, IsOpen: 1, CreatedAt: item.CreatedAt}).Error
 	return item, err
 }
@@ -367,7 +359,7 @@ func (s *Store) Delete(ctx context.Context, id string) error {
 		if err := sessionRowsAffected(tx.Where("id=?", id).Delete(&sessionRow{})); err != nil {
 			return err
 		}
-		return tx.Where("session_id=?", id).Delete(&sessionTierSelectionRow{}).Error
+		return nil
 	})
 }
 func (s *Store) Get(ctx context.Context, id string) (Session, error) {

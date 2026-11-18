@@ -2,40 +2,6 @@ import type { Page } from '@playwright/test'
 import { test, expect } from './fixtures'
 import { openSettingsSection } from './settings-navigation'
 
-test('worker speed observations and remote feedback update model statistics without inventory rereads',async({page,vista},info)=>{
-  test.skip(info.project.name!=='desktop','Synchronization is independent of viewport')
-  await vista.api('/preferences',{method:'PATCH',body:JSON.stringify({lastMode:'auto',feedbackInvitationSeen:true})})
-  await page.goto(`${vista.origin}/settings/general`)
-  const stats=page.locator('.model-selection-stats')
-  const row=stats.locator(`[data-model-id="${vista.modelId}"]`)
-  await expect(row).toContainText('Not measured')
-  let inventoryReads=0,statsReads=0
-  page.on('request',request=>{
-    if(request.method()!=='GET')return
-    const path=new URL(request.url()).pathname
-    if(path==='/api/models')inventoryReads++
-    if(path==='/api/model-selection/stats')statsReads++
-  })
-  const session=await vista.api('/sessions',{method:'POST',body:'{}'})
-  await vista.api(`/sessions/${session.id}/messages`,{method:'POST',body:JSON.stringify({content:'Statistics observation',selectionMode:'auto',selectionTier:'speed'})})
-  await expect(row).not.toContainText('Not measured')
-  await expect.poll(async()=>(await vista.api(`/sessions/${session.id}/checkpoint`)).session.executing).toBe(false)
-  const messages=await vista.api(`/sessions/${session.id}/messages`)
-  const reply=messages.find((message:{role:string})=>message.role==='assistant')
-  await stats.getByRole('tab',{name:'Quality',exact:true}).click()
-  await expect(row).toContainText('Not rated')
-  await vista.api(`/sessions/${session.id}/messages/${reply.id}/feedback`,{method:'PUT',body:JSON.stringify({value:'up'})})
-  const upvotes=row.locator('dl > div').filter({hasText:'Thumbs up'}).locator('dd')
-  await expect(upvotes).toHaveText('1')
-  await vista.api('/model-selection/stats',{method:'DELETE',body:JSON.stringify({scope:'quality'})})
-  await expect(row).toContainText('Not rated')
-  expect(inventoryReads).toBe(0)
-  await openSettingsSection(page,'skills')
-  const settled=statsReads
-  await vista.api('/model-selection/stats',{method:'DELETE',body:JSON.stringify({scope:'all'})})
-  await page.waitForTimeout(250)
-  expect(statsReads).toBe(settled)
-})
 
 test('view interests share one connection and release server work without reloading core snapshots', async ({page,vista},info)=>{
   test.skip(info.project.name!=='desktop','Transport behavior is independent of viewport')
@@ -128,7 +94,7 @@ test.describe('message lifecycle request counts', () => {
 
   test('tool progress keeps replies live without refreshing workspace state for each step', async ({ page, vista }, info) => {
     test.skip(info.project.name !== 'desktop', 'Request counts are independent of viewport')
-    await vista.api('/preferences', { method: 'PATCH', body: JSON.stringify({ feedbackInvitationSeen: true, manualModelKey: 'test' }) })
+    await vista.api('/preferences', { method: 'PATCH', body: JSON.stringify({ manualModelKey: 'test' }) })
     const session = await vista.api('/sessions', { method: 'POST', body: '{}' })
     await vista.api(`/sessions/${session.id}`, { method: 'PATCH', body: JSON.stringify({ title: 'Message request counts' }) })
     await page.goto(`${vista.origin}/sessions/${session.id}`)
@@ -196,7 +162,6 @@ test.describe('new conversations', () => {
 
   test('first and subsequent replies update the sidebar without sessions or status reads', async ({ page, vista }, info) => {
     test.skip(info.project.name !== 'desktop', 'Request counts are independent of viewport')
-    await vista.api('/preferences', { method: 'PATCH', body: JSON.stringify({ feedbackInvitationSeen: true }) })
     await page.goto(vista.origin + '/')
     await expect(page.locator('.sender-card textarea')).toBeEnabled()
     await page.waitForTimeout(350)
@@ -248,7 +213,6 @@ test('a heartbeat repairs a lost state payload without reconnecting or polling u
 })
 
 test('foreground recovery reconciles withheld global updates and preserves the current draft', async ({ page, vista }) => {
-  await vista.api('/preferences', { method: 'PATCH', body: JSON.stringify({ feedbackInvitationSeen: true }) })
   const selected = await vista.api('/sessions', { method: 'POST', body: '{}' })
   const other = await vista.api('/sessions', { method: 'POST', body: '{}' })
   await stateDeliveryFault(page)

@@ -13,7 +13,6 @@ for (const scenario of ['covered missing', 'older missing', 'opening valid', 'ol
   const valid = scenario.endsWith('valid') || long
   historyTest(`quote source navigation stops at its sequence boundary: ${scenario}`, { tag: valid ? '@responsive' : [] }, async ({ page, vista, historySeed }) => {
     historyTest.setTimeout(90_000)
-    await vista.api('/preferences', { method: 'PATCH', body: JSON.stringify({ feedbackInvitationSeen: true }) })
     const base = `/sessions/${historySeed.sessionId}`
     const messages: Message[] = await vista.api(base + '/messages')
     const runId = messages[0]!.runId
@@ -120,7 +119,6 @@ for (const scenario of ['covered missing', 'older missing', 'opening valid', 'ol
 }
 
 async function createConversation(page: Page, vista: VistaFixture, content = `${passage}\n\n${secondPassage}`) {
-  await vista.api('/preferences', { method: 'PATCH', body: JSON.stringify({ feedbackInvitationSeen: true }) })
   const session = await vista.api('/sessions', { method: 'POST', body: '{}' })
   await vista.api(`/sessions/${session.id}/messages`, { method: 'POST', body: JSON.stringify({ content, modelKey: 'test' }) })
   await expect.poll(async () => (await vista.api(`/sessions/${session.id}/messages`) as Message[]).filter(message => message.role === 'assistant').length).toBe(1)

@@ -102,18 +102,6 @@ test('provider recovery follows error codes and keeps the draft through a settin
 
 test.describe('first launch without a provider', () => {
   test.use({ configuredProvider: false })
-  test('automatic mode shows zero models until a provider is connected', async ({ page, vista }) => {
-    await page.goto(vista.origin + '/settings/general')
-    await page.getByRole('combobox', { name: 'Model selection', exact: true }).click()
-    await page.locator('.ui-select-dropdown:visible').getByText('Automatic', { exact: true }).click()
-    const stats = page.locator('.model-selection-stats')
-    await expect(stats.locator('.selection-stats-summary')).toContainText('0 models · 0 samples')
-    await expect(stats.locator('.selection-stats-empty .ui-empty-description')).toHaveText('Connect a provider to start learning.')
-    await expect(stats.locator('.selection-stats-model')).toHaveCount(0)
-    await page.reload()
-    await expect(stats.locator('.selection-stats-summary')).toContainText('0 models · 0 samples')
-    await expect(stats.locator('.selection-stats-empty .ui-empty-description')).toHaveText('Connect a provider to start learning.')
-  })
   test('connect a provider and create the first session only when sending Hi', { tag: '@smoke' }, async ({ page, vista }, testInfo) => {
     let creationRequests = 0
     let messageRequests = 0
@@ -274,17 +262,11 @@ test.describe('first launch without a provider', () => {
     await expect(reply.locator('.message-model-results')).toBeVisible()
     await expect(sender.getByPlaceholder('Send a message')).toHaveValue('')
     expect(messageRequests).toBe(1)
-    if (await page.getByRole('dialog').filter({ hasText: 'Help Vista learn what works for you' }).count()) {
-      await page.getByRole('button', { name: 'Got it', exact: true }).click()
-    }
 
     await page.reload()
     await expect(page).toHaveURL(url => url.pathname === sessionPath)
     await expect(reply.locator('.markdown')).toHaveText('Mock reply: Hi')
     await expect(reply.locator('.reply-footer .message-model-name')).toHaveText('E2E Provider · GPT-6 Luna')
-    if (await page.getByRole('dialog').filter({ hasText: 'Help Vista learn what works for you' }).count()) {
-      await page.getByRole('button', { name: 'Got it', exact: true }).click()
-    }
     await reply.getByRole('button', { name: 'Model usage details', exact: true }).click()
     await expect(page.locator('.usage-popover:visible .usage-details')).toContainText('Reply totals')
     await page.keyboard.press('Escape')

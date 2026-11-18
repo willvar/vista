@@ -4,7 +4,6 @@ import type { StreamEvent } from '../src/client/types'
 test.use({ providerOutput: 'responses', emptyReply: true })
 
 test('normal empty completion is visible without a fabricated reply and survives refresh', async ({ page, vista }) => {
-  await vista.api('/preferences', { method: 'PATCH', body: JSON.stringify({ feedbackInvitationSeen: true }) })
   await page.reload()
   await page.locator('.sender-card textarea').fill('Finish without text')
   await page.locator('.sender-card textarea').press('Enter')

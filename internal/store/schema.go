@@ -16,8 +16,8 @@ func (s *Store) initializeSchema() error {
 		`CREATE TABLE IF NOT EXISTS sessions (
    id TEXT PRIMARY KEY, title TEXT NOT NULL, is_open INTEGER NOT NULL, model_key TEXT NOT NULL DEFAULT '',
    pending_kind TEXT NOT NULL DEFAULT '', pending_content TEXT NOT NULL DEFAULT '', pending_run_id TEXT NOT NULL DEFAULT '',
-   pinned INTEGER NOT NULL DEFAULT 0, selection_mode TEXT NOT NULL DEFAULT 'manual', selection_tier TEXT NOT NULL DEFAULT 'speed',
-   manual_model_key TEXT NOT NULL DEFAULT '', manual_reasoning_effort TEXT NOT NULL DEFAULT '', selection_reasoning_effort TEXT NOT NULL DEFAULT '',
+   pinned INTEGER NOT NULL DEFAULT 0,
+   manual_model_key TEXT NOT NULL DEFAULT '', manual_reasoning_effort TEXT NOT NULL DEFAULT '', processing_tier TEXT NOT NULL DEFAULT '',
    input_queue_paused INTEGER NOT NULL DEFAULT 0, read_sequence INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL
   )`,
 		`CREATE TABLE IF NOT EXISTS runs (
@@ -68,7 +68,7 @@ func (s *Store) initializeSchema() error {
 		`CREATE TABLE IF NOT EXISTS queued_inputs (
    id TEXT PRIMARY KEY, session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
    run_id TEXT NOT NULL REFERENCES runs(id) ON DELETE CASCADE, model_key TEXT NOT NULL DEFAULT '', reasoning_effort TEXT NOT NULL DEFAULT '',
-   selection_mode TEXT NOT NULL DEFAULT '', selection_tier TEXT NOT NULL DEFAULT '', debug INTEGER NOT NULL DEFAULT 0,
+   debug INTEGER NOT NULL DEFAULT 0,
    mode TEXT NOT NULL, status TEXT NOT NULL, content TEXT NOT NULL, image_count INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL
   )`,
 		`CREATE INDEX IF NOT EXISTS queued_inputs_by_session ON queued_inputs(session_id,status,created_at)`,
@@ -133,11 +133,6 @@ func (s *Store) initializeSchema() error {
 // the database needed any structural change or one-time statistics backfill.
 func (s *Store) recoverStartupState(ctx context.Context) error {
 	return s.orm.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		if err := tx.Model(&attemptRow{}).Where("pending_id <> ?", "").Updates(map[string]any{
-			"attempts": gorm.Expr("attempts + 1"), "pending_id": "", "outcome": "interrupted",
-		}).Error; err != nil {
-			return err
-		}
 		return pruneStatistics(ctx, tx, time.Now().UTC())
 	})
 }

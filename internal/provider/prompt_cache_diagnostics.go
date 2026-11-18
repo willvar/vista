@@ -13,13 +13,14 @@ const cacheFingerprintItems = 512
 const cacheFingerprintBytes = 16 << 20
 
 type cacheFingerprint struct {
-	route        [32]byte
-	instructions [32]byte
-	tools        [32]byte
-	parameters   [32]byte
-	items        [][32]byte
-	count        int
-	bounded      bool
+	requestedTier, actualTier string
+	route                     [32]byte
+	instructions              [32]byte
+	tools                     [32]byte
+	parameters                [32]byte
+	items                     [][32]byte
+	count                     int
+	bounded                   bool
 }
 
 func fingerprintPrompt(body map[string]any) cacheFingerprint {
@@ -98,6 +99,7 @@ func observeCacheFingerprint(ctx context.Context, fingerprint cacheFingerprint, 
 	}
 	observation := modeltrace.CacheObservation{
 		PrefixChange: "new-series", RequestBytes: requestBytes, InputItems: fingerprint.count,
+		RequestedProcessingTier: fingerprint.requestedTier, ActualProcessingTier: fingerprint.actualTier,
 		ComparisonBounded: fingerprint.bounded,
 		InstructionsHash:  hex.EncodeToString(fingerprint.instructions[:]), ToolsHash: hex.EncodeToString(fingerprint.tools[:]),
 	}
@@ -122,6 +124,7 @@ func observeCacheFingerprint(ctx context.Context, fingerprint cacheFingerprint, 
 		}
 		previous, exists := state.baselines[key]
 		if exists {
+			observation.ProcessingTierChanged = previous.fingerprint.requestedTier != fingerprint.requestedTier || previous.fingerprint.actualTier != "" && fingerprint.actualTier != "" && previous.fingerprint.actualTier != fingerprint.actualTier
 			observation.PrefixChange, observation.FirstChangedInput = compareCachePrefixes(&previous.fingerprint, &fingerprint)
 		}
 		if observation.CachedTokens != nil {

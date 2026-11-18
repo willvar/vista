@@ -55,6 +55,9 @@ func bedrockTurnWithReasoning(ctx context.Context, model modelcfg.Model, message
 		cfg.BaseEndpoint = aws.String(strings.TrimRight(u.String(), "/"))
 	}
 	input := &bedrockruntime.ConverseStreamInput{ModelId: aws.String(bedrockWireModelID(model.ID, model.AWSRegion))}
+	if model.ProcessingTier != "" {
+		input.ServiceTier = &types.ServiceTier{Type: types.ServiceTierType(processingTierValue(model))}
+	}
 	additional := map[string]any{}
 	if !model.ReasoningDisabled && model.Thinking != nil {
 		requested := model.Thinking.BudgetTokens
@@ -281,7 +284,11 @@ func parseBedrockEventsWithReasoning(events <-chan types.ConverseStreamOutput, s
 	finishReason := ""
 	var usage *ModelUsage
 	defer retainStreamResult(&result, &reply, &finishReason, &usage)
+	var reportedTier string
 	readMetadata := func(metadata types.ConverseStreamMetadataEvent) error {
+		if metadata.ServiceTier != nil {
+			reportedTier = string(metadata.ServiceTier.Type)
+		}
 		if metadata.Usage == nil || metadata.Usage.InputTokens == nil || metadata.Usage.OutputTokens == nil {
 			return errors.New("Bedrock metadata lacks token usage")
 		}
@@ -452,7 +459,7 @@ func parseBedrockEventsWithReasoning(events <-chan types.ConverseStreamOutput, s
 	for _, index := range indices {
 		ordered = append(ordered, parts[int32(index)])
 	}
-	return Turn{Text: reply.String(), Calls: calls, BedrockParts: ordered, FinishReason: finishReason, Usage: usage}, nil
+	return Turn{ReportedProcessingTier: reportedTier, Text: reply.String(), Calls: calls, BedrockParts: ordered, FinishReason: finishReason, Usage: usage}, nil
 }
 
 func bedrockModelError(err error) error {

@@ -64,7 +64,7 @@ func (a *App) stateInterests(w http.ResponseWriter, r *http.Request) {
 		topics[topic] = true
 	}
 	var zone *time.Location
-	if topics["statistics"] || topics["selection-stats"] {
+	if topics["statistics"] {
 		var err error
 		zone, err = time.LoadLocation(input.Timezone)
 		if err != nil || input.Timezone == "" {

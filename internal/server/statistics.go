@@ -121,7 +121,7 @@ func (a *App) resetStatistics(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "could not reset statistics", http.StatusInternalServerError)
 		return
 	}
-	a.updates.notify("statistics")
+	a.updates.notify("statistics", "connection-statistics")
 	w.WriteHeader(http.StatusNoContent)
 }
 

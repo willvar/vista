@@ -9,7 +9,6 @@ async function chooseSize(page: Page, pager: Locator, size: number) {
 
 test('session management pages archived summaries, searches all records and limits bulk selection to the current page', async ({ page, vista }, info) => {
   test.setTimeout(60_000)
-  await vista.api('/preferences', { method: 'PATCH', body: JSON.stringify({ feedbackInvitationSeen: true }) })
   for (let i = 0; i < 21; i++) {
     const item = await vista.api('/sessions', { method: 'POST', body: JSON.stringify({ title: `Archive ${String(i).padStart(2, '0')}` }) })
     await vista.api(`/sessions/${item.id}/close`, { method: 'POST' })

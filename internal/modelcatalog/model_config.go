@@ -123,6 +123,7 @@ type Info struct {
 	InputModalities  []string `json:"inputModalities,omitempty"`
 	OutputModalities []string `json:"outputModalities,omitempty"`
 	DiscoverySource  string   `json:"discoverySource,omitempty"`
+	ProcessingTiers  []string `json:"processingTiers,omitempty"`
 	ReasoningOptions []string `json:"reasoningOptions,omitempty"`
 }
 
@@ -375,7 +376,7 @@ func (item Configured) Info() Info {
 	if item.ProviderID == "custom" || (item.Provider == "openai-chat" || item.Provider == "openai-responses") && (item.ProviderID == "" || item.ProviderID == "openai") {
 		baseURL = item.BaseURL
 	}
-	return Info{ProxyID: item.ProxyID, Key: item.Key, ConnectionID: item.ConnectionID, Name: item.Name, ModelName: modelName, Recognized: item.Recognized(), Provider: item.Provider, ProviderID: item.ProviderID, ID: item.ID, BaseURL: baseURL, Tools: item.Tools, Context: item.Context, InputLimit: item.inputLimit, OutputLimit: item.outputLimit, CatalogReasoning: item.catalogReasoning, Status: item.status, InputModalities: provider.SupportedInputModalities(item.Provider, item.EffectiveInputModalities()), OutputModalities: item.outputModalities, DiscoverySource: item.discoverySource, ReasoningOptions: options}
+	return Info{ProxyID: item.ProxyID, Key: item.Key, ConnectionID: item.ConnectionID, Name: item.Name, ModelName: modelName, Recognized: item.Recognized(), Provider: item.Provider, ProviderID: item.ProviderID, ID: item.ID, BaseURL: baseURL, Tools: item.Tools, Context: item.Context, InputLimit: item.inputLimit, OutputLimit: item.outputLimit, CatalogReasoning: item.catalogReasoning, Status: item.status, InputModalities: provider.SupportedInputModalities(item.Provider, item.EffectiveInputModalities()), OutputModalities: item.outputModalities, DiscoverySource: item.discoverySource, ReasoningOptions: options, ProcessingTiers: provider.ProcessingOptions(request)}
 }
 
 // Recognized reports available catalog or explicit capability metadata, including

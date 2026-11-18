@@ -27,12 +27,12 @@ func TestLocalAPIWorksWithoutToken(t *testing.T) {
 			t.Fatalf("GET %s without token: HTTP %d %s", path, response.Code, response.Body.String())
 		}
 	}
-	request := httptest.NewRequest(http.MethodPatch, "http://127.0.0.1:5186/api/preferences", strings.NewReader(`{"lastMode":"auto"}`))
+	request := httptest.NewRequest(http.MethodPatch, "http://127.0.0.1:5186/api/preferences", strings.NewReader(`{"showUnrecognizedModels":true}`))
 	request.Header.Set("Origin", "http://127.0.0.1:5186")
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, request)
 	prefs, err := db.Preferences(context.Background())
-	if response.Code != http.StatusOK || err != nil || prefs.LastMode != "auto" {
+	if response.Code != http.StatusOK || err != nil || !prefs.ShowUnrecognizedModels {
 		t.Fatalf("PATCH without token: HTTP %d, preferences=%+v, err=%v", response.Code, prefs, err)
 	}
 }

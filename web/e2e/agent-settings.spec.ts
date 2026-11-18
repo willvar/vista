@@ -37,7 +37,7 @@ async function mockAgentSettings(page: Page, origin: string, section = 'general'
       return reply(saved)
     }
     if (method !== 'GET') { forbidden.push(`${method} ${path}`); return route.abort() }
-    if (path === '/preferences') return reply({ userId: 'settings-user', lastMode: 'manual', lastTier: 'speed', manualModelKey: '', reasoningByModelId: {}, feedbackInvitationSeen: true })
+    if (path === '/preferences') return reply({ userId: 'settings-user', manualModelKey: '', reasoningByModelId: {} })
     if (path === '/models') return reply({ default: '', models: [] })
     if (path === '/sessions') return reply([])
     if (path === '/status') return reply({ state: 'running', sessions: { total: 0, open: 0, closed: 0, running: 0, workers: 0 }, workerMetrics: [] })

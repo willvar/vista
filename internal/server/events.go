@@ -19,22 +19,24 @@ type messageWithResults struct {
 }
 
 type modelResultEvent struct {
-	TaskID          string                     `json:"taskId,omitempty"`
-	ParentTaskID    string                     `json:"parentTaskId,omitempty"`
-	Summary         *workerproto.SummaryResult `json:"summary,omitempty"`
-	Purpose         string                     `json:"purpose,omitempty"`
-	ReasoningEffort string                     `json:"reasoningEffort,omitempty"`
-	Sequence        int64                      `json:"sequence"`
-	CreatedAt       string                     `json:"createdAt"`
-	RunID           string                     `json:"runId"`
-	Turn            int32                      `json:"turn"`
-	Depth           int                        `json:"depth"`
-	Provider        string                     `json:"provider"`
-	ID              string                     `json:"id"`
-	FinishReason    string                     `json:"finishReason"`
-	Usage           *workerproto.ModelUsage    `json:"usage,omitempty"`
-	DurationMS      float64                    `json:"durationMs,omitempty"`
-	FirstTokenMS    *float64                   `json:"firstTokenMs,omitempty"`
+	TaskID                  string                     `json:"taskId,omitempty"`
+	ParentTaskID            string                     `json:"parentTaskId,omitempty"`
+	Summary                 *workerproto.SummaryResult `json:"summary,omitempty"`
+	Purpose                 string                     `json:"purpose,omitempty"`
+	ReasoningEffort         string                     `json:"reasoningEffort,omitempty"`
+	Sequence                int64                      `json:"sequence"`
+	CreatedAt               string                     `json:"createdAt"`
+	RunID                   string                     `json:"runId"`
+	Turn                    int32                      `json:"turn"`
+	Depth                   int                        `json:"depth"`
+	Provider                string                     `json:"provider"`
+	ID                      string                     `json:"id"`
+	FinishReason            string                     `json:"finishReason"`
+	Usage                   *workerproto.ModelUsage    `json:"usage,omitempty"`
+	DurationMS              float64                    `json:"durationMs,omitempty"`
+	FirstTokenMS            *float64                   `json:"firstTokenMs,omitempty"`
+	RequestedProcessingTier string                     `json:"requestedProcessingTier,omitempty"`
+	ActualProcessingTier    string                     `json:"actualProcessingTier,omitempty"`
 }
 
 func (a *App) messagesWithResults(r *http.Request, id string, items []store.Message) ([]messageWithResults, error) {
@@ -84,7 +86,7 @@ func messagesWithResultData(items []store.Message, events []store.Event, boundar
 		if json.Unmarshal(event.Data, &data) != nil || data.ModelResult == nil {
 			continue
 		}
-		result := modelResultEvent{TaskID: data.TaskID, ParentTaskID: data.ParentTaskID, Purpose: data.ModelResult.Purpose, Sequence: event.Sequence, CreatedAt: event.CreatedAt, RunID: data.RunID, Turn: data.Turn, Depth: data.Depth, Provider: data.ModelResult.Provider, ID: data.ModelResult.ID, FinishReason: data.ModelResult.FinishReason, Usage: data.ModelResult.Usage, DurationMS: data.ModelResult.DurationMS, FirstTokenMS: data.ModelResult.FirstTokenMS, ReasoningEffort: data.ModelResult.ReasoningEffort, Summary: data.ModelResult.Summary}
+		result := modelResultEvent{TaskID: data.TaskID, ParentTaskID: data.ParentTaskID, Purpose: data.ModelResult.Purpose, Sequence: event.Sequence, CreatedAt: event.CreatedAt, RunID: data.RunID, Turn: data.Turn, Depth: data.Depth, Provider: data.ModelResult.Provider, ID: data.ModelResult.ID, FinishReason: data.ModelResult.FinishReason, Usage: data.ModelResult.Usage, DurationMS: data.ModelResult.DurationMS, FirstTokenMS: data.ModelResult.FirstTokenMS, RequestedProcessingTier: data.ModelResult.RequestedProcessingTier, ActualProcessingTier: data.ModelResult.ActualProcessingTier, ReasoningEffort: data.ModelResult.ReasoningEffort, Summary: data.ModelResult.Summary}
 		rootSummary := result.Purpose == "summary" && result.Depth == 0 && (result.TaskID == "" || result.TaskID == "main")
 		if result.ReasoningEffort == "" && !rootSummary {
 			effort := efforts[data.RunID]

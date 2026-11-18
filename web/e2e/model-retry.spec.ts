@@ -7,7 +7,6 @@ test.describe('transient model failure', () => {
     body: { error: { type: 'server_error', message: 'Synthetic upstream request error: test-key' } } } })
 
   test('waiting survives reload and the recovered request has separate diagnostics', async ({ page, vista }) => {
-    await vista.api('/preferences', { method: 'PATCH', body: JSON.stringify({ feedbackInvitationSeen: true }) })
     await page.evaluate(() => { localStorage.setItem('vista-debug-mode', 'true'); document.cookie = 'vista-debug-mode=true; Path=/' })
     await page.reload()
     await page.locator('.sender-card textarea').fill('Recover this request')
@@ -42,7 +41,6 @@ test.describe('cancellable recovery', () => {
   test.use({ modelFailure: { status: 503, retryAfterMs: 3000, body: { error: { message: 'Try later' } } } })
 
   test('stopping during the wait prevents another upstream attempt', async ({ page, vista }) => {
-    await vista.api('/preferences', { method: 'PATCH', body: JSON.stringify({ feedbackInvitationSeen: true }) })
     await page.reload()
     await page.locator('.sender-card textarea').fill('Stop the pending retry')
     await page.locator('.sender-card textarea').press('Enter')
@@ -63,7 +61,6 @@ test.describe('exhausted recovery', () => {
 
   test('continuation keeps the original task, failure and unsent draft in the same conversation', async ({ page, vista }) => {
     test.setTimeout(45_000)
-    await vista.api('/preferences', { method: 'PATCH', body: JSON.stringify({ feedbackInvitationSeen: true }) })
     await page.reload()
     await page.locator('.sender-card textarea').fill('Complete the original task')
     await page.locator('.sender-card textarea').press('Enter')
@@ -95,7 +92,6 @@ test.describe('continuation after completed tools', () => {
   test.use({ progressCalls: 1 })
 
   test('a new run restores completed tool results from the failed execution', async ({ page, vista }) => {
-    await vista.api('/preferences', { method: 'PATCH', body: JSON.stringify({ feedbackInvitationSeen: true }) })
     await page.reload()
     await page.locator('.sender-card textarea').fill('Fail progress')
     await page.locator('.sender-card textarea').press('Enter')

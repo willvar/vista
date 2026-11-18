@@ -16,12 +16,12 @@ const QuestionForm = defineAsyncComponent(() => import('./QuestionForm.vue'))
 const { t } = useI18n({ useScope: 'global' })
 const emit = defineEmits<{ send: []; locateQuote: [quote: QuotedExcerpt] }>()
 const { selected, busy, needsProvider, workerAvailable, modelChoices, interactionPreferences, conversation, route, mobileSessionsOpen, modalQuery } = useWorkspace()
-const { draft, quotedTexts, removeQuote, agentWorking, selectionMode, selectionTier, chooseSelectionTier,
+const { draft, quotedTexts, removeQuote, agentWorking, selectedProcessingTier, processingTiers, chooseProcessingTier,
   editingMessage, cancelEditMessage,
   selectedModel, selectedReasoning, reasoningChoices, chooseModel,
   canAttachImage, attachedImages, attachedPreviewURLs, chooseImages, pasteImages, dropImages, removeImage,
   submitMessage, submitQuestion, cancelExecution, recallLastUserMessage,
-  manualCompacting, compactionRequestPending, continueAfterCompaction, fillContinueDraft, feedbackInvitationOpen } = conversation
+  manualCompacting, compactionRequestPending, continueAfterCompaction, fillContinueDraft } = conversation
 const senderDisabled = computed(() => manualCompacting.value || compactionRequestPending.value || !interactionPreferences.ready.value || !modelChoices.value.length
   || !!selected.value && (!selected.value.open || !workerAvailable(selected.value.id)))
 const sender = ref<SenderRef | null>(null)
@@ -37,7 +37,7 @@ const questionComposer = useQuestionComposer(() => selected.value, () => {
 const { pending: pendingQuestion, requestKey: questionKey, answering } = questionComposer
 const answerRegion = ref<HTMLElement | null>(null)
 const inputViewKey = computed(() => {
-  if (senderDisabled.value || mobileSessionsOpen.value || feedbackInvitationOpen.value) return undefined
+  if (senderDisabled.value || mobileSessionsOpen.value) return undefined
   if (route.name === 'home') return 'home'
   if (route.name === 'session' && route.params.id === selected.value?.id) return selected.value?.id
   return undefined
@@ -120,13 +120,13 @@ const smallScreen = ref(smallViewport.matches)
 const senderAutoSize = computed(() => compactSender.value
   ? { minRows: 1, maxRows: draft.value.trim() ? 4 : 1 }
   : { minRows: 2, maxRows: 8 })
-const senderClass = computed(() => 'composer sender-card'
-  + (selectionMode.value === 'auto' ? ' sender-card-auto' : ''))
+const senderClass = 'composer sender-card'
 function updateSenderSize() {
   compactSender.value = shortViewport.matches
   smallScreen.value = smallViewport.matches
 }
-const selectionTierOptions = computed(() => [{ label: t('speedTier'), value: 'speed' }, { label: t('qualityTier'), value: 'quality' }])
+const tierOptions = computed(() => [{ value: '', label: t('providerTierDefault') }, ...processingTiers.value.map(value => ({ value, label: t(`processingTier_${value}`) })),
+  ...(selectedProcessingTier.value && !processingTiers.value.includes(selectedProcessingTier.value) ? [{ value: selectedProcessingTier.value, label: t('processingTierUnavailable'), disabled: true }] : [])])
 const defaultSendHint = computed(() => editingMessage.value ? t('resendEditedMessage') : agentWorking.value ? t('sendAsSteer') : t('send'))
 const sendButtonLabel = computed(() => agentWorking.value && !draft.value.trim() && !attachedImages.value.length ? t('cancelExecution') : t('send'))
 const sendButtonText = computed(() => t(agentWorking.value && !draft.value.trim() && !attachedImages.value.length ? 'stopResponse' : busy.value ? 'sendingMessage' : 'send'))
@@ -224,10 +224,10 @@ onUnmounted(() => {
             </section>
           </template>
           <template #footer><div class="sender-footer">            <div class="sender-options">
-              <label for="selection-tier" class="visually-hidden">{{ t('selectionTier') }}</label><label for="selected-model" class="visually-hidden">{{ t('model') }}</label>
-              <v-select variant="borderless" id="selection-tier" v-if="selectionMode === 'auto'" :value="selectionTier" class="composer-tier sender-picker" :options="selectionTierOptions" :aria-label="t('selectionTier')" :title="t('autoSelectionHint')" :disabled="senderDisabled" @update:value="chooseSelectionTier($event === 'quality' ? 'quality' : 'speed')" />
-              <v-select variant="borderless" id="selected-model" v-if="selectionMode === 'manual'" :value="selectedModel" class="composer-model sender-picker" :options="modelChoices" show-search option-filter-prop="searchText" :option-label-prop="smallScreen ? undefined : 'fullLabel'" :same-width="!smallScreen" :aria-label="t('model')" :disabled="senderDisabled" @update:value="chooseModel(String($event))" />
-              <ReasoningEffortPicker v-if="selectionMode === 'manual' && reasoningChoices.length" v-model:value="selectedReasoning" class="composer-reasoning" :options="reasoningChoices" :disabled="senderDisabled" />
+              <label for="selected-model" class="visually-hidden">{{ t('model') }}</label>
+              <v-select variant="borderless" id="selected-model" :value="selectedModel" :placeholder="t('chooseModel')" class="composer-model sender-picker" :options="modelChoices" show-search option-filter-prop="searchText" :option-label-prop="smallScreen ? undefined : 'fullLabel'" :same-width="!smallScreen" :aria-label="t('model')" :disabled="senderDisabled" @update:value="chooseModel(String($event))" />
+              <ReasoningEffortPicker v-if="reasoningChoices.length" v-model:value="selectedReasoning" class="composer-reasoning" :options="reasoningChoices" :disabled="senderDisabled" />
+              <v-select v-if="processingTiers.length || selectedProcessingTier" id="processing-tier" variant="borderless" class="sender-picker" :value="selectedProcessingTier" :options="tierOptions" :aria-label="t('processingTierLabel')" :title="t('processingTierHint')" :disabled="senderDisabled" @update:value="chooseProcessingTier(String($event ?? ''))" />
             </div>
 
             <div class="sender-actions">
@@ -236,7 +236,7 @@ onUnmounted(() => {
                 <v-button class="icon-button" variant="text" :aria-label="t('addImage')" :disabled="imageInputDisabled" @click="imageInput?.click()"><IconPhoto /><span class="sender-attach-label">{{ t('addImage') }}</span></v-button>
                 <input ref="imageInput" type="file" accept="image/png,image/jpeg,image/webp,image/gif" multiple tabindex="-1" aria-hidden="true" :aria-label="t('addImage')" :disabled="imageInputDisabled" @change="chooseMessageImages">
               </span></v-tooltip>
-              <v-button variant="primary" :loading="busy" class="composer-send" :class="{ 'execution-stop-button': agentWorking && !draft.trim() && !attachedImages.length }" :disabled="answering || busy || senderDisabled || (!!attachedImages.length && !canAttachImage) || (!agentWorking && !draft.trim() && !attachedImages.length)" :aria-label="busy ? sendButtonText : sendButtonLabel" :title="agentWorking && !draft.trim() && !attachedImages.length ? `${t('cancelExecution')} · Esc` : defaultSendHint" :aria-keyshortcuts="agentWorking && !draft.trim() && !attachedImages.length ? 'Escape' : undefined" @click="agentWorking && !draft.trim() && !attachedImages.length ? cancelExecution() : sendMessage()"><template v-if="!busy"><span v-if="agentWorking && !draft.trim() && !attachedImages.length" class="composer-stop-mark" aria-hidden="true" /><IconArrowUp v-else aria-hidden="true" /></template><span class="composer-send-label">{{ sendButtonText }}</span></v-button>
+              <v-button variant="primary" :loading="busy" class="composer-send" :class="{ 'execution-stop-button': agentWorking && !draft.trim() && !attachedImages.length }" :disabled="answering || busy || senderDisabled || (!agentWorking && !modelChoices.some(group => group.options.some(option => option.value === selectedModel))) || (!!attachedImages.length && !canAttachImage) || (!agentWorking && !draft.trim() && !attachedImages.length)" :aria-label="busy ? sendButtonText : sendButtonLabel" :title="agentWorking && !draft.trim() && !attachedImages.length ? `${t('cancelExecution')} · Esc` : defaultSendHint" :aria-keyshortcuts="agentWorking && !draft.trim() && !attachedImages.length ? 'Escape' : undefined" @click="agentWorking && !draft.trim() && !attachedImages.length ? cancelExecution() : sendMessage()"><template v-if="!busy"><span v-if="agentWorking && !draft.trim() && !attachedImages.length" class="composer-stop-mark" aria-hidden="true" /><IconArrowUp v-else aria-hidden="true" /></template><span class="composer-send-label">{{ sendButtonText }}</span></v-button>
             </div></div></div></template>
         </Sender>
 </template>
@@ -264,7 +264,6 @@ onUnmounted(() => {
 .sender-card .composer-send.ui-btn:focus-visible{outline:var(--focus-outline, 2px solid var(--accent));outline-offset:2px}
 .sender-actions{display:flex;align-items:center;gap:8px;min-width:0;max-width:100%;margin-inline-start:auto}
 .sender-card .composer-submit{width:auto;margin-left:0}
-.sender-card-auto .sender-footer{flex-wrap:nowrap}.sender-card-auto .sender-options{flex:1 1 auto;flex-wrap:nowrap}.sender-card-auto .composer-submit{width:auto;flex:0 1 auto;flex-wrap:nowrap}
 @media(max-height:520px){
   .sender-card :deep(.ui-sender-content){padding:4px 8px}
   .sender-card :deep(.ui-sender-footer){padding:0 8px 6px}

@@ -66,36 +66,16 @@ async function sessionState(id) { return (await api('/sessions')).find(session =
 try {
   await cli('start'); started = true; loadInfo()
   const prefs = await api('/preferences')
-  assert.equal(prefs.feedbackInvitationSeen, false)
   const catalog = await api('/models')
   const options = catalog.models.find(model => model.key === 'fixture-0').reasoningOptions || []
   const manualEffort = options[0] || ''
-  await api('/preferences', 'PATCH', { lastMode: 'manual', manualModelKey: 'fixture-0', reasoningByModelId: { [models[0]]: manualEffort }, feedbackInvitationSeen: true })
+  await api('/preferences', 'PATCH', { manualModelKey: 'fixture-0', reasoningByModelId: { [models[0]]: manualEffort } })
   const manual = await api('/sessions', 'POST', {})
   assert.equal(manual.manualModelKey, 'fixture-0')
-  const first = await api(`/sessions/${manual.id}/messages`, 'POST', { content: 'Hi', selectionMode: 'manual', modelKey: 'fixture-0', reasoningEffort: manualEffort })
-  const answer = await finish(manual.id, first.runId)
-  for (const value of ['up', 'down', null]) {
-    await api(`/sessions/${manual.id}/messages/${answer.id}/feedback`, 'PUT', { value })
-    const feedback = await api(`/sessions/${manual.id}/feedback`)
-    assert.equal(feedback.feedback[answer.id] || null, value)
-  }
+  const first = await api(`/sessions/${manual.id}/messages`, 'POST', { content: 'Hi', modelKey: 'fixture-0', reasoningEffort: manualEffort })
+  await finish(manual.id, first.runId)
   assert.equal(await api(`/sessions/${manual.id}/context`), null)
-
-  const selected = []
-  for (let i = 0; i < 2; i++) {
-    const session = await api('/sessions', 'POST', {})
-    const sent = await api(`/sessions/${session.id}/messages`, 'POST', { content: 'Automatic Hi', selectionMode: 'auto', selectionTier: 'speed' })
-    const reply = await finish(session.id, sent.runId)
-    selected.push(reply.modelId)
-    const actual = requests.at(-1)
-    const effort = catalog.models.find(model => model.id === actual.model).reasoningOptions?.at(-1)
-    if (effort) assert.equal(actual.reasoning_effort, effort, 'automatic mode must use highest effort')
-  }
-  assert.equal(new Set(selected).size, 2, 'cold exploration must cover unfamiliar IDs')
-  assert.equal((await api('/preferences')).manualModelKey, 'fixture-0')
-  await api(`/sessions/${manual.id}/selection`, 'PATCH', { selectionMode: 'auto', selectionTier: 'quality' })
-  const restored = await api(`/sessions/${manual.id}/selection`, 'PATCH', { selectionMode: 'manual' })
+  const restored = await sessionState(manual.id)
   assert.equal(restored.manualModelKey, 'fixture-0')
   assert.equal(restored.manualReasoningEffort, manualEffort)
 
@@ -130,10 +110,9 @@ try {
   await cli('start'); started = true; loadInfo()
   const persisted = await api('/preferences')
   assert.equal(persisted.userId, prefs.userId)
-  assert.equal(persisted.feedbackInvitationSeen, true)
   assert.equal(persisted.reasoningByModelId[models[0]], manualEffort)
   assert.equal(await api(`/sessions/${manual.id}/context`), null)
-  console.log(JSON.stringify({ result: 'passed', checks: ['manual/automatic independence', 'highest reasoning', 'cold model exploration', 'editable feedback', 'no proactive compaction', '12 queued inputs', 'edit/delete/withdraw', 'cancel preserves queue', 'resume without duplicates', 'restart persistence'] }))
+  console.log(JSON.stringify({ result: 'passed', checks: ['explicit model and reasoning', 'no proactive compaction', '12 queued inputs', 'edit/delete/withdraw', 'cancel preserves queue', 'resume without duplicates', 'restart persistence'] }))
 } finally {
   releaseHold()
   if (started) await cli('stop').catch(() => {})

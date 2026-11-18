@@ -6,7 +6,6 @@ import { sessionManagerAction } from './session-manager-actions'
 import { settleLayout } from './layout-ready'
 
 test.beforeEach(async ({ vista }) => {
-  await vista.api('/preferences', { method: 'PATCH', body: JSON.stringify({ feedbackInvitationSeen: true }) })
 })
 
 const eightLines = Array.from({ length: 8 }, (_, index) => `Draft line ${index + 1}`).join('\n')

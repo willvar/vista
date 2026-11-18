@@ -8,7 +8,6 @@ for (const format of ['perplexity', 'openrouter', 'responses'] as const) {
     test.use({ providerOutput: format })
 
     test('citations and provider output survive refresh without replaying the request', async ({ page, vista }) => {
-      await vista.api('/preferences', { method: 'PATCH', body: JSON.stringify({ feedbackInvitationSeen: true }) })
       await page.reload()
       await page.locator('.sender-card textarea').fill('Find the source')
       await page.getByRole('button', { name: 'Send', exact: true }).click()
@@ -50,7 +49,6 @@ test.describe('Responses terminal reasoning', () => {
   test.use({ providerOutput: 'responses', terminalReasoning: true })
 
   test('terminal summary stays visible in execution after refresh', async ({ page, vista }, testInfo) => {
-    await vista.api('/preferences', { method: 'PATCH', body: JSON.stringify({ feedbackInvitationSeen: true }) })
     await page.reload()
     await page.locator('.sender-card textarea').fill('Find the source')
     await page.locator('.sender-card textarea').press('Enter')

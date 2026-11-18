@@ -2,9 +2,9 @@ export type QuestionOption = { id?: string; label: string; description?: string 
 export type QuestionPrompt = { id?: string; header?: string; question: string; options: QuestionOption[]; multiple?: boolean; custom?: boolean; when?: { questionId: string; optionId: string } }
 export type QuestionAnswer = { questionId?: string; options: string[]; text?: string }
 export type PendingReply = { runId: string; callId?: string; kind: 'question'; content: string; questions: QuestionPrompt[] }
-export type Session = { id: string; title: string; modelKey: string; open: boolean; pinned?: boolean; running: boolean; executing: boolean; createdAt: string; updatedAt?: string; pendingReply?: PendingReply; inputQueuePaused?: boolean; readSequence?: number; latestReplySequence?: number; latestRunStatus?: string; pendingInputCount?: number; selectionMode?: 'manual' | 'auto'; selectionTier?: 'speed' | 'quality'; manualModelKey?: string; manualReasoningEffort?: string; selectionReasoningEffort?: string }
+export type Session = { id: string; title: string; modelKey: string; open: boolean; pinned?: boolean; running: boolean; executing: boolean; createdAt: string; updatedAt?: string; pendingReply?: PendingReply; inputQueuePaused?: boolean; readSequence?: number; latestReplySequence?: number; latestRunStatus?: string; pendingInputCount?: number; manualModelKey?: string; manualReasoningEffort?: string; processingTier?: string }
 export type SessionListSnapshot = { items: Session[]; throughSequences: Record<string, number> }
-export type ModelInfo = { proxyId?: string; key: string; connectionId?: string; name?: string; modelName?: string; recognized?: boolean; provider: string; providerId?: string; id: string; baseUrl?: string; tools?: boolean; context?: number; inputLimit?: number; outputLimit?: number; catalogReasoning?: boolean; status?: string; inputModalities?: string[]; outputModalities?: string[]; discoverySource?: string; reasoningOptions?: string[]; reasoningEffort?: string }
+export type ModelInfo = { proxyId?: string; key: string; connectionId?: string; name?: string; modelName?: string; recognized?: boolean; provider: string; providerId?: string; id: string; baseUrl?: string; tools?: boolean; context?: number; inputLimit?: number; outputLimit?: number; catalogReasoning?: boolean; status?: string; inputModalities?: string[]; outputModalities?: string[]; discoverySource?: string; processingTiers?: string[]; reasoningOptions?: string[]; reasoningEffort?: string }
 export type CopilotAuthOptions = { enterpriseUrl?: string; clientId?: string }
 export type PromptCaching = { format?: 'auto' | 'none' | 'openai' | 'anthropic' | 'alibaba' | 'bedrock' | 'gemini'; key?: boolean; retention?: 'in_memory' | '24h'; ttl?: '5m' | '1h' | '30m' | '12h'; cachedContent?: { name: string; sha256: string; messages: number } }
 export type ModelSetting = {
@@ -67,7 +67,7 @@ export type RunOverview = { modelCalls: number; firstSequence?: number; throughS
 export type ModelDraft = { runId: string; turn: number; depth: number; sequence: number; content: string; finished: boolean }
 export type MainOutput = { runId: string; taskId: string; turn: number; sequence: number; lastSequence: number; offset?: number; endOffset?: number; createdAt: string; provider?: string; modelId?: string; modelKey?: string; bytes: number; complete: boolean }
 export type SummaryResultView = { refinement: boolean; upstreamFinishReason?: string; validation: string; textBytes: number; estimatedTokens: number; toolCalls: number }
-export type ModelResultView = { summary?: SummaryResultView; sequence: number; runId: string; turn: number; depth: number; createdAt?: string; taskId?: string; parentTaskId?: string; purpose?: string; provider: string; id: string; finishReason: string; reasoningEffort?: string; durationMs?: number; firstTokenMs?: number; usage?: { inputTokens: number; outputTokens: number; cacheReadTokens: number; cacheReadKnown?: boolean; cacheWriteTokens?: number; reasoningTokens: number } }
+export type ModelResultView = { summary?: SummaryResultView; sequence: number; runId: string; turn: number; depth: number; createdAt?: string; taskId?: string; parentTaskId?: string; purpose?: string; provider: string; id: string; finishReason: string; reasoningEffort?: string; durationMs?: number; firstTokenMs?: number; requestedProcessingTier?: string; actualProcessingTier?: string; usage?: { inputTokens: number; outputTokens: number; cacheReadTokens: number; cacheReadKnown?: boolean; cacheWriteTokens?: number; reasoningTokens: number } }
 export type CompactionStatus = { runId: string; phase: 'compacting' | 'compacted' | 'failed' | 'interrupted'; manual: boolean; error?: string; sequence?: number }
 export type ContextUsage = { tokens: number; sequence: number; runId?: string }
 export type QueuedInput = { id: string; status: string; content: string; imageCount?: number }
@@ -110,15 +110,6 @@ export type ServerStatus = {
   sampledAt: string
 }
 export type QuestionReplyInput = { runId: string; callId?: string; answers: QuestionAnswer[] }
-export type SendMessageInput = { content?: string; images?: Array<{ mediaType: string; hash: string; bytes: number; name?: string }>; questionReply?: QuestionReplyInput; modelKey?: string; reasoningEffort?: string; selectionMode?: 'manual' | 'auto'; selectionTier?: 'speed' | 'quality' }
+export type SendMessageInput = { content?: string; images?: Array<{ mediaType: string; hash: string; bytes: number; name?: string }>; questionReply?: QuestionReplyInput; modelKey?: string; reasoningEffort?: string }
 export type SendMessageResult = { runId?: string; message?: Message; input?: QueuedInput; event: StreamEvent }
 export type ModelSpeedStats = { count: number; failures: number; medianMs: number | null; p90Ms: number | null; lowConfidence: boolean }
-export type ModelSelectionStats = {
-  version?: string
-  speedScope: 'global'; qualityScope: 'user'; speedWindowDays: number; qualityWindowSize: number
-  models: Array<{
-    modelId: string; reasoningEffort: string; providers: string[]
-    speed: ModelSpeedStats & { buckets: Array<ModelSpeedStats & { inputBucket: number; endpointMatched: boolean }> }
-    quality: { up: number; down: number; count: number; score: number; lowConfidence: boolean }
-  }>
-}

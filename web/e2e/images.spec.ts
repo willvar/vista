@@ -30,7 +30,6 @@ async function expectNoPageOverflow(page: Page) {
 }
 
 test('resource tool URLs display original images in replies and survive reload', async ({ page, vista }) => {
-  await vista.api('/preferences', { method: 'PATCH', body: JSON.stringify({ feedbackInvitationSeen: true }) })
   const original = (await imageFiles(page, 1))[0]!.buffer
   const session = await vista.api('/sessions', { method: 'POST', body: '{}' })
   const ref = await vista.api(`/sessions/${session.id}/resources?name=original.png`, {
@@ -54,7 +53,6 @@ test('resource tool URLs display original images in replies and survive reload',
 })
 
 test('multiple images send once with empty-text Enter and render automatically with a zoom preview', async ({ page, vista }, testInfo) => {
-  await vista.api('/preferences', { method: 'PATCH', body: JSON.stringify({ feedbackInvitationSeen: true }) })
   await page.reload()
   const files = await imageFiles(page, 4)
   const sender = page.locator('.sender-card')
@@ -173,7 +171,6 @@ test('pending image-only input restores all attachments to the draft', async ({ 
 })
 
 test('editing and withdrawing sent images preserves original bytes through a resend', async ({ page, vista }) => {
-  await vista.api('/preferences', { method: 'PATCH', body: JSON.stringify({ feedbackInvitationSeen: true }) })
   await page.reload()
   const files = await imageFiles(page, 2)
   const sender = page.locator('.sender-card')

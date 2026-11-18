@@ -17,6 +17,9 @@ const (
 // nested options. Titles omit explicit reasoning controls; conversation and
 // compaction requests preserve the chosen reasoning.
 func ForPurpose(model modelcfg.Model, purpose RequestPurpose) modelcfg.Model {
+	if purpose != PurposeConversation {
+		model.ProcessingTier = ""
+	}
 	if purpose == PurposeCompaction && model.SessionID != "" && (promptCacheCapabilities(model).key || codexRouting(model)) {
 		model.SessionID += "/summary"
 		model.PromptCacheKey = ""

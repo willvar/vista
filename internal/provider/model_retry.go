@@ -134,7 +134,7 @@ func retryModelTurn(ctx context.Context, model modelcfg.Model, messages []ChatMe
 		}
 		turn, err := adapter.turn(attemptCtx, model, messages, schemas, wrap(onText), wrap(onReasoning))
 		if cache != nil {
-			cache.observe(attemptCtx, turn.Usage)
+			cache.observe(attemptCtx, turn.Usage, turn.ReportedProcessingTier)
 		}
 		recordUsage(attemptCtx, turn.Usage, err)
 		capture.Finish(turn.FinishReason, err)

@@ -467,5 +467,14 @@ export default { ...base, ...{
   "code": "代碼",
   "selectFile": "選擇文件",
   "fileLoadFailed": "文件加載失敗",
-  "fileServiceUnavailable": "未配置文件內容服務"
+  "fileServiceUnavailable": "未配置文件內容服務",
+  "processingTierHint": "切換檔位可能需要重建提示詞緩存並提高輸入費用。加速檔也可能收費更高。",
+  "chooseModelBeforeSending": "請先選擇模型，再發送消息。",
+  "processingTier_performance": "性能",
+  "connectionUsageHint": "來自真實模型調用。TTFT 包含服務商處理時間，不只是網絡耗時。僅在建立新連接時採集建連和 TLS 握手耗時。",
+  "connectionUsageEmpty": "該連接在所選時段沒有調用記錄。",
+  "connectionUsageRoute": "網絡路徑",
+  "connectionUsageRequests": "調用量",
+  "connectionUsageConnect": "新連接就緒",
+  "connectionUsageOutcome_connection": "連接失敗"
 } }

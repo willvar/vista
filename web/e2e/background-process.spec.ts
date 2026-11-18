@@ -3,7 +3,6 @@ import { test, expect } from './fixtures'
 test.use({ backgroundProcess: true })
 
 test('real process survives foreground completion, persists metadata and logs, and stops from the monitor', { tag: '@responsive' }, async ({ page, vista }, testInfo) => {
-  await vista.api('/preferences', { method: 'PATCH', body: JSON.stringify({ feedbackInvitationSeen: true }) })
   await page.reload()
   await page.locator('.sender-card textarea').fill('Start process')
   await page.locator('.sender-card textarea').press('Enter')
@@ -61,7 +60,6 @@ test('real process survives foreground completion, persists metadata and logs, a
 })
 
 test('explicit background timeout beyond 24 hours reaches the model and process monitor', async ({ page, vista }) => {
-  await vista.api('/preferences', { method: 'PATCH', body: JSON.stringify({ feedbackInvitationSeen: true }) })
   await page.reload()
   await page.locator('.sender-card textarea').fill('Start timed process')
   await page.locator('.sender-card textarea').press('Enter')
@@ -85,7 +83,6 @@ test('explicit background timeout beyond 24 hours reaches the model and process 
 
 
 test('advance warning stays nonterminal in the process monitor and survives reload @responsive', async ({page,vista})=>{
- await vista.api('/preferences',{method:'PATCH',body:JSON.stringify({feedbackInvitationSeen:true})})
  await page.reload()
  await page.locator('.sender-card textarea').fill('Start warning process')
  await page.locator('.sender-card textarea').press('Enter')

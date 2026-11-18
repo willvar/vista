@@ -191,6 +191,7 @@ func mistralTurnWithReasoning(ctx context.Context, model modelcfg.Model, message
 	if len(tools) > 0 {
 		body["tools"] = tools
 	}
+	applyProcessingBody(model, body)
 	encoded, err := json.Marshal(body)
 	if err != nil {
 		return Turn{}, err
@@ -246,6 +247,8 @@ func parseMistralStreamWithReasoning(body io.Reader, onText, onReasoning func(st
 	latest := -1
 	finish := ""
 	done := false
+	var reportedTier string
+	defer func() { result.ReportedProcessingTier = reportedTier }()
 	var usage *ModelUsage
 	defer retainStreamResult(&result, &answer, &finish, &usage)
 	consume := func(raw string) error {
@@ -254,10 +257,12 @@ func parseMistralStreamWithReasoning(body io.Reader, onText, onReasoning func(st
 			return nil
 		}
 		var event struct {
-			Error json.RawMessage `json:"error"`
-			Usage *struct {
-				PromptTokens        int64 `json:"prompt_tokens"`
-				CompletionTokens    int64 `json:"completion_tokens"`
+			ProcessingTier string          `json:"service_tier"`
+			Error          json.RawMessage `json:"error"`
+			Usage          *struct {
+				ProcessingTier      string `json:"service_tier"`
+				PromptTokens        int64  `json:"prompt_tokens"`
+				CompletionTokens    int64  `json:"completion_tokens"`
 				PromptTokensDetails struct {
 					CachedTokens *int64 `json:"cached_tokens"`
 				} `json:"prompt_tokens_details"`
@@ -283,7 +288,13 @@ func parseMistralStreamWithReasoning(body io.Reader, onText, onReasoning func(st
 		if err := json.Unmarshal([]byte(raw), &event); err != nil {
 			return fmt.Errorf("invalid Mistral stream event: %w", err)
 		}
+		if event.ProcessingTier != "" {
+			reportedTier = event.ProcessingTier
+		}
 		if event.Usage != nil {
+			if event.Usage.ProcessingTier != "" {
+				reportedTier = event.Usage.ProcessingTier
+			}
 			u := event.Usage
 			candidate := ModelUsage{InputTokens: u.PromptTokens, OutputTokens: u.CompletionTokens, ReasoningTokens: u.CompletionTokensDetail.ReasoningTokens}
 			if u.PromptTokensDetails.CachedTokens != nil {

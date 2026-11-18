@@ -19,6 +19,13 @@ function ttft(result?: Result) {
   if (typeof ms !== 'number' || !Number.isFinite(ms) || ms < 0) return null
   return ms < 1000 ? `${Math.round(ms)}ms` : `${(ms / 1000).toFixed(2)}s`
 }
+function processingResult(result: Result) {
+  const requested = result.requestedProcessingTier
+  const actual = result.actualProcessingTier
+  if (!requested && !actual || requested === actual) return ''
+  const label = (tier: string) => t(`processingTier_${tier}`)
+  return t('processingTierResult', { requested: requested ? label(requested) : t('providerTierDefault'), actual: actual ? label(actual) : t('processingTierUnconfirmed') })
+}
 function isChild(result: Result) { return result.taskId ? result.taskId !== 'main' : !!result.depth }
 function isFailure(result: Result) { return /failed|error|cancel|interrupted|blocked|content_filter/i.test(result.finishReason) }
 function finishLabel(result: Result) {
@@ -100,7 +107,7 @@ const averageTPS = computed(() => {
             <div class="usage-controls"><Select v-model:value="filter" :options="filterOptions" :aria-label="t('usageFilter')" /><Select v-model:value="sort" :options="sortOptions" :aria-label="t('usageSort')" /></div>
             <div v-if="visible.length" class="usage-table-scroll" tabindex="0">
               <table class="usage-table"><caption class="usage-visually-hidden">{{ t('usageDetails') }}</caption><thead><tr><th scope="col">{{ t('usageTime') }}</th><th scope="col">{{ t('usageStatus') }}</th><th scope="col">{{ t('usageInput') }}</th><th scope="col">{{ t('usageOutput') }}</th><th scope="col">{{ t('usageCache') }}</th><th v-if="showCacheWrites" scope="col">{{ t('usageCacheWrite') }}</th><th scope="col">{{ t('usageReasoning') }}</th><th scope="col" :title="t('modelTTFTHelp')">{{ t('usageTTFT') }}</th><th scope="col">{{ t('usageTPS') }}</th></tr></thead>
-                <tbody><tr v-for="result in visible" :key="result.sequence" :data-turn="result.turn"><td><time :datetime="result.createdAt" :title="result.createdAt || undefined">{{ timeLabel(result) }}</time></td><td :class="{ 'usage-failure': isFailure(result) }" :title="result.finishReason">{{ finishLabel(result) }}</td><td :title="exact(result.usage?.inputTokens)">{{ reported(result.usage?.inputTokens) }}</td><td :title="exact(result.usage?.outputTokens)">{{ reported(result.usage?.outputTokens) }}</td><td :title="exact(cacheReadCount(result.usage))">{{ reported(cacheReadCount(result.usage)) }}</td><td v-if="showCacheWrites" :title="exact(result.usage?.cacheWriteTokens)">{{ reported(result.usage?.cacheWriteTokens) }}</td><td :title="exact(result.usage?.reasoningTokens)">{{ reported(result.usage?.reasoningTokens) }}</td><td :title="t(ttft(result) === null ? 'modelTTFTUnavailableHelp' : 'modelTTFTHelp')">{{ ttft(result) ?? '—' }}</td><td :title="t(tps(result) === null ? 'modelTPSUnavailableHelp' : 'modelTPSHelp')">{{ tps(result) ?? '—' }}</td></tr></tbody>
+                <tbody><tr v-for="result in visible" :key="result.sequence" :data-turn="result.turn"><td><time :datetime="result.createdAt" :title="result.createdAt || undefined">{{ timeLabel(result) }}</time></td><td :class="{ 'usage-failure': isFailure(result) }" :title="result.finishReason">{{ finishLabel(result) }}<small v-if="processingResult(result)" class="usage-tier-result">{{ processingResult(result) }}</small></td><td :title="exact(result.usage?.inputTokens)">{{ reported(result.usage?.inputTokens) }}</td><td :title="exact(result.usage?.outputTokens)">{{ reported(result.usage?.outputTokens) }}</td><td :title="exact(cacheReadCount(result.usage))">{{ reported(cacheReadCount(result.usage)) }}</td><td v-if="showCacheWrites" :title="exact(result.usage?.cacheWriteTokens)">{{ reported(result.usage?.cacheWriteTokens) }}</td><td :title="exact(result.usage?.reasoningTokens)">{{ reported(result.usage?.reasoningTokens) }}</td><td :title="t(ttft(result) === null ? 'modelTTFTUnavailableHelp' : 'modelTTFTHelp')">{{ ttft(result) ?? '—' }}</td><td :title="t(tps(result) === null ? 'modelTPSUnavailableHelp' : 'modelTPSHelp')">{{ tps(result) ?? '—' }}</td></tr></tbody>
               </table>
             </div>
             <v-empty v-else class="vista-empty-state" :description="t('usageNoMatches')" role="status" />

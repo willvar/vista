@@ -44,7 +44,7 @@ func (a *App) contextUsage(w http.ResponseWriter, r *http.Request, sessionID str
 		return
 	}
 	key := session.ModelKey
-	if session.SelectionMode == "manual" && session.ManualModelKey != "" {
+	if session.ManualModelKey != "" {
 		key = session.ManualModelKey
 	}
 	model, key, err := a.modelsSnapshot().Resolve(key)

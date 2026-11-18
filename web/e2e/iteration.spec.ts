@@ -1,16 +1,14 @@
 import { installMockStateStream } from './state-stream-fixture'
 import { coreSnapshot } from './conversation-fixture'
-import { closeSettings } from './settings-navigation'
 import { test, expect } from './frontend-fixture'
 import type { Page } from '@playwright/test'
 import type { CompactionStatus, Message, Session, StreamEvent } from '../src/client/types'
 
-async function mockWorkspace(page: Page, origin: string) {
-  const session: Session = { id: 'iteration-session', title: 'Plan a small garden', modelKey: 'first', manualModelKey: 'first', manualReasoningEffort: 'high', selectionMode: 'manual', selectionTier: 'speed', selectionReasoningEffort: '', open: true, running: true, executing: true, inputQueuePaused: false, createdAt: '2026-01-01T12:00:00Z' }
-  const preferences = { userId: 'test-user', lastMode: 'manual', lastTier: 'speed', manualModelKey: 'first', reasoningByModelId: { 'model-alpha': 'high', 'model-beta': 'low' }, feedbackInvitationSeen: false }
-  const models = [{ key: 'first', name: 'Example', provider: 'openai-chat', id: 'model-alpha', recognized: true, tools: true, reasoningOptions: ['low', 'high'] }, { key: 'second', name: 'Example', provider: 'openai-chat', id: 'model-beta', recognized: true, tools: true, reasoningOptions: ['low', 'high'], inputModalities: ['text', 'image'] }]
+async function mockWorkspace(page: Page, origin: string, withTiers = false) {
+  const session: Session = { id: 'iteration-session', title: 'Plan a small garden', modelKey: 'first', manualModelKey: 'first', manualReasoningEffort: 'high', open: true, running: true, executing: true, inputQueuePaused: false, createdAt: '2026-01-01T12:00:00Z' }
+  const preferences = { userId: 'test-user', manualModelKey: 'first', reasoningByModelId: { 'model-alpha': 'high', 'model-beta': 'low' } }
+  const models = [{ key: 'first', name: 'Example', provider: 'openai-chat', id: 'model-alpha', recognized: true, tools: true, processingTiers: withTiers ? ['standard', 'fast', 'ultrafast'] : [], reasoningOptions: ['low', 'high'] }, { key: 'second', name: 'Example', provider: 'openai-chat', id: 'model-beta', recognized: true, tools: true, reasoningOptions: ['low', 'high'], inputModalities: ['text', 'image'] }]
   let inputs = [{ id: 'pending-1', status: 'queued', content: 'Add drought-resistant plants and keep the budget under $100.' }, { id: 'pending-2', status: 'queued', content: 'Use the sunny corner.' }]
-  const feedback: Record<string, string> = {}
   const posts: any[] = []
   let sequence = 10
   const budget: CompactionStatus = { runId: 'run-1', phase: 'compacted', manual: false, sequence: 4 }
@@ -55,19 +53,13 @@ async function mockWorkspace(page: Page, origin: string) {
       return reply(preferences)
     }
     if (path === '/models') return reply({ default: 'first', models })
-    if (path === '/model-selection/stats') return reply({ speedScope: 'global', qualityScope: 'user', speedWindowDays: 30, qualityWindowSize: 200, models: [] })
     if (path === '/status') return reply({ state: 'running', sessions: { total: 1, open: 1, closed: 0, running: session.executing ? 1 : 0, workers: 1 }, workerMetrics: [{ sessionId: session.id, memory: { heapBytes: 1000000, rssBytes: 4000000, sampledAt: '2026-01-01T12:00:00Z' } }] })
     if (path === '/sessions') return reply([session])
     if (path.endsWith('/snapshot')) return reply(coreSnapshot(session, messages, events, inputs))
     if (path.endsWith('/overview')) return reply({ modelCalls: 1, throughSequence: events.at(-1)?.sequence || 0, startedAt: session.createdAt, events })
     if (path.endsWith('/selection')) {
-      if (body.selectionMode && body.selectionMode !== session.selectionMode || body.selectionTier && body.selectionTier !== session.selectionTier) session.selectionReasoningEffort = ''
       Object.assign(session, body)
       return reply(session)
-    }
-    if (path.endsWith('/feedback')) {
-      if (method === 'PUT') { if (body.value) feedback['assistant-1'] = body.value; else delete feedback['assistant-1']; return reply({ messageId: 'assistant-1', value: body.value, modelId: 'model-alpha' }) }
-      return reply({ feedback })
     }
     if (path.endsWith('/context')) return reply(budget)
     if (path.endsWith('/context-usage')) return reply({ tokens: 5600, sequence: 4 })
@@ -105,7 +97,7 @@ async function mockWorkspace(page: Page, origin: string) {
   })
   await page.goto(origin + '/sessions/' + session.id)
   await expect(page.locator('.sender-card textarea')).toBeVisible()
-  return { session, preferences, posts, feedback, budget, messages, events }
+  return { session, preferences, posts, budget, messages, events }
 }
 async function choose(page: Page, name: string, option: string) {
   const select = page.getByRole('combobox', { name, exact: true }); await select.click()
@@ -124,7 +116,6 @@ async function withinViewport(page: Page) {
 
 test('pending deletion requires confirmation and Escape keeps the task running', async ({ page, mockOrigin }) => {
   const fixture = await mockWorkspace(page, mockOrigin)
-  await page.getByRole('button', { name: 'Got it', exact: true }).click()
   const deletes: string[] = []
   const stops: string[] = []
   page.on('request', request => {
@@ -157,46 +148,13 @@ test('pending deletion requires confirmation and Escape keeps the task running',
   expect(stops).toEqual([])
 })
 
-test('independent selection, voluntary feedback, pending controls, and context fit the viewport', async ({ page, mockOrigin }, testInfo) => {
+test('manual selection, pending controls, and context fit the viewport', async ({ page, mockOrigin }, testInfo) => {
   test.slow()
   const errors: string[] = []
   page.on('pageerror', error => errors.push(error.message))
   const fixture = await mockWorkspace(page, mockOrigin)
   const smallScreen = page.viewportSize()!.width <= 830
-  await expect(page.getByRole('dialog')).toContainText('Help Vista learn what works for you')
-  await expect(page.locator('.ui-select-dropdown:visible')).toHaveCount(0)
-  const invitation = page.getByRole('dialog')
-  const invitationBox = await invitation.boundingBox()
-  expect(invitationBox!.width).toBeLessThanOrEqual(page.viewportSize()!.width)
-  await page.screenshot({ path: testInfo.outputPath('feedback-invitation.png'), animations: 'disabled' })
-  await page.getByRole('button', { name: 'Got it', exact: true }).click()
-  await expect.poll(() => fixture.preferences.feedbackInvitationSeen).toBe(true)
-  await expect(page.getByRole(smallScreen ? 'combobox' : 'slider', { name: 'Reasoning effort', exact: true })).toBeVisible()
-  await expect(page.locator('.sender-attach')).toHaveCount(0)
-  await expect(page.locator('.sender-card').getByRole('combobox', { name: 'Model selection', exact: true })).toHaveCount(0)
-  await page.goto(mockOrigin + '/settings/general?session=iteration-session')
-  await choose(page, 'Model selection', 'Automatic')
-  await expect.poll(() => fixture.preferences.lastMode).toBe('auto')
-  await page.reload()
-  await expect(page.locator('.model-selection-setting')).toContainText('Automatic')
-  await page.getByRole('combobox', { name: 'Model selection', exact: true }).scrollIntoViewIfNeeded()
-  await page.screenshot({ path: testInfo.outputPath('model-selection-setting.png'), animations: 'disabled' })
-  await closeSettings(page)
-  await expect(page.locator('.settings-page')).toBeHidden()
-  await expect(page.locator('.sender-card').getByRole('combobox')).toHaveCount(1)
-  await expect(page.getByRole('combobox', { name: 'Model', exact: true })).toHaveCount(0)
-  await expect(page.getByRole('slider', { name: 'Reasoning effort', exact: true })).toHaveCount(0)
-  await expect(page.locator('.sender-attach')).toBeVisible()
-  await choose(page, 'Preference', 'Quality')
-  await expect(page.locator('.message-actions .reply-feedback')).toHaveCount(2)
-  await expect(page.locator('.reply-feedback-trigger')).toHaveCount(0)
-  await page.reload()
   await expect(page.getByRole('dialog')).toHaveCount(0)
-  await expect(page.locator('.composer-tier')).toContainText('Quality')
-  await page.goto(mockOrigin + '/settings/general?session=iteration-session')
-  await choose(page, 'Model selection', 'Choose model')
-  await closeSettings(page)
-  await expect(page.locator('.settings-page')).toBeHidden()
   await expect(page.locator('.sender-card').getByRole('combobox')).toHaveCount(smallScreen ? 2 : 1)
   await expect(page.locator('.composer-mode')).toHaveCount(0)
   await expect(page.locator('.composer-model .ui-select-selection-item')).toHaveText(smallScreen ? 'model-alpha' : 'Example · model-alpha')
@@ -210,28 +168,7 @@ test('independent selection, voluntary feedback, pending controls, and context f
   await expect(page.locator('.composer-reasoning')).toContainText('High')
   await expect.poll(() => fixture.preferences.manualModelKey).toBe('first')
 
-  const rating = page.getByRole('button', { name: 'Rate answer', exact: true })
-  await expect(page.locator('.message-actions .reply-feedback')).toHaveCount(0)
-  await rating.click()
-  await expect(page.getByRole('group', { name: 'Rate answer', exact: true })).toBeVisible()
-  await expect(page.getByRole('button', { name: 'Helpful answer', exact: true })).toBeFocused()
-  expect(fixture.feedback['assistant-1']).toBeUndefined()
-  await page.keyboard.press('Escape')
-  await expect(rating).toHaveAttribute('aria-expanded', 'false')
-  await expect(rating).toBeFocused()
-  expect(fixture.session.executing, 'Dismissing feedback must not stop the task').toBe(true)
-  await rating.click()
-  await page.getByRole('button', { name: 'Helpful answer', exact: true }).click()
-  await expect.poll(() => fixture.feedback['assistant-1']).toBe('up')
-  await expect(rating).toHaveAttribute('aria-expanded', 'false')
-  await rating.click()
-  await expect(page.getByRole('button', { name: 'Helpful answer', exact: true })).toHaveAttribute('aria-pressed', 'true')
-  await page.getByRole('button', { name: 'Unhelpful answer', exact: true }).click()
-  await expect.poll(() => fixture.feedback['assistant-1']).toBe('down')
-  await rating.click()
-  await page.getByRole('button', { name: 'Unhelpful answer', exact: true }).click()
-  await expect.poll(() => fixture.feedback['assistant-1']).toBeUndefined()
-
+  await expect(page.getByRole('button', { name: 'Rate answer', exact: true })).toHaveCount(0)
   const queueLayout = await page.locator('.pending-inputs').evaluate(element => {
     const column = element.closest('.conversation-column')!
     const sender = column.querySelector('.sender-card')!
@@ -325,4 +262,19 @@ test('independent selection, voluntary feedback, pending controls, and context f
   await page.screenshot({ path: testInfo.outputPath('context-composer.png'), animations: 'disabled' })
   await page.screenshot({ path: testInfo.outputPath('iteration.png'), fullPage: true, animations: 'disabled' })
   expect(errors).toEqual([])
+})
+
+
+test('processing tier follows the selected model without changing the active run', { tag: '@responsive' }, async ({ page, mockOrigin }) => {
+  const fixture = await mockWorkspace(page, mockOrigin, true)
+  await expect(page.getByRole('combobox', { name: 'Processing tier', exact: true })).toBeVisible()
+  await choose(page, 'Processing tier', 'Ultrafast')
+  await expect.poll(() => fixture.session.processingTier).toBe('ultrafast')
+  expect(fixture.session.executing).toBe(true)
+  await choose(page, 'Model', 'model-beta')
+  await expect(page.getByRole('combobox', { name: 'Processing tier', exact: true })).toHaveCount(0)
+  await expect.poll(() => fixture.session.processingTier).toBe('')
+  await choose(page, 'Model', 'model-alpha')
+  await expect(page.getByRole('combobox', { name: 'Processing tier', exact: true })).toBeVisible()
+  await expect.poll(() => fixture.session.processingTier).toBe('')
 })

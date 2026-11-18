@@ -3,7 +3,6 @@ import { test, expect } from './fixtures'
 test.use({ replyWithPrompt: true, questionTool: true })
 
 test('a plain question is shown once and continues through the ordinary composer', async ({ page, vista }) => {
-  await vista.api('/preferences', { method: 'PATCH', body: JSON.stringify({ feedbackInvitationSeen: true }) })
   await page.reload()
   const sender = page.locator('.sender-card .ui-sender-input')
   await sender.fill('Which person do you mean?')
@@ -23,17 +22,15 @@ test('a plain question is shown once and continues through the ordinary composer
 })
 
 test('question submission preserves the displayed choice across a delayed opening snapshot', { tag: '@responsive' }, async ({ page, vista }) => {
-  await vista.api('/preferences', { method: 'PATCH', body: JSON.stringify({ feedbackInvitationSeen: true }) })
   const session = await vista.api('/sessions', { method: 'POST', body: '{}' })
   const catalog = await vista.api('/models')
   await vista.api(`/sessions/${session.id}/messages`, { method: 'POST', body: JSON.stringify({
-    content: 'Ask me about the setup', selectionMode: 'manual', selectionTier: 'speed', modelKey: catalog.default,
+    content: 'Ask me about the setup', modelKey: catalog.default,
   }) })
   await expect.poll(async () => (await vista.api('/sessions')).find((item: { id: string }) => item.id === session.id)?.pendingReply?.kind).toBe('question')
   const snapshotPath = `/api/sessions/${session.id}/snapshot`
   const oldSnapshot = await vista.api(`/sessions/${session.id}/snapshot`)
-  expect(oldSnapshot.session).toMatchObject({ selectionMode: 'manual', selectionTier: 'speed' })
-  await vista.api(`/sessions/${session.id}/selection`, { method: 'PATCH', body: JSON.stringify({ selectionMode: 'auto', selectionTier: 'quality' }) })
+  expect(oldSnapshot.session.manualModelKey).toBeTruthy()
 
   let releaseSnapshot!: () => void
   const held = new Promise<void>(resolve => { releaseSnapshot = resolve })
@@ -49,7 +46,7 @@ test('question submission preserves the displayed choice across a delayed openin
     await expect(form).toBeVisible()
     await expect(page.getByRole('button', { name: 'Reply with text', exact: true })).toHaveCount(0)
     await expect(page.locator('.sender-card .ui-sender-input')).toBeHidden()
-    await expect(page.locator('.composer-tier')).toContainText('Quality')
+    await expect(page.getByRole('combobox', { name: 'Model', exact: true })).toBeVisible()
     await form.getByRole('radio', { name: 'Keep local', exact: true }).check()
     await form.getByRole('button', { name: 'Next question', exact: true }).click()
     await form.getByRole('checkbox', { name: 'Messages', exact: true }).check()
@@ -58,12 +55,11 @@ test('question submission preserves the displayed choice across a delayed openin
     const posted = page.waitForRequest(request => request.method() === 'POST'
       && new URL(request.url()).pathname === `/api/sessions/${session.id}/messages`)
     await form.getByRole('button', { name: 'Submit answers', exact: true }).click()
-    expect((await posted).postDataJSON()).toMatchObject({ selectionMode: 'auto', selectionTier: 'quality', questionReply: { callId: 'setup-question' } })
+    expect((await posted).postDataJSON()).toMatchObject({ modelKey: catalog.default, questionReply: { callId: 'setup-question' } })
     releaseSnapshot()
     await expect(page.locator('article.user .markdown').filter({ hasText: 'Ask me about the setup' })).toHaveCount(1)
     await expect(form).toHaveCount(0)
-    await expect(page.locator('.composer-tier')).toContainText('Quality')
-    await expect(page.locator('.composer-model')).toHaveCount(0)
+    await expect(page.getByRole('combobox', { name: 'Model', exact: true })).toBeVisible()
     await expect(page.locator('article.assistant .markdown').filter({ hasText: 'Mock reply:' })).toBeVisible()
     await expect.poll(() => vista.modelRequests.length).toBe(2)
     const results = vista.modelRequests[1]!.messages!.filter(message => message.role === 'tool' && message.tool_call_id === 'setup-question')
@@ -73,7 +69,6 @@ test('question submission preserves the displayed choice across a delayed openin
 })
 
 test('question choices persist across reload and resume with selected answers', async ({ page, vista }, testInfo) => {
-  await vista.api('/preferences', { method: 'PATCH', body: JSON.stringify({ feedbackInvitationSeen: true }) })
   await page.reload()
   const sender = page.locator('.sender-card .ui-sender-input')
   await sender.fill('Ask me about the setup')
@@ -186,7 +181,6 @@ test('question choices persist across reload and resume with selected answers', 
 })
 
 test('question tabs switch one panel at a time with keyboard navigation and reduced motion', async ({ page, vista }) => {
-  await vista.api('/preferences', { method: 'PATCH', body: JSON.stringify({ feedbackInvitationSeen: true }) })
   await page.emulateMedia({ reducedMotion: 'no-preference' })
   await page.reload()
   const sender = page.locator('.sender-card .ui-sender-input')
@@ -233,7 +227,6 @@ test('question tabs switch one panel at a time with keyboard navigation and redu
 })
 
 test('an ordinary message from another client replaces a pending question and rejects its stale form', async ({ page, vista }) => {
-  await vista.api('/preferences', { method: 'PATCH', body: JSON.stringify({ feedbackInvitationSeen: true }) })
   await page.reload()
   const sender = page.locator('.sender-card .ui-sender-input')
   await sender.fill('Ask me about the setup')

@@ -50,3 +50,9 @@ Only fixed reference sizes and display names are bundled; Vista does not downloa
 
 Implementation: `web/src/state/tokenScale.ts` and `web/src/StatisticsSettings.vue`.
 Accounting and retention: [product behavior](./product.md#activity-and-usage).
+
+## Connection usage
+
+Open **Usage statistics** next to a service connection. Reported values are passive observations of logical inference calls, including any same-tier retries; they are not provider benchmarks. Results can be filtered by model, requested tier and observed network path. The actual tier, when reported, is shown separately. Success rates exclude user cancellations. Timing averages show their sample counts and exclude missing values. TTFT (first text or visible reasoning) is the same measurement used in reply details, not network round-trip time. New-connection and TLS measurements only appear where the transport supplies them.
+
+Connection samples begin when the connection and route can be reliably attributed. They are not reconstructed from older ranking observations or deleted history. Connection usage shares the 90-day retention and reset with global usage; the global token total still counts reported API-attempt usage independently. The view does not send speed-test calls or perform model scoring.

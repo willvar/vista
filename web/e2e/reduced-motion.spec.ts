@@ -52,7 +52,6 @@ test('system changes update existing controls, dropdowns and both modal levels w
 
 test('reduced-motion image previews keep their end events and close repeatedly', async ({ page, vista }) => {
   await page.emulateMedia({ reducedMotion: 'reduce' })
-  await vista.api('/preferences', { method: 'PATCH', body: JSON.stringify({ feedbackInvitationSeen: true }) })
   const data = await page.evaluate(() => {
     const canvas = document.createElement('canvas')
     canvas.width = 480
@@ -85,7 +84,6 @@ test.describe('conversation motion', () => {
 
   test('loading, traces, quoting, jump scrolling and the mobile drawer respect reduced motion', async ({ page, vista, isMobile }) => {
     await page.emulateMedia({ reducedMotion: 'reduce' })
-    await vista.api('/preferences', { method: 'PATCH', body: JSON.stringify({ feedbackInvitationSeen: true }) })
     await page.reload()
     const release = vista.pauseModelReplies(true)
     try {

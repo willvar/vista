@@ -9,7 +9,6 @@ test.beforeEach(async ({ isMobile }) => {
 })
 
 async function prepareSessions(page: Page, vista: Vista, extraRows = 0) {
-  await vista.api('/preferences', { method: 'PATCH', body: JSON.stringify({ feedbackInvitationSeen: true }) })
   const active: Session = await vista.api('/sessions', { method: 'POST', body: JSON.stringify({ title: 'Current conversation' }) })
   const other: Session = await vista.api('/sessions', { method: 'POST', body: JSON.stringify({ title: 'Other conversation' }) })
   const rows = [active, other, ...Array.from({ length: extraRows }, (_, index) => ({
@@ -78,7 +77,6 @@ test.describe('attention badge', () => {
   } } } })
 
   test('stays anchored across navigation and dismisses failures only after their errors are read', async ({ page, vista }, testInfo) => {
-    await vista.api('/preferences', { method: 'PATCH', body: JSON.stringify({ feedbackInvitationSeen: true }) })
     const session = await vista.api('/sessions', { method: 'POST', body: JSON.stringify({ title: 'Failed conversation' }) })
     const other = await vista.api('/sessions', { method: 'POST', body: JSON.stringify({ title: 'Other conversation' }) })
     await vista.api(`/sessions/${session.id}/messages`, { method: 'POST', body: JSON.stringify({ content: 'Create a failed run', modelKey: 'test' }) })

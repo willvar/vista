@@ -66,14 +66,8 @@ func (s *Store) QueueInputWithDiagnostics(ctx context.Context, sessionID, inputI
 	if len(modelKey) > 1 {
 		input.ReasoningEffort = modelKey[1]
 	}
-	if len(modelKey) > 2 {
-		input.SelectionMode = modelKey[2]
-	}
-	if len(modelKey) > 3 {
-		input.SelectionTier = modelKey[3]
-	}
 	// Keep writing the retired column for compatibility with existing databases.
-	if _, err := execSQL(ctx, tx, "INSERT INTO queued_inputs(id,session_id,run_id,model_key,reasoning_effort,selection_mode,selection_tier,mode,status,content,image_count,created_at,debug) VALUES(?,?,?,?,?,?,?,'now',?,?,?,?,?)", input.ID, input.SessionID, input.RunID, input.ModelKey, input.ReasoningEffort, input.SelectionMode, input.SelectionTier, input.Status, input.Content, input.ImageCount, input.CreatedAt, input.Debug); err != nil {
+	if _, err := execSQL(ctx, tx, "INSERT INTO queued_inputs(id,session_id,run_id,model_key,reasoning_effort,mode,status,content,image_count,created_at,debug) VALUES(?,?,?,?,?,'now',?,?,?,?,?)", input.ID, input.SessionID, input.RunID, input.ModelKey, input.ReasoningEffort, input.Status, input.Content, input.ImageCount, input.CreatedAt, input.Debug); err != nil {
 		return QueuedInput{}, Event{}, err
 	}
 	if err := s.writeImages(ctx, tx, sessionID, "queued_input_resources", "input_id", input.ID, images); err != nil {
@@ -111,7 +105,7 @@ func (s *Store) DeliverInput(ctx context.Context, sessionID, runID, inputID, mes
 	}
 	defer tx.Rollback()
 	var input QueuedInput
-	err = tx.WithContext(ctx).Raw("SELECT id,session_id,run_id,model_key,reasoning_effort,selection_mode,selection_tier,status,content,image_count,created_at,debug FROM queued_inputs WHERE id=? AND session_id=?", inputID, sessionID).Row().Scan(&input.ID, &input.SessionID, &input.RunID, &input.ModelKey, &input.ReasoningEffort, &input.SelectionMode, &input.SelectionTier, &input.Status, &input.Content, &input.ImageCount, &input.CreatedAt, &input.Debug)
+	err = tx.WithContext(ctx).Raw("SELECT id,session_id,run_id,model_key,reasoning_effort,status,content,image_count,created_at,debug FROM queued_inputs WHERE id=? AND session_id=?", inputID, sessionID).Row().Scan(&input.ID, &input.SessionID, &input.RunID, &input.ModelKey, &input.ReasoningEffort, &input.Status, &input.Content, &input.ImageCount, &input.CreatedAt, &input.Debug)
 	if errors.Is(err, ErrNotFound) || (err == nil && (input.RunID != runID || input.Status != "queued")) {
 		return nil, nil
 	}
@@ -199,7 +193,7 @@ func appendCompletedReply(ctx context.Context, tx *gorm.DB, sessionID, runID str
 
 func (s *Store) NextQueuedInput(ctx context.Context, sessionID string) (*QueuedInput, error) {
 	var input QueuedInput
-	err := s.orm.WithContext(ctx).Raw("SELECT q.id,q.session_id,q.run_id,q.model_key,q.reasoning_effort,q.selection_mode,q.selection_tier,q.status,q.content,q.image_count,q.created_at,q.debug FROM queued_inputs q JOIN sessions s ON s.id=q.session_id WHERE q.session_id=? AND q.status='queued' AND s.pending_kind<>'question' ORDER BY q.created_at,q.id LIMIT 1", sessionID).Row().Scan(&input.ID, &input.SessionID, &input.RunID, &input.ModelKey, &input.ReasoningEffort, &input.SelectionMode, &input.SelectionTier, &input.Status, &input.Content, &input.ImageCount, &input.CreatedAt, &input.Debug)
+	err := s.orm.WithContext(ctx).Raw("SELECT q.id,q.session_id,q.run_id,q.model_key,q.reasoning_effort,q.status,q.content,q.image_count,q.created_at,q.debug FROM queued_inputs q JOIN sessions s ON s.id=q.session_id WHERE q.session_id=? AND q.status='queued' AND s.pending_kind<>'question' ORDER BY q.created_at,q.id LIMIT 1", sessionID).Row().Scan(&input.ID, &input.SessionID, &input.RunID, &input.ModelKey, &input.ReasoningEffort, &input.Status, &input.Content, &input.ImageCount, &input.CreatedAt, &input.Debug)
 	if errors.Is(err, ErrNotFound) {
 		return nil, nil
 	}
@@ -216,7 +210,7 @@ func (s *Store) BeginQueuedRun(ctx context.Context, sessionID, inputID, runID, m
 	}
 	defer tx.Rollback()
 	var input QueuedInput
-	err = tx.WithContext(ctx).Raw("SELECT id,session_id,run_id,model_key,reasoning_effort,selection_mode,selection_tier,status,content,image_count,created_at,debug FROM queued_inputs WHERE id=? AND session_id=?", inputID, sessionID).Row().Scan(&input.ID, &input.SessionID, &input.RunID, &input.ModelKey, &input.ReasoningEffort, &input.SelectionMode, &input.SelectionTier, &input.Status, &input.Content, &input.ImageCount, &input.CreatedAt, &input.Debug)
+	err = tx.WithContext(ctx).Raw("SELECT id,session_id,run_id,model_key,reasoning_effort,status,content,image_count,created_at,debug FROM queued_inputs WHERE id=? AND session_id=?", inputID, sessionID).Row().Scan(&input.ID, &input.SessionID, &input.RunID, &input.ModelKey, &input.ReasoningEffort, &input.Status, &input.Content, &input.ImageCount, &input.CreatedAt, &input.Debug)
 	if err != nil {
 		return nil, err
 	}
@@ -379,7 +373,7 @@ func (s *Store) PendingInputs(ctx context.Context, sessionID string) ([]PendingI
 }
 
 func (s *Store) RecentInputs(ctx context.Context, sessionID string) ([]QueuedInput, error) {
-	rows, err := s.orm.WithContext(ctx).Raw("SELECT id,session_id,run_id,model_key,reasoning_effort,selection_mode,selection_tier,status,content,image_count,created_at,debug FROM queued_inputs WHERE session_id=? AND (status IN ('queued','paused') OR id IN (SELECT id FROM queued_inputs WHERE session_id=? AND status NOT IN ('queued','paused') ORDER BY created_at DESC,id DESC LIMIT 20)) ORDER BY created_at,id", sessionID, sessionID).Rows()
+	rows, err := s.orm.WithContext(ctx).Raw("SELECT id,session_id,run_id,model_key,reasoning_effort,status,content,image_count,created_at,debug FROM queued_inputs WHERE session_id=? AND (status IN ('queued','paused') OR id IN (SELECT id FROM queued_inputs WHERE session_id=? AND status NOT IN ('queued','paused') ORDER BY created_at DESC,id DESC LIMIT 20)) ORDER BY created_at,id", sessionID, sessionID).Rows()
 	if err != nil {
 		return nil, err
 	}
@@ -387,7 +381,7 @@ func (s *Store) RecentInputs(ctx context.Context, sessionID string) ([]QueuedInp
 	out := []QueuedInput{}
 	for rows.Next() {
 		var input QueuedInput
-		if err := rows.Scan(&input.ID, &input.SessionID, &input.RunID, &input.ModelKey, &input.ReasoningEffort, &input.SelectionMode, &input.SelectionTier, &input.Status, &input.Content, &input.ImageCount, &input.CreatedAt, &input.Debug); err != nil {
+		if err := rows.Scan(&input.ID, &input.SessionID, &input.RunID, &input.ModelKey, &input.ReasoningEffort, &input.Status, &input.Content, &input.ImageCount, &input.CreatedAt, &input.Debug); err != nil {
 			return nil, err
 		}
 		out = append(out, input)
@@ -397,10 +391,10 @@ func (s *Store) RecentInputs(ctx context.Context, sessionID string) ([]QueuedInp
 
 func (s *Store) NextInterjection(ctx context.Context, sessionID, runID string) (*QueuedInput, error) {
 	var input QueuedInput
-	err := s.orm.WithContext(ctx).Raw(`SELECT q.id,q.session_id,q.run_id,q.model_key,q.reasoning_effort,q.selection_mode,q.selection_tier,q.status,q.content,q.image_count,q.created_at,q.debug
+	err := s.orm.WithContext(ctx).Raw(`SELECT q.id,q.session_id,q.run_id,q.model_key,q.reasoning_effort,q.status,q.content,q.image_count,q.created_at,q.debug
  FROM queued_inputs q JOIN runs r ON r.id=q.run_id
  WHERE q.session_id=? AND q.run_id=? AND q.status='queued' AND r.status='running'
- ORDER BY q.created_at,q.id LIMIT 1`, sessionID, runID).Row().Scan(&input.ID, &input.SessionID, &input.RunID, &input.ModelKey, &input.ReasoningEffort, &input.SelectionMode, &input.SelectionTier, &input.Status, &input.Content, &input.ImageCount, &input.CreatedAt, &input.Debug)
+ ORDER BY q.created_at,q.id LIMIT 1`, sessionID, runID).Row().Scan(&input.ID, &input.SessionID, &input.RunID, &input.ModelKey, &input.ReasoningEffort, &input.Status, &input.Content, &input.ImageCount, &input.CreatedAt, &input.Debug)
 	if errors.Is(err, ErrNotFound) {
 		return nil, nil
 	}
@@ -457,7 +451,7 @@ func (s *Store) UpdateInput(ctx context.Context, sessionID, inputID, content str
 
 func readInput(ctx context.Context, tx *gorm.DB, sessionID, inputID string) (QueuedInput, error) {
 	var input QueuedInput
-	err := tx.WithContext(ctx).Raw("SELECT id,session_id,run_id,model_key,reasoning_effort,selection_mode,selection_tier,status,content,image_count,created_at,debug FROM queued_inputs WHERE id=? AND session_id=?", inputID, sessionID).Row().Scan(&input.ID, &input.SessionID, &input.RunID, &input.ModelKey, &input.ReasoningEffort, &input.SelectionMode, &input.SelectionTier, &input.Status, &input.Content, &input.ImageCount, &input.CreatedAt, &input.Debug)
+	err := tx.WithContext(ctx).Raw("SELECT id,session_id,run_id,model_key,reasoning_effort,status,content,image_count,created_at,debug FROM queued_inputs WHERE id=? AND session_id=?", inputID, sessionID).Row().Scan(&input.ID, &input.SessionID, &input.RunID, &input.ModelKey, &input.ReasoningEffort, &input.Status, &input.Content, &input.ImageCount, &input.CreatedAt, &input.Debug)
 	return input, err
 }
 

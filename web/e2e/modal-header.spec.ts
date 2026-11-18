@@ -29,7 +29,6 @@ async function controlAppearance(control: Locator) {
 }
 
 test('workspace and secondary dialogs share header controls and keep actions out of their accessible titles', async ({ page, vista }, info) => {
-  await vista.api('/preferences', { method: 'PATCH', body: JSON.stringify({ feedbackInvitationSeen: true }) })
   await page.goto(vista.origin + '/settings/models')
   const mobile = page.viewportSize()!.width <= 830
   const settings = page.getByRole('dialog', { name: 'Service connections', exact: true })

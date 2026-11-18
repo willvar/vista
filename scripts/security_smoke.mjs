@@ -30,7 +30,7 @@ try {
       req.end(body)
     })
   }
-  const preferenceBody = JSON.stringify({ lastMode: 'auto' })
+  const preferenceBody = JSON.stringify({ showUnrecognizedModels: true })
   const preflight = await call('OPTIONS', '/api/preferences', { Host: 'vista.example', Origin: 'https://client.example', 'Access-Control-Request-Method': 'PATCH', 'Access-Control-Request-Headers': 'content-type, x-vista-language, x-custom' })
   const checks = [
     ['status without token', await call('GET', '/api/status'), 200],
@@ -48,7 +48,7 @@ try {
     if (result.status !== expected) throw new Error(`${name}: expected ${expected}, got ${result.status}: ${result.content.slice(0, 200)}`)
   }
   const preferences = await call('GET', '/api/preferences')
-  if (preferences.status !== 200 || JSON.parse(preferences.content).lastMode !== 'auto') throw new Error('token-free settings write did not persist')
+  if (preferences.status !== 200 || JSON.parse(preferences.content).showUnrecognizedModels !== true) throw new Error('token-free settings write did not persist')
   const stillRunning = await call('GET', '/api/status')
   if (stillRunning.status !== 200 || !JSON.parse(stillRunning.content).sampledAt || JSON.parse(stillRunning.content).sessions.total !== 0) throw new Error('HTTP access checks changed the session list or stopped Vista')
   console.log('Explicit loopback port, token-free API, open Host/Origin, CORS preflight, and request size checks passed')

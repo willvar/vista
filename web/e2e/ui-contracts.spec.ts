@@ -2,7 +2,6 @@ import { openAboutAdvanced } from './settings-navigation'
 import { test, expect } from './fixtures'
 
 test.beforeEach(async ({ vista }) => {
-  await vista.api('/preferences', { method: 'PATCH', body: JSON.stringify({ feedbackInvitationSeen: true }) })
 })
 
 test('composer retains its text padding and borderless model search states', { tag: '@responsive' }, async ({ page, vista }) => {
@@ -26,7 +25,6 @@ test('composer retains its text padding and borderless model search states', { t
 
 test('ordinary selects reject typing without filtering and still support keyboard selection', async ({ page, vista }) => {
   for (const [route, ids] of [
-    ['general', ['model-selection-mode']],
     ['about', ['user-agent-config-preset-input', 'capacity-preset-preset-input']],
     ['statistics', ['statistics-period']],
   ] as const) {
@@ -42,20 +40,11 @@ test('ordinary selects reject typing without filtering and still support keyboar
       const options = page.locator('.ui-select-dropdown:visible').getByRole('option')
       const count = await options.count()
       expect(count).toBeGreaterThan(0)
-      if (id === 'model-selection-mode') {
-        await expect(page.locator('.ui-select-dropdown:visible').getByRole('option', { selected: true }))
-          .toHaveAttribute('data-highlighted', '')
-      }
+
       await select.pressSequentially('no matching option')
       await expect(options).toHaveCount(count)
       await expect(select).toHaveValue(previous)
-      if (id === 'model-selection-mode') {
-        const last = await options.last().innerText()
-        await select.press('End')
-        await expect(options.last()).toHaveAttribute('data-highlighted', '')
-        await select.press('Enter')
-        await expect(select).toHaveValue(last)
-      } else await select.press('Escape')
+      await select.press('Escape')
     }
   }
 })
@@ -112,34 +101,6 @@ test('danger actions keep their warning colors before and during hover', async (
   await expect(page.locator('.managed-session')).toHaveCount(1)
 })
 
-test('statistics tab marker follows selection, keyboard navigation and reduced motion', { tag: '@responsive' }, async ({ page, vista }) => {
-  await vista.api('/preferences', { method: 'PATCH', body: JSON.stringify({ lastMode: 'auto' }) })
-  await page.goto(vista.origin + '/settings/general')
-  const stats = page.locator('.model-selection-stats')
-  const marker = stats.locator('.ui-tabs-indicator')
-  for (const reducedMotion of ['no-preference', 'reduce'] as const) {
-    await page.emulateMedia({ reducedMotion })
-    for (const name of ['Quality', 'Speed']) {
-      const tab = stats.getByRole('tab', { name, exact: true })
-      await tab.click()
-      await expect(stats.getByRole('tabpanel', { name, exact: true })).toBeVisible()
-      // Reduced motion keeps a 1ms transition for component cleanup events.
-      const animated = await marker.evaluate(element => element.getAnimations().some(animation =>
-        animation instanceof CSSTransition && Number(animation.effect?.getTiming().duration) > 1))
-      expect(animated).toBe(reducedMotion === 'no-preference')
-      await expect.poll(() => marker.evaluate(element => {
-        const selected = element.parentElement!.querySelector('[aria-selected="true"]')!
-        const m = element.getBoundingClientRect(), t = selected.getBoundingClientRect()
-        return Math.max(Math.abs(m.x - t.x), Math.abs(m.width - t.width))
-      })).toBeLessThan(1)
-      const duration = await marker.evaluate(element => Math.max(...getComputedStyle(element).transitionDuration.split(',').map(parseFloat)))
-      if (reducedMotion === 'reduce') expect(duration).toBeLessThanOrEqual(.001)
-    }
-  }
-  await stats.getByRole('tab', { name: 'Speed', exact: true }).press('ArrowRight')
-  await expect(stats.getByRole('tab', { name: 'Quality', exact: true })).toBeFocused()
-  await expect(stats.getByRole('tabpanel', { name: 'Quality', exact: true })).toBeVisible()
-})
 
 test('password visibility has matching text, icon and input state', async ({ page, vista }) => {
   await page.goto(vista.origin + '/settings/models')

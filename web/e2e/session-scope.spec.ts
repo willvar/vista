@@ -113,7 +113,6 @@ test('a homepage with only closed conversations shows the retained-conversation 
 })
 
 test('external closing preserves the current draft and confirmed deletion returns home without loading archives', async ({ page, vista }) => {
-  await vista.api('/preferences', { method: 'PATCH', body: JSON.stringify({ feedbackInvitationSeen: true }) })
   const item = await vista.api('/sessions', { method: 'POST', body: JSON.stringify({ title: 'Selected conversation' }) })
   await page.goto(`${vista.origin}/sessions/${item.id}`)
   const sender = page.locator('.sender-card textarea')
@@ -139,7 +138,6 @@ test('external closing preserves the current draft and confirmed deletion return
 })
 
 test('disabling titles keeps the localized default name and preserves manual titles', async ({ page, vista }) => {
-  await vista.api('/preferences', { method: 'PATCH', body: JSON.stringify({ feedbackInvitationSeen: true }) })
   await vista.api('/agent-settings', { method: 'PUT', body: JSON.stringify({ automaticTitles: false }) })
   await page.goto(vista.origin + '/')
   let firstSnapshot = true

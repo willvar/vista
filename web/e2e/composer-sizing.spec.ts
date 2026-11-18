@@ -26,7 +26,6 @@ async function resizeDraft(textarea: Locator, value: string) {
 for (const reducedMotion of ['no-preference', 'reduce'] as const) {
   test(`composer grows and shrinks with ${reducedMotion} motion`, async ({ page, vista }) => {
     await page.emulateMedia({ reducedMotion })
-    await vista.api('/preferences', { method: 'PATCH', body: JSON.stringify({ feedbackInvitationSeen: true }) })
     await page.reload()
     for (const location of ['homepage', 'conversation']) {
       if (location === 'conversation') {

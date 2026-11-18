@@ -14,7 +14,6 @@ export const test = base.extend<{ mockOrigin: string }, { settingsResponses: Rec
     const responses = await sharedFixture('settings-layout', async () => {
       const values: Record<string, unknown> = {}
       await nativeFixture.use({}, async vista => {
-        await vista.api('/preferences', { method: 'PATCH', body: JSON.stringify({ feedbackInvitationSeen: true }) })
         await vista.api('/resource-storage', { method: 'POST', body: JSON.stringify({ action: 'scan' }) })
         await expect.poll(async () => (await vista.api('/resource-storage')).phase).toBe('idle')
         const paths = ['/preferences', '/agent-settings', '/models', '/status', '/sessions?open=true',

@@ -51,7 +51,7 @@ func TestQuestionReplyUsesMessageSelectionAndPreservesPendingOnRejection(t *test
 	}
 	sink := &imageCommandSink{}
 	app.workers[session] = &worker{input: sink}
-	body := `{"modelKey":"selected","selectionMode":"manual","reasoningEffort":"high","questionReply":{"runId":"run","answers":[{"options":["src"]}]}}`
+	body := `{"modelKey":"selected","reasoningEffort":"high","questionReply":{"runId":"run","answers":[{"options":["src"]}]}}`
 	w := request(body)
 	if w.Code != 202 {
 		t.Fatalf("answer status=%d body=%s", w.Code, w.Body.String())

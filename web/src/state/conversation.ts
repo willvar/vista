@@ -215,7 +215,7 @@ export function reduceConversationEvent(state: ConversationState, event: StreamE
   if (event.kind === 'model_result' && data?.modelResult && runId) {
     const result = data.modelResult
     next.modelDrafts = next.modelDrafts.map(draft => draft.runId === runId && draft.turn === data.turn && draft.depth === depth ? { ...draft, finished: true } : draft)
-    next.modelResults = [...next.modelResults, { sequence: event.sequence, runId, turn: data.turn, depth, createdAt: event.createdAt, ...(data.taskId ? { taskId: data.taskId, parentTaskId: data.parentTaskId } : {}), purpose: result.purpose, provider: result.provider, id: result.id, finishReason: result.finishReason, reasoningEffort: result.reasoningEffort, usage: result.usage, durationMs: result.durationMs, firstTokenMs: result.firstTokenMs, summary: result.summary }]
+    next.modelResults = [...next.modelResults, { sequence: event.sequence, runId, turn: data.turn, depth, createdAt: event.createdAt, ...(data.taskId ? { taskId: data.taskId, parentTaskId: data.parentTaskId } : {}), purpose: result.purpose, provider: result.provider, id: result.id, finishReason: result.finishReason, reasoningEffort: result.reasoningEffort, usage: result.usage, durationMs: result.durationMs, firstTokenMs: result.firstTokenMs, requestedProcessingTier: result.requestedProcessingTier, actualProcessingTier: result.actualProcessingTier, summary: result.summary }]
   }
   if (isInputQueueEvent(event)) {
     const queue = reduceInputQueue({ items: next.queuedInputs, paused: next.inputQueuePaused }, event)

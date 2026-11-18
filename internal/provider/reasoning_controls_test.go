@@ -194,7 +194,7 @@ func TestDefaultReasoningClearsPreviousRequestControls(t *testing.T) {
 	if err := ApplyReasoningEffort(&model, "default"); err != nil {
 		t.Fatal(err)
 	}
-	if ModelReasoningEffort(model) != "default" || ModelSelectionEffort(model) != "default" || model.ChatReasoningOverride || model.Thinking != nil || model.EnableThinking != nil || model.ThinkingBudget != nil || model.OpenRouter.Reasoning != nil || model.ReasoningEffort != "" || model.Effort != "" || model.ThinkingLevel != "" {
+	if ModelReasoningEffort(model) != "default" || model.ChatReasoningOverride || model.Thinking != nil || model.EnableThinking != nil || model.ThinkingBudget != nil || model.OpenRouter.Reasoning != nil || model.ReasoningEffort != "" || model.Effort != "" || model.ThinkingLevel != "" {
 		t.Fatal("provider default retained previous request reasoning settings")
 	}
 }

@@ -108,6 +108,9 @@ func Run() error {
 		// Reporting does not depend on an uncancelled foreground request.
 		_ = emit(workerproto.Result{Kind: "token_usage", TokenUsage: &workerproto.TokenUsage{ID: id, Tokens: tokens}})
 	})
+	sessionCtx = provider.WithCallUsageRecorder(sessionCtx, func(sample modelcfg.CallUsage) {
+		_ = emit(workerproto.Result{Kind: "call_usage", CallUsage: &sample})
+	})
 	sessionCtx = mcphost.WithEndpointResolver(sessionCtx, func(ctx context.Context) (workerproto.MCPHost, error) {
 		ack, err := awaitAck(ctx, workerproto.Result{Kind: "mcp_host"})
 		return ack.MCPHost, err

@@ -11,7 +11,6 @@ test.afterEach(async ({ vista }, info) => {
 })
 
 test('originals survive compaction and closing, and become cleanable only after the last owner is deleted', async ({ page, vista }, testInfo) => {
-  await vista.api('/preferences', { method: 'PATCH', body: JSON.stringify({ feedbackInvitationSeen: true }) })
   const original = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/lN8AAAAASUVORK5CYII=', 'base64')
   const hash = createHash('sha256').update(original).digest('hex')
   const first = await vista.api('/sessions', { method: 'POST', body: '{}' })

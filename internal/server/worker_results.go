@@ -156,6 +156,8 @@ func (c *workerResultConsumer) consume(result workerproto.Result) error {
 		}
 		event, err := c.store.SaveCompletedReply(c.ctx, c.sessionID, result.RunID, storeCompletedReply(result.Reply)[0])
 		return c.persisted(result, event, err, result.AckID)
+	case "call_usage":
+		return c.callUsage(result)
 	case "token_usage":
 		return c.tokenUsage(result)
 	case "rpc":
@@ -221,8 +223,6 @@ func (c *workerResultConsumer) consume(result workerproto.Result) error {
 			c.released()
 		}
 		return nil
-	case "model_observation":
-		return c.modelObservation(result)
 	case "model_history":
 		if result.History == nil || !validOutputPath(c.stateDir, result.History.Path) || result.AckID == "" || len(result.AckID) > 64 {
 			return errors.New("invalid model history reference")

@@ -54,9 +54,10 @@ func doModelRequest(request *http.Request, model modelcfg.Model) (*http.Response
 	if model.ProviderID == "opencode-go" && model.SessionID != "" {
 		request.Header.Set("x-opencode-session", model.SessionID)
 	}
+	applyProcessingHeaders(model, request.Header)
 	captureCacheRequest(request, model)
 	if !isBedrockMantle(model) || model.APIKey != "" {
-		return doStreamingRequest(request, client, modelReadIdleTimeout)
+		return doStreamingRequest(request, processingHTTPClient(model), modelReadIdleTimeout)
 	}
 	custom := network.NewClient(http.Client{
 		Transport: mantleTransport{base: tracedModelHTTPTransport, model: model},

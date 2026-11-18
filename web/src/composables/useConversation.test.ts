@@ -239,35 +239,26 @@ test('a verified snapshot stays available through stream failure and resets befo
 })
 
 test('opening a conversation restores the saved manual model from its authoritative snapshot', async t => {
-  const persisted: Session = { ...session('a'), selectionMode: 'manual', selectionTier: 'quality', manualModelKey: 'other' }
+  const persisted: Session = { ...session('a'), manualModelKey: 'other' }
   const f = fixture(t, path => path === '/sessions/a/snapshot' ? Promise.resolve({ session: persisted,
     throughSequence: 0, messages: [], events: [], hasOlder: false, queuedInputs: [], hasOlderEvents: false }) : undefined)
   f.modelCatalog.value.models.push({ key: 'other', id: 'other-model', provider: 'openai-chat', recognized: true })
-  await f.conversation.selectSession({ ...session('a'), selectionMode: 'auto', selectionTier: 'speed' })
-  assert.equal(f.conversation.selectionMode.value, 'manual')
-  assert.equal(f.conversation.selectionTier.value, 'quality')
+  await f.conversation.selectSession({ ...session('a') })
   assert.equal(f.conversation.selectedModel.value, 'other')
   assert.equal(f.conversation.selected.value?.manualModelKey, 'other')
 })
 
-for (const edit of ['mode and tier', 'manual model'] as const) {
-  test(`a delayed opening snapshot preserves the newer local ${edit}`, async t => {
-    const pending = deferred<unknown>()
-    const f = fixture(t, path => path === '/sessions/a/snapshot' ? pending.promise : undefined)
-    f.modelCatalog.value.models.push({ key: 'other', id: 'other-model', provider: 'openai-chat', recognized: true })
-    const initial: Session = { ...session('a'), selectionMode: 'manual', selectionTier: 'speed', manualModelKey: 'example' }
-    const opening = f.conversation.selectSession(initial)
-    if (edit === 'mode and tier') {
-      f.conversation.chooseSelectionMode('auto')
-      f.conversation.chooseSelectionTier('quality')
-    } else f.conversation.chooseModel('other')
-    pending.resolve({ session: initial, throughSequence: 0, messages: [], events: [], hasOlder: false, queuedInputs: [], hasOlderEvents: false })
-    await opening
-    assert.equal(f.conversation.selectionMode.value, edit === 'mode and tier' ? 'auto' : 'manual')
-    assert.equal(f.conversation.selectionTier.value, edit === 'mode and tier' ? 'quality' : 'speed')
-    assert.equal(f.conversation.selectedModel.value, edit === 'manual model' ? 'other' : 'example')
-  })
-}
+test('a delayed opening snapshot does not overwrite a newly selected processing tier', async t => {
+  const pending = deferred<unknown>()
+  const f = fixture(t, path => path === '/sessions/a/snapshot' ? pending.promise : undefined)
+  f.modelCatalog.value.models[0]!.processingTiers = ['standard', 'fast']
+  const initial = { ...session('a'), manualModelKey: 'example', processingTier: 'standard' }
+  const opening = f.conversation.selectSession(initial)
+  f.conversation.chooseProcessingTier('fast')
+  pending.resolve({ session: initial, throughSequence: 0, messages: [], events: [], hasOlder: false, queuedInputs: [], hasOlderEvents: false })
+  await opening
+  assert.equal(f.conversation.selectedProcessingTier.value, 'fast')
+})
 
 test('sending while the opening snapshot is pending preserves the submitted selection', async t => {
   const pending = deferred<unknown>()
@@ -279,20 +270,16 @@ test('sending while the opening snapshot is pending preserves the submitted sele
       return Promise.resolve({ runId: 'new', message: message('new-user', 1, 'new') })
     }
   })
-  const opening = f.conversation.selectSession({ ...session('a'), selectionMode: 'auto', selectionTier: 'quality' })
+  const opening = f.conversation.selectSession({ ...session('a') })
   f.conversation.draft.value = 'Use the displayed choice'
   await f.conversation.send()
-  pending.resolve({ session: { ...session('a'), selectionMode: 'manual', selectionTier: 'speed' },
+  pending.resolve({ session: { ...session('a') },
     throughSequence: 0, messages: [], events: [], hasOlder: false, queuedInputs: [], hasOlderEvents: false })
   await opening
-  assert.equal(submitted.selectionMode, 'auto')
-  assert.equal(submitted.selectionTier, 'quality')
-  assert.equal(f.conversation.selectionMode.value, 'auto')
-  assert.equal(f.conversation.selectionTier.value, 'quality')
 })
 
-for (const choice of ['auto', 'manual'] as const) for (const timing of ['before response', 'after response', 'failed response'] as const) {
-  test(`structured answers retain the submitted ${choice} selection when the opening snapshot arrives ${timing}`, async t => {
+for (const timing of ['before response', 'after response', 'failed response'] as const) {
+  test(`structured answers retain the submitted model selection when the opening snapshot arrives ${timing}`, async t => {
     const snapshot = deferred<unknown>(), response = deferred<unknown>()
     const posted: Record<string, unknown>[] = []
     const accepted = { runId: 'continued', message: message('answer', 1, 'continued') }
@@ -304,13 +291,13 @@ for (const choice of ['auto', 'manual'] as const) for (const timing of ['before 
       }
     })
     f.modelCatalog.value.models.push({ key: 'other', provider: 'openai-chat', id: 'other-model', recognized: true, reasoningOptions: ['low', 'high'] })
-    const opening = f.conversation.selectSession({ ...session('a'), selectionMode: choice, selectionTier: 'quality',
+    const opening = f.conversation.selectSession({ ...session('a'),
       manualModelKey: 'other', pendingReply: questionPending() })
     const before = { model: f.conversation.selectedModel.value, reasoning: f.conversation.selectedReasoning.value }
     const answers = [{ options: ['B'] }]
     const submission = f.conversation.submitQuestion('question-run', answers)
     const resolveSnapshot = async () => {
-      snapshot.resolve({ session: { ...session('a'), selectionMode: 'manual', selectionTier: 'speed', manualModelKey: 'example', pendingReply: questionPending() },
+      snapshot.resolve({ session: { ...session('a'), manualModelKey: 'example', pendingReply: questionPending() },
         throughSequence: 0, messages: [], events: [], hasOlder: false, queuedInputs: [], hasOlderEvents: false })
       await opening
     }
@@ -319,13 +306,9 @@ for (const choice of ['auto', 'manual'] as const) for (const timing of ['before 
     else response.resolve(accepted)
     assert.equal(await submission, timing !== 'failed response')
     if (timing !== 'before response') await resolveSnapshot()
-    assert.equal(posted[0]!.selectionMode, choice)
-    assert.equal(posted[0]!.selectionTier, 'quality')
-    assert.equal(f.conversation.selectionMode.value, choice)
-    assert.equal(f.conversation.selectionTier.value, 'quality')
     assert.equal(f.conversation.selectedModel.value, before.model)
     assert.equal(f.conversation.selectedReasoning.value, before.reasoning)
-    if (choice === 'manual') assert.equal(posted[0]!.modelKey, 'other')
+    assert.equal(posted[0]!.modelKey, 'other')
     if (timing === 'failed response') {
       assert.equal(await f.conversation.submitQuestion('question-run', answers), true)
       assert.deepEqual(posted[1], posted[0])
@@ -386,7 +369,7 @@ test('quoted selections preserve the draft and become ordinary persisted user co
   assert.deepEqual(JSON.parse(saved.get(quoteStoragePrefix + 'a')!).items, conversation.quotedTexts.value)
   await conversation.send()
   assert.deepEqual(sent, [{ content: '> Quote 1 · quotedReply\n> First line\n> 第二行 café 🙂\n\nExplain this part.',
-    modelKey: 'example', reasoningEffort: 'low', selectionMode: 'manual', selectionTier: 'speed', images: [] }])
+    modelKey: 'example', reasoningEffort: 'low', processingTier: '', images: [] }])
   assert.equal(conversation.messages.value.at(-1)?.content, sent[0]!.content)
   assert.equal(conversation.quotedTexts.value.length, 0)
   assert.equal(conversation.draft.value, '')
@@ -465,15 +448,13 @@ for (const failed of [false, true]) {
   })
 }
 
-test('attachments use server capabilities for manual and automatic selection without a protocol whitelist', t => {
+test('attachments use server capabilities from the selected model without a protocol whitelist', t => {
   const { conversation, modelCatalog } = fixture(t)
   modelCatalog.value.models.push({ key: 'new-protocol', provider: 'future-protocol', recognized: true, id: 'vision', inputModalities: ['text', 'image'] })
   conversation.chooseModel('new-protocol')
   assert.equal(conversation.canAttachImage.value, true)
   conversation.chooseModel('example')
   assert.equal(conversation.canAttachImage.value, false)
-  conversation.selectionMode.value = 'auto'
-  assert.equal(conversation.canAttachImage.value, true)
   modelCatalog.value.models[1]!.inputModalities = ['text']
   assert.equal(conversation.canAttachImage.value, false)
 })
@@ -804,24 +785,8 @@ test('a late read receipt cannot mark the next selected conversation read', asyn
 })
 
 
-test('automatic mode keeps manual model and reasoning memory independent', async t => {
-  const { conversation, modelCatalog, saved, streams } = fixture(t)
-  modelCatalog.value.models.push({ key: 'second', provider: 'openai-chat', recognized: true, id: 'model-second', reasoningOptions: ['low', 'high'] })
-  await conversation.selectSession(session('a'))
-  conversation.chooseModel('second')
-  conversation.selectedReasoning.value = 'high'
-  const manual = saved.get('vista-last-model')
-  conversation.chooseSelectionMode('auto')
-  streams.get('a')!.onEvent({ sequence: 2, kind: 'message', data: message('auto-user', 2, 'auto-run') })
-  streams.get('a')!.onEvent({ sequence: 3, kind: 'model_request', data: { runId: 'auto-run', turn: 1, key: 'example', id: 'model', provider: 'openai-chat' } })
-  assert.equal(conversation.selectedModel.value, 'example')
-  assert.equal(saved.get('vista-last-model'), manual)
-  conversation.chooseSelectionMode('manual')
-  assert.equal(conversation.selectedModel.value, 'second')
-  assert.equal(conversation.selectedReasoning.value, 'high')
-})
 
-test('hiding an active unknown choice also excludes restored manual choices and in-flight automatic events', async t => {
+test('hiding an active unknown choice also excludes restored choices without switching models', async t => {
   const { conversation, modelCatalog, streams } = fixture(t)
   modelCatalog.value = { ...modelCatalog.value, showUnrecognizedModels: true, models: [
     ...modelCatalog.value.models,
@@ -833,20 +798,16 @@ test('hiding an active unknown choice also excludes restored manual choices and 
   assert.equal(conversation.selectedModel.value, 'unknown')
 
   modelCatalog.value = { ...modelCatalog.value, showUnrecognizedModels: false }
-  assert.equal(conversation.selectedModel.value, 'example')
-  assert.equal(conversation.selected.value?.modelKey, 'unknown') // Recorded execution identity is history.
+  assert.equal(conversation.selectedModel.value, '')
+  assert.equal(conversation.selected.value?.modelKey, 'unknown')
   assert.equal(conversation.draft.value, 'Keep this draft')
   conversation.chooseModel('unknown')
-  assert.equal(conversation.selectedModel.value, 'example')
-  conversation.chooseSelectionMode('auto')
-  streams.get('a')!.onEvent({ sequence: 2, kind: 'message', data: message('auto-user', 2, 'auto-run') })
-  streams.get('a')!.onEvent({ sequence: 3, kind: 'model_request', data: { runId: 'auto-run', turn: 1, key: 'unknown', id: 'private-id', provider: 'openai-chat' } })
-  assert.equal(conversation.selectedModel.value, 'example')
-  conversation.chooseSelectionMode('manual')
+  assert.equal(conversation.selectedModel.value, '')
+  conversation.chooseModel('example')
   assert.equal(conversation.selectedModel.value, 'example')
 })
 
-test('hiding the only selected model clears selection across mode changes and reopening a session', async t => {
+test('hiding the only selected model clears selection without switching on reopen', async t => {
   const { conversation, modelCatalog } = fixture(t)
   const old = { ...session('a'), modelKey: 'unknown', manualModelKey: 'unknown' }
   modelCatalog.value = { default: 'unknown', showUnrecognizedModels: true, models: [
@@ -857,9 +818,7 @@ test('hiding the only selected model clears selection across mode changes and re
   assert.equal(conversation.selectedModel.value, 'unknown')
   modelCatalog.value = { ...modelCatalog.value, showUnrecognizedModels: false }
   assert.equal(conversation.selectedModel.value, '')
-  conversation.chooseSelectionMode('auto')
   assert.equal(conversation.canAttachImage.value, false)
-  conversation.chooseSelectionMode('manual')
   assert.equal(conversation.selectedModel.value, '')
   await conversation.selectSession(old)
   assert.equal(conversation.selectedModel.value, '')
@@ -931,21 +890,6 @@ for (const fail of [false, true]) {
   })
 }
 
-test('feedback belongs to the reply and can be changed and removed without changing the selected model', async t => {
-  const votes: unknown[] = []
-  const { conversation } = fixture(t, (path, options) => {
-    if (path.endsWith('/messages/reply/feedback') && options?.method === 'PUT') { votes.push(JSON.parse(String(options.body))); return Promise.resolve({}) }
-  })
-  await conversation.selectSession(session('a'))
-  const reply = { ...message('reply', 2, 'run', 'assistant'), modelId: 'previous-model' }
-  await conversation.rateMessage(reply, 'up')
-  assert.equal(conversation.feedback.value.reply, 'up')
-  await conversation.rateMessage(reply, 'down')
-  assert.equal(conversation.feedback.value.reply, 'down')
-  await conversation.rateMessage(reply, 'down')
-  assert.equal(conversation.feedback.value.reply, undefined)
-  assert.deepEqual(votes, [{ value: 'up' }, { value: 'down' }, { value: null }])
-})
 
 
 test('auxiliary refresh never reads or replaces the transaction-owned input queue', async t => {
@@ -1114,14 +1058,12 @@ test('successful send dismisses Continue, while failed send preserves the draft 
   assert.equal(conversation.draft.value, '')
 })
 
-test('welcome view restores the last model, reasoning, mode and tier after preferences and catalog become available', t => {
+test('welcome view restores the last model, and reasoning after preferences and catalog become available', t => {
   const { conversation, preferences, modelCatalog } = fixture(t)
   preferences.ready.value = false
   modelCatalog.value = { default: '', models: [] }
   preferences.rememberedModel.value = { key: 'other', id: 'other-id', reasoningEffort: 'high' }
   preferences.reasoningByModelId.value = { 'other-id': 'high' }
-  preferences.lastTier.value = 'quality'
-  preferences.lastMode.value = 'auto'
   modelCatalog.value = { default: 'example', models: [
     { key: 'example', id: 'model', provider: 'openai-chat', recognized: true },
     { key: 'other', id: 'other-id', provider: 'openai-chat', recognized: true, reasoningOptions: ['low', 'high'] },
@@ -1129,9 +1071,6 @@ test('welcome view restores the last model, reasoning, mode and tier after prefe
   preferences.ready.value = true
   assert.equal(conversation.selected.value, null)
   assert.equal(conversation.selectedModel.value, 'other')
-  assert.equal(conversation.selectionMode.value, 'auto')
-  assert.equal(conversation.selectionTier.value, 'quality')
-  conversation.chooseSelectionMode('manual')
   assert.equal(conversation.selectedModel.value, 'other')
   assert.equal(conversation.selectedReasoning.value, 'high')
 })
@@ -1222,7 +1161,7 @@ test('the first welcome send creates one session and sends the exact chosen mode
   assert.deepEqual(posts[1].body, { name: 'welcome.png', bytes: 3 })
   assert.deepEqual(posts[2].body, {
     content: 'Exact first message', images: [{ hash: 'a'.repeat(64), mediaType: 'image/png', name: 'welcome.png', bytes: 3 }],
-    modelKey: 'second', reasoningEffort: 'high', selectionMode: 'manual', selectionTier: 'speed',
+    modelKey: 'second', reasoningEffort: 'high', processingTier: '',
   })
   assert.deepEqual(destinations, ['first'])
   assert.equal(conversation.selected.value?.id, 'first')
@@ -1282,7 +1221,7 @@ test('failure analysis sends once into a new conversation with the current selec
   await opening
   assert.deepEqual(posts.map(item => item.path), ['/sessions', '/sessions/analysis/messages'])
   assert.deepEqual({ ...posts[1]!.body, content: undefined }, {
-    content: undefined, images: [], modelKey: 'example', reasoningEffort: 'high', selectionMode: 'manual', selectionTier: 'speed',
+    content: undefined, images: [], modelKey: 'example', reasoningEffort: 'high', processingTier: '',
   })
   assert.ok(String(posts[1]!.body.content).startsWith('failureAnalysisPrompt'))
   assert.ok(!String(posts[1]!.body.content).includes('<|start|>'))
@@ -1301,31 +1240,10 @@ test('failure analysis sends once into a new conversation with the current selec
   assert.equal(f.conversation.quotedTexts.value[0]?.text, 'Original quote')
 })
 
-test('failure analysis preserves automatic model selection without forcing a manual model', async t => {
-  let submitted: Record<string, unknown> = {}
-  const f = fixture(t, (path, options) => {
-    if (options?.method !== 'POST') return
-    if (path === '/sessions') return Promise.resolve(session('analysis'))
-    if (path === '/sessions/analysis/messages') {
-      submitted = JSON.parse(String(options.body))
-      return Promise.resolve({})
-    }
-  })
-  await f.conversation.selectSession(session('a'))
-  f.conversation.chooseSelectionMode('auto')
-  f.conversation.chooseSelectionTier('quality')
-  await f.conversation.analyzeFailure({ kind: 'compaction', runId: 'compact-run', error: 'Failed to compact' })
-  assert.equal(submitted.selectionMode, 'auto')
-  assert.equal(submitted.selectionTier, 'quality')
-  assert.equal(submitted.modelKey, undefined)
-  assert.equal(submitted.reasoningEffort, undefined)
-  assert.equal(f.conversation.selectionMode.value, 'auto')
-  assert.equal(f.conversation.selectionTier.value, 'quality')
-})
 
 test('failure analysis restores persisted selection when routing uses the earlier creation summary', async t => {
-  const created: Session = { ...session('analysis'), selectionMode: 'manual', selectionTier: 'speed' }
-  const persisted: Session = { ...created, selectionMode: 'auto', selectionTier: 'quality' }
+  const created: Session = { ...session('analysis') }
+  const persisted: Session = { ...created }
   let submitted: Record<string, unknown> = {}
   const f = fixture(t, (path, options) => {
     if (path === '/sessions/analysis/snapshot') return Promise.resolve({ session: persisted,
@@ -1340,19 +1258,14 @@ test('failure analysis restores persisted selection when routing uses the earlie
       return Promise.resolve({})
     }
   }, async item => { await f.conversation.selectSession(f.sessions.value.find(entry => entry.id === item.id)!) })
-  await f.conversation.selectSession({ ...session('a'), selectionMode: 'auto', selectionTier: 'quality' })
+  await f.conversation.selectSession({ ...session('a') })
   await f.conversation.analyzeFailure({ kind: 'compaction', runId: 'compact-run', error: 'Failed to compact' })
-  assert.equal(submitted.selectionMode, 'auto')
-  assert.equal(submitted.selectionTier, 'quality')
-  assert.equal(submitted.modelKey, undefined)
+  assert.equal(submitted.modelKey, 'example')
   assert.equal(f.conversation.selected.value?.id, 'analysis')
-  assert.equal(f.conversation.selectionMode.value, 'auto')
-  assert.equal(f.conversation.selectionTier.value, 'quality')
-  assert.equal(f.conversation.selected.value?.selectionMode, 'auto')
 })
 
-test('a rejected diagnostic first message keeps its automatic retry choice despite the empty saved snapshot', async t => {
-  const created: Session = { ...session('analysis'), selectionMode: 'manual', selectionTier: 'speed' }
+test('a rejected diagnostic first message keeps its retry choice despite the empty saved snapshot', async t => {
+  const created: Session = { ...session('analysis') }
   const f = fixture(t, (path, options) => {
     if (path === '/sessions/analysis/snapshot') return Promise.resolve({ session: created,
       throughSequence: 0, messages: [], events: [], hasOlder: false, queuedInputs: [], hasOlderEvents: false })
@@ -1360,12 +1273,9 @@ test('a rejected diagnostic first message keeps its automatic retry choice despi
     if (path === '/sessions') return Promise.resolve(created)
     if (path === '/sessions/analysis/messages') return Promise.reject(new Error('capacity unavailable'))
   })
-  await f.conversation.selectSession({ ...session('a'), selectionMode: 'auto', selectionTier: 'quality' })
+  await f.conversation.selectSession({ ...session('a') })
   await f.conversation.analyzeFailure({ kind: 'compaction', runId: 'compact-run', error: 'Failed to compact' })
   assert.equal(f.conversation.selected.value?.id, created.id)
-  assert.equal(f.conversation.selectionMode.value, 'auto')
-  assert.equal(f.conversation.selectionTier.value, 'quality')
-  assert.equal(f.conversation.selected.value?.selectionMode, 'auto')
   assert.match(f.conversation.draft.value, /Failed to compact/)
   assert.match(f.error.value, /capacity unavailable/)
 })
@@ -1439,31 +1349,6 @@ test('a failed first message keeps the created session and retry sends without c
   assert.equal(conversation.draft.value, '')
 })
 
-test('the initial automatic send carries mode and tier while keeping remembered manual selection independent', async t => {
-  let submitted: unknown
-  const { conversation, saved } = fixture(t, (path, options) => {
-    if (path === '/sessions/first/snapshot') return Promise.resolve({
-      session: { ...session('first'), selectionMode: 'manual', selectionTier: 'speed' },
-      throughSequence: 0, messages: [], events: [], hasOlder: false, queuedInputs: [], hasOlderEvents: false,
-    })
-    if (options?.method !== 'POST') return
-    if (path === '/sessions') return Promise.resolve(session('first'))
-    if (path === '/sessions/first/messages') {
-      submitted = JSON.parse(String(options.body))
-      return Promise.resolve({ runId: 'auto-run', message: message('first-user', 1, 'auto-run') })
-    }
-  })
-  conversation.selectedReasoning.value = 'high'
-  const remembered = saved.get('vista-last-model')
-  conversation.chooseSelectionMode('auto')
-  conversation.chooseSelectionTier('quality')
-  conversation.draft.value = 'Automatically select'
-  await conversation.send()
-  assert.deepEqual(submitted, { content: 'Automatically select', images: [], selectionMode: 'auto', selectionTier: 'quality' })
-  assert.equal(conversation.selectionMode.value, 'auto')
-  assert.equal(conversation.selectionTier.value, 'quality')
-  assert.equal(saved.get('vista-last-model'), remembered)
-})
 
 test('leaving home during first creation rejects its late result and preserves the new session draft', async t => {
   const creation = deferred<unknown>()
@@ -1756,7 +1641,7 @@ test('structured question submission uses the pending run and selected model wit
   assert.equal(busy.value, true)
   assert.equal(await conversation.submitQuestion('question-run', [{ options: ['A'] }]), false)
   assert.equal(posts, 1)
-  assert.deepEqual(requestBody, { questionReply: { runId: 'question-run', answers: [{ options: ['B'] }] }, selectionMode: 'manual', selectionTier: 'speed', modelKey: 'example', reasoningEffort: 'high' })
+  assert.deepEqual(requestBody, { questionReply: { runId: 'question-run', answers: [{ options: ['B'] }] }, modelKey: 'example', reasoningEffort: 'high', processingTier: '' })
   assert.equal(conversation.draft.value, 'unsent separate message')
   sent.resolve({ runId: 'continuation', message: message('answer B', 5, 'continuation') })
   assert.equal(await submission, true)

@@ -30,7 +30,7 @@ Enable **Show unrecognized models** in Model connections to include them.
 An exact catalog match, explicit input capabilities, or validated capabilities/limits from discovery counts as recognized; a display name alone does not.
 Text-only and non-reasoning models can be recognized.
 This classification describes the metadata available to Vista, not whether a model has particular capabilities; recognition does not imply complete metadata.
-Existing manual choices, the default model, and automatic tier bindings follow the setting too; a hidden choice falls back to a visible model, and no visible models leaves selection unavailable.
+Hidden choices are not selectable. An existing hidden or disconnected choice requires explicit reselection.
 Changing visibility does not interrupt an execution already in progress; subsequent executions apply the current setting.
 Filtering does not remove models from connection inventories or conversation history and is not a provider-compatibility check.
 
@@ -52,7 +52,7 @@ Reasoning levels are limited to Vista's supported effort values and the selected
 Positive integer limits are bounded before use, and each optional field and model is decoded independently.
 Explicit input or output modality lists without text exclude a model from the conversation inventory.
 Explicit user restrictions can further narrow context, tools, and input modalities.
-These derived values feed the composer, automatic selection, and Worker request configuration; they remain in memory and are not written into connection settings.
+These derived values feed the composer and Worker request configuration; they remain in memory and are not written into connection settings.
 Discovery cannot replace API formats, endpoints, authentication, or request headers.
 
 Discovery schedules are implemented separately: custom/Zen every minute, Copilot every five minutes, local services every 30 seconds. Temporary discovery errors retain the latest successful inventory. Editing a connection invalidates obsolete discovery responses. See [custom](../internal/server/custom_models.go), [Copilot](../internal/server/copilot_models.go), and [local](../internal/server/local_models.go) discovery.
@@ -160,3 +160,11 @@ The saved configuration and `POST` / `PUT /api/provider-config` accept an explic
 Legacy `codex-compatible` configurations retain their session-derived cache key. `promptCaching.key: false` disables only that key; `promptCaching.format: "none"` omits cache hints while retaining explicitly enabled routing. Conversely, cache-key support alone adds no Codex headers.
 
 The first successful response with a valid token seeds the current user turn. Tool continuations, eligible retries and internal full-history resume retain it; delivered new user input resets it. Owner checks include session, connection, model, credentials, endpoint, headers and the effective network configuration, so editing a proxy under the same ID also resets routing. Late responses cannot seed a newer owner or turn. Titles carry no conversation identity; summary and child requests use independent routing state. A Worker restart loses the memory-only token. Static overrides of session-owned headers are rejected. A compatible gateway must preserve this lifecycle and must not carry one serving account's opaque token across account-pool failover.
+
+## Processing tiers
+
+In the composer, **Processing tier** appears for a model/connection with eligible options. **Provider default** sends no override; **Standard**, where available, explicitly requests ordinary processing. Faster or reserved capacity may use different pricing or quota. Switching tiers can lower cache reuse on the next request; Vista does not change the prompt, cache key, or TTL to switch tiers.
+
+The selection belongs to the chosen model and the next execution. Tool continuations keep its snapshot. Switching the connection or model clears the override. Titles, compaction and child tasks do not inherit it. A returned tier can differ from the selection; an ambiguous or missing report is shown as unconfirmed. Vista keeps the tier on retries and never pays for an automatic upgrade.
+
+[Provider policy](../internal/provider/processing_tier.go) checks the actual built-in endpoint, model and protocol. OpenAI/Codex, Azure, xAI, Gemini, Vertex Gemini, Claude, Bedrock, Ark, DeepInfra, Groq, Mistral, Fireworks, OpenRouter and Vercel AI Gateway do not share an identical parameter or tier set. Codex uses its authenticated model catalog over HTTP; OpenRouter uses per-model endpoint advertisements and supported routing constraints. The provider still enforces account entitlements and capacity. A deployment whose capabilities cannot be established (for example, an opaque Ark endpoint or an unverified Cerebras dedicated endpoint) does not gain a selector by inference. Custom providers manage their own tiers, for example via model aliases, and receive no Vista tier override.

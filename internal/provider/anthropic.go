@@ -104,6 +104,7 @@ func anthropicTurn(ctx context.Context, model modelcfg.Model, messages []ChatMes
 	if thinking, ok := body["thinking"].(*modelcfg.ThinkingOption); ok {
 		thinkingBinding = thinking.BlockBinding != nil
 	}
+	applyProcessingBody(model, body)
 	encoded, err := json.Marshal(body)
 	if err != nil {
 		return Turn{}, err
@@ -168,7 +169,9 @@ func anthropicTurn(ctx context.Context, model modelcfg.Model, messages []ChatMes
 	stopped := false
 	var usage *ModelUsage
 	defer retainStreamResult(&result, &text, &stopReason, &usage)
+	var reportedTier string
 	type usageEvent struct {
+		Speed               string `json:"speed"`
 		InputTokens         *int64 `json:"input_tokens"`
 		OutputTokens        *int64 `json:"output_tokens"`
 		CacheReadTokens     *int64 `json:"cache_read_input_tokens"`
@@ -181,6 +184,9 @@ func anthropicTurn(ctx context.Context, model modelcfg.Model, messages []ChatMes
 	mergeUsage := func(u *usageEvent) error {
 		if u == nil {
 			return nil
+		}
+		if u.Speed != "" {
+			reportedTier = u.Speed
 		}
 		candidate := ModelUsage{}
 		if usage != nil {
@@ -444,7 +450,7 @@ func anthropicTurn(ctx context.Context, model modelcfg.Model, messages []ChatMes
 	if uncapturedText {
 		ordered = nil
 	}
-	return Turn{Text: text.String(), Calls: calls, FinishReason: stopReason, Usage: usage, AnthropicBlocks: ordered}, nil
+	return Turn{ReportedProcessingTier: reportedTier, Text: text.String(), Calls: calls, FinishReason: stopReason, Usage: usage, AnthropicBlocks: ordered}, nil
 }
 
 var claudeVersionPattern = regexp.MustCompile(`(?:^|[./])claude-[a-z]+-(\d+)(?:[.-](\d{1,2}))?(?:$|[-:@])`)

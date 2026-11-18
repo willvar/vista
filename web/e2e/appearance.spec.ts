@@ -48,7 +48,6 @@ test.describe('appearance during execution', () => {
   test.use({ progressCalls: 1 })
 
   test('changing theme preserves streaming text, completion and execution details', async ({ page, vista }, testInfo) => {
-    await vista.api('/preferences', { method: 'PATCH', body: JSON.stringify({ feedbackInvitationSeen: true }) })
     await page.reload()
     const release = vista.pauseModelReplies(true)
     try {

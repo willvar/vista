@@ -38,6 +38,9 @@ type Statistics struct {
 }
 
 func (s *Store) initStatistics() error {
+	if err := s.orm.AutoMigrate(&callUsageRow{}); err != nil {
+		return err
+	}
 	ctx := context.Background()
 	tx, err := s.begin(ctx, nil)
 	if err != nil {
@@ -49,6 +52,8 @@ func (s *Store) initStatistics() error {
 		`CREATE TABLE IF NOT EXISTS activity_minutes (minute INTEGER PRIMARY KEY)`,
 		`CREATE TABLE IF NOT EXISTS token_usage (id TEXT PRIMARY KEY, minute INTEGER NOT NULL, tokens INTEGER)`,
 		`CREATE INDEX IF NOT EXISTS token_usage_by_minute ON token_usage(minute)`,
+		`CREATE INDEX IF NOT EXISTS connection_usage_by_connection ON connection_usage(connection,at)`,
+		`CREATE INDEX IF NOT EXISTS connection_usage_by_time ON connection_usage(at)`,
 	} {
 		if _, err = execSQL(ctx, tx, query); err != nil {
 			return err
@@ -95,7 +100,8 @@ func pruneStatistics(ctx context.Context, tx *gorm.DB, now time.Time) error {
 			return err
 		}
 	}
-	return nil
+	_, err := execSQL(ctx, tx, `DELETE FROM connection_usage WHERE at<?`, cutoff*60)
+	return err
 }
 
 // ResetStatistics leaves conversation history and its one-time migration marker
@@ -106,7 +112,7 @@ func (s *Store) ResetStatistics(ctx context.Context, now time.Time) error {
 		return err
 	}
 	defer tx.Rollback()
-	for _, query := range []string{`DELETE FROM activity_minutes`, `DELETE FROM token_usage`} {
+	for _, query := range []string{`DELETE FROM activity_minutes`, `DELETE FROM token_usage`, `DELETE FROM connection_usage`} {
 		if _, err = execSQL(ctx, tx, query); err != nil {
 			return err
 		}

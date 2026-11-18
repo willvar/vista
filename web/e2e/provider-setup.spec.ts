@@ -548,7 +548,6 @@ test('custom API format and authentication stay independent through edit, reload
   try {
     const address = upstream.address()
     if (!address || typeof address === 'string') throw new Error('Missing custom test address')
-    await vista.api('/preferences', { method: 'PATCH', body: JSON.stringify({ feedbackInvitationSeen: true }) })
     await page.goto(vista.origin + '/settings/models')
     const modal = page.locator('.settings-page')
     await modal.getByRole('button', { name: 'Connect provider', exact: true }).click()
@@ -638,7 +637,6 @@ test('custom connection supports anonymous access and advanced headers through s
   try {
     const address = upstream.address()
     if (!address || typeof address === 'string') throw new Error('Missing custom test address')
-    await vista.api('/preferences', { method: 'PATCH', body: JSON.stringify({ feedbackInvitationSeen: true }) })
     await page.goto(vista.origin + '/settings/models')
     const modal = page.locator('.settings-page')
     await modal.getByRole('button', { name: 'Connect provider', exact: true }).click()

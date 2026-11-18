@@ -333,6 +333,7 @@ func openAIChatTurnWithReasoning(ctx context.Context, model modelcfg.Model, mess
 	if err != nil {
 		return Turn{}, err
 	}
+	applyProcessingBody(model, body)
 	requestBody, err := json.Marshal(body)
 	if err != nil {
 		return Turn{}, err
@@ -398,6 +399,8 @@ func openAIChatTurnWithReasoning(ctx context.Context, model modelcfg.Model, mess
 	nextToolIndex := 0
 	var sources citationSources
 	finishReason := ""
+	var reportedTier string
+	defer func() { result.ReportedProcessingTier = reportedTier }()
 	var usage *ModelUsage
 	defer retainStreamResult(&result, &reply, &finishReason, &usage)
 	done := false
@@ -451,16 +454,20 @@ func openAIChatTurnWithReasoning(ctx context.Context, model modelcfg.Model, mess
 				Usage        *chatStreamUsage `json:"usage"`
 			}
 			var event struct {
-				Error       json.RawMessage  `json:"error"`
-				Choices     []choice         `json:"choices"`
-				Citations   []string         `json:"citations"`
-				Usage       *chatStreamUsage `json:"usage"`
-				FinalResult struct {
+				ProcessingTier string           `json:"service_tier"`
+				Error          json.RawMessage  `json:"error"`
+				Choices        []choice         `json:"choices"`
+				Citations      []string         `json:"citations"`
+				Usage          *chatStreamUsage `json:"usage"`
+				FinalResult    struct {
 					Choices []choice `json:"choices"`
 				} `json:"final_result"`
 			}
 			if err := json.Unmarshal([]byte(payload), &event); err != nil {
 				return Turn{}, fmt.Errorf("invalid model stream event: %w", err)
+			}
+			if event.ProcessingTier != "" {
+				reportedTier = event.ProcessingTier
 			}
 			if event.Usage != nil {
 				candidate, err := chatModelUsage(event.Usage)

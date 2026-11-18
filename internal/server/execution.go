@@ -15,7 +15,6 @@ import (
 	"github.com/google/uuid"
 
 	modelcfg "vista/internal/model"
-	"vista/internal/modelcatalog"
 	"vista/internal/modeltrace"
 	"vista/internal/network"
 	"vista/internal/platform"
@@ -41,15 +40,15 @@ func workerImages(images []store.Image) []workerproto.Image {
 func (a *App) submitMessage(w http.ResponseWriter, r *http.Request, sessionID string) {
 	debug := requestDebugMode(r)
 	var input struct {
-		ReplacesMessageID string          `json:"replacesMessageId"`
-		Content           string          `json:"content"`
-		Mode              string          `json:"mode"` // Legacy immediate sends remain accepted.
-		ModelKey          string          `json:"modelKey"`
-		ReasoningEffort   string          `json:"reasoningEffort"`
-		SelectionMode     string          `json:"selectionMode"`
-		SelectionTier     string          `json:"selectionTier"`
-		QuestionReply     *question.Reply `json:"questionReply,omitempty"`
-		Images            []resources.Ref `json:"images"`
+		ReplacesMessageID string  `json:"replacesMessageId"`
+		Content           string  `json:"content"`
+		Mode              string  `json:"mode"` // Legacy immediate sends remain accepted.
+		ModelKey          string  `json:"modelKey"`
+		ReasoningEffort   string  `json:"reasoningEffort"`
+		ProcessingTier    *string `json:"processingTier"`
+
+		QuestionReply *question.Reply `json:"questionReply,omitempty"`
+		Images        []resources.Ref `json:"images"`
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, 64<<10)
 	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
@@ -120,21 +119,10 @@ func (a *App) submitMessage(w http.ResponseWriter, r *http.Request, sessionID st
 			return
 		}
 	}
-	mode, tier := input.SelectionMode, input.SelectionTier
-	if mode == "" {
-		mode = item.SelectionMode
-	}
-	if tier == "" {
-		tier = item.SelectionTier
-	}
-	if !validSelectionMode(mode) || !validSelectionTier(tier) {
-		http.Error(w, "invalid selection mode or tier", 400)
-		return
-	}
 	catalog := a.modelsSnapshot()
 	if input.ReplacesMessageID != "" {
 		// Reject malformed model/image choices before discarding usable history.
-		if mode == "manual" {
+		{
 			key := input.ModelKey
 			if key == "" {
 				key = item.ManualModelKey
@@ -147,14 +135,11 @@ func (a *App) submitMessage(w http.ResponseWriter, r *http.Request, sessionID st
 				http.Error(w, resolveErr.Error(), 400)
 				return
 			}
-			effort := input.ReasoningEffort
-			if effort == "" {
-				if resolved == item.ManualModelKey {
-					effort = item.ManualReasoningEffort
-				}
-				effort = restoredManualEffort(model, effort)
+			model.Key = resolved
+			if input.ProcessingTier != nil && *input.ProcessingTier != "" || item.ManualModelKey == resolved && item.ProcessingTier != "" {
+				model = a.processingTierMetadata(r.Context(), model)
 			}
-			if err := modelcatalog.ApplyReasoningEffort(&model, effort); err != nil {
+			if _, err := applyManualSelection(&model, resolved, item, selectionInput{ReasoningEffort: input.ReasoningEffort, ProcessingTier: input.ProcessingTier}); err != nil {
 				http.Error(w, err.Error(), 400)
 				return
 			}
@@ -199,8 +184,8 @@ func (a *App) submitMessage(w http.ResponseWriter, r *http.Request, sessionID st
 	}
 	messageID := uuid.NewString()
 	if input.QuestionReply == nil && runningErr == nil {
-		// Queue acceptance does not select an automatic model or mutate an
-		// active execution. Model/mode preferences apply when a new run starts.
+		// Queue acceptance does not mutate an
+		// active execution. Model preferences apply when a new run starts.
 		key, effort := input.ModelKey, input.ReasoningEffort
 		if key == "" {
 			key = item.ManualModelKey
@@ -210,9 +195,6 @@ func (a *App) submitMessage(w http.ResponseWriter, r *http.Request, sessionID st
 		}
 		if effort == "" && key == item.ManualModelKey {
 			effort = item.ManualReasoningEffort
-		}
-		if mode == "auto" {
-			key, effort = "", ""
 		}
 		if len(images) > 0 {
 			allowed := false
@@ -227,7 +209,7 @@ func (a *App) submitMessage(w http.ResponseWriter, r *http.Request, sessionID st
 				return
 			}
 		}
-		queued, event, queueErr := a.store.QueueInputWithDiagnostics(r.Context(), sessionID, messageID, input.Content, images, debug, key, effort, mode, tier)
+		queued, event, queueErr := a.store.QueueInputWithDiagnostics(r.Context(), sessionID, messageID, input.Content, images, debug, key, effort)
 		if queueErr == nil {
 			a.notifySession(sessionID, "sessions")
 			_ = a.sendWorker(sessionID, workerproto.Command{Action: "wake", RunID: queued.RunID})
@@ -249,21 +231,14 @@ func (a *App) submitMessage(w http.ResponseWriter, r *http.Request, sessionID st
 		return
 	}
 	model, modelKey, err := a.resolveSelection(r.Context(), sessionID, selectionInput{
-		SelectionMode: mode, SelectionTier: tier,
 		ModelKey: input.ModelKey, ReasoningEffort: input.ReasoningEffort,
-		InputTokens: store.SelectionTextTokens(input.Content), HasImages: len(images) > 0,
+		ProcessingTier: input.ProcessingTier,
 	})
 	if err != nil {
 		http.Error(w, err.Error(), 400)
 		return
 	}
 	model.Key = modelKey
-	dispatched := false
-	defer func() {
-		if !dispatched && mode == "auto" {
-			a.finishUnobservedSelection(context.Background(), model, "unavailable")
-		}
-	}()
 	if len(images) > 0 {
 		allowed := false
 		for _, entry := range catalog.Models {
@@ -332,7 +307,6 @@ func (a *App) submitMessage(w http.ResponseWriter, r *http.Request, sessionID st
 		http.Error(w, err.Error(), 503)
 		return
 	}
-	dispatched = true
 	w.WriteHeader(202)
 	jsonOut(w, map[string]any{"runId": runID, "message": message, "event": event})
 }
@@ -352,10 +326,6 @@ func (a *App) dispatchRun(ctx context.Context, sessionID, runID string, message 
 		}
 	}()
 	model.SessionID = sessionID
-	if err := a.store.RecordRunSelection(ctx, runID, model.ID, provider.ModelSelectionEffort(model), provider.ModelEndpointID(model)); err != nil {
-		failureReason = "Could not record selected model"
-		return err
-	}
 	language, err := a.store.ReplyLanguage(ctx, sessionID)
 	if err != nil {
 		failureReason = "Could not load reply language"
@@ -589,9 +559,7 @@ func (a *App) launchQueuedInput(sessionID string) {
 	// execution uses the user's current preference, including edits made while
 	// the previous task was running.
 	model, _, err := a.resolveSelection(a.ctx, sessionID, selectionInput{
-		SelectionMode: selection.SelectionMode, SelectionTier: selection.SelectionTier,
 		ModelKey: selection.ManualModelKey, ReasoningEffort: selection.ManualReasoningEffort,
-		InputTokens: store.SelectionTextTokens(input.Content), HasImages: input.ImageCount > 0,
 	})
 	if err != nil {
 		_ = a.store.MarkQueuedInputs(a.ctx, sessionID, "", "interrupted")
@@ -600,12 +568,6 @@ func (a *App) launchQueuedInput(sessionID string) {
 		log.Printf("session %s queued model unavailable: %v", sessionID, err)
 		return
 	}
-	dispatched := false
-	defer func() {
-		if !dispatched && selection.SelectionMode == "auto" {
-			a.finishUnobservedSelection(context.Background(), model, "unavailable")
-		}
-	}()
 	runID := uuid.NewString()
 	message, err := a.store.BeginQueuedRun(a.ctx, sessionID, input.ID, runID, uuid.NewString(), model.Key)
 	a.admissionMu.Unlock()
@@ -624,5 +586,4 @@ func (a *App) launchQueuedInput(sessionID string) {
 		log.Printf("session %s queued input dispatch: %v", sessionID, err)
 		return
 	}
-	dispatched = true
 }

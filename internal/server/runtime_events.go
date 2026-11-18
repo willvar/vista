@@ -1,7 +1,6 @@
 package server
 
 import (
-	"context"
 	"errors"
 	"log"
 
@@ -50,17 +49,11 @@ func (a *App) launchRuntimeContinuation(sessionID string) {
 	if err := a.admitRun(available, counts.Running); err != nil {
 		return
 	}
-	model, _, err := a.resolveSelection(a.ctx, sessionID, selectionInput{SelectionMode: selection.SelectionMode, SelectionTier: selection.SelectionTier, ModelKey: selection.ManualModelKey, ReasoningEffort: selection.ManualReasoningEffort})
+	model, _, err := a.resolveSelection(a.ctx, sessionID, selectionInput{ModelKey: selection.ManualModelKey, ReasoningEffort: selection.ManualReasoningEffort})
 	if err != nil {
 		log.Printf("session %s completion model unavailable: %v", sessionID, err)
 		return
 	}
-	dispatched := false
-	defer func() {
-		if !dispatched && selection.SelectionMode == "auto" {
-			a.finishUnobservedSelection(context.Background(), model, "unavailable")
-		}
-	}()
 	runID := uuid.NewString()
 	event, err := a.store.BeginRuntimeRun(a.ctx, sessionID, runID, model.Key)
 	if err != nil || event == nil {
@@ -71,7 +64,6 @@ func (a *App) launchRuntimeContinuation(sessionID string) {
 		log.Printf("session %s completion dispatch: %v", sessionID, err)
 		return
 	}
-	dispatched = true
 }
 
 // Reconsider durable work after any run releases admission capacity.

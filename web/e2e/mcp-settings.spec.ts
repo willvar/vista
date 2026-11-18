@@ -80,7 +80,7 @@ async function mockMCP(page: Page, origin: string) {
       return reply({ ...attempt, authorizationUrl: attempt.status === 'pending' ? 'https://auth.example/authorize' : '' })
     }
     if (method === 'GET') {
-      if (path === '/preferences') return reply({ userId: 'mcp-settings-user', lastMode: 'manual', lastTier: 'speed', manualModelKey: '', reasoningByModelId: {}, feedbackInvitationSeen: true })
+      if (path === '/preferences') return reply({ userId: 'mcp-settings-user', manualModelKey: '', reasoningByModelId: {} })
       if (path === '/models') return reply({ default: '', models: [] })
       if (path === '/agent-settings') return reply({ instructions: '', instructionsPath: '/home/test/.config/vista/AGENTS.md', instructionsSha256: 'missing', automaticTitles: true, delegationDepth: 1, maxDelegationDepth: 8 })
       if (path === '/sessions') return reply([])

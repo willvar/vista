@@ -12,7 +12,6 @@ for (const stream of [false, true]) {
     })
 
     test('shows one upstream error in the conversation without an empty process entry after refresh', async ({ page, vista }, testInfo) => {
-      await vista.api('/preferences', { method: 'PATCH', body: JSON.stringify({ feedbackInvitationSeen: true }) })
       await page.reload()
       await page.locator('.sender-card textarea').fill('Introduce yourself')
       await page.locator('.sender-card textarea').press('Enter')

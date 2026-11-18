@@ -211,7 +211,7 @@ func TestNewMessageAfterFailureDoesNotResumeOldInputs(t *testing.T) {
 				}
 
 				response := httptest.NewRecorder()
-				app.submitMessage(response, httptest.NewRequest(http.MethodPost, "/messages", strings.NewReader(`{"content":"try again","modelKey":"test","selectionMode":"manual"}`)), session)
+				app.submitMessage(response, httptest.NewRequest(http.MethodPost, "/messages", strings.NewReader(`{"content":"try again","modelKey":"test"}`)), session)
 				var sent struct {
 					RunID   string             `json:"runId"`
 					Message store.Message      `json:"message"`
@@ -287,14 +287,14 @@ func TestQueuedRunUsesCurrentSelectionInsteadOfOldSubmissionPreferences(t *testi
 				{Key: "first", Provider: "openai-chat", ID: "gpt-6-astra", BaseURL: "http://127.0.0.1:1/v1", APIKey: "mock"},
 				{Key: "latest", Provider: "openai-chat", ID: "gpt-6-luna", BaseURL: "http://127.0.0.1:1/v1", APIKey: "mock"},
 			}}
-			speed, quality, first, latest, low, high := "speed", "quality", "first", "latest", "low", "high"
-			if _, err := app.store.PatchSessionSelection(app.ctx, session, store.SessionSelectionPatch{SelectionMode: &mode, SelectionTier: &speed, ManualModelKey: &first, ManualReasoningEffort: &low}); err != nil {
+			first, latest, low, high := "first", "latest", "low", "high"
+			if _, err := app.store.PatchSessionSelection(app.ctx, session, store.SessionSelectionPatch{ManualModelKey: &first, ManualReasoningEffort: &low}); err != nil {
 				t.Fatal(err)
 			}
-			if _, _, err := app.store.QueueInput(app.ctx, session, "later", "follow up", first, low, mode, speed); err != nil {
+			if _, _, err := app.store.QueueInput(app.ctx, session, "later", "follow up", first, low); err != nil {
 				t.Fatal(err)
 			}
-			if _, err := app.store.PatchSessionSelection(app.ctx, session, store.SessionSelectionPatch{SelectionTier: &quality, ManualModelKey: &latest, ManualReasoningEffort: &high}); err != nil {
+			if _, err := app.store.PatchSessionSelection(app.ctx, session, store.SessionSelectionPatch{ManualModelKey: &latest, ManualReasoningEffort: &high}); err != nil {
 				t.Fatal(err)
 			}
 			if _, err := app.store.FinishRun(app.ctx, session, "run", "answer", "succeeded", "done"); err != nil {
@@ -308,14 +308,11 @@ func TestQueuedRunUsesCurrentSelectionInsteadOfOldSubmissionPreferences(t *testi
 				t.Fatalf("queue not dispatched: %v %s", err, sink.String())
 			}
 			current, err := app.store.Get(app.ctx, session)
-			if err != nil || current.SelectionTier != quality || current.ManualModelKey != latest || current.ManualReasoningEffort != high {
+			if err != nil || current.ManualModelKey != latest || current.ManualReasoningEffort != high {
 				t.Fatalf("old queue overwrote current preference: %+v %v", current, err)
 			}
 			if mode == "manual" && (command.Model.Key != latest || command.Model.ReasoningEffort != high) {
 				t.Fatalf("queued run ignored current manual selection: %+v", command.Model)
-			}
-			if mode == "auto" && command.Model.ReasoningEffort != "max" {
-				t.Fatalf("automatic queued run not at highest reasoning: %+v", command.Model)
 			}
 		})
 	}

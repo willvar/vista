@@ -7,7 +7,6 @@ test('worker metrics stay behind an icon and their popup fits the viewport', asy
     localStorage.setItem('vista-debug-mode', 'true')
     document.cookie = 'vista-debug-mode=true; Path=/; SameSite=Strict'
   })
-  await vista.api('/preferences', { method: 'PATCH', body: JSON.stringify({ feedbackInvitationSeen: true }) })
   const session = await vista.api('/sessions', { method: 'POST', body: '{}' })
   const catalog = await vista.api('/models')
   const budget: CompactionStatus = { runId: 'mock-compaction', manual: false, phase: 'failed', error: 'The previous context was retained.', sequence: 1 }

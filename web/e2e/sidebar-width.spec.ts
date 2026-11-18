@@ -87,7 +87,6 @@ test('desktop sidebar drag respects limits, persists its width, resets, and leav
 })
 
 test('desktop width and the mounted conversation survive portrait and landscape drawers', async ({ page, vista }, testInfo) => {
-  await vista.api('/preferences', { method: 'PATCH', body: JSON.stringify({ feedbackInvitationSeen: true }) })
   const session = await vista.api('/sessions', { method: 'POST', body: '{}' })
   await page.setViewportSize({ width: 1440, height: 900 })
   await page.goto(`${vista.origin}/sessions/${session.id}`)

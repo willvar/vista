@@ -132,9 +132,10 @@ type Result struct {
 	ContextUsage    *ContextUsage      `json:"contextUsage,omitempty"`
 	Checkpoint      *ContextCheckpoint `json:"checkpoint,omitempty"`
 	History         *ModelHistory      `json:"history,omitempty"`
-	Observation     *ModelObservation  `json:"observation,omitempty"`
-	TokenUsage      *TokenUsage        `json:"tokenUsage,omitempty"`
-	Reply           *CompletedReply    `json:"reply,omitempty"`
+
+	CallUsage  *modelcfg.CallUsage `json:"callUsage,omitempty"`
+	TokenUsage *TokenUsage         `json:"tokenUsage,omitempty"`
+	Reply      *CompletedReply     `json:"reply,omitempty"`
 }
 
 // RuntimeEvent is a bounded notice. Complete reports/output remain at their
@@ -195,15 +196,17 @@ type ModelRetry struct {
 	Error      string `json:"error,omitempty"`
 }
 type ModelResult struct {
-	Summary         *SummaryResult `json:"summary,omitempty"`
-	Purpose         string         `json:"purpose,omitempty"`
-	ReasoningEffort string         `json:"reasoningEffort,omitempty"`
-	Provider        string         `json:"provider"`
-	ID              string         `json:"id"`
-	FinishReason    string         `json:"finishReason"`
-	Usage           *ModelUsage    `json:"usage,omitempty"`
-	DurationMS      float64        `json:"durationMs,omitempty"`
-	FirstTokenMS    *float64       `json:"firstTokenMs,omitempty"`
+	Summary                 *SummaryResult `json:"summary,omitempty"`
+	Purpose                 string         `json:"purpose,omitempty"`
+	ReasoningEffort         string         `json:"reasoningEffort,omitempty"`
+	Provider                string         `json:"provider"`
+	ID                      string         `json:"id"`
+	FinishReason            string         `json:"finishReason"`
+	Usage                   *ModelUsage    `json:"usage,omitempty"`
+	DurationMS              float64        `json:"durationMs,omitempty"`
+	FirstTokenMS            *float64       `json:"firstTokenMs,omitempty"`
+	RequestedProcessingTier string         `json:"requestedProcessingTier,omitempty"`
+	ActualProcessingTier    string         `json:"actualProcessingTier,omitempty"`
 }
 
 // SummaryResult separates provider termination from local validation, without

@@ -49,7 +49,7 @@ func TestStatisticsResetRequiresConfirmationAndPublishesAfterCommit(t *testing.T
 		t.Fatal(w.Code, w.Body.String())
 	}
 	for topic, revision := range a.updates.snapshot().Revisions {
-		if topic == "statistics" && revision != 1 || topic != "statistics" && revision != 0 {
+		if ((topic == "statistics" || topic == "connection-statistics") && revision != 1) || (topic != "statistics" && topic != "connection-statistics" && revision != 0) {
 			t.Fatal("unexpected reset notification", topic, revision)
 		}
 	}

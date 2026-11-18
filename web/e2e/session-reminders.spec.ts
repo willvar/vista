@@ -8,7 +8,6 @@ test.describe('reply reminders', () => {
   test.use({ replyWithPrompt: true })
 
   test('background replies stay unread behind settings and read positions survive reload', async ({ page, vista }, testInfo) => {
-    await vista.api('/preferences', { method: 'PATCH', body: JSON.stringify({ feedbackInvitationSeen: true }) })
     const first = await vista.api('/sessions', { method: 'POST', body: JSON.stringify({ title: 'Background one' }) })
     const second = await vista.api('/sessions', { method: 'POST', body: JSON.stringify({ title: 'Background two' }) })
     for (const session of [first, second]) {
@@ -46,7 +45,6 @@ test.describe('reply reminders', () => {
   })
 
   test('a new reply stays unread while reading earlier messages until it enters the viewport', async ({ page, vista }) => {
-    await vista.api('/preferences', { method: 'PATCH', body: JSON.stringify({ feedbackInvitationSeen: true }) })
     const session = await vista.api('/sessions', { method: 'POST', body: JSON.stringify({ title: 'Reading history' }) })
     await vista.api(`/sessions/${session.id}/messages`, { method: 'POST', body: JSON.stringify({ content: 'Long history line.\n\n'.repeat(100), modelKey: 'test' }) })
     await expect.poll(async () => (await vista.api('/sessions') as Session[]).find(item => item.id === session.id)?.latestRunStatus).toBe('succeeded')
@@ -68,7 +66,6 @@ test.describe('action reminders', () => {
   test.use({ questionTool: true })
 
   test('viewing a question or a paused queue does not dismiss its action reminder', async ({ page, vista }, testInfo) => {
-    await vista.api('/preferences', { method: 'PATCH', body: JSON.stringify({ feedbackInvitationSeen: true }) })
     const question = await vista.api('/sessions', { method: 'POST', body: JSON.stringify({ title: 'Pending question' }) })
     const queue = await vista.api('/sessions', { method: 'POST', body: JSON.stringify({ title: 'Paused queue' }) })
     await vista.api(`/sessions/${question.id}/messages`, { method: 'POST', body: JSON.stringify({ content: 'Ask me about the setup', modelKey: 'test' }) })
@@ -130,7 +127,6 @@ test.describe('failure reminders', () => {
   test.use({ progressCalls: 1 })
 
   test('execution failure and worker unavailability remain distinct in light and dark themes', async ({ page, vista }, testInfo) => {
-    await vista.api('/preferences', { method: 'PATCH', body: JSON.stringify({ feedbackInvitationSeen: true }) })
     const session = await vista.api('/sessions', { method: 'POST', body: JSON.stringify({ title: 'Failed execution' }) })
     await vista.api(`/sessions/${session.id}/messages`, { method: 'POST', body: JSON.stringify({ content: 'Fail progress', modelKey: 'test' }) })
     await expect.poll(async () => (await vista.api('/sessions') as Session[]).find(item => item.id === session.id)?.latestRunStatus).toBe('failed')

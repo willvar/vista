@@ -584,9 +584,9 @@ func TestCustomModelDiscoveryImageCapabilitiesAndSubmission(t *testing.T) {
 			if _, err := app.store.Create(ctx, "automatic", "image selection"); err != nil {
 				t.Fatal(err)
 			}
-			model, key, err := app.resolveSelection(ctx, "automatic", selectionInput{SelectionMode: "auto", InputTokens: 1, HasImages: true})
+			model, key, err := app.resolveSelection(ctx, "automatic", selectionInput{ModelKey: imageKey})
 			if err != nil || key != imageKey || model.ID != "gpt-4.1-mini" {
-				t.Fatalf("automatic image selection: key=%s model=%s error=%v", key, model.ID, err)
+				t.Fatalf("explicit image selection: key=%s model=%s error=%v", key, model.ID, err)
 			}
 		})
 	}

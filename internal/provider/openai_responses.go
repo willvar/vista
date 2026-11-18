@@ -56,10 +56,11 @@ type responseEvent struct {
 	Item         responseItem       `json:"item"`
 	Error        json.RawMessage    `json:"error"`
 	Response     struct {
-		Status string            `json:"status"`
-		Output []json.RawMessage `json:"output"`
-		Error  json.RawMessage   `json:"error"`
-		Usage  *struct {
+		ProcessingTier string            `json:"service_tier"`
+		Status         string            `json:"status"`
+		Output         []json.RawMessage `json:"output"`
+		Error          json.RawMessage   `json:"error"`
+		Usage          *struct {
 			InputTokens  int64 `json:"input_tokens"`
 			OutputTokens int64 `json:"output_tokens"`
 			InputDetails struct {
@@ -266,6 +267,7 @@ func openAIResponsesTurnWithReasoning(ctx context.Context, model modelcfg.Model,
 	if err != nil {
 		return Turn{}, err
 	}
+	applyProcessingBody(model, body)
 	encoded, err := json.Marshal(body)
 	if err != nil {
 		return Turn{}, err
@@ -432,6 +434,7 @@ func parseResponsesStreamWithReasoning(body io.Reader, onText, onReasoning func(
 	var final []responseItem
 	var finalRaw []json.RawMessage
 	var usage *ModelUsage
+	var reportedTier string
 	finishReason := ""
 	var sources citationSources
 	var doneMessageText strings.Builder
@@ -664,6 +667,7 @@ func parseResponsesStreamWithReasoning(body io.Reader, onText, onReasoning func(
 				return err
 			}
 		case "response.completed":
+			reportedTier = event.Response.ProcessingTier
 			if event.Response.Status != "completed" {
 				return errors.New("OpenAI Responses completed with unexpected status")
 			}
@@ -858,7 +862,7 @@ func parseResponsesStreamWithReasoning(body io.Reader, onText, onReasoning func(
 	if !validResponseOutput(finalRaw, len(calls) > 0) {
 		return Turn{}, errors.New("OpenAI Responses output items are invalid or contain unsupported types")
 	}
-	turn := Turn{Text: text.String(), Sources: sources.urls, FinishReason: "completed", Usage: usage}
+	turn := Turn{ReportedProcessingTier: reportedTier, Text: text.String(), Sources: sources.urls, FinishReason: "completed", Usage: usage}
 	hostedCalls, err := responseHostedCalls(finalRaw)
 	if err != nil {
 		return Turn{}, err

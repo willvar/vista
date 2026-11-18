@@ -3,7 +3,6 @@ import { test, expect, type VistaFixture } from './fixtures'
 
 test.use({ replyWithPrompt: true })
 test.beforeEach(async ({ page, vista }) => {
-  await vista.api('/preferences', { method: 'PATCH', body: JSON.stringify({ feedbackInvitationSeen: true }) })
   await deliveryFault(page)
 })
 

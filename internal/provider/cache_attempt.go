@@ -75,7 +75,7 @@ func (r *cacheRequestCapture) compile() {
 		r.fingerprint = &fingerprint
 	}
 }
-func (a *cacheAttempt) observe(ctx context.Context, usage *ModelUsage) {
+func (a *cacheAttempt) observe(ctx context.Context, usage *ModelUsage, reported string) {
 	if a.request == nil {
 		return
 	}
@@ -88,5 +88,8 @@ func (a *cacheAttempt) observe(ctx context.Context, usage *ModelUsage) {
 		modeltrace.SetCacheObservation(ctx, modeltrace.CacheObservation{PrefixChange: "unchecked-request", RequestBytes: count, ComparisonBounded: true})
 		return
 	}
-	observeCacheFingerprint(ctx, *fingerprint, count, usage, owner)
+	sample := *fingerprint
+	sample.requestedTier = a.model.ProcessingTier
+	sample.actualTier = normalizeProcessingTier(a.model, reported)
+	observeCacheFingerprint(ctx, sample, count, usage, owner)
 }

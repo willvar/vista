@@ -3,7 +3,6 @@ import { scrollToConversationEntry } from './conversation-scroll'
 import { test, expect } from './fixtures'
 
 test.beforeEach(async ({ vista }) => {
-  await vista.api('/preferences', { method: 'PATCH', body: JSON.stringify({ feedbackInvitationSeen: true }) })
 })
 
 test('cache usage distinguishes unavailable, measured zero and writes @responsive', async ({ page, vista }) => {

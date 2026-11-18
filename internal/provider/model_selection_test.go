@@ -7,26 +7,6 @@ import (
 	modelcfg "vista/internal/model"
 )
 
-func TestModelSelectionEffortSeparatesActualConfigurations(t *testing.T) {
-	model := modelcfg.Model{ID: "model", ReasoningEffort: "max"}
-	if ModelSelectionEffort(model) != "max" {
-		t.Fatal("simple effort not preserved")
-	}
-	b := 4096
-	model.ThinkingBudget = &b
-	key := ModelSelectionEffort(model)
-	if !strings.HasPrefix(key, "config:") {
-		t.Fatal("combined reasoning configuration mixed with simple effort")
-	}
-	b = 8192
-	if ModelSelectionEffort(model) == key {
-		t.Fatal("different budget merged")
-	}
-	if ModelSelectionEffort(modelcfg.Model{}) != "default" {
-		t.Fatal("non-reasoning model has no comparable normal configuration")
-	}
-}
-
 func TestModelSelectionEndpointIDRemovesCredentialsAndNormalizes(t *testing.T) {
 	a := modelcfg.Model{Provider: "openai-responses", BaseURL: "HTTPS://User:Secret@EXAMPLE.com/v1/?api_key=secret#token", APIKey: "one"}
 	b := modelcfg.Model{Provider: "openai-responses", BaseURL: "https://example.com/v1", APIKey: "two"}

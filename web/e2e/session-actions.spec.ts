@@ -2,7 +2,6 @@ import type { Locator, Page } from '@playwright/test'
 import { test, expect } from './fixtures'
 
 test.beforeEach(async ({ vista }) => {
-  await vista.api('/preferences', { method: 'PATCH', body: JSON.stringify({ feedbackInvitationSeen: true }) })
 })
 
 async function showSidebar(page: Page) {

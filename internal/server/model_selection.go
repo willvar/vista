@@ -25,9 +25,6 @@ func decodeSelectionBody(w http.ResponseWriter, r *http.Request, value any) bool
 	return true
 }
 
-func validSelectionMode(mode string) bool { return mode == "manual" || mode == "auto" }
-func validSelectionTier(tier string) bool { return tier == "speed" || tier == "quality" }
-
 func (a *App) preferences(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
 	switch r.Method {
@@ -43,7 +40,7 @@ func (a *App) preferences(w http.ResponseWriter, r *http.Request) {
 		if !decodeSelectionBody(w, r, &patch) {
 			return
 		}
-		if patch.LastMode != nil && !validSelectionMode(*patch.LastMode) || patch.LastTier != nil && !validSelectionTier(*patch.LastTier) || patch.ManualModelKey != nil && len(*patch.ManualModelKey) > 512 {
+		if patch.ManualModelKey != nil && len(*patch.ManualModelKey) > 512 {
 			http.Error(w, "invalid preference", 400)
 			return
 		}
@@ -81,7 +78,7 @@ func (a *App) initializeSessionSelection(ctx context.Context, id string) (store.
 	catalog := a.modelsSnapshot()
 	preferred := visibleModelKey(catalog, prefs.ManualModelKey, prefs.ShowUnrecognizedModels)
 	model, selected, resolveErr := catalog.Resolve(preferred)
-	if resolveErr != nil {
+	if preferred == "" || resolveErr != nil {
 		preferred = initialVisibleModelKey(catalog, prefs.ShowUnrecognizedModels)
 		if preferred != "" {
 			model, selected, resolveErr = catalog.Resolve(preferred)
@@ -91,7 +88,7 @@ func (a *App) initializeSessionSelection(ctx context.Context, id string) (store.
 		key = selected
 		effort = restoredManualEffort(model, prefs.ReasoningByModelID[model.ID])
 	}
-	return a.store.PatchSessionSelection(ctx, id, store.SessionSelectionPatch{SelectionMode: &prefs.LastMode, SelectionTier: &prefs.LastTier, ManualModelKey: &key, ManualReasoningEffort: &effort})
+	return a.store.PatchSessionSelection(ctx, id, store.SessionSelectionPatch{ManualModelKey: &key, ManualReasoningEffort: &effort})
 }
 
 func initialVisibleModelKey(catalog modelCatalog, showUnrecognized bool) string {
@@ -100,25 +97,22 @@ func initialVisibleModelKey(catalog modelCatalog, showUnrecognized bool) string 
 		if !model.Available() || !showUnrecognized && !model.Recognized() {
 			continue
 		}
-		if model.Key == catalog.Default {
-			return model.Key
+		if first != "" {
+			return ""
 		}
-		if first == "" {
-			first = model.Key
-		}
+		first = model.Key
 	}
 	return first
 }
 
-// Hidden choices fall back to a visible model. Preserve errors for keys that
-// are no longer configured rather than silently changing an explicit request.
+// Never replace a saved or explicit choice with a different connection.
 func visibleModelKey(catalog modelCatalog, key string, showUnrecognized bool) string {
 	if key == "" {
 		return initialVisibleModelKey(catalog, showUnrecognized)
 	}
 	for _, model := range catalog.Models {
-		if model.Key == key && !showUnrecognized && !model.Recognized() {
-			return initialVisibleModelKey(catalog, showUnrecognized)
+		if model.Key == key && (!model.Available() || !showUnrecognized && !model.Recognized()) {
+			return ""
 		}
 	}
 	return key
@@ -150,9 +144,25 @@ func (a *App) sessionSelection(w http.ResponseWriter, r *http.Request, id string
 	if !decodeSelectionBody(w, r, &patch) {
 		return
 	}
-	if patch.SelectionMode != nil && !validSelectionMode(*patch.SelectionMode) || patch.SelectionTier != nil && !validSelectionTier(*patch.SelectionTier) || patch.ManualModelKey != nil && len(*patch.ManualModelKey) > 512 || patch.ManualReasoningEffort != nil && len(*patch.ManualReasoningEffort) > 32 {
+	if patch.ManualModelKey != nil && len(*patch.ManualModelKey) > 512 || patch.ManualReasoningEffort != nil && len(*patch.ManualReasoningEffort) > 32 {
 		http.Error(w, "invalid session selection", 400)
 		return
+	}
+	if patch.ProcessingTier != nil && *patch.ProcessingTier != "" {
+		if patch.ManualModelKey == nil || *patch.ManualModelKey == "" {
+			http.Error(w, "a processing tier requires an explicit model", 400)
+			return
+		}
+		model, _, err := a.modelsSnapshot().Resolve(*patch.ManualModelKey)
+		if err == nil {
+			model.Key = *patch.ManualModelKey
+			model = a.processingTierMetadata(r.Context(), model)
+			err = provider.ApplyProcessingTier(&model, *patch.ProcessingTier)
+		}
+		if err != nil {
+			http.Error(w, err.Error(), 400)
+			return
+		}
 	}
 	value, err := a.store.PatchSessionSelection(r.Context(), id, patch)
 	if err != nil {
@@ -163,81 +173,30 @@ func (a *App) sessionSelection(w http.ResponseWriter, r *http.Request, id string
 	jsonOut(w, value)
 }
 
-func (a *App) sessionFeedback(w http.ResponseWriter, r *http.Request, id string) {
-	if r.Method != http.MethodGet {
-		http.Error(w, "method", 405)
-		return
-	}
-	prefs, err := a.store.Preferences(r.Context())
-	if err != nil {
-		http.Error(w, "could not read identity", 500)
-		return
-	}
-	feedback, err := a.store.SessionFeedback(r.Context(), prefs.UserID, id)
-	if err != nil {
-		http.Error(w, "could not read feedback", 500)
-		return
-	}
-	jsonOut(w, map[string]any{"feedback": feedback})
-}
-
-func (a *App) messageFeedback(w http.ResponseWriter, r *http.Request, sessionID, messageID string) {
-	if r.Method != http.MethodPut {
-		http.Error(w, "method", 405)
-		return
-	}
-	var input struct {
-		Value json.RawMessage `json:"value"`
-	}
-	if !decodeSelectionBody(w, r, &input) {
-		return
-	}
-	var feedbackValue *string
-	if len(input.Value) == 0 || json.Unmarshal(input.Value, &feedbackValue) != nil {
-		http.Error(w, "value must be up, down or null", 400)
-		return
-	}
-	if feedbackValue != nil && *feedbackValue != "up" && *feedbackValue != "down" {
-		http.Error(w, "value must be up, down or null", 400)
-		return
-	}
-	prefs, err := a.store.Preferences(r.Context())
-	if err != nil {
-		http.Error(w, "could not read identity", 500)
-		return
-	}
-	value, err := a.store.SetReplyFeedback(r.Context(), prefs.UserID, sessionID, messageID, feedbackValue)
-	if errors.Is(err, store.ErrNotFound) {
-		http.NotFound(w, r)
-		return
-	}
-	if errors.Is(err, store.ErrFeedbackTarget) {
-		http.Error(w, err.Error(), 400)
-		return
-	}
-	if err != nil {
-		http.Error(w, "could not save feedback", 500)
-		return
-	}
-	a.updates.notify("selection-stats")
-	jsonOut(w, value)
-}
-
 type selectionInput struct {
-	SelectionMode   string
-	SelectionTier   string
 	ModelKey        string
 	ReasoningEffort string
-	InputTokens     int64
-	HasImages       bool
+	ProcessingTier  *string // Nil inherits only for the same selected model.
 }
 
-func highestSelectionReasoning(model *modelcfg.Model) error {
-	options := provider.SessionReasoningOptions(*model)
-	if len(options) == 0 {
-		return nil
+func applyManualSelection(model *modelcfg.Model, key string, session store.Session, input selectionInput) (string, error) {
+	effort, tier := input.ReasoningEffort, ""
+	if key == session.ManualModelKey {
+		tier = session.ProcessingTier
 	}
-	return modelcatalog.ApplyReasoningEffort(model, options[len(options)-1])
+	if input.ProcessingTier != nil {
+		tier = *input.ProcessingTier
+	}
+	if effort == "" {
+		if key == session.ManualModelKey {
+			effort = session.ManualReasoningEffort
+		}
+		effort = restoredManualEffort(*model, effort)
+	}
+	if err := modelcatalog.ApplyReasoningEffort(model, effort); err != nil {
+		return "", err
+	}
+	return effort, provider.ApplyProcessingTier(model, tier)
 }
 
 func (a *App) resolveSelection(ctx context.Context, sessionID string, input selectionInput) (modelcfg.Model, string, error) {
@@ -245,152 +204,30 @@ func (a *App) resolveSelection(ctx context.Context, sessionID string, input sele
 	if err != nil {
 		return modelcfg.Model{}, "", err
 	}
-	mode, tier := input.SelectionMode, input.SelectionTier
-	if mode == "" {
-		mode = session.SelectionMode
+	key := input.ModelKey
+	if key == "" {
+		key = session.ManualModelKey
 	}
-	if tier == "" {
-		tier = session.SelectionTier
-	}
-	if !validSelectionMode(mode) || !validSelectionTier(tier) {
-		return modelcfg.Model{}, "", errors.New("invalid selection mode or tier")
-	}
-	catalog := a.modelsSnapshot()
 	prefs, err := a.store.Preferences(ctx)
 	if err != nil {
 		return modelcfg.Model{}, "", err
 	}
-	if mode == "manual" {
-		key := input.ModelKey
-		if key == "" {
-			key = session.ManualModelKey
-		}
-		if key == "" && session.SelectionMode == "manual" {
-			key = session.ModelKey
-		}
-		visible := visibleModelKey(catalog, key, prefs.ShowUnrecognizedModels)
-		if visible == "" {
-			return modelcfg.Model{}, "", errors.New("no visible model is available; review model connections")
-		}
-		if visible != key {
-			input.ReasoningEffort = ""
-		}
-		key = visible
-		model, key, err := a.resolveForRun(ctx, key)
-		if err != nil {
-			return model, key, err
-		}
-		model.Key = key
-		effort := input.ReasoningEffort
-		if effort == "" {
-			if key == session.ManualModelKey {
-				effort = session.ManualReasoningEffort
-			}
-			effort = restoredManualEffort(model, effort)
-		}
-		if err := modelcatalog.ApplyReasoningEffort(&model, effort); err != nil {
-			return modelcfg.Model{}, "", err
-		}
-		_, err = a.store.PatchSessionSelection(ctx, sessionID, store.SessionSelectionPatch{SelectionMode: &mode, SelectionTier: &tier, ManualModelKey: &key, ManualReasoningEffort: &effort})
-		return model, key, err
+	key = visibleModelKey(a.modelsSnapshot(), key, prefs.ShowUnrecognizedModels)
+	if key == "" {
+		return modelcfg.Model{}, "", errors.New("Select a visible model before sending this message")
 	}
-	inputTokens, err := a.store.SelectionInputEstimate(ctx, sessionID, input.InputTokens, input.HasImages)
+	model, key, err := a.resolveForRun(ctx, key)
 	if err != nil {
-		return modelcfg.Model{}, "", err
-	}
-	candidates := []store.SelectionCandidate{}
-	remembered, err := a.store.SessionTierSelection(ctx, sessionID, tier)
-	if err != nil {
-		return modelcfg.Model{}, "", err
-	}
-	cooldowns, err := a.store.ConnectionCooldowns(ctx)
-	if err != nil {
-		return modelcfg.Model{}, "", err
-	}
-	for _, entry := range catalog.Models {
-		if !entry.Available() {
-			continue
-		}
-		if !prefs.ShowUnrecognizedModels && !entry.Recognized() {
-			continue
-		}
-		if input.HasImages && !slices.Contains(entry.EffectiveInputModalities(), "image") {
-			continue
-		}
-		model, key, err := catalog.Resolve(entry.Key)
-		if err != nil || model.Provider == "" || model.ID == "" {
-			continue
-		}
-		if model.Tools != nil && !*model.Tools {
-			continue
-		}
-		if input.HasImages && !supportsImageInput(model.Provider) {
-			continue
-		}
-		if err := highestSelectionReasoning(&model); err != nil {
-			continue
-		}
-		if cooldowns[model.ID+"\x00"+provider.ModelEndpointID(model)] {
-			continue
-		}
-
-		candidates = append(candidates, store.SelectionCandidate{ModelID: model.ID, ModelKey: key, ReasoningEffort: provider.ModelSelectionEffort(model), Endpoint: provider.ModelEndpointID(model)})
-	}
-	if len(candidates) == 0 {
-		return modelcfg.Model{}, "", errors.New("no configured model supports this task's tools, input and context")
-	}
-	// Each automatic tier retains its own eligible model across tier and mode
-	// switches. Reasoning uses today's maximum without changing that model.
-	if remembered != nil {
-		for _, candidate := range candidates {
-			if candidate.ModelKey == remembered.ModelKey {
-				model, key, err := a.resolveForRun(ctx, candidate.ModelKey)
-				if err != nil {
-					break
-				}
-				model.Key = key
-				if err := highestSelectionReasoning(&model); err != nil {
-					return modelcfg.Model{}, "", err
-				}
-				err = a.store.BindSessionTierSelection(ctx, sessionID, tier, key, provider.ModelSelectionEffort(model))
-				return model, key, err
-			}
-		}
-	}
-	decision, err := a.store.SelectModel(ctx, prefs.UserID, tier, candidates, inputTokens)
-	if err != nil {
-		return modelcfg.Model{}, "", err
-	}
-	selectionBound := false
-	defer func() {
-		if !selectionBound {
-			_ = a.store.CancelPendingSelection(context.Background(), prefs.UserID, decision.ModelID, decision.ReasoningEffort, "unavailable")
-		}
-	}()
-	model, key, err := a.resolveForRun(ctx, decision.ModelKey)
-	if err != nil {
-		_ = a.store.FinishModelAttempt(ctx, prefs.UserID, decision.ModelID, decision.ReasoningEffort, "unavailable")
-		_ = a.store.NoteConnectionFailure(ctx, decision.ModelID, decision.Endpoint)
 		return model, key, err
 	}
 	model.Key = key
-	if err := highestSelectionReasoning(&model); err != nil {
-		return modelcfg.Model{}, "", err
+	if input.ProcessingTier != nil && *input.ProcessingTier != "" || session.ManualModelKey == key && session.ProcessingTier != "" {
+		model = a.processingTierMetadata(ctx, model)
 	}
-	if err := a.store.BindSessionTierSelection(ctx, sessionID, tier, key, provider.ModelSelectionEffort(model)); err != nil {
-		return modelcfg.Model{}, "", err
-	}
-	selectionBound = true
-	return model, key, nil
-}
-
-func (a *App) finishUnobservedSelection(ctx context.Context, model modelcfg.Model, outcome string) {
-	if model.ID == "" {
-		return
-	}
-	prefs, err := a.store.Preferences(ctx)
+	effort, err := applyManualSelection(&model, key, session, input)
 	if err != nil {
-		return
+		return modelcfg.Model{}, "", err
 	}
-	_ = a.store.CancelPendingSelection(ctx, prefs.UserID, model.ID, provider.ModelSelectionEffort(model), outcome)
+	_, err = a.store.PatchSessionSelection(ctx, sessionID, store.SessionSelectionPatch{ManualModelKey: &key, ManualReasoningEffort: &effort, ProcessingTier: &model.ProcessingTier})
+	return model, key, err
 }

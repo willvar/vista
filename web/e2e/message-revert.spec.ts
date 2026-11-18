@@ -5,7 +5,6 @@ import { test, expect } from './fixtures'
 test.use({ replyWithPrompt: true, fileChanges: true })
 
 test('edit and withdrawal roll back context while retaining file changes', async ({ page, vista }, testInfo) => {
-  await vista.api('/preferences', { method: 'PATCH', body: JSON.stringify({ feedbackInvitationSeen: true }) })
   const session = await vista.api('/sessions', { method: 'POST', body: '{}' })
   const send = async (content: string) => {
     await vista.api(`/sessions/${session.id}/messages`, { method: 'POST', body: JSON.stringify({ content }) })
@@ -64,7 +63,6 @@ test('edit and withdrawal roll back context while retaining file changes', async
 })
 
 test('external file changes do not block conversation withdrawal', async ({ page, vista }) => {
-  await vista.api('/preferences', { method: 'PATCH', body: JSON.stringify({ feedbackInvitationSeen: true }) })
   const session = await vista.api('/sessions', { method: 'POST', body: '{}' })
   await vista.api(`/sessions/${session.id}/messages`, { method: 'POST', body: JSON.stringify({ content: 'Edit files' }) })
   await expect.poll(async () => (await vista.api('/sessions')).find((item: any) => item.id === session.id).executing).toBe(false)
@@ -83,7 +81,6 @@ test('external file changes do not block conversation withdrawal', async ({ page
 })
 
 test('withdrawal during a live response stops execution and retains file changes', async ({ page, vista }) => {
-  await vista.api('/preferences', { method: 'PATCH', body: JSON.stringify({ feedbackInvitationSeen: true }) })
   const session = await vista.api('/sessions', { method: 'POST', body: '{}' })
   const release = vista.pauseModelReplies(true)
   try {
@@ -106,7 +103,6 @@ test('withdrawal during a live response stops execution and retains file changes
 test.describe('background and interjection boundaries', () => {
   test.use({ backgroundProcess: true })
   test('withdrawal stops a session-owned background process', async ({ page, vista }) => {
-    await vista.api('/preferences', { method: 'PATCH', body: JSON.stringify({ feedbackInvitationSeen: true }) })
     const session = await vista.api('/sessions', { method: 'POST', body: '{}' })
     await vista.api(`/sessions/${session.id}/messages`, { method: 'POST', body: JSON.stringify({ content: 'Start process' }) })
     await expect.poll(async () => (await vista.api(`/sessions/${session.id}/jobs`))[0]?.status).toBe('running')
@@ -125,7 +121,6 @@ test.describe('background and interjection boundaries', () => {
 test.describe('same-run interjection', () => {
   test.use({ followUpTool: true })
   test('withdrawing an interjection preserves the earlier reply and stays idle after reload', async ({ page, vista }) => {
-    await vista.api('/preferences', { method: 'PATCH', body: JSON.stringify({ feedbackInvitationSeen: true }) })
     const session = await vista.api('/sessions', { method: 'POST', body: '{}' })
     const release = vista.pauseModelReplies(true)
     try {

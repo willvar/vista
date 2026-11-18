@@ -3,7 +3,6 @@ import { test, expect } from './fixtures'
 test.use({ detachedTask: true, replyWithPrompt: true })
 
 test('background child survives refresh and the next reply, then saves its tool and report', async ({ page, vista }, testInfo) => {
-  await vista.api('/preferences', { method: 'PATCH', body: JSON.stringify({ feedbackInvitationSeen: true }) })
   const session = await vista.api('/sessions', { method: 'POST', body: '{}' })
   await vista.api(`/sessions/${session.id}/messages`, { method: 'POST', body: JSON.stringify({ content: 'Start background' }) })
   await expect.poll(async () => (await vista.api('/sessions')).find((s: any) => s.id === session.id)?.executing).toBe(false)
@@ -64,7 +63,6 @@ test('background child survives refresh and the next reply, then saves its tool 
 })
 
 test('background child can be stopped explicitly after the foreground reply', async ({ page, vista }, testInfo) => {
-  await vista.api('/preferences', { method: 'PATCH', body: JSON.stringify({ feedbackInvitationSeen: true }) })
   const session = await vista.api('/sessions', { method: 'POST', body: '{}' })
   await vista.api(`/sessions/${session.id}/messages`, { method: 'POST', body: JSON.stringify({ content: 'Start background' }) })
   await expect.poll(async () => (await vista.api('/sessions')).find((s: any) => s.id === session.id)?.executing).toBe(false)

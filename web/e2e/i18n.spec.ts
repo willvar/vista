@@ -57,7 +57,7 @@ test('Chinese region selection keeps script groups, fixed defaults and the saved
       await options.getByText(regionName!, { exact: true }).click()
       await expect(page.locator('html')).toHaveAttribute('lang', locale)
       await expect(picker).toContainText(variant.label)
-      await expect(page.locator('.model-selection-setting p')).toHaveText(messages[locale].selectionModeSettingsHint)
+      await expect(page.getByRole('link', { name: messages[locale].modelConnections, exact: true })).toBeVisible()
       await expect.poll(() => page.evaluate(() => localStorage.getItem('vista-language'))).toBe(locale)
       await page.reload()
       await expect(page.locator('html')).toHaveAttribute('lang', locale)

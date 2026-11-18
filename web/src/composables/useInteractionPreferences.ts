@@ -1,12 +1,10 @@
 import { ref, watch } from 'vue'
 import type { VistaClient } from '../client/vista'
 
-export type SelectionMode = 'manual' | 'auto'
-export type SelectionTier = 'speed' | 'quality'
 export type RememberedModel = { key: string; id: string; reasoningEffort: string }
 export type UserPreferences = {
-  userId: string; lastMode: SelectionMode; lastTier: SelectionTier
-  manualModelKey: string; reasoningByModelId: Record<string, string>; feedbackInvitationSeen: boolean
+  userId: string
+  manualModelKey: string; reasoningByModelId: Record<string, string>
 }
 
 function readPreference(key: string): string | null {
@@ -26,10 +24,7 @@ function readJSON<T>(key: string, fallback: T): T {
 
 export function useInteractionPreferences(client?: VistaClient, report: (error: unknown) => void = () => {}) {
   const rememberedModel = ref<RememberedModel | null>(readJSON('vista-last-model', null))
-  const lastMode = ref<SelectionMode>('manual')
-  const lastTier = ref<SelectionTier>('speed')
   const reasoningByModelId = ref<Record<string, string>>(readJSON('vista-reasoning-by-model', {}))
-  const feedbackInvitationSeen = ref(false)
   const ready = ref(!client)
   let hydrating = false
   let saving = Promise.resolve()
@@ -43,25 +38,19 @@ export function useInteractionPreferences(client?: VistaClient, report: (error: 
       if (value.key !== previous?.key) persist({ manualModelKey: value.key })
     }
   }, { flush: 'sync' })
-  watch(lastMode, value => persist({ lastMode: value }), { flush: 'sync' })
-  watch(lastTier, value => persist({ lastTier: value }), { flush: 'sync' })
   watch(reasoningByModelId, value => {
     savePreference('vista-reasoning-by-model', JSON.stringify(value)); persist({ reasoningByModelId: value })
   }, { flush: 'sync' })
-  watch(feedbackInvitationSeen, value => persist({ feedbackInvitationSeen: value }), { flush: 'sync' })
   async function load() {
     if (!client || ready.value) return
     try {
       const saved = await client.request<UserPreferences>('/preferences')
       hydrating = true
-      lastMode.value = saved.lastMode === 'auto' ? 'auto' : 'manual'
-      lastTier.value = saved.lastTier === 'quality' ? 'quality' : 'speed'
       rememberedModel.value = saved.manualModelKey ? { key: saved.manualModelKey, id: '', reasoningEffort: '' } : null
       reasoningByModelId.value = saved.reasoningByModelId || {}
-      feedbackInvitationSeen.value = !!saved.feedbackInvitationSeen
     } catch (error) { report(error) }
     finally { hydrating = false; ready.value = true }
   }
-  return { rememberedModel, lastMode, lastTier, reasoningByModelId, feedbackInvitationSeen, ready, load, flush: () => saving }
+  return { rememberedModel, reasoningByModelId, ready, load, flush: () => saving }
 }
 export type InteractionPreferences = ReturnType<typeof useInteractionPreferences>

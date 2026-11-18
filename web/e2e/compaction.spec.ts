@@ -4,7 +4,6 @@ import { coreSnapshot, installConversationStream } from './conversation-fixture'
 
 for (const failedRead of [false, true]) {
   test(`short referenced summaries ${failedRead ? 'retain complete text when retry and copy overlap' : 'display and copy complete text after reload'}`, async ({ page, context, vista }) => {
-    await vista.api('/preferences', { method: 'PATCH', body: JSON.stringify({ feedbackInvitationSeen: true }) })
     await context.grantPermissions(['clipboard-read', 'clipboard-write'])
     const session = await vista.api('/sessions', { method: 'POST', body: '{}' })
     const body = '<v>中&</v> '.repeat(600)
@@ -63,7 +62,6 @@ test.describe('automatic recovery', () => {
   test.use({ modelFailure: { status: 400, body: { error: { code: 'context_length_exceeded', message: 'Context length exceeded' } }, attempts: 1, skipAttempts: 1 } })
 
   test('an automatic summary appears once between the input and continued answer', { tag: '@smoke' }, async ({ page, vista }) => {
-    await vista.api('/preferences', { method: 'PATCH', body: JSON.stringify({ feedbackInvitationSeen: true }) })
     const session = await vista.api('/sessions', { method: 'POST', body: '{}' })
     await vista.api(`/sessions/${session.id}/messages`, { method: 'POST', body: JSON.stringify({ content: 'Preserve these verified findings. '.repeat(160) }) })
     await expect.poll(async () => (await vista.api('/sessions')).find((item: any) => item.id === session.id).executing).toBe(false)
@@ -121,7 +119,6 @@ test.describe('single completed reply', () => {
   test.use({ replyWithPrompt: true })
 
   test('manual compaction reduces context and the next request reuses it', async ({ page, vista }, testInfo) => {
-    await vista.api('/preferences', { method: 'PATCH', body: JSON.stringify({ feedbackInvitationSeen: true }) })
     const session = await vista.api('/sessions', { method: 'POST', body: '{}' })
     const prompt = `Preserve the verified result: ${'The build and tests passed. '.repeat(160)}`.trim()
     await vista.api(`/sessions/${session.id}/messages`, { method: 'POST', body: JSON.stringify({ content: prompt }) })
@@ -174,7 +171,6 @@ test.describe('single completed reply', () => {
 test('manual compaction preserves chat and draft, and Tab completes Continue without sending or trapping focus', async ({ page, vista }, testInfo) => {
   // A preference left by the removed switch must not disable navigation or completion.
   await page.addInitScript(() => localStorage.setItem('vista-keyboard-navigation', 'off'))
-  await vista.api('/preferences', { method: 'PATCH', body: JSON.stringify({ feedbackInvitationSeen: true }) })
   const session = await vista.api('/sessions', { method: 'POST', body: '{}' })
   for (let i = 0; i < 3; i++) {
     await vista.api(`/sessions/${session.id}/messages`, { method: 'POST', body: JSON.stringify({ content: `Request ${i}: ${'Retain the verified findings. '.repeat(100)}` }) })
@@ -312,7 +308,6 @@ test('manual compaction preserves chat and draft, and Tab completes Continue wit
 })
 
 test('interrupted manual compaction retains context and can restart from the header without sending work', { tag: '@responsive' }, async ({ page, vista }) => {
-  await vista.api('/preferences', { method: 'PATCH', body: JSON.stringify({ feedbackInvitationSeen: true }) })
   const session = await vista.api('/sessions', { method: 'POST', body: '{}' })
   for (let i = 0; i < 2; i++) {
     await vista.api(`/sessions/${session.id}/messages`, { method: 'POST', body: JSON.stringify({ content: `Request ${i}: ${'Fact. '.repeat(300)}` }) })

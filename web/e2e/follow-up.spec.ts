@@ -12,7 +12,6 @@ type FixtureAPI = {
 }
 
 async function mockConversation(page: Page, vista: FixtureAPI, options: { cancelFailures?: number; compactionStatus?: boolean; messages?: Pick<Message, 'role' | 'content'>[] } = {}) {
-  await vista.api('/preferences', { method: 'PATCH', body: JSON.stringify({ feedbackInvitationSeen: true }) })
   const session = await vista.api('/sessions', { method: 'POST', body: '{}' })
   const runId = 'follow-up-fixture-run'
   const user = {

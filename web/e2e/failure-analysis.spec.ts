@@ -9,7 +9,6 @@ test.use({ modelFailure: { status: 400, body: { error: { type: 'invalid_request_
 function diagnosticData(prompt: string) { return JSON.parse(prompt.split('\n\n```json\n')[1]!.slice(0, -4)) }
 
 test('one click sends a localized diagnostic question in a new conversation and preserves the source', async ({ page, vista }, testInfo) => {
-  await vista.api('/preferences', { method: 'PATCH', body: JSON.stringify({ feedbackInvitationSeen: true }) })
   await page.evaluate(() => localStorage.setItem('vista-language', 'zh-CN'))
   await page.reload()
   await expect(page.locator('html')).toHaveAttribute('lang', 'zh-CN')
@@ -77,12 +76,11 @@ test('a compaction failure exposes the same diagnostic action and preserves the 
   await analyzeFailedCompaction(page, vista)
 })
 
-test('a delayed creation summary preserves automatic selection in the diagnostic conversation', { tag: '@responsive' }, async ({ page, vista }, testInfo) => {
+test('a delayed creation summary preserves the selected model in the diagnostic conversation', { tag: '@responsive' }, async ({ page, vista }, testInfo) => {
   await analyzeFailedCompaction(page, vista, testInfo)
 })
 
 async function analyzeFailedCompaction(page: Page, vista: VistaFixture, orderedDelivery?: TestInfo) {
-  await vista.api('/preferences', { method: 'PATCH', body: JSON.stringify({ feedbackInvitationSeen: true }) })
   const source = await vista.api('/sessions', { method: 'POST', body: '{}' })
   await vista.api(`/sessions/${source.id}/messages`, { method: 'POST', body: JSON.stringify({ content: 'Original failed task' }) })
   await expect.poll(async () => (await vista.api(`/sessions/${source.id}/checkpoint`)).session.executing).toBe(false)
@@ -90,9 +88,6 @@ async function analyzeFailedCompaction(page: Page, vista: VistaFixture, orderedD
   await vista.api(`/sessions/${source.id}/compact`, { method: 'POST', body: '{}' })
   await expect.poll(async () => (await vista.api(`/sessions/${source.id}/context`))?.phase).toBe('failed')
   const failure = await vista.api(`/sessions/${source.id}/context`)
-  // The only mock connection just failed. Clear its cooldown to exercise automatic delivery.
-  await vista.api('/model-selection/stats', { method: 'DELETE', body: JSON.stringify({ scope: 'speed' }) })
-  await vista.api(`/sessions/${source.id}/selection`, { method: 'PATCH', body: JSON.stringify({ selectionMode: 'auto', selectionTier: 'quality' }) })
   if (orderedDelivery) await installMockStateStream(page)
   await page.goto(`${vista.origin}/sessions/${source.id}`)
   await page.locator('.compaction-details').click()
@@ -133,12 +128,11 @@ async function analyzeFailedCompaction(page: Page, vista: VistaFixture, orderedD
   const checkpoint = await vista.api(`${destination}/checkpoint`)
   if (orderedDelivery) {
     await orderedDelivery.attach('diagnostic-selection', { body: JSON.stringify({ submitted, checkpoint }), contentType: 'application/json' })
-    expect(submitted).toMatchObject({ selectionMode: 'auto', selectionTier: 'quality' })
-    expect(checkpoint.session).toMatchObject({ selectionMode: 'auto', selectionTier: 'quality' })
+    expect(submitted).toHaveProperty('modelKey')
+    expect(checkpoint.session.manualModelKey).toBe(submitted?.modelKey)
   }
-  await expect(page.locator('.sender-card-auto')).toBeVisible()
-  await expect(page.locator('.composer-tier')).toContainText('Quality')
-  expect((await vista.api(`${destination}/checkpoint`)).session).toMatchObject({ selectionMode: 'auto', selectionTier: 'quality' })
+  await expect(page.getByRole('combobox', { name: 'Model', exact: true })).toBeVisible()
+  expect((await vista.api(`${destination}/checkpoint`)).session.manualModelKey).toBeTruthy()
   const messages = await vista.api(`${destination}/messages`) as Message[]
   const data = diagnosticData(messages.find(message => message.role === 'user')!.content)
   expect(data.source).toMatchObject({ sessionId: source.id, runId: failure.runId, kind: 'compaction' })

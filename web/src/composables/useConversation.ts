@@ -6,7 +6,7 @@ import type { Artifact, ConversationSnapshot, CompactionStatus, ContextUsage, Jo
 import { appendMessage, createConversationState, messageResults, runResults, pruneConversationWindow, reduceConversationEvent, replyTraceSegments, trailingTraceSegment, type ReplyTraceSegment } from '../state/conversation.ts'
 import { toolOperationLabelKey, compactTraceText, toolSummaryText } from '../state/runTrace.ts'
 import { conversationItems, displayBodyVersion, displayOutputKey, hydrateMainOutput, mainOutputKey, mainOutputText, mergeMainOutputs, type ConversationItem, type MainOutputRecord } from '../state/mainOutputs.ts'
-import { useInteractionPreferences, type InteractionPreferences, type SelectionMode, type SelectionTier } from './useInteractionPreferences.ts'
+import { useInteractionPreferences, type InteractionPreferences } from './useInteractionPreferences.ts'
 import { formatQuotedReply, quoteStoragePrefix, readQuotedReply, type QuotedReply, type QuotedText } from '../state/quotedReply.ts'
 import { reasoningChoiceLabel } from '../ui/reasoning.ts'
 import { confirmInputEvent, projectInputQueue } from '../state/inputQueue.ts'
@@ -40,7 +40,7 @@ function mergeOutputSnapshot<T extends { id: string }>(snapshot: T[], current: T
 }
 
 export function useConversation({ client, sessions, modelCatalog, error, busy, refresh, translate: t, interactionPreferences = useInteractionPreferences(), onSessionStarted }: ConversationOptions) {
-  const { rememberedModel, reasoningByModelId: reasoningByModel, lastMode, lastTier, feedbackInvitationSeen } = interactionPreferences
+  const { rememberedModel, reasoningByModelId: reasoningByModel } = interactionPreferences
   const state = reactive(createConversationState())
   const synchronization = ref<ConversationSyncStatus>({ phase: 'ready' })
   const syncDiagnostics = ref<ConversationSyncDiagnostics | null>(null)
@@ -55,12 +55,7 @@ export function useConversation({ client, sessions, modelCatalog, error, busy, r
   const activityPaging = ref(false)
   const paging = ref(false)
   const selectedModel = ref('')
-  const selectedModelInfo = computed(() => modelCatalog.value.models.find(model => model.key === selectedModel.value))
-  const selectionMode = ref<SelectionMode>('manual')
-  const selectionTier = ref<SelectionTier>('speed')
-  const feedbackInvitationOpen = ref(false)
-  const feedback = ref<Record<string, 'up' | 'down'>>({})
-  const feedbackBusy = ref<Record<string, boolean>>({})
+  const selectedModelInfo = computed(() => visibleModels(modelCatalog.value).find(model => model.key === selectedModel.value))
   const pendingBusy = ref<Record<string, boolean>>({})
   const compaction = ref<CompactionStatus | null>(null)
   const contextUsage = ref<ContextUsage | null>(null)
@@ -85,25 +80,26 @@ export function useConversation({ client, sessions, modelCatalog, error, busy, r
   const pendingInputs = computed(() => inputQueue.value.items)
   const inputQueuePaused = computed(() => inputQueue.value.paused)
   const selectedReasoningKey = computed(() => selectedModelInfo.value?.id || '')
+  // A session snapshot restores the selected effort, but a delayed list
+  // projection must not undo a newer local keyboard or pointer change.
+  const localReasoning = ref<{ modelKey: string; effort: string }>()
   const selectedReasoning = computed({
     get: () => {
       const choices = selectedModelInfo.value?.reasoningOptions || []
-      if (selectionMode.value === 'auto') return choices.at(-1) || ''
-      const remembered = reasoningByModel.value[selectedReasoningKey.value]
+      const remembered = (localReasoning.value?.modelKey === selectedModel.value ? localReasoning.value.effort : undefined) || reasoningByModel.value[selectedReasoningKey.value]
         || (rememberedModel.value?.id === selectedReasoningKey.value ? rememberedModel.value.reasoningEffort : '')
       return choices.includes(remembered) ? remembered : choices.find(value => value !== 'off') || ''
     },
     set: (effort: string) => {
-      if (selectionMode.value !== 'manual' || !selectedReasoningKey.value || !selectedModelInfo.value?.reasoningOptions?.includes(effort)) return
+      if (!selectedReasoningKey.value || !selectedModelInfo.value?.reasoningOptions?.includes(effort)) return
+      localReasoning.value = { modelKey: selectedModel.value, effort }
       reasoningByModel.value = { ...reasoningByModel.value, [selectedReasoningKey.value]: effort }
-      rememberSelectedModel()
       void saveSelection({ manualReasoningEffort: effort })
+      rememberSelectedModel()
     },
   })
   const reasoningChoices = computed(() => (selectedModelInfo.value?.reasoningOptions || []).map(value => ({ label: reasoningChoiceLabel(value, t), value })))
-  const canAttachImage = computed(() => selectionMode.value === 'auto'
-    ? visibleModels(modelCatalog.value).some(model => model.inputModalities?.includes('image'))
-    : !!selectedModelInfo.value?.inputModalities?.includes('image'))
+  const canAttachImage = computed(() => !!selectedModelInfo.value?.inputModalities?.includes('image'))
   const attachedImages = ref<File[]>([])
   const attachedPreviewURLs = ref<string[]>([])
   const draft = ref(readWelcomeDraft())
@@ -128,20 +124,21 @@ export function useConversation({ client, sessions, modelCatalog, error, busy, r
   }
   function initializeWelcomeSelection() {
     if (selected.value) return
-    selectionMode.value = lastMode.value
-    selectionTier.value = lastTier.value
     selectedModel.value = initialModelKey(modelCatalog.value, [rememberedModel.value?.key])
   }
 
   function rememberSelectedModel() {
     const model = selectedModelInfo.value
-    if (model && selectionMode.value === 'manual') rememberedModel.value = { key: model.key, id: model.id, reasoningEffort: selectedReasoning.value }
+    if (model) rememberedModel.value = { key: model.key, id: model.id, reasoningEffort: selectedReasoning.value }
   }
   function chooseModel(key: string) {
     if (!visibleModels(modelCatalog.value).some(model => model.key === key)) return
+    if (key === selectedModel.value) return
     selectedModel.value = key
+    localReasoning.value = undefined
+    selectedProcessingTier.value = ''
     rememberSelectedModel()
-    void saveSelection({ manualModelKey: key, manualReasoningEffort: selectedReasoning.value })
+    void saveSelection({ manualModelKey: key, manualReasoningEffort: selectedReasoning.value, processingTier: '' })
   }
   let selectionVersion = 0
   let selectionSave = Promise.resolve()
@@ -155,48 +152,31 @@ export function useConversation({ client, sessions, modelCatalog, error, busy, r
       selectionSave = update.then(() => {}, () => {})
       const updated = await update
       if (current(scope) && version === selectionVersion && updated?.id) {
-        const choice = { selectionMode: updated.selectionMode, selectionTier: updated.selectionTier, manualModelKey: updated.manualModelKey, manualReasoningEffort: updated.manualReasoningEffort, selectionReasoningEffort: updated.selectionReasoningEffort }
+        const choice = { manualModelKey: updated.manualModelKey, manualReasoningEffort: updated.manualReasoningEffort, processingTier: updated.processingTier }
         selected.value = { ...selected.value!, ...choice }
         sessions.value = sessions.value.map(item => item.id === updated.id ? { ...item, ...choice } : item)
         if (!selected.value.executing) void refreshContextUsage()
       }
     } catch (failure) { report(scope, failure) }
   }
-  function chooseSelectionMode(mode: SelectionMode) {
-    if (mode === selectionMode.value) return
-    selectionMode.value = mode
-    lastMode.value = mode
-    if (mode === 'manual') {
-      selectedModel.value = initialModelKey(modelCatalog.value, [selected.value?.manualModelKey, rememberedModel.value?.key])
-    } else inviteFeedback()
-    void saveSelection({ selectionMode: mode, selectionTier: selectionTier.value,
-      ...(mode === 'manual' ? { manualModelKey: selectedModel.value, manualReasoningEffort: selectedReasoning.value } : {}) })
-  }
-  function chooseSelectionTier(tier: SelectionTier) {
-    if (tier === selectionTier.value) return
-    selectionTier.value = tier
-    lastTier.value = tier
-    void saveSelection({ selectionTier: tier })
-  }
-  function inviteFeedback() {
-    if (!feedbackInvitationSeen.value) {
-      feedbackInvitationOpen.value = true
-      feedbackInvitationSeen.value = true
-    }
-  }
-  async function rateMessage(message: Message, value: 'up' | 'down') {
-    const scope = currentScope
-    if (!scope || !current(scope) || message.contextSummary || feedbackBusy.value[message.id]) return
-    feedbackBusy.value = { ...feedbackBusy.value, [message.id]: true }
-    try {
-      const next = feedback.value[message.id] === value ? null : value
-      await request(scope, `/sessions/${scope.id}/messages/${message.id}/feedback`, { method: 'PUT', body: JSON.stringify({ value: next }) })
-      if (!current(scope)) return
-      const updated = { ...feedback.value }
-      if (next) updated[message.id] = next; else delete updated[message.id]
-      feedback.value = updated
-    } catch (failure) { report(scope, failure) }
-    finally { if (current(scope)) feedbackBusy.value = { ...feedbackBusy.value, [message.id]: false } }
+  const selectedProcessingTier = ref('')
+  const discoveredTiers = ref<string[] | null>(null)
+  const processingTiers = computed(() => discoveredTiers.value ?? selectedModelInfo.value?.processingTiers ?? [])
+  watch([() => selectedModelInfo.value?.key, () => modelCatalog.value.settingsRevision], (_, __, onCleanup) => {
+    const model = selectedModelInfo.value
+    discoveredTiers.value = null
+    if (!model || !['openai-codex', 'openrouter', 'cerebras', 'groq', 'mistral'].includes(model.providerId || '')) return
+    const key = model.key
+    const controller = new AbortController()
+    onCleanup(() => controller.abort())
+    void client.request<{ processingTiers?: string[] }>(`/model-processing-tiers?key=${encodeURIComponent(key)}`, { signal: controller.signal }).then(value => {
+      if (!controller.signal.aborted && selectedModel.value === key) discoveredTiers.value = value?.processingTiers || []
+    }).catch(() => { /* No advertised tier is safer than a guess. */ })
+  }, { immediate: true })
+  function chooseProcessingTier(value: string) {
+    if (!selectedModelInfo.value || (value && !processingTiers.value.includes(value))) return
+    selectedProcessingTier.value = value
+    void saveSelection({ manualModelKey: selectedModel.value, processingTier: value })
   }
   const agentWorking = computed(() => !manualCompacting.value && !!selected.value?.executing && !(runProgress.value?.runId === activeRunID.value && runProgress.value.phase === 'finished'))
   const compacting = computed(() => manualCompacting.value || compactionRequestPending.value
@@ -321,13 +301,6 @@ export function useConversation({ client, sessions, modelCatalog, error, busy, r
         applyCompaction({ ...compaction.value, phase: interrupted ? 'interrupted' : 'failed',
           error: event.data?.message?.content || event.data?.reason || t(interrupted ? 'contextInterrupted' : 'contextUnavailable') }, event.sequence)
       }
-      if (event.kind === 'model_request' && event.data?.runId === activeRunID.value && !event.data?.depth && !event.data?.purpose && selectionMode.value === 'auto') {
-        const models = visibleModels(modelCatalog.value)
-        const matchingID = models.filter(item => item.id === event.data?.id && item.provider === event.data?.provider)
-        const model = event.data?.key ? models.find(item => item.key === event.data.key)
-          : matchingID.length === 1 ? matchingID[0] : undefined
-        if (model) selectedModel.value = model.key
-      }
       if (['session_title', 'session_renamed', 'message', 'run_finished'].includes(event.kind) || event.kind.startsWith('input_')) {
         const liveSession = selected.value
         if (liveSession) sessions.value = sessions.value.map(item => item.id === liveSession.id
@@ -349,8 +322,7 @@ export function useConversation({ client, sessions, modelCatalog, error, busy, r
     const choice = restore ? snapshot.session : selected.value
     const old = state
     const updated = { ...snapshot.session, readSequence: Math.max(snapshot.session.readSequence || 0, selected.value?.readSequence || 0),
-      selectionMode: selectionMode.value, selectionTier: selectionTier.value,
-      manualModelKey: choice?.manualModelKey, manualReasoningEffort: choice?.manualReasoningEffort }
+      manualModelKey: choice?.manualModelKey, manualReasoningEffort: choice?.manualReasoningEffort, processingTier: choice?.processingTier }
     let next = createConversationState(updated)
     next.messages = snapshot.messages
     const latestUser = snapshot.messages.filter(message => message.role === 'user').at(-1)
@@ -432,8 +404,7 @@ export function useConversation({ client, sessions, modelCatalog, error, busy, r
         if (!current(scope) || !selected.value) return
         const previous = selected.value
         const verified = { ...point.session, readSequence: Math.max(point.session.readSequence || 0, previous.readSequence || 0),
-          selectionMode: selectionMode.value, selectionTier: selectionTier.value,
-          manualModelKey: previous.manualModelKey, manualReasoningEffort: previous.manualReasoningEffort }
+              manualModelKey: previous.manualModelKey, manualReasoningEffort: previous.manualReasoningEffort, processingTier: previous.processingTier }
         if (state.activeRunSequence > point.throughSequence) {
           verified.executing = previous.executing
           verified.pendingReply = previous.pendingReply
@@ -485,9 +456,13 @@ export function useConversation({ client, sessions, modelCatalog, error, busy, r
     if (open && previous === false && synchronization.value.phase === 'stopped') currentScope?.sync?.reconnect('conversation reopened', true)
   }, { flush: 'sync' })
   watch(modelCatalog, catalog => {
-    selectedModel.value = initialModelKey(catalog, [selectedModel.value, selected.value?.modelKey])
+    if (!selected.value) initializeWelcomeSelection()
+    else {
+      const saved = selectedModel.value || selected.value.manualModelKey || selected.value.modelKey
+      selectedModel.value = saved ? visibleModels(catalog).find(model => model.key === saved)?.key || '' : initialModelKey(catalog)
+    }
   }, { flush: 'sync' })
-  watch([interactionPreferences.ready, rememberedModel, lastMode, lastTier, modelCatalog], initializeWelcomeSelection, { flush: 'sync', immediate: true })
+  watch([interactionPreferences.ready, rememberedModel, modelCatalog], initializeWelcomeSelection, { flush: 'sync', immediate: true })
 
   // Index loading is independent of the trace and of virtual row mounting.
   watch(() => [...new Set([...messages.value.filter(message => !message.contextSummary).map(message => message.runId), ...(state.hasNewer ? [] : [activeRunID.value])])].filter(Boolean), runs => {
@@ -566,8 +541,7 @@ export function useConversation({ client, sessions, modelCatalog, error, busy, r
     draft.value = readWelcomeDraft()
     restoringDraft = false
     initializeWelcomeSelection()
-    feedback.value = {}
-    feedbackBusy.value = {}
+    selectedProcessingTier.value = ''
     pendingBusy.value = {}
     compaction.value = null
     contextUsage.value = null
@@ -585,11 +559,10 @@ export function useConversation({ client, sessions, modelCatalog, error, busy, r
   onScopeDispose(() => { clearSession(); analysisImageDrafts.clear() })
 
   function restoreSelection(session: Session) {
-    selectionMode.value = session.selectionMode || lastMode.value
-    selectionTier.value = session.selectionTier || lastTier.value
-    const candidates = selectionMode.value === 'auto' ? [session.modelKey]
-      : [session.manualModelKey || session.modelKey || rememberedModel.value?.key]
-    selectedModel.value = initialModelKey(modelCatalog.value, candidates)
+    const saved = session.manualModelKey || session.modelKey
+    selectedModel.value = saved ? visibleModels(modelCatalog.value).find(model => model.key === saved)?.key || '' : initialModelKey(modelCatalog.value)
+    localReasoning.value = saved && session.manualReasoningEffort ? { modelKey: saved, effort: session.manualReasoningEffort } : undefined
+    selectedProcessingTier.value = selectedModel.value ? session.processingTier || '' : ''
   }
   async function selectSession(session: Session) {
     clearSession()
@@ -601,7 +574,6 @@ export function useConversation({ client, sessions, modelCatalog, error, busy, r
     draft.value = readDraft(session.id)
     quotedReply.value = readQuotedReply(session.id)
     restoreSelection(session)
-    inviteFeedback()
     await connectStream(scope)
   }
   async function loadAuxiliary(scope: Scope) {
@@ -611,7 +583,6 @@ export function useConversation({ client, sessions, modelCatalog, error, busy, r
       catch (failure) { scope.sync?.diagnostic(`auxiliary ${path} failed`, failure) }
     }
     await Promise.all([
-      load<{ feedback: Record<string, 'up' | 'down'> }>('feedback', value => { feedback.value = value.feedback || {} }),
       load<CompactionStatus | null>('context', value => { if (value) applyCompaction(value, value.sequence || 0) }),
       refreshConversation(),
     ])
@@ -933,10 +904,10 @@ export function useConversation({ client, sessions, modelCatalog, error, busy, r
     const content = formatQuotedReply(text, quote, (item, number) => t('quoteNumber', { number }) + ' · ' + t(item.role === 'assistant' ? 'quotedReply' : 'quotedMessage'))
     const files = [...attachedImages.value]
     const edited = editingMessage.value
-    const modeChoice = selectionMode.value
-    const tierChoice = selectionTier.value
-    const modelKey = modeChoice === 'manual' ? selectedModel.value : undefined
-    const reasoningEffort = modeChoice === 'manual' ? selectedReasoning.value : undefined
+    const modelKey = selectedModel.value
+    if (!selectedModelInfo.value) { error.value = t('chooseModelBeforeSending'); return }
+    const reasoningEffort = selectedReasoning.value
+    const processingTier = selectedProcessingTier.value
     // Submitting also commits the displayed choice while initial loading is pending.
     if (scope) delete scope.initialSelectionVersion
     rememberSelectedModel()
@@ -951,8 +922,7 @@ export function useConversation({ client, sessions, modelCatalog, error, busy, r
         const created = await client.request<Session>('/sessions', { method: 'POST', body: '{}', signal: controller.signal })
         if (generation !== startedGeneration || selected.value || controller.signal.aborted) return
         firstSendController = null
-        session = { ...created, selectionMode: modeChoice, selectionTier: tierChoice,
-          ...(modeChoice === 'manual' ? { manualModelKey: modelKey, manualReasoningEffort: reasoningEffort } : {}) }
+        session = { ...created, manualModelKey: modelKey, manualReasoningEffort: reasoningEffort, processingTier }
         sessions.value = [...sessions.value.filter(item => item.id !== session!.id), session]
         scope = { id: session.id, generation, controller: new AbortController() }
         currentScope = scope
@@ -974,7 +944,7 @@ export function useConversation({ client, sessions, modelCatalog, error, busy, r
         }))
         if (!current(scope)) return
       }
-      const result = await request<SendMessageResult>(scope, `/sessions/${scope.id}/messages`, { method: 'POST', body: JSON.stringify({ content, images, modelKey, reasoningEffort, selectionMode: modeChoice, selectionTier: tierChoice, ...(edited ? { replacesMessageId: edited.id } : {}) }) })
+      const result = await request<SendMessageResult>(scope, `/sessions/${scope.id}/messages`, { method: 'POST', body: JSON.stringify({ content, images, modelKey, reasoningEffort, processingTier, ...(edited ? { replacesMessageId: edited.id } : {}) }) })
       if (!current(scope)) return
       if (draft.value === text) draft.value = ''
       if (quotedReply.value === quote) quotedReply.value = null
@@ -1017,8 +987,7 @@ export function useConversation({ client, sessions, modelCatalog, error, busy, r
       // unsent draft. Never withdraw/resend the original task or repeat tools.
       const result = await request<SendMessageResult>(scope, `/sessions/${scope.id}/messages`, {
         method: 'POST', body: JSON.stringify({ content: t('retryTaskPrompt'), images: [],
-          selectionMode: selectionMode.value, selectionTier: selectionTier.value,
-          ...(selectionMode.value === 'manual' ? { modelKey: selectedModel.value, reasoningEffort: selectedReasoning.value } : {}) }),
+              modelKey: selectedModel.value, reasoningEffort: selectedReasoning.value, processingTier: selectedProcessingTier.value }),
       })
       await applySentMessage(scope, result)
     } catch (failure) { report(scope, failure) }
@@ -1029,8 +998,7 @@ export function useConversation({ client, sessions, modelCatalog, error, busy, r
     const source = selected.value
     if (!scope || !source || !current(scope) || busy.value || analyzingFailure.value || !canAnalyzeFailure.value) return
     const content = failureAnalysisPrompt(t('failureAnalysisPrompt'), source, failure, messages.value, state.modelByRun[failure.runId])
-    const choice = { selectionMode: selectionMode.value, selectionTier: selectionTier.value,
-      ...(selectionMode.value === 'manual' ? { modelKey: selectedModel.value, reasoningEffort: selectedReasoning.value } : {}) }
+    const choice = { modelKey: selectedModel.value, reasoningEffort: selectedReasoning.value, processingTier: '' }
     const sourceImages = [...attachedImages.value]
     const owner = startBusy()
     analyzingFailure.value = failure.runId
@@ -1040,8 +1008,7 @@ export function useConversation({ client, sessions, modelCatalog, error, busy, r
       if (!current(scope)) return
       const response = await request<Session>(scope, '/sessions', { method: 'POST', body: '{}' })
       if (!current(scope)) return
-      const created: Session = { ...response, selectionMode: choice.selectionMode, selectionTier: choice.selectionTier,
-        ...(choice.selectionMode === 'manual' ? { manualModelKey: choice.modelKey, manualReasoningEffort: choice.reasoningEffort } : {}) }
+      const created: Session = { ...response, manualModelKey: choice.modelKey, manualReasoningEffort: choice.reasoningEffort, processingTier: choice.processingTier }
       sessions.value = [...sessions.value.filter(item => item.id !== created.id), created]
       try { localStorage.setItem(draftStoragePrefix + created.id, content) } catch { /* Keep the in-memory retry below. */ }
       let deliveryFailure: unknown
@@ -1065,7 +1032,7 @@ export function useConversation({ client, sessions, modelCatalog, error, busy, r
         // A rejected first message has not saved this local retry choice.
         if (selectionVersion === destinationSelectionVersion) {
           restoreSelection(created)
-          selected.value = { ...selected.value, selectionMode: created.selectionMode, selectionTier: created.selectionTier,
+          selected.value = { ...selected.value, processingTier: created.processingTier,
             manualModelKey: created.manualModelKey, manualReasoningEffort: created.manualReasoningEffort }
         }
         draft.value = content
@@ -1087,11 +1054,10 @@ export function useConversation({ client, sessions, modelCatalog, error, busy, r
     const owner = startBusy()
     rememberSelectedModel()
     try {
-      const manual = selectionMode.value === 'manual'
       const result = await request<SendMessageResult>(scope, `/sessions/${scope.id}/messages`, {
         method: 'POST', body: JSON.stringify({
-          questionReply: { runId, ...(callId ? { callId } : {}), answers }, selectionMode: selectionMode.value, selectionTier: selectionTier.value,
-          ...(manual ? { modelKey: selectedModel.value, reasoningEffort: selectedReasoning.value } : {}),
+          questionReply: { runId, ...(callId ? { callId } : {}), answers },
+          modelKey: selectedModel.value, reasoningEffort: selectedReasoning.value, processingTier: selectedProcessingTier.value,
         }),
       })
       if (!current(scope)) return false
@@ -1234,8 +1200,8 @@ export function useConversation({ client, sessions, modelCatalog, error, busy, r
     editingMessage, beginEditMessage, cancelEditMessage, withdrawMessage, rollbackFailure,
     ...refs, displayMessages, readOutputIndexes, readDisplayOutput, releaseDisplayOutput, olderActivity, hasOlderActivity, activityPaging, paging, selectedModel, selectedModelInfo,
     selectedReasoning, reasoningChoices, canAttachImage, attachedImages, attachedPreviewURLs,
-    selectionMode, selectionTier, chooseSelectionMode, chooseSelectionTier, feedbackInvitationOpen,
-    feedback, feedbackBusy, rateMessage, pendingInputs, inputQueuePaused, pendingBusy, mutateInput, resumeInputs, compaction, compacting, compactionResult, contextUsage, canCompact, compactSession, manualCompacting, compactionRequestPending, continueAfterCompaction, fillContinueDraft,
+    selectedProcessingTier, processingTiers, chooseProcessingTier,
+     pendingInputs, inputQueuePaused, pendingBusy, mutateInput, resumeInputs, compaction, compacting, compactionResult, contextUsage, canCompact, compactSession, manualCompacting, compactionRequestPending, continueAfterCompaction, fillContinueDraft,
     draft, quotedTexts, quoteSelection, removeQuote, agentWorking, agentStatus, hasTaskDetails, chooseModel, recallLastUserMessage,
     synchronization, syncDiagnostics, snapshotReady, viewRevision, resynchronize, renderFailure,
     selectSession, clearSession, refreshConversation, loadOlderActivity, showRecentActivity, loadOlder, loadNewer, loadLatest, markRead,

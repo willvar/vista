@@ -78,6 +78,7 @@ type App struct {
 	storageWake            chan struct{}
 	storageScanCancel      context.CancelFunc
 	credentialCache        provider.CredentialCache
+	processingInventory    processingInventoryCache
 	mu                     sync.Mutex
 	admissionMu            sync.Mutex
 	workers                map[string]*worker
@@ -421,9 +422,10 @@ func (a *App) handler() http.Handler {
 	mux.HandleFunc("/api/skills/", a.skillSetting)
 	mux.HandleFunc("/api/preferences", a.preferences)
 	mux.HandleFunc("/api/statistics", a.statistics)
+	mux.HandleFunc("/api/connection-statistics", a.connectionStatistics)
+	mux.HandleFunc("/api/model-processing-tiers", a.modelProcessingTiers)
 	mux.HandleFunc("/api/statistics/reset", a.resetStatistics)
 	mux.HandleFunc("/api/activity", a.activity)
-	mux.HandleFunc("/api/model-selection/stats", a.modelSelectionStats)
 	mux.HandleFunc("/api/model-discovery", a.discoverCustomModels)
 	mux.HandleFunc("/api/zen-model-discovery", a.discoverZenModels)
 	mux.HandleFunc("/api/stop", a.stop)
@@ -702,14 +704,6 @@ func (a *App) session(w http.ResponseWriter, r *http.Request) {
 	}
 	if len(bits) == 2 && bits[1] == "selection" && r.Method == http.MethodPatch {
 		a.sessionSelection(w, r, item.ID)
-		return
-	}
-	if len(bits) == 2 && bits[1] == "feedback" && r.Method == http.MethodGet {
-		a.sessionFeedback(w, r, item.ID)
-		return
-	}
-	if len(bits) == 4 && bits[1] == "messages" && bits[3] == "feedback" && r.Method == http.MethodPut {
-		a.messageFeedback(w, r, item.ID, bits[2])
 		return
 	}
 	if len(bits) == 2 && bits[1] == "context" && r.Method == http.MethodGet {

@@ -13,6 +13,8 @@ import (
 	"testing/synctest"
 	"time"
 
+	"github.com/google/uuid"
+	modelcfg "vista/internal/model"
 	"vista/internal/store"
 	"vista/internal/workerproto"
 )
@@ -69,30 +71,28 @@ func TestWorkerObservationPublishesAfterCommit(t *testing.T) {
 	c, _ := newResultConsumerTest(t)
 	a := &App{store: c.store}
 	c.changed = func(kind string) {
-		if kind != "model_observation" {
+		if kind != "call_usage" {
 			t.Fatal(kind)
 		}
-		prefs, _ := c.store.Preferences(c.ctx)
-		stats, err := c.store.SelectionStatistics(c.ctx, prefs.UserID, []store.SelectionCandidate{{ModelID: "fixture", Endpoint: strings.Repeat("a", 64)}})
-		if err != nil || len(stats) != 1 || stats[0].Speed.Count != 1 {
-			t.Fatal("notification preceded observation commit", stats, err)
+		groups, _, err := c.store.ConnectionUsage(c.ctx, "connection:fixture", 30, time.Now())
+		if err != nil || len(groups) != 1 || groups[0].FirstTokenSamples != 1 {
+			t.Fatalf("notification preceded commit: %+v %v", groups, err)
 		}
 		a.notifyWorkerState(kind)
 	}
-	ms := 100.0
-	result := workerproto.Result{Kind: "model_observation", RunID: "run", Turn: 1, Observation: &workerproto.ModelObservation{RequestID: "run/request", ModelID: "fixture", Endpoint: strings.Repeat("a", 64), Purpose: "conversation", FirstTextMS: &ms, Outcome: "succeeded"}}
+	result := workerproto.Result{Kind: "call_usage", CallUsage: &modelcfg.CallUsage{ID: uuid.NewString(), Connection: "connection:fixture", Model: "fixture", Route: strings.Repeat("a", 64), FirstTokenMS: new(100.0), Outcome: "succeeded"}}
 	if err := c.consume(result); err != nil {
 		t.Fatal(err)
 	}
-	if a.updates.snapshot().Revisions["selection-stats"] != 1 {
-		t.Fatal("missing observation notification")
+	if a.updates.snapshot().Revisions["connection-statistics"] != 1 {
+		t.Fatal("missing committed usage notification")
 	}
-	result.Observation.Endpoint = "bad"
+	result.CallUsage.Route = "bad"
 	if err := c.consume(result); err == nil {
-		t.Fatal("invalid observation accepted")
+		t.Fatal("invalid sample accepted")
 	}
-	if a.updates.snapshot().Revisions["selection-stats"] != 1 {
-		t.Fatal("invalid observation notified")
+	if a.updates.snapshot().Revisions["connection-statistics"] != 1 {
+		t.Fatal("invalid sample notified")
 	}
 }
 
@@ -100,7 +100,7 @@ func TestUnsubscribedViewsDoNotLoadOrPushTheirSnapshots(t *testing.T) {
 	c, _ := newResultConsumerTest(t)
 	a := &App{store: c.store, storageStatus: resourceStorageStatus{Phase: "idle", Stats: &store.ResourceStorage{TotalCount: 1}}}
 	before := a.updates.snapshot()
-	a.updates.notify("storage", "diagnostics", "skills", "selection-stats")
+	a.updates.notify("storage", "diagnostics", "skills", "connection-statistics")
 	point, err := a.stateUpdateScoped(c.ctx, "localhost", before, map[string]bool{"models": true})
 	if err != nil || point.Storage != nil || point.Diagnostics != nil || point.Revisions["storage"] != 1 {
 		t.Fatal(point, err)
@@ -172,12 +172,12 @@ func TestOpenStatisticsViewUpdatesAtClockBoundaryAndStopsOnClose(t *testing.T) {
 		if a.updates.snapshot().Revisions["statistics"] != 1 {
 			t.Fatal("closed view kept its clock")
 		}
-		setTestInterests(t, a, initial.SubscriptionID, "selection-stats")
+		setTestInterests(t, a, initial.SubscriptionID, "connection-statistics")
 		synctest.Wait()
 		time.Sleep(time.Until(nextStatisticsBoundary(time.Now(), zone)) + time.Second)
 		synctest.Wait()
-		if a.updates.snapshot().Revisions["selection-stats"] != 1 || a.updates.snapshot().Revisions["statistics"] != 1 {
-			t.Fatal("rolling selection window did not keep a scoped clock")
+		if a.updates.snapshot().Revisions["connection-statistics"] != 0 || a.updates.snapshot().Revisions["statistics"] != 1 {
+			t.Fatal("connection statistics unexpectedly scheduled the global view clock")
 		}
 	})
 }

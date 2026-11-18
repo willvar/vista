@@ -5,7 +5,6 @@ test.describe('captured model HTTP', () => {
   test.use({ progressCalls: 1 })
 
   test('an open HTTP view receives new saved indexes without rereading its index or selected body', async ({ page, vista }) => {
-    await vista.api('/preferences', { method: 'PATCH', body: JSON.stringify({ feedbackInvitationSeen: true }) })
     await page.evaluate(() => { localStorage.setItem('vista-debug-mode', 'true'); document.cookie = 'vista-debug-mode=true; Path=/' })
     await page.reload()
     const release = vista.pauseModelReplies()
@@ -55,7 +54,6 @@ test.describe('captured model HTTP', () => {
   })
 
   test('recovery cancels a pending body when its selected record no longer exists', async ({ page, vista }) => {
-    await vista.api('/preferences', { method: 'PATCH', body: JSON.stringify({ feedbackInvitationSeen: true }) })
     await page.evaluate(() => { localStorage.setItem('vista-debug-mode', 'true'); document.cookie = 'vista-debug-mode=true; Path=/' })
     await page.reload()
     await page.locator('.sender-card textarea').fill('Inspect recovered diagnostics')
@@ -93,7 +91,6 @@ test.describe('captured model HTTP', () => {
   })
 
   test('independent HTTP diagnostics survive reload and show request, raw SSE and parser counters @responsive', async ({ page, context, vista }, testInfo) => {
-    await vista.api('/preferences', { method: 'PATCH', body: JSON.stringify({ feedbackInvitationSeen: true }) })
     // Also verifies upgrading an existing browser preference without its cookie.
     await page.evaluate(() => { localStorage.setItem('vista-debug-mode', 'true'); document.cookie = 'vista-debug-mode=; Path=/; Max-Age=0' })
     await page.reload()
@@ -160,7 +157,6 @@ test.describe('early HTTP failure', () => {
   test.use({ modelFailure: { status: 403, body: { error: { message: 'Forbidden fixture, key test-key' } } } })
 
   test('a request that fails before any trace steps still has a debug entrance', async ({ page, vista }) => {
-    await vista.api('/preferences', { method: 'PATCH', body: JSON.stringify({ feedbackInvitationSeen: true }) })
     await page.evaluate(() => { localStorage.setItem('vista-debug-mode', 'true'); document.cookie = 'vista-debug-mode=true; Path=/' })
     await page.reload()
     await page.locator('.sender-card textarea').fill('Fail immediately')
@@ -177,7 +173,6 @@ test.describe('early HTTP failure', () => {
 })
 
 test('uncaptured requests have an explicit empty state without inventing raw data', async ({ page, vista }) => {
-  await vista.api('/preferences', { method: 'PATCH', body: JSON.stringify({ feedbackInvitationSeen: true }) })
   await page.reload()
   await page.locator('.sender-card textarea').fill('Run without debug')
   await page.locator('.sender-card textarea').press('Enter')

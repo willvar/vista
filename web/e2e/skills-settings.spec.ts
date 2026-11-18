@@ -90,7 +90,6 @@ test('multiple system skills use their own metadata and can only be viewed @resp
 })
 
 test('local skills update automatically and can be edited, searched and deleted @responsive', async ({ page, vista }, testInfo) => {
-  await vista.api('/preferences', { method: 'PATCH', body: JSON.stringify({ feedbackInvitationSeen: true }) })
   await page.goto(`${vista.origin}/settings/general`)
   await openSettingsSection(page, 'skills')
   await expect(page.locator('.skills-empty')).toContainText('No user skills yet')

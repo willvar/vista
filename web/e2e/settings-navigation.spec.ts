@@ -8,7 +8,6 @@ const sections = [
 ] as const
 
 test.beforeEach(async ({ vista }) => {
-  await vista.api('/preferences', { method: 'PATCH', body: JSON.stringify({ feedbackInvitationSeen: true }) })
 })
 
 test('settings entry and category returns preserve the conversation and draft', { tag: '@smoke' }, async ({ page, vista }, testInfo) => {

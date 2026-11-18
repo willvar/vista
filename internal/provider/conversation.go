@@ -92,20 +92,24 @@ type ToolCall struct {
 // Turn may retain text, termination and usage on error for diagnostics. Only a
 // nil request error permits accepting its text or replaying its native state.
 type Turn struct {
-	Text              string
-	Calls             []ToolCall
-	HostedCalls       []HostedCall
-	Sources           []string
-	FinishReason      string
-	Usage             *ModelUsage
-	AnthropicBlocks   []json.RawMessage
-	BedrockParts      []BedrockPart
-	MistralParts      []MistralPart
-	ReasoningDetails  []json.RawMessage
-	ReasoningText     string
-	ReasoningField    string
-	ResponseReasoning []json.RawMessage
-	ResponseOutput    []json.RawMessage
+	ReportedProcessingTier string
+	ActualProcessingTier   string
+	DurationMS             float64
+	FirstTokenMS           *float64
+	Text                   string
+	Calls                  []ToolCall
+	HostedCalls            []HostedCall
+	Sources                []string
+	FinishReason           string
+	Usage                  *ModelUsage
+	AnthropicBlocks        []json.RawMessage
+	BedrockParts           []BedrockPart
+	MistralParts           []MistralPart
+	ReasoningDetails       []json.RawMessage
+	ReasoningText          string
+	ReasoningField         string
+	ResponseReasoning      []json.RawMessage
+	ResponseOutput         []json.RawMessage
 }
 
 type HostedCall struct {

@@ -247,6 +247,25 @@ var client = network.NewClient(http.Client{Transport: tracedModelHTTPTransport, 
 	return errors.New("model endpoint redirected")
 }}, network.ConnectionScope)
 
+// Flex can queue before sending the response head. Use shared transport pools
+// per timeout, not a per-request client or a global timeout increase.
+var flexibleHTTPClients = func() map[time.Duration]*http.Client {
+	result := make(map[time.Duration]*http.Client)
+	for _, wait := range []time.Duration{15 * time.Minute, 30 * time.Minute} {
+		base := modelHTTPTransport.Clone()
+		base.ResponseHeaderTimeout = wait
+		result[wait] = network.NewClient(http.Client{Transport: modeltrace.Transport{Base: network.Transport{Base: base, Scope: network.ConnectionScope}}, CheckRedirect: client.CheckRedirect}, network.ConnectionScope)
+	}
+	return result
+}()
+
+func processingHTTPClient(model modelcfg.Model) *http.Client {
+	if item := flexibleHTTPClients[processingHeaderTimeout(model)]; item != nil {
+		return item
+	}
+	return client
+}
+
 // A healthy stream may take longer than two minutes in total. Bound each
 // blocking read instead of setting http.Client.Timeout on the whole turn.
 func doStreamingRequest(request *http.Request, httpClient *http.Client, idle time.Duration) (*http.Response, error) {

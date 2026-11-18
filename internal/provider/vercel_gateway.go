@@ -104,6 +104,7 @@ func vercelGatewayTurn(ctx context.Context, model modelcfg.Model, messages []Cha
 	if err != nil {
 		return Turn{}, err
 	}
+	applyProcessingBody(model, body)
 	encoded, err := json.Marshal(body)
 	if err != nil {
 		return Turn{}, err
@@ -216,10 +217,14 @@ func parseVercelGatewayStreamWithReasoning(body io.Reader, onText, onReasoning f
 	callIDs := map[string]bool{}
 	finished := false
 	finishReason := ""
+	var reportedTier string
 	var usage *ModelUsage
 	defer retainStreamResult(&result, &reply, &finishReason, &usage)
 	consume := func(data string) error {
 		var event struct {
+			ProviderMetadata map[string]struct {
+				ServiceTier string `json:"serviceTier"`
+			} `json:"providerMetadata"`
 			Type             string `json:"type"`
 			ID               string `json:"id"`
 			Delta            string `json:"delta"`
@@ -287,6 +292,7 @@ func parseVercelGatewayStreamWithReasoning(body io.Reader, onText, onReasoning f
 			callIDs[call.ID] = true
 			delete(pending, call.ID)
 		case "finish":
+			reportedTier = event.ProviderMetadata["gateway"].ServiceTier
 			finishReason = event.FinishReason.Unified
 			var err error
 			usage, err = gatewayModelUsage(event.Usage)
@@ -346,5 +352,5 @@ func parseVercelGatewayStreamWithReasoning(body io.Reader, onText, onReasoning f
 	if !finished {
 		return Turn{}, errors.New("Vercel AI Gateway stream ended without finish")
 	}
-	return Turn{Text: reply.String(), Calls: calls, FinishReason: finishReason, Usage: usage}, nil
+	return Turn{ReportedProcessingTier: reportedTier, Text: reply.String(), Calls: calls, FinishReason: finishReason, Usage: usage}, nil
 }

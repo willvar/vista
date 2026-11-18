@@ -3,7 +3,6 @@ import { test, expect } from './fixtures'
 test.use({ replyWithPrompt: true, followUpTool: true })
 
 test('a follow-up preserves the preceding streamed answer in conversation order', async ({ page, vista }, testInfo) => {
-  await vista.api('/preferences', { method: 'PATCH', body: JSON.stringify({ feedbackInvitationSeen: true }) })
   await page.reload()
   const sender = page.locator('.sender-card textarea')
   const release = vista.pauseModelReplies(true)
@@ -75,7 +74,6 @@ test('a follow-up preserves the preceding streamed answer in conversation order'
 })
 
 test('delivered input never returns to pending when its HTTP confirmation arrives last @responsive', async ({ page, vista }) => {
-  await vista.api('/preferences', { method: 'PATCH', body: JSON.stringify({ feedbackInvitationSeen: true }) })
   const session = await vista.api('/sessions', { method: 'POST', body: '{}' })
   let releaseHTTP!: () => void, accepted!: () => void
   const responseGate = new Promise<void>(resolve => { releaseHTTP = resolve })

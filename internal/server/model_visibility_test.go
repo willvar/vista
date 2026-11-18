@@ -64,7 +64,7 @@ func TestModelVisibilityPublishesCommittedPreferenceWithoutUnrelatedState(t *tes
 	}
 }
 
-func TestHiddenModelsExcludeExistingManualDefaultAndTierChoices(t *testing.T) {
+func TestHiddenModelsRequireAnotherExplicitChoice(t *testing.T) {
 	a := selectionApp(t)
 	known := a.models.Models[0]
 	a.models = modelCatalog{Default: "unknown", Models: []configuredModel{{Key: "unknown", Provider: "openai-chat", ProviderID: "custom", ID: "private-unknown", BaseURL: "https://fixture.test/v1", Context: 32000}}}
@@ -75,8 +75,8 @@ func TestHiddenModelsExcludeExistingManualDefaultAndTierChoices(t *testing.T) {
 	if session, err := a.initializeSessionSelection(ctx, "fresh"); err != nil || session.ManualModelKey != "" {
 		t.Fatalf("hidden anchor became a default: %+v %v", session, err)
 	}
-	if _, _, err := a.resolveSelection(ctx, "fresh", selectionInput{SelectionMode: "auto", SelectionTier: "speed", InputTokens: 1}); err == nil {
-		t.Fatal("hidden model entered automatic candidates")
+	if _, _, err := a.resolveSelection(ctx, "fresh", selectionInput{}); err == nil {
+		t.Fatal("hidden model became selectable")
 	}
 	w := httptest.NewRecorder()
 	a.compactSession(w, httptest.NewRequest("POST", "/api/sessions/fresh/compact", strings.NewReader(`{"modelKey":"unknown"}`)), "fresh")
@@ -87,7 +87,7 @@ func TestHiddenModelsExcludeExistingManualDefaultAndTierChoices(t *testing.T) {
 	if _, err := a.store.PatchPreferences(ctx, store.PreferencesPatch{ShowUnrecognizedModels: &show}); err != nil {
 		t.Fatal(err)
 	}
-	if _, key, err := a.resolveSelection(ctx, "fresh", selectionInput{SelectionMode: "auto", SelectionTier: "speed", InputTokens: 1}); err != nil || key != "unknown" {
+	if _, key, err := a.resolveSelection(ctx, "fresh", selectionInput{}); err != nil || key != "unknown" {
 		t.Fatalf("revealed model is unusable: %q %v", key, err)
 	}
 	show = false
@@ -95,10 +95,10 @@ func TestHiddenModelsExcludeExistingManualDefaultAndTierChoices(t *testing.T) {
 	if _, err := a.store.PatchPreferences(ctx, store.PreferencesPatch{ShowUnrecognizedModels: &show, ManualModelKey: &key}); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := a.resolveSelection(ctx, "fresh", selectionInput{SelectionMode: "auto", SelectionTier: "speed", InputTokens: 1}); err == nil {
-		t.Fatal("existing tier choice bypassed visibility")
+	if _, _, err := a.resolveSelection(ctx, "fresh", selectionInput{}); err == nil {
+		t.Fatal("existing choice bypassed visibility")
 	}
-	if _, _, err := a.resolveSelection(ctx, "fresh", selectionInput{SelectionMode: "manual", ModelKey: "unknown"}); err == nil {
+	if _, _, err := a.resolveSelection(ctx, "fresh", selectionInput{ModelKey: "unknown"}); err == nil {
 		t.Fatal("explicit earlier choice bypassed visibility")
 	}
 	if _, err := a.store.Create(ctx, "later", "new after hiding"); err != nil {
@@ -118,22 +118,11 @@ func TestHiddenModelsExcludeExistingManualDefaultAndTierChoices(t *testing.T) {
 	if session, err := a.initializeSessionSelection(ctx, "fresh"); err != nil || session.ManualModelKey != known.Key {
 		t.Fatalf("hidden preference did not fall back: %+v %v", session, err)
 	}
-	if model, selected, err := a.resolveSelection(ctx, "fresh", selectionInput{SelectionMode: "manual", ModelKey: "unknown", ReasoningEffort: "invalid-old-control"}); err != nil || selected != known.Key || model.ID != known.ID {
-		t.Fatalf("hidden manual choice or its effort did not fall back: key=%s model=%s err=%v", selected, model.ID, err)
+	if model, selected, err := a.resolveSelection(ctx, "fresh", selectionInput{ModelKey: "unknown", ReasoningEffort: "invalid-old-control"}); err == nil {
+		t.Fatalf("explicit unsupported effort silently changed choice: key=%s model=%s err=%v", selected, model.ID, err)
 	}
-	if _, _, err := a.resolveSelection(ctx, "fresh", selectionInput{SelectionMode: "manual", ModelKey: "removed-connection"}); err == nil {
+	if _, _, err := a.resolveSelection(ctx, "fresh", selectionInput{ModelKey: "removed-connection"}); err == nil {
 		t.Fatal("missing explicit model silently switched connections")
 	}
-	for _, tier := range []string{"speed", "quality"} {
-		if err := a.store.BindSessionTierSelection(ctx, "fresh", tier, "unknown", ""); err != nil {
-			t.Fatal(err)
-		}
-		if _, selected, err := a.resolveSelection(ctx, "fresh", selectionInput{SelectionMode: "auto", SelectionTier: tier, InputTokens: 1}); err != nil || selected != known.Key {
-			t.Fatalf("hidden %s binding did not fall back: key=%s err=%v", tier, selected, err)
-		}
-		binding, err := a.store.SessionTierSelection(ctx, "fresh", tier)
-		if err != nil || binding == nil || binding.ModelKey != known.Key {
-			t.Fatalf("hidden %s binding retained: %+v %v", tier, binding, err)
-		}
-	}
+
 }

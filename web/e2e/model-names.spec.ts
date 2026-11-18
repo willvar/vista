@@ -2,7 +2,6 @@ import { closeSettings } from './settings-navigation'
 import { test, expect } from './fixtures'
 
 test('catalog names appear in both selectors while raw model IDs remain searchable and usable', async ({ page, vista }, testInfo) => {
-  await vista.api('/preferences', { method: 'PATCH', body: JSON.stringify({ feedbackInvitationSeen: true }) })
   const catalog = await vista.api('/models')
   const model = catalog.models.find((item: { key: string }) => item.key === catalog.default)
   expect(model.id).toBe(vista.modelId)

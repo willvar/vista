@@ -10,7 +10,9 @@ const selection = process.env.VISTA_E2E_SELECTION
 const mobileGrep = selection ? new RegExp(`(?=.*(?:${responsiveGrep.source}))(?=.*(?:${selection}))`) : responsiveGrep
 mkdirSync(runtime, { recursive: true })
 // Playwright's temporary browser profiles must also stay on disk.
-process.env.TMPDIR = runtime
+const browserTmp = process.env.VISTA_BROWSER_TMPDIR || runtime
+mkdirSync(browserTmp, { recursive: true })
+process.env.TMPDIR = browserTmp
 
 export default defineConfig({
   testDir: './e2e',

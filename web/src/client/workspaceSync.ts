@@ -3,7 +3,7 @@ import type { NetworkConfiguration } from './network.ts'
 import type { ServerStatus, SessionListSnapshot, ModelCatalog, OMPCatalogInfo, LoginUpdate, MCPState, ResourceStorageStatus, ServerConfig } from './types.ts'
 import type { ModelDiagnosticSummary } from './modelDiagnostics.ts'
 
-export const stateTopics = ['sessions', 'status', 'models', 'catalog', 'provider-login', 'mcp', 'storage', 'diagnostics', 'statistics', 'skills', 'selection-stats', 'server-config', 'network'] as const
+export const stateTopics = ['sessions', 'status', 'models', 'catalog', 'provider-login', 'mcp', 'storage', 'diagnostics', 'statistics', 'skills', 'connection-statistics', 'server-config', 'network'] as const
 export type StateTopic = typeof stateTopics[number]
 export type StateConnection = { phase: 'connecting' | 'ready' | 'error' | 'stopped'; error?: string }
 export type WorkspaceSnapshots = {
@@ -20,7 +20,7 @@ type Listener = {
   active: boolean; lifetime: AbortController; seen: Partial<Record<StateTopic, number>>; epoch: string; attempt: number; pending?: Promise<void>
 }
 const snapshotKeys = { sessions: 'sessions', status: 'status', models: 'models', catalog: 'catalog',
-  'provider-login': 'providerLogins', mcp: 'mcp', storage: 'storage', diagnostics: 'diagnostics', statistics: undefined, skills: undefined, 'selection-stats': undefined, 'server-config': 'serverConfig', network: 'network' } as const
+  'provider-login': 'providerLogins', mcp: 'mcp', storage: 'storage', diagnostics: 'diagnostics', statistics: undefined, skills: undefined, 'connection-statistics': undefined, 'server-config': 'serverConfig', network: 'network' } as const
 type Options = {
   open: (metrics: boolean, signal: AbortSignal) => Promise<Response>
   status: (status: StateConnection) => void

@@ -106,5 +106,10 @@ func ModelTurnStreamWithReasoning(ctx context.Context, model modelcfg.Model, mes
 	if err != nil {
 		return Turn{}, err
 	}
-	return retryModelTurn(ctx, model, messages, schemas, adapter, onText, onReasoning)
+	if err := ApplyProcessingTier(&model, model.ProcessingTier); err != nil {
+		return Turn{}, err
+	}
+	return measureModelTurn(ctx, model, onText, onReasoning, func(ctx context.Context, onText, onReasoning func(string) error) (Turn, error) {
+		return retryModelTurn(ctx, model, messages, schemas, adapter, onText, onReasoning)
+	})
 }

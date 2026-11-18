@@ -270,7 +270,7 @@ async function mockExecution(page: Page, origin: string, source = replayEvents()
   const events = source
   replaySources.set(page, events)
   const runId = events[0].data.runId as string
-  const session: Session = { id: 'execution-session', title: 'Source inspection replay', modelKey: 'replay-model', manualModelKey: 'replay-model', manualReasoningEffort: 'high', selectionMode: 'manual', selectionTier: 'speed', selectionReasoningEffort: '', open: true, running: true, executing: true, inputQueuePaused: false, createdAt: events[0].createdAt! }
+  const session: Session = { id: 'execution-session', title: 'Source inspection replay', modelKey: 'replay-model', manualModelKey: 'replay-model', manualReasoningEffort: 'high', open: true, running: true, executing: true, inputQueuePaused: false, createdAt: events[0].createdAt! }
   if (events.some(event => event.kind === 'run_finished')) session.executing = false
   const messages: Message[] = options.messages || [events.find(event => event.kind === 'message')!.data]
   const artifactMap = new Map<string, Artifact>()
@@ -360,7 +360,7 @@ async function mockExecution(page: Page, origin: string, source = replayEvents()
       return route.fulfill({ status: 500, body: 'Replay fixture forbids mutations and model requests' })
     }
     if (options.imageContents?.[path]) { imageReads.push(path); return route.fulfill({ contentType: 'image/png', body: options.imageContents[path] }) }
-    if (path === '/preferences') return reply({ userId: 'replay-user', lastMode: 'manual', lastTier: 'speed', manualModelKey: 'replay-model', reasoningByModelId: { 'gpt-6-astra': 'high' }, feedbackInvitationSeen: true })
+    if (path === '/preferences') return reply({ userId: 'replay-user', manualModelKey: 'replay-model', reasoningByModelId: { 'gpt-6-astra': 'high' } })
     if (path === '/agent-settings') return reply({ instructions: '', instructionsPath: '/home/test/.config/vista/AGENTS.md', instructionsSha256: 'missing', automaticTitles: true, delegationDepth: 1, maxDelegationDepth: 8 })
     if (path === '/server-config') return reply({
       version: 'replay:1', revision: 'a'.repeat(64), config: { port: 5186 }, runningPort: 5186, source: 'default',
@@ -387,7 +387,6 @@ async function mockExecution(page: Page, origin: string, source = replayEvents()
       const runtimeStart = [...events].reverse().find(event => event.kind === 'run_started')
       return reply({ ...checkpoint(), ...(runtimeStart ? { currentRun: { id: runtimeStart.data.runId, startedAt: runtimeStart.createdAt } } : {}), messages: displayMessages(), events: recent, queuedInputs: [], hasOlder: false, hasOlderEvents: events.length >= 100 })
     }
-    if (path === '/model-selection/stats') return reply({ speedScope: 'global', qualityScope: 'user', speedWindowDays: 30, qualityWindowSize: 200, models: [] })
     if (path.endsWith('/messages')) return reply(displayMessages())
     if (path.endsWith('/artifacts')) return reply(artifacts.slice(-200))
     if (path.endsWith('/jobs')) return reply(jobs)
@@ -398,7 +397,6 @@ async function mockExecution(page: Page, origin: string, source = replayEvents()
     if (path.endsWith('/inputs')) return reply([])
     if (path.endsWith('/context')) return reply(null)
     if (path.endsWith('/context-usage')) return reply({ tokens: 1200, sequence: 0 })
-    if (path.endsWith('/feedback')) return reply({ feedback: {} })
     if (path.endsWith('/overview')) {
       if (options.historyDelayMs) await new Promise(done => setTimeout(done, options.historyDelayMs))
       overviewReads.push(path)

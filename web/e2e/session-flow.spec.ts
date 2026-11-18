@@ -21,7 +21,6 @@ function message(id: string, runId: string, sequence: number, role: string, cont
 }
 
 test('switching sessions ignores a delayed history response and keeps the new draft', { tag: '@smoke' }, async ({ page, vista }) => {
-  await vista.api('/preferences', { method: 'PATCH', body: JSON.stringify({ feedbackInvitationSeen: true }) })
   const first = await vista.api('/sessions', { method: 'POST', body: '{}' })
   const second = await vista.api('/sessions', { method: 'POST', body: '{}' })
   await vista.api(`/sessions/${first.id}`, { method: 'PATCH', body: JSON.stringify({ title: 'Delayed session A' }) })
@@ -68,7 +67,6 @@ test('switching sessions ignores a delayed history response and keeps the new dr
 })
 
 test('settings overlay keeps the current session stream alive and closes back to it', async ({ page, vista }) => {
-  await vista.api('/preferences', { method: 'PATCH', body: JSON.stringify({ feedbackInvitationSeen: true }) })
   const session = await vista.api('/sessions', { method: 'POST', body: '{}' })
   const runId = 'overlay-stream-run'
   const user = message('overlay-user', runId, 1, 'user', 'Controlled stream fixture')
@@ -134,7 +132,6 @@ test('settings overlay keeps the current session stream alive and closes back to
 })
 
 test('cancelling execution restores Send and allows the next message', async ({ page, vista }) => {
-  await vista.api('/preferences', { method: 'PATCH', body: JSON.stringify({ feedbackInvitationSeen: true }) })
   const session = await vista.api('/sessions', { method: 'POST', body: '{}' })
   const runId = 'cancel-fixture-run'
   const user = message('cancel-user', runId, 1, 'user', 'Cancellation fixture')
