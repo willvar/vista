@@ -190,6 +190,7 @@ function fixture(t: TestContext, response?: (path: string, options?: RequestInit
       if (path.endsWith('/messages')) return [message(path.split('/')[2] + '-history', 1, 'history', 'assistant')] as T
       return [] as T
     },
+    async *requestStream() { throw new Error('Unexpected streamed request') },
     async image() { throw new Error('Images are not requested in this fixture') },
     async streamEvents(id, options) {
       streams.set(id, options)

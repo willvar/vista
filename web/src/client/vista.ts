@@ -1,7 +1,8 @@
-import { streamSessionEvents, type EventStreamOptions } from './sse.ts'
+import { parseSSE, streamSessionEvents, type EventStreamOptions } from './sse.ts'
 
 export type VistaClient = {
   request: <T = unknown>(path: string, options?: RequestInit) => Promise<T>
+  requestStream: <T = unknown>(path: string, options: RequestInit & { signal: AbortSignal }) => AsyncIterable<T>
   image: (path: string, signal?: AbortSignal) => Promise<Blob>
   streamEvents: (sessionId: string, options: EventStreamOptions) => Promise<void>
 }
@@ -45,6 +46,16 @@ export function createVistaClient(fetchImpl: typeof fetch = fetch): VistaClient 
       const result = await response(path, options)
       const text = await result.text()
       return (text ? JSON.parse(text) : null) as T
+    },
+    async *requestStream<T>(path: string, options: RequestInit & { signal: AbortSignal }): AsyncGenerator<T> {
+      const headers = new Headers(options.headers)
+      headers.set('Accept', 'text/event-stream')
+      const result = await response(path, { ...options, headers })
+      if (!result.body || result.headers.get('Content-Type')?.split(';')[0]?.trim().toLowerCase() !== 'text/event-stream') {
+        await result.body?.cancel()
+        throw new Error('invalid event stream response')
+      }
+      for await (const frame of parseSSE(result.body, options.signal)) yield JSON.parse(frame) as T
     },
     async image(path: string, signal?: AbortSignal): Promise<Blob> {
       const result = await response(path, { signal })

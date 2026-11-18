@@ -30,8 +30,8 @@ for (const kind of ['open', 'close', 'delete'] as const) {
       const closingButtons: string[] = []
       let frame = 0
       const sample = () => {
-        const track = document.querySelector('.batch-operation-progress-track')
-        const fill = track?.querySelector('.batch-operation-progress-fill')
+        const track = document.querySelector('.ui-progress-bar')
+        const fill = track?.querySelector('.ui-progress-bar-fill')
         if (track && fill && track.getBoundingClientRect().width) ratios.push(fill.getBoundingClientRect().width / track.getBoundingClientRect().width)
         frame = requestAnimationFrame(sample)
       }
@@ -97,7 +97,7 @@ for (const kind of ['open', 'close', 'delete'] as const) {
         // here can only come from SSE; the loop has not advanced yet.
         await expect.poll(() => pageReads).toBeGreaterThan(i)
         await expect(progress).toHaveText(`Processed ${i} / 3`)
-        await expect(progress.getByRole('progressbar')).toHaveAttribute('value', String(i))
+        await expect(progress.getByRole('progressbar')).toHaveAttribute('aria-valuenow', String(i))
         await expect(rows).toHaveText(initialRows)
         await expect(stats).toHaveText(initialStats!)
         await expect(range).toHaveText('1–3 of 3')
@@ -141,7 +141,7 @@ test('batch progress respects reduced motion and responds to preference changes'
     await manager.getByRole('checkbox', { name: 'Select all shown', exact: true }).check()
     await manager.getByRole('button', { name: /^Close selected/ }).click()
     const dialog = page.getByRole('dialog', { name: 'Close selected', exact: true })
-    const fill = dialog.locator('.batch-operation-progress-fill')
+    const fill = dialog.locator('.ui-progress-bar-fill')
     await expect(fill).toHaveCSS('transition-property', 'none')
     await expect.poll(() => releases.length).toBe(1)
     releases[0]!()

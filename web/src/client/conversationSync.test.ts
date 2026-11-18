@@ -29,6 +29,7 @@ function fixture(t: TestContext, read?: (path: string) => Promise<unknown> | und
       requests.push(path)
       return (await (read?.(path) ?? Promise.resolve(path.endsWith('/snapshot') ? snapshot() : []))) as T
     },
+    async *requestStream() { throw new Error('Unexpected streamed request') },
     async image() { throw new Error('Recovery must not request images') },
     async streamEvents(_id, options) { streams.push(options); await options.beforeConnect?.() },
   }

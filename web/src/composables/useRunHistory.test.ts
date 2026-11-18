@@ -7,7 +7,7 @@ import { useRunHistory, type RunHistoryCache } from './useRunHistory.ts'
 
 const event = (sequence: number, kind = 'model_request', data: any = {}): StreamEvent => ({ sequence, kind, data: { runId: 'run', taskId: 'main', ...data } })
 const settle = async () => { await nextTick(); await new Promise(resolve => setImmediate(resolve)) }
-function client(request: VistaClient['request']): VistaClient { return { request, image: async () => new Blob(), streamEvents: async () => {} } }
+function client(request: VistaClient['request']): VistaClient { return { request, async *requestStream() { throw new Error('Unexpected streamed request') }, image: async () => new Blob(), streamEvents: async () => {} } }
 
 test('collapsed runs fetch only an overview and merge unique live events without extra reads', async () => {
   const paths: string[] = []

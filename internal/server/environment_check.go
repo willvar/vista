@@ -12,10 +12,13 @@ import (
 	"net/http"
 	"net/netip"
 	"net/url"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
+
+	"golang.org/x/net/netutil"
 
 	"vista/internal/network"
 )
@@ -29,19 +32,28 @@ const (
 
 var environmentOrigin http.CrossOriginProtection
 
+var environmentPorts = [...]int{80, 443, 8080, 8443, 3306, 5432}
+var environmentFamilies = [2]string{"tcp4", "tcp6"}
+
 var environmentIPs = [2][]string{
 	{"https://api.ipify.org/", "https://checkip.amazonaws.com/", "https://ipv4.icanhazip.com/"},
 	{"https://api6.ipify.org/", "https://ipv6.icanhazip.com/", "https://v6.ident.me/"},
 }
 
 type environmentResult struct {
-	Family string `json:"family"`
-	Status string `json:"status"`
+	Family         string `json:"family"`
+	Status         string `json:"status"`
+	Port           int    `json:"port,omitempty"`
+	AttemptedPorts []int  `json:"attemptedPorts,omitempty"`
 }
 
 type environmentReport struct {
-	Port    int                  `json:"port"`
 	Results [2]environmentResult `json:"results"`
+}
+
+type environmentUpdate struct {
+	Step   string             `json:"step,omitempty"`
+	Report *environmentReport `json:"report,omitempty"`
 }
 
 type environmentCheck struct {
@@ -52,6 +64,7 @@ type environmentCheck struct {
 }
 
 type environmentChallenge struct {
+	family int
 	proof  string
 	served bool
 	peers  []netip.Addr
@@ -65,14 +78,6 @@ func (a *App) environmentCheckHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	if r.ContentLength != 0 || r.URL.ForceQuery || r.URL.RawQuery != "" {
 		http.Error(w, "environment check takes no input", http.StatusBadRequest)
-		return
-	}
-	port := 0
-	if a.listenerPort != nil {
-		port = a.listenerPort()
-	}
-	if port < 1 || port > 65535 {
-		jsonOut(w, environmentReport{Results: [2]environmentResult{{"IPv4", "no_listener"}, {"IPv6", "no_listener"}}})
 		return
 	}
 	check := &a.environmentCheck
@@ -93,43 +98,155 @@ func (a *App) environmentCheckHTTP(w http.ResponseWriter, r *http.Request) {
 		check.mu.Unlock()
 	}()
 
-	ctx, cancel := context.WithTimeout(r.Context(), 45*time.Second)
+	ports := a.environmentCandidatePorts()
+	// Allow address discovery and two providers per family, even on different ports.
+	ctx, cancel := context.WithTimeout(r.Context(), 35*time.Second)
 	defer cancel()
 	client := newEnvironmentClient("tcp")
 	defer client.CloseIdleConnections()
-	report := environmentReport{Port: port}
+	lookup := [2]*http.Client{newEnvironmentClient("tcp4"), newEnvironmentClient("tcp6")}
+	defer lookup[0].CloseIdleConnections()
+	defer lookup[1].CloseIdleConnections()
+	var config net.ListenConfig
+	run := func(progress func(string)) environmentReport {
+		return check.scan(ctx, lookup, client, ports, config.Listen, progress)
+	}
+	if r.Header.Get("Accept") != "text/event-stream" {
+		jsonOut(w, run(nil))
+		return
+	}
+	streamEnvironmentCheck(w, r.Context(), cancel, run)
+}
+
+// This progress belongs to one diagnostic request, not shared application state.
+func streamEnvironmentCheck(w http.ResponseWriter, requestContext context.Context, cancel context.CancelFunc, run func(func(string)) environmentReport) {
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("X-Accel-Buffering", "no")
+	controller := http.NewResponseController(w)
+	write := func(update environmentUpdate) error {
+		payload, err := json.Marshal(update)
+		if err != nil {
+			return err
+		}
+		_ = controller.SetWriteDeadline(time.Now().Add(3 * time.Second))
+		defer func() { _ = controller.SetWriteDeadline(time.Time{}) }()
+		if _, err := fmt.Fprintf(w, "data: %s\n\n", payload); err != nil {
+			return err
+		}
+		return controller.Flush()
+	}
+
+	connected := true
+	report := run(func(step string) {
+		if connected && write(environmentUpdate{Step: step}) != nil {
+			connected = false
+			cancel()
+		}
+	})
+	if connected && requestContext.Err() == nil {
+		_ = write(environmentUpdate{Report: &report})
+	}
+}
+
+func (a *App) environmentCandidatePorts() []int {
+	ports := environmentPorts[:]
+	if a.listenerPort == nil {
+		return ports
+	}
+	port := a.listenerPort()
+	if port > 0 && port < 65535 && !slices.Contains(ports, port+1) {
+		ports = append(ports, port+1)
+	}
+	return ports
+}
+
+func (c *environmentCheck) scan(ctx context.Context, lookup [2]*http.Client, client *http.Client, ports []int, listen func(context.Context, string, string) (net.Listener, error), progress func(string)) environmentReport {
+	var report environmentReport
+	var targets [2]netip.Addr
+	if progress == nil {
+		progress = func(string) {}
+	}
+	progress("address")
 	var wg sync.WaitGroup
-	for index, family := range [2]string{"IPv4", "IPv6"} {
+	for index, name := range [2]string{"IPv4", "IPv6"} {
 		wg.Go(func() {
-			lookup := newEnvironmentClient([2]string{"tcp4", "tcp6"}[index])
-			defer lookup.CloseIdleConnections()
-			report.Results[index] = environmentResult{family, check.measure(ctx, lookup, client, index, port)}
+			targets[index] = environmentLookup(ctx, lookup[index], index)
+			status := "no_address"
+			if targets[index].IsValid() {
+				status = "no_listener"
+			}
+			report.Results[index] = environmentResult{Family: name, Status: status}
 		})
 	}
 	wg.Wait()
-	jsonOut(w, report)
+	if ctx.Err() != nil || (!targets[0].IsValid() && !targets[1].IsValid()) {
+		return report
+	}
+	progress("port")
+	var firstProbe sync.Once
+	for _, port := range ports {
+		if ctx.Err() != nil {
+			break
+		}
+		for family, target := range targets {
+			result := &report.Results[family]
+			// Only a bind failure advances to another port. A failed callback does not.
+			if !target.IsValid() || len(result.AttemptedPorts) != 0 {
+				continue
+			}
+			wg.Go(func() {
+				ln, err := listen(ctx, environmentFamilies[family], net.JoinHostPort("", strconv.Itoa(port)))
+				if err != nil {
+					return // Skip ports we cannot bind; never displace a service or elevate privileges.
+				}
+				if ctx.Err() == nil {
+					firstProbe.Do(func() { progress("callback") })
+				}
+				if ctx.Err() != nil {
+					_ = ln.Close()
+					return
+				}
+				result.AttemptedPorts = append(result.AttemptedPorts, port)
+				result.Status = c.servePort(ctx, client, ln, target, family, port)
+				if result.Status == "verified" {
+					result.Port = port
+				}
+			})
+		}
+		wg.Wait() // Finish both families and release this port before trying the next.
+	}
+	return report
 }
 
-func (a *App) environmentCallbackHTTP(w http.ResponseWriter, r *http.Request) {
+func (c *environmentCheck) servePort(ctx context.Context, client *http.Client, ln net.Listener, target netip.Addr, family, port int) string {
+	srv := &http.Server{ReadTimeout: 3 * time.Second, WriteTimeout: 3 * time.Second, MaxHeaderBytes: 4 << 10,
+		Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { c.callbackHTTP(w, r, family) })}
+	srv.SetKeepAlivesEnabled(false)
+	done := make(chan struct{})
+	go func() { defer close(done); _ = srv.Serve(netutil.LimitListener(ln, 8)) }()
+	defer func() { _ = srv.Close(); <-done }()
+	return c.measurePort(ctx, client, target, family, port)
+}
+
+func (c *environmentCheck) callbackHTTP(w http.ResponseWriter, r *http.Request, family int) {
 	w.Header().Set("Cache-Control", "no-store")
-	id := r.PathValue("challenge")
-	if r.URL.EscapedPath() != environmentCallback+id || r.URL.ForceQuery || r.URL.RawQuery != "" {
+	id, ok := strings.CutPrefix(r.URL.EscapedPath(), environmentCallback)
+	if !ok || !environmentJobID(id) || r.URL.ForceQuery || r.URL.RawQuery != "" || (r.Method != http.MethodGet && r.Method != http.MethodHead) {
 		http.NotFound(w, r)
 		return
 	}
-	check := &a.environmentCheck
-	check.mu.Lock()
-	challenge := check.challenges[id]
+	c.mu.Lock()
+	challenge := c.challenges[id]
 	var proof string
-	if challenge != nil {
+	if challenge != nil && challenge.family == family {
 		proof = challenge.proof
 		challenge.served = true
-		// The direct socket is authoritative; never trust forwarding headers as a probe identity.
+		// Never use forwarding headers as a probe identity.
 		if real, err := netip.ParseAddrPort(r.RemoteAddr); err == nil && len(challenge.peers) < 16 {
 			challenge.peers = append(challenge.peers, real.Addr().Unmap())
 		}
 	}
-	check.mu.Unlock()
+	c.mu.Unlock()
 	if proof == "" {
 		http.NotFound(w, r)
 		return
@@ -220,22 +337,26 @@ func environmentPublicIP(ip netip.Addr) bool {
 	return true
 }
 
-func (c *environmentCheck) measure(ctx context.Context, lookup, client *http.Client, family, port int) string {
-	var target netip.Addr
+func environmentLookup(ctx context.Context, lookup *http.Client, family int) netip.Addr {
 	for _, endpoint := range environmentIPs[family] {
-		raw, err := environmentFetch(ctx, lookup, endpoint, nil, 256)
+		if ctx.Err() != nil {
+			break
+		}
+		attempt, cancel := context.WithTimeout(ctx, 4*time.Second)
+		raw, err := environmentFetch(attempt, lookup, endpoint, nil, 256)
+		cancel()
 		if err != nil {
 			continue
 		}
 		ip, err := netip.ParseAddr(strings.TrimSpace(string(raw)))
 		if err == nil && ip.BitLen() == [2]int{32, 128}[family] && environmentPublicIP(ip) {
-			target = ip
-			break
+			return ip
 		}
 	}
-	if !target.IsValid() {
-		return "no_address"
-	}
+	return netip.Addr{}
+}
+
+func (c *environmentCheck) measurePort(ctx context.Context, client *http.Client, target netip.Addr, family, port int) string {
 	backup := c.probeCheckHost
 	if family == 1 {
 		backup = c.probeIPCow
@@ -247,9 +368,9 @@ func (c *environmentCheck) measure(ctx context.Context, lookup, client *http.Cli
 		if c.challenges == nil {
 			c.challenges = make(map[string]*environmentChallenge)
 		}
-		c.challenges[id] = &environmentChallenge{proof: rand.Text()}
+		c.challenges[id] = &environmentChallenge{family: family, proof: rand.Text()}
 		c.mu.Unlock()
-		attempt, cancel := context.WithTimeout(ctx, 12*time.Second)
+		attempt, cancel := context.WithTimeout(ctx, 5*time.Second)
 		verified, err := probe(attempt, client, target, port, id)
 		cancel()
 		c.mu.Lock()

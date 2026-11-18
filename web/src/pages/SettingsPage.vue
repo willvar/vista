@@ -213,6 +213,7 @@ watch(() => route.fullPath, () => {
   :keyboard="!providerDisconnectTarget && !modelFormOpen && !providerImportOpen && !mcpModalOpen && !skillModalOpen && !searchModalOpen && !networkModalOpen && !usageConnection && !providerDiscardOpen && !proxyBindingTarget && !storageModalOpen && !resetModalOpen && !restartModalOpen && !statisticsModalOpen && !instructionsEditorOpen && !delegationEditorOpen && !aboutAdvancedOpen && !environmentCheckOpen" @cancel="backToWorkspace" @back="back">
         <template #header-actions>
             <v-button v-if="route.name === 'settings-about'" variant="text" class="icon-button" :aria-label="t('advancedSettings')" :title="t('advancedSettings')" @click="aboutAdvancedOpen = true"><template #icon><IconAdjustments aria-hidden="true" /></template></v-button>
+            <EnvironmentCheckSettings v-if="route.name === 'settings-about'" :client="workspace.client" @modal-open="environmentCheckOpen = $event" />
             <v-button v-if="canImport" variant="text" class="icon-button" :aria-label="t(importTitleKey)" :title="t(importTitleKey)" :disabled="importKind === 'providers' ? settingsBusy : headerAction?.disabled" @click="importedCount = 0; providerImport?.show()"><template #icon><IconFileImport aria-hidden="true" /></template></v-button>
             <v-button v-if="headerAction" variant="text" class="icon-button" :aria-label="t(headerAction.label)" :title="t(headerAction.label)" :disabled="headerAction.disabled" :loading="headerAction.loading" @click="headerAction.run()">
               <template #icon><IconPlus v-if="route.name === 'settings' || route.name === 'settings-mcp' || route.name === 'settings-network'" aria-hidden="true" /><IconReload v-else-if="route.name === 'settings-statistics'" aria-hidden="true" /><IconRefresh v-else aria-hidden="true" /></template>
@@ -350,7 +351,6 @@ watch(() => route.fullPath, () => {
             <p class="about-tagline">{{ t('vistaTagline') }}</p>
           </div>
           <OMPCatalogSettings ref="sectionActions" :client="workspace.client" />
-          <EnvironmentCheckSettings :client="workspace.client" @modal-open="environmentCheckOpen = $event" />
           <ResetVistaSettings v-if="debugMode" @modal-open="resetModalOpen = $event" />
           <RestartVistaSettings @modal-open="restartModalOpen = $event" />
           <dl v-if="serverStatus" class="about-build-info">

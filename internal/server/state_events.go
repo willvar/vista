@@ -287,6 +287,8 @@ type mutationResponse struct {
 	status int
 }
 
+func (w *mutationResponse) Unwrap() http.ResponseWriter { return w.ResponseWriter }
+
 func (w *mutationResponse) WriteHeader(status int) {
 	if w.status == 0 {
 		w.status = status

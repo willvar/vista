@@ -7,7 +7,7 @@ import { useFullOutput } from './useFullOutput.ts'
 
 const settle = async () => { await nextTick(); await new Promise(resolve => setImmediate(resolve)) }
 const view = (content: string): OutputView => ({ content, offset: 0, nextOffset: Buffer.byteLength(content), availableBytes: Buffer.byteLength(content) })
-function client(request: VistaClient['request']): VistaClient { return { request, image: async () => new Blob(), streamEvents: async () => {} } }
+function client(request: VistaClient['request']): VistaClient { return { request, async *requestStream() { throw new Error('Unexpected streamed request') }, image: async () => new Blob(), streamEvents: async () => {} } }
 
 test('full output stays unloaded while collapsed and cached across reopening', async () => {
   const paths: string[] = []

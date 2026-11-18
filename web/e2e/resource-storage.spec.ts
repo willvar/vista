@@ -121,7 +121,7 @@ test('originals survive compaction and closing, and become cleanable only after 
   await confirmation.getByRole('button', { name: 'Delete', exact: true }).click()
   await acknowledged
   await expect(confirmation.locator('.batch-operation-progress')).toContainText('Cleaning unreferenced resources…')
-  expect(await confirmation.getByRole('progressbar').evaluate(element => element.matches(':indeterminate'))).toBe(true)
+  await expect(confirmation.getByRole('progressbar')).toHaveAttribute('data-state', 'indeterminate')
   await page.keyboard.press('Escape')
   await page.mouse.click(2, 2)
   await expect(confirmation).toBeVisible()
