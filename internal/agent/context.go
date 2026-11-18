@@ -116,7 +116,7 @@ func prepareContext(ctx context.Context, command workerproto.Command, emit func(
 	}
 	catalog, _ := json.Marshal(skills)
 	messages[0].Content += "\nAvailable skills (name, description, path, source): " + string(catalog) + ". Read the full relevant SKILL.md before applying it; resolve its relative references from its directory. System skill:// paths are embedded documents: use read_skill for them and their references. Use list_skills to refresh this catalog when needed."
-	toolset := builtinTools()
+	toolset := append(builtinTools(), generationTools(command, depth)...)
 	toolSchemas := toolset.schemas(depth, delegationLimit, len(command.MCPServers) > 0)
 	if len(command.MCPServers) > 0 {
 		servers := make([]map[string]string, 0, len(command.MCPServers))

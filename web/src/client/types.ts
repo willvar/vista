@@ -6,14 +6,17 @@ export type SessionActionPreview = { requestId: string; kind: 'close' | 'delete'
 
 export type Session = { id: string; title: string; modelKey: string; open: boolean; pinned?: boolean; running: boolean; executing: boolean; createdAt: string; updatedAt?: string; pendingReply?: PendingReply; inputQueuePaused?: boolean; readSequence?: number; latestReplySequence?: number; latestRunStatus?: string; pendingInputCount?: number; manualModelKey?: string; manualReasoningEffort?: string; processingTier?: string }
 export type SessionListSnapshot = { items: Session[]; throughSequences: Record<string, number> }
-export type ModelInfo = { disabled?: boolean; proxyId?: string; key: string; connectionId?: string; name?: string; modelName?: string; recognized?: boolean; provider: string; providerId?: string; id: string; baseUrl?: string; tools?: boolean; context?: number; inputLimit?: number; outputLimit?: number; catalogReasoning?: boolean; status?: string; inputModalities?: string[]; outputModalities?: string[]; discoverySource?: string; processingTiers?: string[]; reasoningOptions?: string[]; reasoningEffort?: string }
+export type ModelInfo = { kind?: string; disabled?: boolean; proxyId?: string; key: string; connectionId?: string; name?: string; modelName?: string; recognized?: boolean; provider: string; providerId?: string; id: string; baseUrl?: string; tools?: boolean; context?: number; inputLimit?: number; outputLimit?: number; catalogReasoning?: boolean; status?: string; inputModalities?: string[]; outputModalities?: string[]; discoverySource?: string; processingTiers?: string[]; reasoningOptions?: string[]; reasoningEffort?: string }
 export type CopilotAuthOptions = { enterpriseUrl?: string; clientId?: string }
 export type PromptCaching = { format?: 'auto' | 'none' | 'openai' | 'anthropic' | 'alibaba' | 'bedrock' | 'gemini'; key?: boolean; retention?: 'in_memory' | '24h'; ttl?: '5m' | '1h' | '30m' | '12h'; cachedContent?: { name: string; sha256: string; messages: number } }
 export type ModelSetting = {
   disabled?: boolean; connectionKey?: string;
   promptCaching?: PromptCaching; responsesRoute?: '' | 'codex-compatible' | 'codex';
   proxyId?: string; headerNames?: string[]; copilotAuth?: CopilotAuthOptions; key: string; connectionId?: string; kind?: string; name?: string; provider: string; providerId?: string; id: string; baseUrl?: string; hasApiKey: boolean; hasAccessToken?: boolean; credentialMode?: string; region?: string; project?: string; location?: string; resourceName?: string; deploymentId?: string; apiVersion?: string; editable: boolean }
-export type ModelSettings = { default: string; models: ModelSetting[]; settingsRevision?: string }
+export type GenerationKind = 'image' | 'video' | 'decision'
+export type GenerationAdapter = { id: string; name: string; baseUrl: string; kinds: GenerationKind[]; frame: boolean }
+export type GenerationSetting = { kind: GenerationKind; adapter: string; model: string; connection?: string; baseUrl?: string; proxyId?: string; options?: unknown; hasApiKey?: boolean; hasWorkflow?: boolean }
+export type ModelSettings = { default: string; models: ModelSetting[]; settingsRevision?: string; generation?: GenerationSetting[]; generationAdapters?: GenerationAdapter[] }
 export type ProviderSetup = { id: string; name: string; aliases?: string; baseUrl?: string; fields?: string[]; credentialModes?: string[]; apiFormats?: string[]; models?: { id: string; name: string }[] }
 export type AgentSettings = { instructions: string; instructionsPath: string; instructionsSha256: string; delegationDepth: number; maxDelegationDepth: number; automaticTitles: boolean }
 export type PageInfo = { page: number; pageSize: number; total: number; version: string }
@@ -32,7 +35,7 @@ export type ResourceStorageStats = { totalBytes: number; totalCount: number; ref
 export type ResourceStorageBackend = { kind: 'local' | 's3'; endpoint?: string; bucket?: string; region?: string; prefix?: string; hasCredentials: boolean }
 export type ResourceStorageConfiguration = { objectStorage?: ResourceStorageBackend; current: ResourceStorageBackend; revision: string; migration?: { id: string; phase: string; error?: string; copiedCount: number; copiedBytes: number }; target?: ResourceStorageBackend }
 export type ResourceStorageStatus = { checkError?: string; config?: ResourceStorageConfiguration; phase: string; action?: string; stats?: ResourceStorageStats; deletedCount: number; deletedBytes: number; error?: string }
-export type ModelCatalog = { default: string; models: ModelInfo[]; showUnrecognizedModels?: boolean; settingsRevision?: string }
+export type ModelCatalog = { default: string; conversationDefault?: string; models: ModelInfo[]; showUnrecognizedModels?: boolean; settingsRevision?: string }
 export type OMPCatalogInfo = {
   revision: string
   modelsDevRevision?: string

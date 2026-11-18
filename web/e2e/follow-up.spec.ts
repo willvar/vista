@@ -239,12 +239,13 @@ test('Escape stops only the current running session, preserves drafts, and ignor
   expect(fixture.sent).toHaveLength(0)
 })
 
-test('Escape dismisses a dropdown, settings, context popup, or title editor before stopping execution', async ({ page, vista }) => {
+test('Escape dismisses settings, the context popup, or the title editor before stopping execution', async ({ page, vista }) => {
   test.setTimeout(60_000)
   const fixture = await mockConversation(page, vista, { compactionStatus: true })
   const textarea = page.locator('.sender-card textarea')
   const header = page.locator('.workspace:not(.modal-page) > .conversation-header')
-  for (const overlay of ['model', 'settings', 'context', 'title'] as const) {
+  const overlays = ['settings', 'context', 'title'] as const
+  for (const overlay of overlays) {
     if (fixture.cancellations()) {
       fixture.setExecuting(true)
       await page.reload()
@@ -253,10 +254,7 @@ test('Escape dismisses a dropdown, settings, context popup, or title editor befo
     const draft = `Preserve draft while closing ${overlay}`
     await textarea.fill(draft)
     const before = fixture.cancellations()
-    if (overlay === 'model') {
-      await page.locator('.composer-model').click()
-      await expect(page.locator('.ui-select-dropdown:visible')).toHaveCount(1)
-    } else if (overlay === 'settings') {
+    if (overlay === 'settings') {
       const mobileDrawer = page.locator('.mobile-sessions-trigger:visible')
       if (await mobileDrawer.count()) {
         await mobileDrawer.click()
@@ -272,8 +270,7 @@ test('Escape dismisses a dropdown, settings, context popup, or title editor befo
       await header.getByRole('textbox', { name: 'Session title', exact: true }).fill('Do not save this title')
     }
     await page.keyboard.press('Escape')
-    if (overlay === 'model') await expect(page.locator('.ui-select-dropdown:visible')).toHaveCount(0)
-    else if (overlay === 'settings') await expect(page.locator('.settings-page')).toBeHidden()
+    if (overlay === 'settings') await expect(page.locator('.settings-page')).toBeHidden()
     else if (overlay === 'context') await expect(page.locator('.context-usage-hint:visible')).toHaveCount(0)
     else await expect(header.locator('.session-rename')).toHaveCount(0)
     expect(fixture.cancellations(), `First Escape closes ${overlay} without stopping the run`).toBe(before)
@@ -285,7 +282,7 @@ test('Escape dismisses a dropdown, settings, context popup, or title editor befo
     await expect(textarea).toHaveValue(draft)
     await expect(page.locator('.messages article.user .markdown')).toHaveText('Controlled follow-up fixture')
   }
-  expect(fixture.cancelPaths).toEqual(Array(4).fill(`/api/sessions/${fixture.session.id}/cancel`))
+  expect(fixture.cancelPaths).toEqual(overlays.map(() => `/api/sessions/${fixture.session.id}/cancel`))
   expect(fixture.sent).toHaveLength(0)
 })
 

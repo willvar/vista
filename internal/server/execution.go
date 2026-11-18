@@ -343,6 +343,7 @@ func (a *App) dispatchRun(ctx context.Context, sessionID, runID string, message 
 		return err
 	}
 	command.Network = policy
+	command.Generation = a.generationTargets(ctx)
 	pinMCPNetwork(policy, command.MCPServers, command.SearchProviders)
 	if message.Role == "runtime" {
 		command.Action = "resume"

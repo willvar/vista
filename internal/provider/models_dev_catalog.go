@@ -16,18 +16,19 @@ import (
 	"github.com/klauspost/compress/zstd"
 )
 
-const modelsDevCatalogURL = "https://models.dev/api.json"
-const openCodeModelsCatalogURL = "https://models.opencode.ai/api.json"
+const modelsDevCatalogURL = "https://models.dev/api.json?type=all"
+const openCodeModelsCatalogURL = "https://models.opencode.ai/api.json?type=all"
 const stencilCatalogURL = "https://catalog.stencil.so/models.json.zstd"
 
 type modelsDevCatalog struct {
-	Schema     int                            `json:"schema,omitempty"`
-	Revision   string                         `json:"revision"`
-	ModelCount int                            `json:"modelCount"`
-	Providers  map[string]map[string]OMPModel `json:"providers"`
-	Types      map[string]map[string]string   `json:"types,omitempty"`
-	History    []modelsDevRevision            `json:"history,omitempty"`
-	ETags      map[string]string              `json:"etags,omitempty"`
+	Schema      int                                  `json:"schema,omitempty"`
+	Revision    string                               `json:"revision"`
+	ModelCount  int                                  `json:"modelCount"`
+	Providers   map[string]map[string]OMPModel       `json:"providers"`
+	Types       map[string]map[string]string         `json:"types,omitempty"`
+	Specialized map[string]map[string]OutputMetadata `json:"specialized,omitempty"`
+	History     []modelsDevRevision                  `json:"history,omitempty"`
+	ETags       map[string]string                    `json:"etags,omitempty"`
 }
 
 type modelsDevRevision struct {
@@ -36,7 +37,7 @@ type modelsDevRevision struct {
 }
 
 const modelsDevHistoryWindow = 3 * 24 * time.Hour
-const modelsDevSchema = 1
+const modelsDevSchema = 2
 
 type modelsDevModel struct {
 	ID        string `json:"id"`
@@ -271,7 +272,7 @@ func decodeModelsDevCatalog(data []byte) (*modelsDevCatalog, error) {
 	if err := json.Unmarshal(data, &source); err != nil {
 		return nil, fmt.Errorf("decode models.dev model data: %w", err)
 	}
-	catalog := &modelsDevCatalog{Schema: modelsDevSchema, Providers: map[string]map[string]OMPModel{}, Types: map[string]map[string]string{}}
+	catalog := &modelsDevCatalog{Schema: modelsDevSchema, Providers: map[string]map[string]OMPModel{}, Types: map[string]map[string]string{}, Specialized: map[string]map[string]OutputMetadata{}}
 	for providerID, entry := range source {
 		if entry.ID != providerID {
 			return nil, errors.New("models.dev provider identity does not match its catalog entry")
@@ -292,13 +293,17 @@ func decodeModelsDevCatalog(data []byte) (*modelsDevCatalog, error) {
 				}
 				catalog.Types[providerID][id] = raw.Type
 			}
-			// Generation-only endpoints do not belong in the conversation picker.
+			// Retain specialized metadata, but do not resolve it as a chat transport.
 			if raw.Type != "" && raw.Type != "chat" || !slices.Contains(raw.Modalities.Input, "text") || !slices.Contains(raw.Modalities.Output, "text") {
+				if catalog.Specialized[providerID] == nil {
+					catalog.Specialized[providerID] = map[string]OutputMetadata{}
+				}
+				catalog.Specialized[providerID][id] = OutputMetadata{ID: id, Name: raw.Name, Kind: raw.Type, Input: raw.Modalities.Input, Output: raw.Modalities.Output}
 				continue
 			}
 			api := modelsDevModelAPI(providerID, raw.Provider.Package)
 			model := OMPModel{Name: raw.Name, API: api, Input: raw.Modalities.Input, Reasoning: raw.Reasoning,
-				ContextWindow: raw.Limit.Context, MaxTokens: raw.Limit.Output, SupportsTools: raw.Tools}
+				ContextWindow: raw.Limit.Context, MaxTokens: raw.Limit.Output, SupportsTools: raw.Tools, Output: raw.Modalities.Output}
 			if model.Reasoning {
 				model.ReasoningOptions = cloneReasoningOptions(raw.ReasoningOptions)
 				for i := range model.ReasoningOptions {
@@ -340,7 +345,7 @@ func decodeModelsDevCatalog(data []byte) (*modelsDevCatalog, error) {
 		return nil, fmt.Errorf("invalid models.dev catalog: %w", err)
 	}
 	var err error
-	catalog.Revision, err = catalogRevision(catalog.Providers)
+	catalog.Revision, err = catalog.revision()
 	return catalog, err
 }
 
@@ -393,7 +398,7 @@ func completeModelsDevTypes(catalog, current *modelsDevCatalog, hints []*modelsD
 		return nil, err
 	}
 	var err error
-	staged.Revision, err = catalogRevision(staged.Providers)
+	staged.Revision, err = staged.revision()
 	return &staged, err
 }
 

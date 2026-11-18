@@ -4,20 +4,20 @@ import { test, expect } from './fixtures'
 test.beforeEach(async ({ vista }) => {
 })
 
-test('composer retains its text padding and borderless model search states', { tag: '@responsive' }, async ({ page, vista }) => {
+test('composer retains its text padding; model search lives in Settings', { tag: '@responsive' }, async ({ page, vista }) => {
   await page.goto(vista.origin)
   const input = page.locator('.sender-card textarea')
   await expect(input).toBeEnabled()
   const padding = await input.evaluate(element => ({ top: getComputedStyle(element).paddingTop, bottom: getComputedStyle(element).paddingBottom }))
   expect(padding).toEqual(page.viewportSize()!.height <= 520 ? { top: '0px', bottom: '0px' } : { top: '6px', bottom: '6px' })
-  const model = page.locator('.composer-model')
+  await expect(page.locator('.composer-model')).toHaveCount(0)
+  await page.goto(`${vista.origin}/settings/models`)
+  const model = page.locator('.default-model-setting')
+  const inputModel = model.getByRole('combobox')
   const label = await model.locator('.ui-select-selection-item').innerText()
-  await model.hover()
-  await model.click()
+  await inputModel.click()
   await expect(page.locator('.ui-select-dropdown:visible')).toBeVisible()
-  await expect(model.getByRole('combobox')).toHaveAttribute('placeholder', label)
-  expect(await model.locator('.ui-select-selector').evaluate(element => getComputedStyle(element).borderColor)).toBe('rgba(0, 0, 0, 0)')
-  await model.getByRole('combobox').fill('No matching model')
+  await inputModel.fill('No matching model')
   await expect(page.locator('.ui-select-empty:visible')).toBeVisible()
   await page.keyboard.press('Escape')
   await expect(model).toContainText(label)

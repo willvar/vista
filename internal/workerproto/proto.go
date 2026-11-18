@@ -12,40 +12,41 @@ const DefaultNetworkPreviewBytes = 50 << 10
 // Frames are newline-delimited JSON on a dedicated Worker stdin/stdout pipe.
 // Result frames have a byte limit; command fields are validated after decoding.
 type Command struct {
-	Network             network.Policy       `json:"network"`
-	RuntimeEvents       []RuntimeEvent       `json:"runtimeEvents,omitempty"`
-	SessionActionResult *SessionActionResult `json:"sessionActionResult,omitempty"`
-	ProjectRules        []ProjectRule        `json:"projectRules,omitempty"`
-	MCPHost             MCPHost              `json:"mcpHost,omitzero"`
-	RPCID               string               `json:"rpcId,omitempty"`
-	ResourcePath        string               `json:"resourcePath,omitempty"`
-	ResourceName        string               `json:"resourceName,omitempty"`
-	ResourceType        string               `json:"resourceType,omitempty"`
-	MemoryLimit         int64                `json:"memoryLimit,omitempty"`
-	BackgroundJobsLimit int                  `json:"backgroundJobsLimit,omitempty"`
-	Debug               bool                 `json:"debug,omitempty"`
-	TaskID              string               `json:"taskId,omitempty"`
-	ParentTaskID        string               `json:"parentTaskId,omitempty"`
-	Join                string               `json:"join,omitempty"`
-	Action              string               `json:"action,omitempty"`
-	AckID               string               `json:"ackId,omitempty"`
-	Input               *Command             `json:"input,omitempty"`
-	Error               string               `json:"error,omitempty"`
-	JobID               string               `json:"jobId,omitempty"`
-	SessionID           string               `json:"sessionId,omitempty"`
-	MessageSequence     int64                `json:"messageSequence,omitempty"`
-	InputID             string               `json:"inputId,omitempty"`
-	RunID               string               `json:"runId"`
-	Prompt              string               `json:"prompt"`
-	ReplyLanguage       string               `json:"replyLanguage,omitempty"`
-	QuestionCallID      string               `json:"questionCallId,omitempty"`
-	Images              []Image              `json:"images,omitempty"`
-	Model               modelcfg.Model       `json:"model"`
-	History             []Message            `json:"history,omitempty"`
-	MCPServers          []MCPServer          `json:"mcpServers,omitempty"`
-	SearchProviders     []SearchProvider     `json:"searchProviders,omitempty"`
-	SearchPreviewBytes  int                  `json:"searchPreviewBytes,omitempty"`
-	Webfetch            WebfetchConfig       `json:"webfetch,omitzero"`
+	Generation          []modelcfg.GenerationTarget `json:"generation,omitempty"`
+	Network             network.Policy              `json:"network"`
+	RuntimeEvents       []RuntimeEvent              `json:"runtimeEvents,omitempty"`
+	SessionActionResult *SessionActionResult        `json:"sessionActionResult,omitempty"`
+	ProjectRules        []ProjectRule               `json:"projectRules,omitempty"`
+	MCPHost             MCPHost                     `json:"mcpHost,omitzero"`
+	RPCID               string                      `json:"rpcId,omitempty"`
+	ResourcePath        string                      `json:"resourcePath,omitempty"`
+	ResourceName        string                      `json:"resourceName,omitempty"`
+	ResourceType        string                      `json:"resourceType,omitempty"`
+	MemoryLimit         int64                       `json:"memoryLimit,omitempty"`
+	BackgroundJobsLimit int                         `json:"backgroundJobsLimit,omitempty"`
+	Debug               bool                        `json:"debug,omitempty"`
+	TaskID              string                      `json:"taskId,omitempty"`
+	ParentTaskID        string                      `json:"parentTaskId,omitempty"`
+	Join                string                      `json:"join,omitempty"`
+	Action              string                      `json:"action,omitempty"`
+	AckID               string                      `json:"ackId,omitempty"`
+	Input               *Command                    `json:"input,omitempty"`
+	Error               string                      `json:"error,omitempty"`
+	JobID               string                      `json:"jobId,omitempty"`
+	SessionID           string                      `json:"sessionId,omitempty"`
+	MessageSequence     int64                       `json:"messageSequence,omitempty"`
+	InputID             string                      `json:"inputId,omitempty"`
+	RunID               string                      `json:"runId"`
+	Prompt              string                      `json:"prompt"`
+	ReplyLanguage       string                      `json:"replyLanguage,omitempty"`
+	QuestionCallID      string                      `json:"questionCallId,omitempty"`
+	Images              []Image                     `json:"images,omitempty"`
+	Model               modelcfg.Model              `json:"model"`
+	History             []Message                   `json:"history,omitempty"`
+	MCPServers          []MCPServer                 `json:"mcpServers,omitempty"`
+	SearchProviders     []SearchProvider            `json:"searchProviders,omitempty"`
+	SearchPreviewBytes  int                         `json:"searchPreviewBytes,omitempty"`
+	Webfetch            WebfetchConfig              `json:"webfetch,omitzero"`
 }
 
 // The private loopback endpoint is sent only over Worker IPC, never public SSE.
@@ -248,13 +249,16 @@ type Metrics struct {
 	SampledAt         string `json:"sampledAt"`
 }
 type ToolProgress struct {
-	Input            *ToolInput `json:"input,omitempty"`
-	OutputRef        *OutputRef `json:"outputRef,omitempty"`
-	Truncated        bool       `json:"truncated,omitempty"`
-	CallID           string     `json:"callId"`
-	Name             string     `json:"name"`
-	Summary          string     `json:"summary"`
-	ProviderExecuted bool       `json:"providerExecuted,omitempty"`
+	MediaState       string         `json:"mediaState,omitempty"`
+	SourceSequence   int64          `json:"sourceSequence,omitempty"`
+	Generated        *resources.Ref `json:"generated,omitempty"`
+	Input            *ToolInput     `json:"input,omitempty"`
+	OutputRef        *OutputRef     `json:"outputRef,omitempty"`
+	Truncated        bool           `json:"truncated,omitempty"`
+	CallID           string         `json:"callId"`
+	Name             string         `json:"name"`
+	Summary          string         `json:"summary"`
+	ProviderExecuted bool           `json:"providerExecuted,omitempty"`
 }
 
 // ToolInput contains only displayable shell metadata, never raw tool arguments.

@@ -10,6 +10,8 @@ recompressed. PNG/JPEG/WebP/GIF originals are limited to 50 MiB per image in bot
 Audio/video input and automatic frame extraction are not supported.
 This library is separate from project working directories and output/process logs.
 
+Generated image and video originals reuse the same backends, SHA-256 IDs and Session ownership. Generated MP4/WebM originals are limited to 128 MiB and remain available by resource ID after the upstream URL expires. The original video is a result, not a video attachment or model input. The tool reports success only after the Session owns the original. Decisions retain their structured result as a tool artifact, not a media resource. `list_resources` lists media references; `read_resource` still supplies only image input to models.
+
 ## Storage location
 
 Settings → Storage selects local storage or an S3-compatible HTTP(S) endpoint, bucket, optional region and prefix.

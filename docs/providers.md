@@ -66,6 +66,12 @@ Directory caches use a [metadata-only model type](../internal/modelcatalog/inven
 
 Cache capabilities are selected independently of transport routing. See [prompt caching](./prompt-caching.md) for the multi-provider policy and configuration.
 
+## Specialized output connections
+
+Models.dev supplies input/output modalities and specialized categories independently of chat protocol admission. A known specialized model cannot become a chat model by declaring text output. Settings stores one optional binding for each of image generation, video generation, and structured decisions. A binding either reuses a saved connection or supplies its own endpoint and credential; the tool never selects another model or connection.
+
+The [media transports](../internal/generation) adapt the OpenClaw `v2026.11.5` wire formats for text-to-image, text-to-video, and a single private first frame when supported. An input that requires a public image URL is not sent. ComfyUI accepts an API workflow with named input and output nodes; Vista does not edit workflows. Text decisions use a dedicated System One route and retain the structured result as an artifact. Provider capability and account entitlement still apply. Local protocol fixtures describe the adapter behavior, not verified live support.
+
 ## Importing connections
 
 In Model connections, the import button beside the plus opens the OpenCode importer. Opening the dialog does not read any files; click **Read configuration** to preview connections. Importing into an empty connection list is recommended. Select connections before confirming; existing connections to the same provider/address are skipped, and the current default is preserved.

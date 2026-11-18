@@ -82,7 +82,7 @@ func (source *ompCompactSource) models() (map[string]map[string]ompSourceModel, 
 			// Copy only Vista's stable subset, without modifying shared nodes or
 			// serializing OMP-only pricing, headers, compat, or runtime state.
 			model := map[string]any{"id": id}
-			for _, key := range []string{"id", "provider", "name", "api", "reasoning", "input", "contextWindow", "maxTokens", "supportsTools", "thinking"} {
+			for _, key := range []string{"id", "provider", "name", "api", "reasoning", "input", "output", "kind", "contextWindow", "maxTokens", "supportsTools", "thinking"} {
 				if value, exists := constants[key]; exists {
 					model[key] = value
 				}

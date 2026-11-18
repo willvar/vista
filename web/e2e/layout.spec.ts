@@ -30,13 +30,11 @@ async function expectNoConversationOverflow(page: Page) {
   const geometry = await page.evaluate(() => {
     const selectors = ['.messages', '.run-trace', '.ui-think-status-wrapper', '.ui-think-status-text',
       '.ui-thought-chain-node-box', '.ui-thought-chain-node-title', '.sender-card', '.sender-status', '.conversation-execution', '.sender-footer', '.composer-submit']
-    const model = document.querySelector('.composer-model')?.getBoundingClientRect()
     return {
       pageWidth: document.documentElement.scrollWidth,
       pageHeight: document.documentElement.scrollHeight,
       viewportWidth: innerWidth,
       viewportHeight: innerHeight,
-      modelWidth: model?.width ?? 0,
       overflowing: selectors.flatMap(selector => [...document.querySelectorAll(selector)]
         .filter(element => element.getBoundingClientRect().width > 0 && element.scrollWidth > element.clientWidth + 2)
         .map(element => ({ selector, width: element.clientWidth, scrollWidth: element.scrollWidth }))),
@@ -44,7 +42,7 @@ async function expectNoConversationOverflow(page: Page) {
   })
   expect(geometry.pageWidth, 'Page must not scroll horizontally').toBeLessThanOrEqual(geometry.viewportWidth + 2)
   expect(geometry.pageHeight, 'Short screens must scroll within the conversation').toBeLessThanOrEqual(geometry.viewportHeight + 2)
-  expect(geometry.modelWidth, 'Model picker must remain usable').toBeGreaterThanOrEqual(96)
+  await expect(page.locator('.composer-model')).toHaveCount(0)
   expect(geometry.overflowing, 'Conversation components must not overflow horizontally').toEqual([])
 }
 

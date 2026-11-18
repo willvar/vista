@@ -115,7 +115,10 @@ func (catalog *OMPCatalogSnapshot) resolveModel(providerID, modelID string) (Cat
 	item.Tools = omp.SupportsTools == nil || *omp.SupportsTools
 	item.Reasoning = omp.Reasoning
 	item.InputModalities = append([]string(nil), omp.Input...)
-	item.OutputModalities = []string{"text"}
+	item.OutputModalities = omp.Output
+	if len(item.OutputModalities) == 0 {
+		item.OutputModalities = []string{"text"}
+	}
 	item.ContextLimit = omp.ContextWindow
 	item.OutputLimit = omp.MaxTokens
 	item.Status = "active"

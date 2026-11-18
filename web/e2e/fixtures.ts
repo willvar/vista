@@ -235,6 +235,26 @@ export const nativeFixture = {
         response.end('data: {"choices":[{"delta":{},"finish_reason":"stop"}]}\n\ndata: [DONE]\n\n')
         return
       }
+      if (!titleRequest && input.messages?.[lastUser]?.content === 'Fixture stop generation') {
+        const pending = input.messages?.filter(message => message.role === 'tool' && message.tool_call_id === 'fixture-generation').at(-1)
+        const stopped = toolResults.some(message => message.tool_call_id === 'fixture-stop-generation')
+        let executionId = ''
+        try { executionId = JSON.parse(String(pending?.content)).executionId || '' } catch { /* no pending generation */ }
+        const delta = stopped || !executionId ? { content: 'Fixture stop processed.' } : { tool_calls: [{ index: 0, id: 'fixture-stop-generation', type: 'function', function: { name: 'cancel_generation', arguments: JSON.stringify({ executionId }) } }] }
+        response.end(`data: ${JSON.stringify({ choices: [{ delta, finish_reason: stopped || !executionId ? 'stop' : 'tool_calls' }] })}\n\ndata: [DONE]\n\n`)
+        return
+      }
+      const generationAsk = !titleRequest && /^Fixture (image|video|decision)(?: ([a-f0-9]{64}))?$/.exec(String(input.messages?.[lastUser]?.content))
+      if (generationAsk) {
+        const completed = toolResults.find(message => message.tool_call_id === 'fixture-generation')
+        const kind = generationAsk[1]!
+        const name = kind === 'decision' ? 'decision_evaluate' : `generate_${kind}`
+        const args = kind === 'decision' ? { evidence: 'A sample is ready.', questions: [{ id: 'ready', type: 'boolean', instructions: 'Is the sample ready?' }] }
+          : { prompt: 'Neutral test media', ...(generationAsk[2] ? { firstFrameHash: generationAsk[2] } : {}) }
+        const delta = completed ? { content: 'Fixture result recorded.' } : { tool_calls: [{ index: 0, id: 'fixture-generation', type: 'function', function: { name, arguments: JSON.stringify(args) } }] }
+        response.end(`data: ${JSON.stringify({ choices: [{ delta, finish_reason: completed ? 'stop' : 'tool_calls' }] })}\n\ndata: [DONE]\n\n`)
+        return
+      }
       const retainedImage = imageModel && !titleRequest && /^Display retained image ([a-f0-9]{64})$/.exec(String(input.messages?.[lastUser]?.content))
       if (retainedImage) {
         const read = toolResults.find(message => message.tool_call_id === 'read-retained-image')

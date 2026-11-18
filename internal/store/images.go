@@ -170,7 +170,7 @@ func (s *Store) SessionResources(ctx context.Context, sessionID string, after st
 // A tool source records the history boundary that retains an imported/reread
 // original across later rollbacks. Unsent HTTP uploads have no tool source.
 func (s *Store) AttachResource(ctx context.Context, sessionID string, ref resources.Ref, source *workerproto.Result, stamps ...resources.Stamp) error {
-	if !resources.ValidHash(ref.Hash) || !resources.ValidImageType(ref.MediaType) || ref.Bytes < 1 || ref.Bytes > MaxImageBytes || len(ref.Name) > 1024 {
+	if !resources.ValidHash(ref.Hash) || !resources.ValidResourceSize(ref.MediaType, ref.Bytes) || len(ref.Name) > 1024 {
 		return errors.New("invalid resource reference")
 	}
 	stamp, err := s.ResourceControl().Current(ctx)

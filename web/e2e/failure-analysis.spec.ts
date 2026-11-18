@@ -131,7 +131,7 @@ async function analyzeFailedCompaction(page: Page, vista: VistaFixture, orderedD
     expect(submitted).toHaveProperty('modelKey')
     expect(checkpoint.session.manualModelKey).toBe(submitted?.modelKey)
   }
-  await expect(page.getByRole('combobox', { name: 'Model', exact: true })).toBeVisible()
+  await expect(page.locator('.composer-model')).toHaveCount(0)
   expect((await vista.api(`${destination}/checkpoint`)).session.manualModelKey).toBeTruthy()
   const messages = await vista.api(`${destination}/messages`) as Message[]
   const data = diagnosticData(messages.find(message => message.role === 'user')!.content)

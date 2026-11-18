@@ -19,6 +19,8 @@ import (
 // switch or interjection is therefore visible to every subsequent tool call.
 // Delegation invokes a runner supplied by the orchestration layer.
 type toolRuntime struct {
+	generated       *resources.Ref
+	mediaStopped    string
 	resourceResults []resources.Ref
 	definitions     toolSet
 	mcp             *mcpManager
@@ -100,7 +102,7 @@ func (r *toolRuntime) execute(ctx context.Context, call provider.ToolCall) (stri
 	}
 	definitions := r.definitions
 	if definitions == nil {
-		definitions = builtinTools()
+		definitions = append(builtinTools(), generationTools(r.parent, r.depth)...)
 	}
 	for _, tool := range definitions {
 		if tool.schema["function"].(map[string]any)["name"] == call.Function.Name && tool.execute != nil {

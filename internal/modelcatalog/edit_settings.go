@@ -51,6 +51,9 @@ func NewSettingsError(code, message string, details map[string]any) *SettingsErr
 func SelectDefault(raw, live Catalog, key string) (Catalog, error) {
 	for _, model := range raw.Models {
 		if model.Key == key {
+			if !model.ChatEligible() {
+				return Catalog{}, errors.New("a conversation model is required")
+			}
 			if model.Disabled {
 				return Catalog{}, errors.New("this model connection is disabled")
 			}
@@ -112,7 +115,13 @@ func ChangeConnection(ctx context.Context, raw Catalog, exists bool, method stri
 			foundDefault = foundDefault || model.Key == raw.Default
 		}
 		if !foundDefault {
-			raw.Default = raw.Models[0].Key
+			raw.Default = ""
+			for _, row := range retained {
+				if row.Generation == nil {
+					raw.Default = row.Key
+					break
+				}
+			}
 		}
 		return raw, nil
 	}

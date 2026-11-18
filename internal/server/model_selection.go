@@ -91,6 +91,18 @@ func (a *App) initializeSessionSelection(ctx context.Context, id string) (store.
 	return a.store.PatchSessionSelection(ctx, id, store.SessionSelectionPatch{ManualModelKey: &key, ManualReasoningEffort: &effort})
 }
 
+func configuredChatKey(catalog modelCatalog, showUnrecognized bool) string {
+	if catalog.Default != "" {
+		for _, row := range catalog.Models {
+			if row.Key == catalog.Default && row.Available() && (showUnrecognized || row.Recognized()) {
+				return row.Key
+			}
+		}
+		return ""
+	}
+	return initialVisibleModelKey(catalog, showUnrecognized)
+}
+
 func initialVisibleModelKey(catalog modelCatalog, showUnrecognized bool) string {
 	first := ""
 	for _, model := range catalog.Models {
@@ -216,7 +228,7 @@ func (a *App) resolveSelection(ctx context.Context, sessionID string, input sele
 	}
 	key = visibleModelKey(a.modelsSnapshot(), key, prefs.ShowUnrecognizedModels)
 	if key == "" {
-		return modelcfg.Model{}, "", errors.New("Select a visible model before sending this message")
+		return modelcfg.Model{}, "", errors.New("Choose an available conversation model in Settings")
 	}
 	model, key, err := a.resolveForRun(ctx, key)
 	if err != nil {

@@ -79,6 +79,13 @@ def model_row(provider: str, model_id: str, raw: Any) -> dict[str, Any]:
         "contextWindow": positive_int(raw.get("contextWindow"), f"{provider}/{model_id}.contextWindow", required=True),
         "maxTokens": positive_int(raw.get("maxTokens"), f"{provider}/{model_id}.maxTokens", required=True),
     }
+    if raw.get("kind"):
+        result["kind"] = string(raw["kind"], f"{provider}/{model_id}.kind", required=True, limit=64)
+    if raw.get("output"):
+        outputs = raw["output"]
+        if not isinstance(outputs, list) or any(not isinstance(item, str) or item not in MODALITIES for item in outputs) or len(set(outputs)) != len(outputs):
+            fail(f"{provider}/{model_id}.output is invalid")
+        result["output"] = outputs
     if "supportsTools" in raw:
         if not isinstance(raw["supportsTools"], bool):
             fail(f"{provider}/{model_id}.supportsTools is invalid")

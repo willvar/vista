@@ -40,7 +40,7 @@ func executeToolBatch(ctx context.Context, command workerproto.Command, turn int
 	}
 	futures := make([]*toolFuture, len(calls))
 	for _, call := range calls {
-		if err := emit(workerproto.Result{RunID: command.RunID, Kind: "tool", Turn: turn, Status: "started", Tool: &workerproto.ToolProgress{CallID: call.ID, Name: call.Function.Name, Summary: toolSummary(call), Input: toolInput(call, command)}}); err != nil {
+		if err := emit(workerproto.Result{RunID: command.RunID, Kind: "tool", Turn: turn, Status: "started", Tool: &workerproto.ToolProgress{CallID: call.ID, Name: call.Function.Name, Summary: toolSummary(call), Input: toolInput(call, command), SourceSequence: mediaSourceSequence(call, command)}}); err != nil {
 			return nil, err
 		}
 	}
@@ -77,7 +77,7 @@ func executeToolBatch(ctx context.Context, command workerproto.Command, turn int
 				bounded.model, bounded.event = string(encoded), eventPreview(string(encoded))
 			}
 			// Each tool publishes its own terminal state as soon as it finishes.
-			emitErr := toolEmit(workerproto.Result{RunID: command.RunID, Kind: "tool", Status: status, Content: bounded.event, Tool: &workerproto.ToolProgress{CallID: call.ID, Name: call.Function.Name, Summary: toolSummary(call), Input: toolInput(call, command), OutputRef: bounded.reference, Truncated: bounded.truncated}})
+			emitErr := toolEmit(workerproto.Result{RunID: command.RunID, Kind: "tool", Status: status, Content: bounded.event, Tool: &workerproto.ToolProgress{CallID: call.ID, Name: call.Function.Name, Summary: toolSummary(call), Input: toolInput(call, command), OutputRef: bounded.reference, Truncated: bounded.truncated, Generated: runtime.generated, MediaState: runtime.mediaStopped, SourceSequence: mediaSourceSequence(call, command)}})
 			outcome := &toolOutcome{message: (provider.ChatMessage{Role: "tool", ToolCallID: call.ID, Content: bounded.model, Resources: append([]resources.Ref(nil), runtime.resourceResults...)}).WithVisualInput(true), err: emitErr}
 			future.mu.Lock()
 			detached := future.detached
@@ -167,4 +167,11 @@ func executeToolBatch(ctx context.Context, command workerproto.Command, turn int
 		messages = append(messages, outcome.message)
 	}
 	return messages, ctx.Err()
+}
+
+func mediaSourceSequence(call provider.ToolCall, command workerproto.Command) int64 {
+	if call.Function.Name == "generate_image" || call.Function.Name == "generate_video" {
+		return command.MessageSequence
+	}
+	return 0
 }

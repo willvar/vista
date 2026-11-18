@@ -1,7 +1,9 @@
 package agent
 
 import (
+	"context"
 	"fmt"
+	"sync"
 	"sync/atomic"
 
 	"vista/internal/agentconfig"
@@ -10,6 +12,8 @@ import (
 )
 
 type runScope struct {
+	mediaMu    sync.Mutex
+	mediaStops map[string]context.CancelFunc
 	events     *runtimeMailbox
 	mcp        *mcphost.Execution
 	modelTurns atomic.Int32
