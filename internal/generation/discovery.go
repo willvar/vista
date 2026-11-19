@@ -102,7 +102,7 @@ func clawRouterChoices(catalog wire, key string) []provider.OutputMetadata {
 				continue
 			}
 			if native && id == "openai/gpt-6-luna" && text(m, "upstream") == "gpt-6-luna" && slices.Contains(capabilities, any("llm.decisions")) {
-				rows = append(rows, provider.OutputMetadata{ID: id, Name: "GPT-6 Luna", Kind: model.DecisionOutput, Input: []string{"text"}})
+				rows = append(rows, provider.OutputMetadata{ID: id, Name: name, Kind: model.DecisionOutput, Input: []string{"text"}})
 			}
 			if text(catalog, "version") != "clawrouter.client-catalog.v1" || getValue(p, "allowed") != true || getValue(p, "executable") != true || !slices.Contains(capabilities, any("image.generation")) || clawRouterImagePromptLimit(m) == 0 {
 				continue

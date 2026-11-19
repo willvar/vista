@@ -70,6 +70,8 @@ WebUI 连接列表来自[服务商配置](../internal/modelcatalog/provider_setu
 
 models.dev 的输入／输出模态和专用类别独立于对话协议准入。已知专用模型不能仅凭文本输出进入对话候选。设置分别保存生图、生视频和结构化决策的可选绑定。先在模型连接里接入服务商，再在专用模型里选择该连接和模型。只提供媒体的服务商也在同一入口添加。在按产出分类、按已有连接分组的列表中选择模型，由 Vista 决定兼容的适配器。内置连接采用模型目录的类别信息；自定义网关必须在模型目录中声明兼容的媒体接口，对话协议本身不算能力依据。无候选时不要求猜接口或型号；已保存但不在当前列表中的绑定仍会显示并可清除。绑定不另存地址或密钥，工具不擅自切换连接或模型。
 
+专用模型的显示名来自服务返回的列表；使用目录的候选则先取 models.dev，再取 OMP。名称缺失或与模型 ID 相同时，继续查下一来源；两个目录都没有名称就显示模型 ID。适配器声明可以补充候选，但不另外维护显示名。
+
 [媒体传输](../internal/generation)按 OpenClaw `v2026.11.5` 的接口格式实现文生图、文生视频和接口支持的单张私有首帧。要求公开图片链接的输入方式不会发送。ComfyUI 接受带输入和输出节点的 API 工作流，Vista 不编辑工作流。文字决策沿用所选服务的原生接口（System One、OpenAI 或 Gemini Decisions、Levanto Sage），并将结构化结果保留为工具产物。锁定版 OpenClaw 的决策对接包括 Baseten、ClawRouter、Google、Levanto、Liquid AI、本地 ONNX、OpenAI、OpenRouter、SubQ 和 TypeSafe。已保存的 OpenCode Console 连接也会提供它的 System One 模型；OpenCode Go 不会自动转去 Console。公开类别与协议并不等于工作区授权。ClawRouter 核对当前连接的目录；ONNX 列出本地服务实际加载的模型；Microsoft Foundry 生图使用连接里填一次的图片部署名。必须把私人参考图转成公开上传地址的路线只提供文生视频。实际能力和权限由服务商与账号决定；本地协议用例不代表真实服务已验证。
 
 ### 本地 ONNX 决策

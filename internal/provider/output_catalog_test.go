@@ -34,12 +34,35 @@ func TestSpecializedOutputsAreRetainedWithoutBecomingChat(t *testing.T) {
 }
 
 func TestLegacyTypedRowsAreSelectableWithoutAFullMediaSnapshot(t *testing.T) {
-	snapshot := &OMPCatalogSnapshot{data: ompCatalogFile{ModelsDev: &modelsDevCatalog{Schema: 1, Types: map[string]map[string]string{
-		"openai": {"uncategorized-spelling": "image", "image-in-name": "chat"},
-	}}}}
+	snapshot := &OMPCatalogSnapshot{data: ompCatalogFile{
+		Providers: map[string]map[string]OMPModel{
+			"openai": {"uncategorized-spelling": {Name: "Catalog Image", API: "openai-responses"}},
+		},
+		ModelsDev: &modelsDevCatalog{Schema: 1, Types: map[string]map[string]string{
+			"openai": {"uncategorized-spelling": "image", "image-in-name": "chat"},
+		}},
+	}}
 	rows := snapshot.specializedModels("openai", "image")
-	if len(rows) != 1 || rows[0].ID != "uncategorized-spelling" {
-		t.Fatalf("lost explicit legacy classification: %+v", rows)
+	if len(rows) != 1 || rows[0].ID != "uncategorized-spelling" || rows[0].Name != "Catalog Image" {
+		t.Fatalf("lost legacy classification or OMP name: %+v", rows)
+	}
+}
+
+func TestSpecializedModelsReadNamesSeparatelyFromRoutingMetadata(t *testing.T) {
+	snapshot := &OMPCatalogSnapshot{data: ompCatalogFile{
+		Providers: map[string]map[string]OMPModel{"google": {
+			"a": {Name: "OMP A", Kind: "video", Input: []string{"text"}},
+			"b": {Name: "OMP B", API: "google-generative-ai", Input: []string{"text"}},
+		}},
+		ModelsDev: &modelsDevCatalog{Specialized: map[string]map[string]OutputMetadata{"google": {
+			"a": {ID: "a", Name: " Upstream-A ", Kind: "video", Input: []string{"text", "image"}},
+			"b": {ID: "b", Name: " b ", Kind: "video"},
+			"c": {ID: "c", Kind: "video"},
+		}}},
+	}}
+	rows := snapshot.specializedModels("google", "video")
+	if len(rows) != 3 || rows[0].Name != "Upstream-A" || rows[1].Name != "OMP B" || rows[2].Name != "c" || !slices.Equal(rows[0].Input, []string{"text", "image"}) || len(rows[1].Input) != 0 {
+		t.Fatalf("display names did not follow catalog priority independently of routing: %+v", rows)
 	}
 }
 

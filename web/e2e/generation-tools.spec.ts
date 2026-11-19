@@ -196,6 +196,12 @@ test.describe('without an existing provider', () => {
     const saved = await vista.api('/model-config')
     expect(saved.generation).toMatchObject([{ kind: 'image', connection: settings.models[0].connectionId, model: 'black-forest-labs/FLUX-2-pro' }])
     expect(JSON.stringify(saved)).not.toContain(testKey)
+
+    const fallbackID = 'black-forest-labs/FLUX-1-schnell'
+    await image.getByRole('combobox').click()
+    await page.locator('.ui-select-dropdown:visible').getByRole('option', { name: fallbackID, exact: true }).click()
+    await expect(image.locator('.ui-select-selection-item')).toHaveText(`DeepInfra · ${fallbackID}`)
+    expect((await vista.api('/model-config')).generation).toMatchObject([{ kind: 'image', connection: settings.models[0].connectionId, model: fallbackID }])
   })
 })
 

@@ -20,7 +20,7 @@ func TestConsoleDecisionsReuseSavedOpenCodeNotGo(t *testing.T) {
 		}
 	}
 	if !slices.ContainsFunc(choices, func(row generationOption) bool {
-		return row.Model == "jev-1.13" && row.Name == "Jev 1.13" && row.Connection == "console"
+		return row.Model == "jev-1.13" && row.Connection == "console"
 	}) {
 		t.Fatalf("existing OpenCode Console cannot select Jev: %+v", choices)
 	}

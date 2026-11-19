@@ -81,14 +81,18 @@ func outputKind(row OutputMetadata) string {
 	return ""
 }
 
-func SpecializedModels(providerID, kind string) []OutputMetadata {
-	return CurrentOMPCatalog().specializedModels(providerID, kind)
+// SpecializedModels returns catalog candidates and any explicitly supported
+// adapter IDs. Name lookup does not decide membership or routing capabilities.
+func SpecializedModels(providerID, kind string, adapterIDs ...string) []OutputMetadata {
+	return CurrentOMPCatalog().specializedModels(providerID, kind, adapterIDs...)
 }
 
-func (c *OMPCatalogSnapshot) specializedModels(providerID, kind string) []OutputMetadata {
-	if c == nil {
-		return nil
+func (c *OMPCatalogSnapshot) specializedModels(providerID, kind string, adapterIDs ...string) []OutputMetadata {
+	var data ompCatalogFile
+	if c != nil {
+		data = c.data
 	}
+	providers := catalogProviderCandidates(providerID)
 	var rows []OutputMetadata
 	seen := map[string]bool{}
 	add := func(row OutputMetadata) {
@@ -98,15 +102,15 @@ func (c *OMPCatalogSnapshot) specializedModels(providerID, kind string) []Output
 			rows = append(rows, row)
 		}
 	}
-	for _, p := range catalogProviderCandidates(providerID) {
-		if c.data.ModelsDev != nil {
-			for _, row := range c.data.ModelsDev.Specialized[p] {
+	for _, p := range providers {
+		if data.ModelsDev != nil {
+			for _, row := range data.ModelsDev.Specialized[p] {
 				add(row)
 			}
 		}
-		for id, m := range c.data.Providers[p] {
-			if c.data.ModelsDev != nil {
-				if declared := ConversationCategory(c.data.ModelsDev.Types[p][id]); declared != "" && declared != kind {
+		for id, m := range data.Providers[p] {
+			if data.ModelsDev != nil {
+				if declared := ConversationCategory(data.ModelsDev.Types[p][id]); declared != "" && declared != kind {
 					continue
 				}
 			}
@@ -114,16 +118,43 @@ func (c *OMPCatalogSnapshot) specializedModels(providerID, kind string) []Output
 		}
 		// Older mirrors retained type declarations even when they didn't
 		// serialize the full non-chat rows or display names.
-		if c.data.ModelsDev != nil {
-			for id, declared := range c.data.ModelsDev.Types[p] {
-				if _, richer := c.data.ModelsDev.Specialized[p][id]; !richer {
+		if data.ModelsDev != nil {
+			for id, declared := range data.ModelsDev.Types[p] {
+				if _, richer := data.ModelsDev.Specialized[p][id]; !richer {
 					add(OutputMetadata{ID: id, Kind: declared})
 				}
 			}
 		}
 	}
 	slices.SortFunc(rows, func(a, b OutputMetadata) int { return strings.Compare(a.ID, b.ID) })
+	for _, id := range adapterIDs {
+		add(OutputMetadata{ID: id, Kind: kind})
+	}
+	for i := range rows {
+		rows[i].Name = data.outputDisplayName(providers, rows[i].ID)
+	}
 	return rows
+}
+
+// Select only the name field. A legacy type-only entry can still use its OMP
+// name even if OMP does not identify the model as a specialized output.
+func (data ompCatalogFile) outputDisplayName(providers []string, id string) string {
+	if dev := data.ModelsDev; dev != nil {
+		for _, p := range providers {
+			if name := strings.TrimSpace(dev.Specialized[p][id].Name); name != "" && name != id {
+				return name
+			}
+			if name := strings.TrimSpace(dev.Providers[p][id].Name); name != "" && name != id {
+				return name
+			}
+		}
+	}
+	for _, p := range providers {
+		if name := strings.TrimSpace(data.Providers[p][id].Name); name != "" && name != id {
+			return name
+		}
+	}
+	return id
 }
 
 // Compatible generic lists may use llm/model as a resource label. Only a
