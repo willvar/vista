@@ -980,6 +980,7 @@ export default { ...base, ...{
   "selectFile": "選擇檔案",
   "fileLoadFailed": "檔案載入失敗",
   "fileServiceUnavailable": "未設定檔案內容服務",
+  "responseOptions": "回答選項",
   "processingTierLabel": "處理檔位",
   "providerTierDefault": "跟隨服務商",
   "processingTierUnavailable": "檔位不可用",

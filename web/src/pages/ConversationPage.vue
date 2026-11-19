@@ -8,6 +8,7 @@ import { IconMenu2, IconArrowBarDown, IconPencil, IconSubtask } from '@tabler/ic
 import Bubble from '../ui/Bubble.vue'
 import TimelineItem from '../TimelineItem.vue'
 import ConversationSender from '../ConversationSender.vue'
+import ConversationResponseOptions from '../ConversationResponseOptions.vue'
 import ContextCompaction from '../ContextCompaction.vue'
 import ConversationExecution from '../ConversationExecution.vue'
 import ConversationRecentMessage from '../ConversationRecentMessage.vue'
@@ -297,6 +298,7 @@ onUnmounted(() => {
           <v-button v-if="jobs.length" variant="text" class="icon-button header-status-trigger background-processes-trigger"
             :aria-label="t('backgroundProcessCount', { count: runningJobs })" :title="t('backgroundProcessCount', { count: runningJobs })" @click="processes?.open()">
             <IconSubtask aria-hidden="true" /><span class="background-processes-count">{{ runningJobs }}</span></v-button>
+          <ConversationResponseOptions :key="selected.id" />
         </div>
           <ConversationRecentMessage v-if="recentSent" :key="`${selected.id}/${recentSent.id}`" :session-id="selected.id" :message="recentSent" @locate="locateRecentSent" />
         </div>
@@ -374,7 +376,10 @@ onUnmounted(() => {
         </div></div>
       </section>
       <section v-else class="workspace welcome">
-        <div class="welcome-toolbar"><v-button variant="text" class="icon-button mobile-sessions-trigger" :aria-label="t('sessions')" :aria-expanded="mobileSessionsOpen" @click="mobileSessionsOpen = true"><IconMenu2 /><span v-if="attentionCount" class="session-attention-dot" role="img" :aria-label="t('sessionsNeedAttention', { count: attentionCount })"></span></v-button></div>
+        <div class="welcome-toolbar">
+          <v-button variant="text" class="icon-button mobile-sessions-trigger" :aria-label="t('sessions')" :aria-expanded="mobileSessionsOpen" @click="mobileSessionsOpen = true"><IconMenu2 /><span v-if="attentionCount" class="session-attention-dot" role="img" :aria-label="t('sessionsNeedAttention', { count: attentionCount })"></span></v-button>
+          <div class="conversation-header-tools"><ConversationResponseOptions /></div>
+        </div>
         <div class="welcome-content">
           <div class="welcome-intro"><div class="welcome-icon"><VistaMark /></div><h2>{{ t('welcomeHeading') }}</h2></div>
           <ConversationSender @send="prepareForSend" />

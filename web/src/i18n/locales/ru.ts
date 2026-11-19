@@ -1075,6 +1075,7 @@ export default {
   "selectFile": "Выберите файл",
   "fileLoadFailed": "Не удалось загрузить файл",
   "fileServiceUnavailable": "Сервис содержимого файлов не настроен",
+  "responseOptions": "Параметры ответа",
   "processingTierLabel": "Режим обработки",
   "providerTierDefault": "По умолчанию у поставщика",
   "processingTierUnavailable": "Режим недоступен",

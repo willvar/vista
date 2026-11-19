@@ -2,10 +2,9 @@
 import { computed, defineAsyncComponent, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { IconPhoto, IconArrowRight, IconArrowUp } from '@tabler/icons-vue'
-import { Button as VButton, Select as VSelect, Tooltip as VTooltip } from './ui'
+import { Button as VButton, Tooltip as VTooltip } from './ui'
 import Sender from './ui/Sender.vue'
 import type { TextAreaRef as SenderRef } from './ui/types'
-import ReasoningEffortPicker from './ReasoningEffortPicker.vue'
 import ConversationQuotes from './ConversationQuotes.vue'
 import type { QuotedExcerpt } from './state/quotedReply'
 import { useWorkspace } from './composables/useWorkspace'
@@ -15,15 +14,11 @@ import type { QuestionAnswer } from './client/types'
 const QuestionForm = defineAsyncComponent(() => import('./QuestionForm.vue'))
 const { t } = useI18n({ useScope: 'global' })
 const emit = defineEmits<{ send: []; locateQuote: [quote: QuotedExcerpt] }>()
-const { selected, busy, needsProvider, workerAvailable, interactionPreferences, conversation, route, mobileSessionsOpen, modalQuery } = useWorkspace()
-const { draft, quotedTexts, removeQuote, agentWorking, selectedProcessingTier, processingTiers, chooseProcessingTier,
-  editingMessage, cancelEditMessage,
-  selectedModel, selectedReasoning, reasoningChoices,
+const { selected, busy, needsProvider, senderDisabled, conversation, route, mobileSessionsOpen, modalQuery } = useWorkspace()
+const { draft, quotedTexts, removeQuote, agentWorking, editingMessage, cancelEditMessage, selectedModel,
   canAttachImage, attachedImages, attachedPreviewURLs, chooseImages, pasteImages, dropImages, removeImage,
   submitMessage, submitQuestion, cancelExecution, recallLastUserMessage,
-  manualCompacting, compactionRequestPending, continueAfterCompaction, fillContinueDraft } = conversation
-const senderDisabled = computed(() => manualCompacting.value || compactionRequestPending.value || !interactionPreferences.ready.value || (!agentWorking.value && !selectedModel.value)
-  || !!selected.value && (!selected.value.open || !workerAvailable(selected.value.id)))
+  continueAfterCompaction, fillContinueDraft } = conversation
 const sender = ref<SenderRef | null>(null)
 const composing = ref(false)
 const inputEdited = ref(false)
@@ -128,8 +123,6 @@ function updateSenderMedia() {
   smallScreen.value = smallViewport.matches
   touchFirst.value = touchPointer.matches
 }
-const tierOptions = computed(() => [{ value: '', label: t('providerTierDefault') }, ...processingTiers.value.map(value => ({ value, label: t(`processingTier_${value}`) })),
-  ...(selectedProcessingTier.value && !processingTiers.value.includes(selectedProcessingTier.value) ? [{ value: selectedProcessingTier.value, label: t('processingTierUnavailable'), disabled: true }] : [])])
 const defaultSendHint = computed(() => editingMessage.value ? t('resendEditedMessage') : agentWorking.value ? t('sendAsSteer') : t('send'))
 const sendButtonLabel = computed(() => agentWorking.value && !draft.value.trim() && !attachedImages.value.length ? t('cancelExecution') : t('send'))
 const sendButtonText = computed(() => t(agentWorking.value && !draft.value.trim() && !attachedImages.value.length ? 'stopResponse' : busy.value ? 'sendingMessage' : 'send'))
@@ -231,13 +224,9 @@ onUnmounted(() => {
               <QuestionForm :key="questionKey" :session-id="selected.id" :run-id="pendingQuestion.runId" :call-id="pendingQuestion.callId" :questions="pendingQuestion.questions" :busy="busy || senderDisabled || !answering" :submit="answerQuestions" embedded />
             </section>
           </template>
-          <template #footer><div class="sender-footer">            <div class="sender-options">
-              <ReasoningEffortPicker v-if="reasoningChoices.length" v-model:value="selectedReasoning" class="composer-reasoning" :options="reasoningChoices" :disabled="senderDisabled" />
-              <v-select v-if="processingTiers.length || selectedProcessingTier" id="processing-tier" variant="borderless" class="sender-picker" :value="selectedProcessingTier" :options="tierOptions" :aria-label="t('processingTierLabel')" :title="t('processingTierHint')" :disabled="senderDisabled" @update:value="chooseProcessingTier(String($event ?? ''))" />
-            </div>
-
+          <template #footer><div v-if="!answering" class="sender-footer">
             <div class="sender-actions">
-             <div v-show="!answering" class="composer-submit">
+             <div class="composer-submit">
               <v-tooltip v-if="canAttachImage" :title="t('addImagesHint')"><span class="sender-attach">
                 <v-button class="icon-button" variant="text" :aria-label="t('addImage')" :disabled="imageInputDisabled" @click="imageInput?.click()"><IconPhoto /><span class="sender-attach-label">{{ t('addImage') }}</span></v-button>
                 <input ref="imageInput" type="file" accept="image/png,image/jpeg,image/webp,image/gif" multiple tabindex="-1" aria-hidden="true" :aria-label="t('addImage')" :disabled="imageInputDisabled" @change="chooseMessageImages">
@@ -275,19 +264,16 @@ onUnmounted(() => {
   .sender-card :deep(.ui-sender-footer){padding:0 8px 6px}
   .sender-card .sender-footer{flex-wrap:wrap;gap:.35rem;padding:0}
   .sender-actions{gap:.3rem}
-  .sender-card .sender-options{flex:1 1 auto;flex-wrap:nowrap;gap:.3rem;min-width:0}
-  .sender-card .sender-options .composer-tier{flex:0 1 7rem;width:7rem}
   .sender-card .composer-submit{flex:0 1 auto;flex-wrap:nowrap;width:auto;gap:.3rem;min-width:0}
 }
 
 .sender-question-notice{display:flex;align-items:center;justify-content:space-between;gap:.5rem;padding:8px 12px;border-bottom:1px solid var(--border-subtle);color:var(--muted);font-size:14px;line-height:1.5}
 .sender-question-notice>span{flex:1;min-width:0;overflow-wrap:anywhere}.sender-question-notice>.ui-btn{flex:none}
 .sender-card-answering{display:flex;flex-direction:column;flex:0 1 auto;min-height:0;max-height:min(60dvh,34rem)}
-.sender-card-answering :deep(.ui-sender-header),.sender-card-answering :deep(.ui-sender-footer){flex:none}
+.sender-card-answering :deep(.ui-sender-header){flex:none}
+.sender-card-answering :deep(.ui-sender-footer){display:none}
 .sender-card-answering :deep(.ui-sender-alternate){display:flex;flex:1 1 auto;min-height:0;overflow:hidden;padding:12px 16px 8px}
 .sender-question-pane{display:flex;flex:1 1 auto;min-width:0;min-height:0;outline:none}
-.sender-card-answering .sender-options{flex:1 1 auto;flex-wrap:nowrap;min-width:0;overflow:hidden}
-.sender-card-answering .sender-footer{flex-wrap:nowrap}.sender-card-answering .sender-actions{flex:none}
 @media(max-width:520px){.sender-card-answering :deep(.ui-sender-alternate){padding:8px 10px}.sender-question-notice{padding:6px 8px}}
 @media(max-height:520px){.sender-card-answering{max-height:calc(100dvh - 7rem)}.sender-card-answering :deep(.ui-sender-alternate){padding:4px 8px}.sender-question-notice{padding:4px 8px;font-size:13px}}
 </style>

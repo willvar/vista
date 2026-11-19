@@ -1075,6 +1075,7 @@ export default {
   "selectFile": "Datei auswählen",
   "fileLoadFailed": "Datei konnte nicht geladen werden",
   "fileServiceUnavailable": "Dateiinhaltsdienst nicht konfiguriert",
+  "responseOptions": "Antwortoptionen",
   "processingTierLabel": "Verarbeitungsstufe",
   "providerTierDefault": "Anbieterstandard",
   "processingTierUnavailable": "Stufe nicht verfügbar",

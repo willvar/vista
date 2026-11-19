@@ -1072,6 +1072,7 @@ export default {
   "selectFile": "Select a file",
   "fileLoadFailed": "Failed to load file",
   "fileServiceUnavailable": "File content service not configured",
+  "responseOptions": "Response options",
   "processingTierLabel": "Processing tier",
   "providerTierDefault": "Provider default",
   "processingTierUnavailable": "Tier unavailable",

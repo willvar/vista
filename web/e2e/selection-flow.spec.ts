@@ -1,7 +1,6 @@
-import { closeSettings, openSettingsSection } from './settings-navigation'
 import { test, expect } from './fixtures'
 
-test('reasoning controls align on the homepage and in a conversation', { tag: '@smoke' }, async ({ page, vista }, testInfo) => {
+test('response options fit the viewport and keep the composer clear', { tag: ['@smoke', '@responsive'] }, async ({ page, vista }, testInfo) => {
   const catalog = await vista.api('/models')
   const model = catalog.models.find((item: { key: string }) => item.key === catalog.default)
   const choices: string[] = model.reasoningOptions
@@ -11,14 +10,38 @@ test('reasoning controls align on the homepage and in a conversation', { tag: '@
       const session = await vista.api('/sessions', { method: 'POST', body: '{}' })
       await page.goto(`${vista.origin}/sessions/${session.id}`)
     }
-    const reasoning = page.locator('.composer-reasoning')
-    await expect(reasoning).toBeVisible()
-    if (page.viewportSize()!.width <= 830) {
+    const toolbar = page.locator(location === 'homepage' ? '.welcome-toolbar' : '.conversation-header')
+    const trigger = toolbar.getByRole('button', { name: 'Response options', exact: true })
+    const panel = page.getByRole('dialog', { name: 'Response options', exact: true })
+    const reasoning = panel.getByRole('group', { name: 'Reasoning effort', exact: true })
+    const sender = page.locator('.sender-card')
+    const draft = sender.locator('textarea')
+    const small = page.viewportSize()!.width <= 830
+    await draft.fill('Draft stays ready while adjusting the next response.')
+    await expect(sender.getByRole('group', { name: 'Reasoning effort' })).toHaveCount(0)
+    await expect(panel).toBeHidden()
+    if (small) await trigger.tap()
+    else await trigger.press('Enter')
+    await expect(panel).toBeVisible()
+    await expect(trigger).toHaveAttribute('aria-expanded', 'true')
+    await expect.poll(async () => {
+      const [anchor, popup] = await Promise.all([trigger.boundingBox(), panel.boundingBox()])
+      const viewport = page.viewportSize()!
+      return !!anchor && !!popup && popup.x >= 0 && popup.x + popup.width <= viewport.width
+        && popup.y >= anchor.y + anchor.height - 1 && popup.y + popup.height <= viewport.height
+        && Math.abs(popup.x + popup.width - anchor.x - anchor.width) <= 2
+    }).toBe(true)
+    if (small) {
       await expect(reasoning.getByRole('combobox', { name: 'Reasoning effort', exact: true })).toBeVisible()
       await expect(reasoning.getByRole('slider')).toHaveCount(0)
+      await draft.tap()
+      await expect(panel).toBeHidden()
+      await expect(draft).toHaveValue('Draft stays ready while adjusting the next response.')
       continue
     }
     const slider = reasoning.getByRole('slider', { name: 'Reasoning effort', exact: true })
+    await page.keyboard.press('Tab')
+    await expect(slider).toBeFocused()
     for (const [key, index] of [['Home', 0], ['End', choices.length - 1], ['ArrowLeft', choices.length - 2]] as const) {
       await slider.press(key)
       await expect(slider).toHaveAttribute('aria-valuenow', String(index))
@@ -44,6 +67,10 @@ test('reasoning controls align on the homepage and in a conversation', { tag: '@
       await page.emulateMedia({ colorScheme })
       await page.screenshot({ path: testInfo.outputPath(`reasoning-${location}-${colorScheme}.png`), animations: 'disabled' })
     }
+    await page.keyboard.press('Escape')
+    await expect(panel).toBeHidden()
+    await expect(trigger).toBeFocused()
+    await expect(draft).toHaveValue('Draft stays ready while adjusting the next response.')
   }
 })
 
@@ -59,8 +86,10 @@ test.describe('explicit reasoning budgets and toggles', () => {
     expect(choices.slice(0, 2)).toEqual(['off', 'on'])
     expect(choices).not.toContain('high')
     await page.goto(`${vista.origin}/sessions/${session.id}`)
-    const picker = page.locator('.composer-reasoning')
+    const trigger = page.getByRole('button', { name: 'Response options', exact: true })
+    const picker = page.getByRole('dialog', { name: 'Response options', exact: true }).getByRole('group', { name: 'Reasoning effort', exact: true })
     const choose = async (choice: string, label: string) => {
+      await trigger.click()
       if (page.viewportSize()!.width <= 830) {
         await picker.getByRole('combobox', { name: 'Reasoning effort', exact: true }).click()
         await page.locator('.ui-select-dropdown:visible').getByText(label, { exact: true }).click()
@@ -79,9 +108,12 @@ test.describe('explicit reasoning budgets and toggles', () => {
     ] as const) {
       await choose(choice, label)
       await page.reload()
+      await trigger.click()
       await expect(picker).toContainText(label)
+      await page.keyboard.press('Escape')
+      await expect(picker).toBeHidden()
       await page.locator('.sender-card textarea').fill(`Use ${choice}`)
-      await page.locator('.sender-card textarea').press('Enter')
+      await page.locator('.sender-card textarea').press('Control+Enter')
       await expect(page.locator('article.assistant').last()).toContainText(`Mock reply: Use ${choice}`)
       await expect(page.getByRole('button', { name: 'Send', exact: true })).toBeVisible()
       expect(vista.modelRequests.at(-1)?.reasoning).toEqual(wire)

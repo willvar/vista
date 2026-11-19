@@ -212,8 +212,11 @@ test.describe('first launch without a provider', () => {
     expect(reasoningOptions.length, 'Known model ID must expose its metadata reasoning choices').toBeGreaterThan(1)
     const reasoningEffort = reasoningOptions.at(-1)!
     const reasoningLabel = reasoningEffort.charAt(0).toUpperCase() + reasoningEffort.slice(1)
-    const reasoningPicker = sender.locator('.composer-reasoning')
-    await reasoningPicker.scrollIntoViewIfNeeded()
+    const responseOptions = page.getByRole('button', { name: 'Response options', exact: true })
+    const responsePanel = page.getByRole('dialog', { name: 'Response options', exact: true })
+    const reasoningPicker = responsePanel.getByRole('group', { name: 'Reasoning effort', exact: true })
+    await expect(sender.getByRole('group', { name: 'Reasoning effort' })).toHaveCount(0)
+    await responseOptions.click()
     const reasoningSlider = reasoningPicker.getByRole('slider', { name: 'Reasoning effort', exact: true })
     if (page.viewportSize()!.width <= 830) {
       await reasoningPicker.getByRole('combobox', { name: 'Reasoning effort', exact: true }).click()
@@ -223,6 +226,8 @@ test.describe('first launch without a provider', () => {
       await reasoningSlider.press('End')
     }
 
+    await page.keyboard.press('Escape')
+    await expect(responsePanel).toBeHidden()
     await sender.getByPlaceholder('Send a message').fill('Hi')
     expect(await vista.api('/sessions')).toHaveLength(0)
     expect(creationRequests).toBe(0)
@@ -233,7 +238,11 @@ test.describe('first launch without a provider', () => {
     await expect(page).toHaveURL(url => url.pathname === '/')
     await expect(sender.getByPlaceholder('Send a message')).toHaveValue('Hi')
     await expect(sender.locator('.composer-model')).toHaveCount(0)
+    await expect(responsePanel).toBeHidden()
+    await responseOptions.click()
     await expect(reasoningPicker).toContainText(reasoningLabel)
+    await responseOptions.click()
+    await expect(responsePanel).toBeHidden()
     expect(await vista.api('/sessions')).toHaveLength(0)
     expect(creationRequests).toBe(0)
     await expectNoPageOverflow()
@@ -265,6 +274,7 @@ test.describe('first launch without a provider', () => {
     await expect(page.locator('.usage-popover:visible .usage-details')).toContainText('Reply totals')
     await page.keyboard.press('Escape')
     await expect(page.locator('.usage-popover:visible')).toHaveCount(0)
+    await responseOptions.click()
     const lowestReasoningLabel = reasoningOptions[0] === 'none' ? 'Off'
       : reasoningOptions[0]!.charAt(0).toUpperCase() + reasoningOptions[0]!.slice(1)
     if (page.viewportSize()!.width <= 830) {
@@ -272,6 +282,8 @@ test.describe('first launch without a provider', () => {
       await page.locator('.ui-select-dropdown:visible').getByText(lowestReasoningLabel, { exact: true }).click()
     } else await reasoningSlider.press('Home')
     await expect(reasoningPicker).toContainText(lowestReasoningLabel)
+    await page.keyboard.press('Escape')
+    await expect(responsePanel).toBeHidden()
     await expect(reply.locator('.reply-footer .message-model-name')).toHaveText('E2E Provider · GPT-6 Luna')
     expect(messageRequests).toBe(1)
     await expect(page.locator('.error')).toHaveCount(0)

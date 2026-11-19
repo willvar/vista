@@ -65,7 +65,10 @@ function createWorkspace() {
   let stopActivity: (() => void) | undefined
   const conversation = useConversation({ client, sessions, modelCatalog, error, busy, refresh: refreshSessions, translate: t, interactionPreferences,
     onSessionStarted: async session => { await router.push(`/sessions/${session.id}`) } })
-  const { selected } = conversation
+  const { selected, manualCompacting, compactionRequestPending, agentWorking, selectedModel } = conversation
+  const senderDisabled = computed(() => manualCompacting.value || compactionRequestPending.value || !interactionPreferences.ready.value
+    || (!agentWorking.value && !selectedModel.value)
+    || !!selected.value && (!selected.value.open || !workerAvailable(selected.value.id)))
   const presentation = usePresentation(modelCatalog)
 
   async function refreshTopics(topics: StateTopic[], signal?: AbortSignal, pushed: WorkspaceSnapshots = {}) {
@@ -262,7 +265,7 @@ function createWorkspace() {
   function mib(bytes: number) { return (bytes / 1048576).toFixed(1) }
   return {
     client, stateSync, stateConnection, router, route, error, busy, debugMode, sessions, openSessions, closedSessions, totalSessions, attentionCount, modelCatalog, serverStatus, mobileSessionsOpen,
-    settingsOpen, sessionManagerOpen, needsProvider, conversation, selected, modalQuery, backToWorkspace, openSessionManager,
+    settingsOpen, sessionManagerOpen, needsProvider, senderDisabled, conversation, selected, modalQuery, backToWorkspace, openSessionManager,
     openSettings, create, action, renameTitle,
     closeConfirmation, requestSessionClose, cancelSessionClose, confirmSessionClose,
     workerMemory, workerAvailable, mib, interactionPreferences, ...presentation,

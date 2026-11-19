@@ -48,19 +48,7 @@ test('catalog names and raw model IDs are searchable in Settings without a compo
   const sender = page.locator('.sender-card')
   await expect(sender.locator('.composer-model')).toHaveCount(0)
   const viewport = page.viewportSize()!
-  async function footerRows() {
-    return sender.evaluate(element => {
-      const options = element.querySelector('.sender-options')!.getBoundingClientRect()
-      const actions = element.querySelector('.sender-actions')!.getBoundingClientRect()
-      return { optionsCenter: options.y + options.height / 2, actionsCenter: actions.y + actions.height / 2,
-        optionsBottom: options.bottom, actionsTop: actions.top }
-    })
-  }
-  // The labeled Send action needs more space than its former icon-only form.
-  // Verify the fitting row separately from the narrow-screen wrapping case.
-  if (viewport.width <= 830) await page.setViewportSize({ ...viewport, width: Math.max(480, viewport.width) })
-  const rows = await footerRows()
-  expect(Math.abs(rows.optionsCenter - rows.actionsCenter), 'Options and actions share a row when they fit').toBeLessThanOrEqual(1)
+  await expect(sender.getByRole('group', { name: 'Reasoning effort' })).toHaveCount(0)
   if (viewport.width <= 830) {
     await page.setViewportSize({ ...viewport, width: 320 })
     await expect(sender.getByRole('button', { name: 'Send', exact: true })).toBeVisible()

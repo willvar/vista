@@ -182,7 +182,7 @@ The first successful response with a valid token seeds the current user turn. To
 
 ## Processing tiers
 
-In the composer, **Processing tier** appears for a model/connection with eligible options. **Provider default** sends no override; **Standard**, where available, explicitly requests ordinary processing. Faster or reserved capacity may use different pricing or quota. Switching tiers can lower cache reuse on the next request; Vista does not change the prompt, cache key, or TTL to switch tiers.
+**Response options** in the conversation header shows **Processing tier** for a model/connection with eligible options. An available non-standard override is labeled on the trigger, even while the popover is closed. **Provider default** sends no override; **Standard**, where available, explicitly requests ordinary processing. Faster or reserved capacity may use different pricing or quota. Switching tiers can lower cache reuse on the next request; Vista does not change the prompt, cache key, or TTL to switch tiers.
 
 The selection belongs to the chosen model and the next execution. Tool continuations keep its snapshot. Switching the connection or model clears the override. Titles, compaction and child tasks do not inherit it. A returned tier can differ from the selection; an ambiguous or missing report is shown as unconfirmed. Vista keeps the tier on retries and never pays for an automatic upgrade.
 

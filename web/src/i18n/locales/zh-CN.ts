@@ -1075,6 +1075,7 @@ export default {
   "selectFile": "选择文件",
   "fileLoadFailed": "文件加载失败",
   "fileServiceUnavailable": "未配置文件内容服务",
+  "responseOptions": "回答选项",
   "processingTierLabel": "处理档位",
   "providerTierDefault": "跟随服务商",
   "processingTierUnavailable": "档位不可用",

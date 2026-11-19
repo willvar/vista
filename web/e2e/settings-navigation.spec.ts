@@ -103,14 +103,19 @@ test('the header compaction icon exposes the context estimate without taking com
   await expect(usage).toHaveAttribute('data-tokens', '3940')
   await expect(page.locator('.sender-card .context-compaction, .sender-card .context-usage')).toHaveCount(0)
   await expect(page.locator('.composer-send-label')).toHaveText('Send')
+  await expect(page.locator('.conversation-header-tools').getByRole('button', { name: 'Response options', exact: true })).toBeVisible()
   const bounds = await usage.evaluate(element => {
     const box = element.getBoundingClientRect()
     const header = element.closest('.conversation-header')!.getBoundingClientRect()
-    return { left: box.left, right: box.right, top: box.top, bottom: box.bottom, headerRight: header.right, headerTop: header.top, headerBottom: header.bottom, viewportWidth: innerWidth }
+    const options = element.closest('.conversation-header-tools')!.querySelector('.response-options-trigger')!.getBoundingClientRect()
+    return { left: box.left, top: box.top, bottom: box.bottom, headerRight: header.right, headerTop: header.top,
+      headerBottom: header.bottom, viewportWidth: innerWidth, gap: options.left - box.right, optionsRight: options.right }
   })
   expect(bounds.left).toBeGreaterThanOrEqual(0)
-  expect(bounds.right).toBeLessThanOrEqual(bounds.viewportWidth)
-  expect(bounds.headerRight - bounds.right).toBeLessThanOrEqual(40)
+  expect(bounds.optionsRight).toBeLessThanOrEqual(bounds.viewportWidth)
+  expect(bounds.gap).toBeGreaterThanOrEqual(0)
+  expect(bounds.gap).toBeLessThanOrEqual(12)
+  expect(bounds.headerRight - bounds.optionsRight).toBeLessThanOrEqual(40)
   expect(bounds.top).toBeGreaterThanOrEqual(bounds.headerTop)
   expect(bounds.bottom).toBeLessThanOrEqual(bounds.headerBottom)
   const explanation = 'Estimated tokens from retained instructions, messages, summaries and tool content: 3.9K.'

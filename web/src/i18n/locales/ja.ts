@@ -1075,6 +1075,7 @@ export default {
   "selectFile": "ファイルを選択",
   "fileLoadFailed": "ファイルを読み込めません",
   "fileServiceUnavailable": "ファイル内容サービスが未設定です",
+  "responseOptions": "回答オプション",
   "processingTierLabel": "処理ティア",
   "providerTierDefault": "サービスの既定値",
   "processingTierUnavailable": "ティアを利用できません",

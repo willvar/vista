@@ -4,11 +4,11 @@ import { test, expect } from './frontend-fixture'
 import type { Page } from '@playwright/test'
 import type { CompactionStatus, Message, Session, StreamEvent } from '../src/client/types'
 
-async function mockWorkspace(page: Page, origin: string, withTiers = false) {
+async function mockWorkspace(page: Page, origin: string, withTiers = false, canAdjustReasoning = true) {
   const session: Session = { id: 'iteration-session', title: 'Plan a small garden', modelKey: 'first', manualModelKey: 'first', manualReasoningEffort: 'high', open: true, running: true, executing: true, inputQueuePaused: false, createdAt: '2026-01-01T12:00:00Z' }
   const preferences = { userId: 'test-user', manualModelKey: 'first', reasoningByModelId: { 'model-alpha': 'high', 'model-beta': 'low' } }
   let conversationDefault = 'first'
-  const models = [{ key: 'first', name: 'Example', provider: 'openai-chat', id: 'model-alpha', recognized: true, tools: true, processingTiers: withTiers ? ['standard', 'fast', 'ultrafast'] : [], reasoningOptions: ['low', 'high'] }, { key: 'second', name: 'Example', provider: 'openai-chat', id: 'model-beta', recognized: true, tools: true, reasoningOptions: ['low', 'high'], inputModalities: ['text', 'image'] }]
+  const models = [{ key: 'first', name: 'Example', provider: 'openai-chat', id: 'model-alpha', recognized: true, tools: true, processingTiers: withTiers ? ['standard', 'fast', 'ultrafast'] : [], reasoningOptions: canAdjustReasoning ? ['low', 'high'] : ['low'] }, { key: 'second', name: 'Example', provider: 'openai-chat', id: 'model-beta', recognized: true, tools: true, reasoningOptions: canAdjustReasoning ? ['low', 'high'] : ['low'], inputModalities: ['text', 'image'] }]
   let inputs = [{ id: 'pending-1', status: 'queued', content: 'Add drought-resistant plants and keep the budget under $100.' }, { id: 'pending-2', status: 'queued', content: 'Use the sunny corner.' }]
   const posts: any[] = []
   let sequence = 10
@@ -156,7 +156,12 @@ test('configured defaults, pending controls, and context fit the viewport', asyn
   const fixture = await mockWorkspace(page, mockOrigin)
   await expect(page.getByRole('dialog')).toHaveCount(0)
   await expect(page.locator('.composer-mode, .composer-model')).toHaveCount(0)
-  await expect(page.locator('.composer-reasoning')).toContainText('High')
+  const responseOptions = page.getByRole('button', { name: 'Response options', exact: true })
+  const responsePanel = page.getByRole('dialog', { name: 'Response options', exact: true })
+  await responseOptions.click()
+  await expect(responsePanel.getByRole('group', { name: 'Reasoning effort', exact: true })).toContainText('High')
+  await page.keyboard.press('Escape')
+  await expect(responsePanel).toBeHidden()
   await expect(page.locator('.sender-attach')).toHaveCount(0)
 
   await expect(page.getByRole('button', { name: 'Rate answer', exact: true })).toHaveCount(0)
@@ -258,13 +263,60 @@ test('configured defaults, pending controls, and context fit the viewport', asyn
 
 test('processing tier follows the selected model without changing the active run', { tag: '@responsive' }, async ({ page, mockOrigin }) => {
   const fixture = await mockWorkspace(page, mockOrigin, true)
-  await expect(page.getByRole('combobox', { name: 'Processing tier', exact: true })).toBeVisible()
+  const trigger = page.locator('.conversation-header').getByRole('button', { name: 'Response options', exact: true })
+  const panel = page.getByRole('dialog', { name: 'Response options', exact: true })
+  const tier = panel.getByRole('combobox', { name: 'Processing tier', exact: true })
+  await expect(panel).toBeHidden()
+  await expect(trigger).toHaveText('')
+  await expect(page.locator('.sender-card').getByRole('combobox', { name: 'Processing tier' })).toHaveCount(0)
+  await trigger.click()
+  await expect(panel).toContainText('Provider default')
+  await expect(panel.getByRole('group', { name: 'Reasoning effort', exact: true })).toBeVisible()
+  await expect(tier).toHaveAccessibleDescription(/cost/i)
+  expect(fixture.session.processingTier).toBeUndefined()
+  await choose(page, 'Processing tier', 'Standard')
+  await expect.poll(() => fixture.session.processingTier).toBe('standard')
+  await expect(trigger).toHaveText('')
   await choose(page, 'Processing tier', 'Ultrafast')
   await expect.poll(() => fixture.session.processingTier).toBe('ultrafast')
+  await tier.click()
+  const list = page.locator('.ui-select-dropdown:visible')
+  await expect(list).toBeVisible()
+  await page.keyboard.press('Escape')
+  await expect(list).toBeHidden()
+  await expect(panel).toBeVisible()
+  await page.keyboard.press('Escape')
+  await expect(panel).toBeHidden()
+  await expect(trigger).toHaveText('Ultrafast')
+  await expect(trigger).toHaveAccessibleDescription('Ultrafast')
   expect(fixture.session.executing).toBe(true)
+  await page.reload()
+  await expect(trigger).toHaveText('Ultrafast')
+  await trigger.click()
+  await choose(page, 'Processing tier', 'Provider default')
+  await expect.poll(() => fixture.session.processingTier).toBe('')
+  await expect(trigger).toHaveText('')
+  await choose(page, 'Processing tier', 'Ultrafast')
+  await expect.poll(() => fixture.session.processingTier).toBe('ultrafast')
   fixture.setDefault('second')
   await page.reload()
-  await expect(page.getByRole('combobox', { name: 'Processing tier', exact: true })).toHaveCount(0)
+  await expect(trigger).toHaveText('')
+  await trigger.click()
+  await expect(panel.getByRole('group', { name: 'Reasoning effort', exact: true })).toBeVisible()
+  await expect(tier).toHaveCount(0)
   expect(fixture.session.executing).toBe(true)
   await expect(page.locator('.composer-model')).toHaveCount(0)
+})
+
+test('the response options entry requires at least one adjustable setting', { tag: '@responsive' }, async ({ page, mockOrigin }) => {
+  const fixture = await mockWorkspace(page, mockOrigin, true, false)
+  const trigger = page.getByRole('button', { name: 'Response options', exact: true })
+  const panel = page.getByRole('dialog', { name: 'Response options', exact: true })
+  await trigger.click()
+  await expect(panel.getByRole('combobox', { name: 'Processing tier', exact: true })).toBeVisible()
+  await expect(panel.getByRole('group', { name: 'Reasoning effort', exact: true })).toHaveCount(0)
+  fixture.setDefault('second')
+  await page.reload()
+  await expect(page.locator('.sender-card textarea')).toBeEnabled()
+  await expect(trigger).toHaveCount(0)
 })

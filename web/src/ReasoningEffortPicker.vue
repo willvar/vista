@@ -29,7 +29,7 @@ const formatIndex = (index?: number) => orderedOptions.value[index ?? selectedIn
   <div class="reasoning-control" role="group" :data-effort="value" :aria-label="t('reasoningEffort')" :aria-disabled="disabled || undefined">
     <template v-if="smallScreen && options.length > 1">
       <label :for="selectId" class="visually-hidden">{{ t('reasoningEffort') }}</label>
-      <v-select :id="selectId" v-model:value="value" class="reasoning-select sender-picker"
+      <v-select :id="selectId" v-model:value="value" class="reasoning-select"
         variant="borderless" :options="orderedOptions" :styles="{ content: { color: 'var(--effort-color)' } }" :disabled="disabled" :aria-label="t('reasoningEffort')" />
     </template>
     <template v-else>

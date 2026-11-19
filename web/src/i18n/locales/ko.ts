@@ -1075,6 +1075,7 @@ export default {
   "selectFile": "파일 선택",
   "fileLoadFailed": "파일을 불러오지 못했습니다",
   "fileServiceUnavailable": "파일 콘텐츠 서비스가 설정되지 않았습니다",
+  "responseOptions": "응답 옵션",
   "processingTierLabel": "처리 등급",
   "providerTierDefault": "서비스 기본값",
   "processingTierUnavailable": "사용할 수 없는 등급",

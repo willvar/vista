@@ -357,14 +357,6 @@ a {
   border: 0!important;
   outline: none!important;
 }
-.sender-options {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  flex: 1;
-  min-width: 0;
-  gap: .4rem;
-}
 .composer-submit .delivery-select {
   width: 11rem;
 }
@@ -618,14 +610,6 @@ a {
 }
 .general-setting>.ui-switch {
   align-self: flex-start;
-}
-.sender-options {
-  min-width: 0;
-  flex-wrap: wrap;
-}
-.sender-options .composer-tier {
-  width: 7rem;
-  flex: 0 1 7rem;
 }
 .pending-inputs {
   flex: none;
@@ -1218,12 +1202,6 @@ body {
   gap: 8px;
   padding: 0;
 }
-.sender-options .composer-model {
-  flex: 0 1 auto;
-  width: max-content;
-  min-width: 0;
-  max-width: min(32rem,100%);
-}
 .composer-submit {
   display: flex;
   align-items: center;
@@ -1675,6 +1653,9 @@ body {
   color: var(--muted);
   font-size: 13px;
 }
+.welcome-toolbar .conversation-header-tools {
+  margin-inline-start: auto;
+}
 .welcome-icon .vista-mark {
   width: 34px;
   height: 34px;
@@ -1758,9 +1739,6 @@ body {
 }
 .sender-card .ui-sender-footer {
   padding: 0 12px 12px;
-}
-.sender-card .sender-picker:hover {
-  background: var(--hover)!important;
 }
 .sender-card .composer-send.ui-btn {
   display: inline-flex;
@@ -2067,10 +2045,6 @@ body {
   .workspace {
     flex: 1;
   }
-  .sender-options {
-    flex: 1 1 auto;
-    flex-wrap: nowrap;
-  }
   .composer-submit {
     width: 100%;
   }
@@ -2142,9 +2116,6 @@ body {
   }
 }
 @media(max-width:520px) {
-  .sender-options {
-    gap: .3rem;
-  }
   .pending-input {
     grid-template-columns: minmax(0,1fr);
   }
@@ -2203,10 +2174,6 @@ body {
   }
 }
 @media(max-width:600px) {
-  .sender-card .sender-options .composer-tier {
-    min-width: 96px!important;
-    flex-basis: 96px!important;
-  }
   .sender-card .sender-attach-label {
     display: none;
   }
