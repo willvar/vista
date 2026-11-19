@@ -51,7 +51,7 @@ test('question submission preserves the displayed choice across a delayed openin
     const responseOptions = page.getByRole('button', { name: 'Response options', exact: true })
     const panel = page.getByRole('dialog', { name: 'Response options', exact: true })
     await responseOptions.click()
-    await expect(panel.getByRole('group', { name: 'Reasoning effort', exact: true })).toBeVisible()
+    await expect(panel.getByRole('combobox', { name: 'Reasoning effort', exact: true })).toBeVisible()
     await page.keyboard.press('Escape')
     await expect(panel).toBeHidden()
     await expect(form.getByRole('radio', { name: 'Keep local', exact: true })).toBeChecked()

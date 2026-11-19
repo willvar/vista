@@ -3,13 +3,13 @@ import { computed, ref, useId, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { IconAdjustmentsHorizontal } from '@tabler/icons-vue'
 import { Button as VButton, Popover as VPopover, Select as VSelect } from './ui'
-import ReasoningEffortPicker from './ReasoningEffortPicker.vue'
 import { useWorkspace } from './composables/useWorkspace'
 
 const { t } = useI18n({ useScope: 'global' })
 const { conversation, needsProvider, senderDisabled, route, mobileSessionsOpen } = useWorkspace()
 const { selectedModel, selectedReasoning, reasoningChoices, selectedProcessingTier, processingTiers, chooseProcessingTier } = conversation
 const open = ref(false)
+const effortID = useId()
 const tierID = useId()
 const hintID = useId()
 const badgeID = useId()
@@ -17,7 +17,11 @@ const hasReasoningChoices = computed(() => reasoningChoices.value.length > 1)
 const hasProcessingTier = computed(() => !!(processingTiers.value.length || selectedProcessingTier.value))
 const hasResponseOptions = computed(() => !needsProvider.value && (hasReasoningChoices.value || hasProcessingTier.value))
 const tierIsAvailable = computed(() => processingTiers.value.includes(selectedProcessingTier.value))
-const tierOptions = computed(() => [{ value: '', label: t('providerTierDefault') },
+const effortOptions = computed(() => [
+  ...reasoningChoices.value.filter(option => option.value === 'none'),
+  ...reasoningChoices.value.filter(option => option.value !== 'none'),
+])
+const tierOptions = computed(() => [{ value: '', label: t('default') },
   ...processingTiers.value.map(value => ({ value, label: t(`processingTier_${value}`) })),
   ...(selectedProcessingTier.value && !tierIsAvailable.value
     ? [{ value: selectedProcessingTier.value, label: t('processingTierUnavailable'), disabled: true }] : [])])
@@ -33,8 +37,10 @@ watch([() => route.fullPath, mobileSessionsOpen, selectedModel, senderDisabled, 
       <div class="response-options-panel">
         <strong>{{ t('responseOptions') }}</strong>
         <div v-if="hasReasoningChoices" class="response-options-row">
-          <span>{{ t('reasoningEffort') }}</span>
-          <ReasoningEffortPicker v-model:value="selectedReasoning" :options="reasoningChoices" :disabled="senderDisabled" />
+          <label :for="effortID">{{ t('reasoningEffort') }}</label>
+          <v-select :id="effortID" :value="selectedReasoning" :options="effortOptions"
+            :aria-label="t('reasoningEffort')" :disabled="senderDisabled"
+            @update:value="selectedReasoning = String($event ?? '')" />
         </div>
         <div v-if="hasProcessingTier" class="response-options-tier">
           <div class="response-options-row">
@@ -58,7 +64,8 @@ watch([() => route.fullPath, mobileSessionsOpen, selectedModel, senderDisabled, 
 .response-options-trigger.ui-btn.has-tier{width:auto;gap:.25rem;padding-inline:.35rem}
 .response-options-badge{max-inline-size:6rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--accent);font-size:.75rem}
 .response-options-panel{display:grid;gap:.55rem}
-.response-options-row{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:.2rem .65rem}
-.response-options-row .ui-select{min-inline-size:8rem;max-inline-size:100%}
+.response-options-row{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));align-items:center;gap:.65rem}
+.response-options-row label{overflow-wrap:anywhere}
+.response-options-row .ui-select{width:100%}
 .response-options-tier p{margin:.35rem 0 0;color:var(--muted);font-size:.8rem;overflow-wrap:anywhere}
 </style>

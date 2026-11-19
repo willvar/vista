@@ -214,17 +214,13 @@ test.describe('first launch without a provider', () => {
     const reasoningLabel = reasoningEffort.charAt(0).toUpperCase() + reasoningEffort.slice(1)
     const responseOptions = page.getByRole('button', { name: 'Response options', exact: true })
     const responsePanel = page.getByRole('dialog', { name: 'Response options', exact: true })
-    const reasoningPicker = responsePanel.getByRole('group', { name: 'Reasoning effort', exact: true })
-    await expect(sender.getByRole('group', { name: 'Reasoning effort' })).toHaveCount(0)
+    const reasoningPicker = responsePanel.getByRole('combobox', { name: 'Reasoning effort', exact: true })
+    await expect(sender.getByRole('combobox', { name: 'Reasoning effort' })).toHaveCount(0)
     await responseOptions.click()
-    const reasoningSlider = reasoningPicker.getByRole('slider', { name: 'Reasoning effort', exact: true })
-    if (page.viewportSize()!.width <= 830) {
-      await reasoningPicker.getByRole('combobox', { name: 'Reasoning effort', exact: true }).click()
-      await page.locator('.ui-select-dropdown:visible').getByText(reasoningLabel, { exact: true }).click()
-    } else {
-      await expect(reasoningSlider).toHaveAttribute('aria-valuemax', String(reasoningOptions.length - 1))
-      await reasoningSlider.press('End')
-    }
+    const reasoningList = page.locator('.ui-select-dropdown:visible')
+    await reasoningPicker.click()
+    await expect(reasoningList.getByRole('option')).toHaveCount(reasoningOptions.length)
+    await reasoningList.getByRole('option', { name: reasoningLabel, exact: true }).click()
 
     await page.keyboard.press('Escape')
     await expect(responsePanel).toBeHidden()
@@ -240,7 +236,7 @@ test.describe('first launch without a provider', () => {
     await expect(sender.locator('.composer-model')).toHaveCount(0)
     await expect(responsePanel).toBeHidden()
     await responseOptions.click()
-    await expect(reasoningPicker).toContainText(reasoningLabel)
+    await expect(reasoningPicker).toHaveValue(reasoningLabel)
     await responseOptions.click()
     await expect(responsePanel).toBeHidden()
     expect(await vista.api('/sessions')).toHaveLength(0)
@@ -277,11 +273,9 @@ test.describe('first launch without a provider', () => {
     await responseOptions.click()
     const lowestReasoningLabel = reasoningOptions[0] === 'none' ? 'Off'
       : reasoningOptions[0]!.charAt(0).toUpperCase() + reasoningOptions[0]!.slice(1)
-    if (page.viewportSize()!.width <= 830) {
-      await reasoningPicker.getByRole('combobox', { name: 'Reasoning effort', exact: true }).click()
-      await page.locator('.ui-select-dropdown:visible').getByText(lowestReasoningLabel, { exact: true }).click()
-    } else await reasoningSlider.press('Home')
-    await expect(reasoningPicker).toContainText(lowestReasoningLabel)
+    await reasoningPicker.click()
+    await reasoningList.getByRole('option', { name: lowestReasoningLabel, exact: true }).click()
+    await expect(reasoningPicker).toHaveValue(lowestReasoningLabel)
     await page.keyboard.press('Escape')
     await expect(responsePanel).toBeHidden()
     await expect(reply.locator('.reply-footer .message-model-name')).toHaveText('E2E Provider · GPT-6 Luna')

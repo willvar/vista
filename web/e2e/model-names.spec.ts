@@ -48,7 +48,7 @@ test('catalog names and raw model IDs are searchable in Settings without a compo
   const sender = page.locator('.sender-card')
   await expect(sender.locator('.composer-model')).toHaveCount(0)
   const viewport = page.viewportSize()!
-  await expect(sender.getByRole('group', { name: 'Reasoning effort' })).toHaveCount(0)
+  await expect(sender.getByRole('combobox', { name: 'Reasoning effort' })).toHaveCount(0)
   if (viewport.width <= 830) {
     await page.setViewportSize({ ...viewport, width: 320 })
     await expect(sender.getByRole('button', { name: 'Send', exact: true })).toBeVisible()
