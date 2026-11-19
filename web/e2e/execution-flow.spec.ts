@@ -156,7 +156,7 @@ function agentIdentityEvents(): StreamEvent[] {
   return events
 }
 
-function independentWindowEvents(): StreamEvent[] {
+function independentWindowEvents(toolName = 'read_file'): StreamEvent[] {
   const events: StreamEvent[] = []
   const add = (kind: string, data: object) => {
     const sequence = events.length + 1
@@ -173,7 +173,7 @@ function independentWindowEvents(): StreamEvent[] {
     const depth = taskId === 'main' ? 0 : taskId === 'grandchild-a' ? 2 : 1
     add('model_request', { taskId, parentTaskId, depth, turn, provider: 'openai-chat', key: 'replay-model', id: 'gpt-6-astra' })
     for (let step = 1; step <= 6; step++) {
-      const tool = { callId: `${taskId}-${step}`, name: 'read_file', summary: `src/${taskId}/step-${step}.ts` }
+      const tool = { callId: `${taskId}-${step}`, name: toolName, summary: `src/${taskId}/step-${step}.ts` }
       add('tool', { taskId, parentTaskId, depth, turn, status: 'started', tool, content: '' })
       add('tool', { taskId, parentTaskId, depth, turn, status: 'succeeded', tool, content: JSON.stringify({ content: `Body from ${taskId} step ${step}.` }) })
     }
@@ -608,6 +608,7 @@ test('patch diffs and path/content searches expand inline @responsive', async ({
   }
   const fixture=await mockExecution(page,mockOrigin,source)
   const trace=page.locator(`.run-trace[data-run-id="${runId}"]`)
+  await openLookup(trace, 'tool/main/find')
   for(const [id] of outputs) await readFull(nodeTitle(trace,runId,`tool/main/${id}`))
   await expect(trace.locator('.file-diff')).toHaveCount(2)
   await expect(trace.locator('.file-diff').first()).toContainText('Added <safe>')
@@ -618,6 +619,89 @@ test('patch diffs and path/content searches expand inline @responsive', async ({
   await assertNoHorizontalOverflow(page)
   expect(fixture.unexpected).toEqual([])
 })
+function lookupGroup(trace: Locator, firstKey: string) {
+  return trace.locator(`.trace-lookup-row[data-step-key="lookup/${firstKey}"]`)
+}
+async function openLookup(trace: Locator, firstKey: string) {
+  const button = lookupGroup(trace, firstKey).locator('.trace-lookup-button')
+  await expect(button).toHaveAttribute('aria-expanded', 'false')
+  await button.click()
+  await expect(button).toHaveAttribute('aria-expanded', 'true')
+}
+
+test('lookup groups show targets and problems and preserve original result cards after reload @responsive', async ({ page, mockOrigin }) => {
+  const runId = 'lookup-summary', createdAt = '2026-01-01T12:00:00Z'
+  const source: StreamEvent[] = []
+  const add = (kind: string, data: object) => source.push({ sequence: source.length + 1, kind, createdAt, data: { runId, taskId: 'main', ...data } })
+  const tool = (id: string, name: string, summary: string, body: object, status = 'succeeded') =>
+    add('tool', { status, turn: 1, tool: { callId: id, name, summary }, content: JSON.stringify(body) })
+  add('message', { id: 'lookup-user', role: 'user', sequence: 1, content: 'Investigate the timeout.' })
+  tool('lookup-web', 'websearch', 'timeout policy', { results: [{ title: 'Timeout reference', url: 'https://docs.test/' }] })
+  tool('lookup-read', 'read_file', '/project/network.md', { startLine: 2, endLine: 4, content: 'The original saved result of the file read.' })
+  tool('lookup-empty', 'search', '/project/src', { matches: [], count: 0, filesScanned: 3 })
+  tool('lookup-failed', 'webfetch', 'https://blocked.test/guide', { error: 'Permission denied' }, 'failed')
+  tool('lookup-write', 'write_file', '/project/note.txt', { path: '/project/note.txt' })
+  tool('lookup-check', 'read_file', '/project/note.txt', { content: 'A new step after the write.' })
+  const fixture = await mockExecution(page, mockOrigin, source)
+  const trace = page.locator(`.run-trace[data-run-id="${runId}"]`)
+  const group = lookupGroup(trace, 'tool/main/lookup-web')
+  const assertCollapsed = async () => {
+    await expect(group.locator('.trace-lookup-title')).toHaveText(/Looked up · 2 searches, 1 file/)
+    await expect(group).toContainText('timeout policy')
+    await expect(group).toContainText('network.md')
+    await expect(group).toContainText('No matches found.')
+    await expect(group.locator('.trace-lookup-problem')).toContainText('blocked.test/guide · failed: Permission denied')
+    await expect(nodeTitle(trace, runId, 'tool/main/lookup-read')).toHaveCount(0)
+    await expect(nodeTitle(trace, runId, 'tool/main/lookup-write')).toBeAttached()
+    await expect(nodeTitle(trace, runId, 'tool/main/lookup-check')).toBeAttached()
+    await assertNoHorizontalOverflow(page)
+  }
+  await assertCollapsed()
+  await openLookup(trace, 'tool/main/lookup-web')
+  const read = nodeTitle(trace, runId, 'tool/main/lookup-read')
+  await expect(stepNode(read)).toContainText('Lines 2–4')
+  await expect(trace.locator('.trace-result-card')).toHaveCount(0)
+  expect(fixture.nodeReads).toEqual([])
+  expect(fixture.outputReads).toEqual([])
+  await readFull(read)
+  const card = stepNode(read).locator('.trace-result-card')
+  await expect(card).toContainText('The original saved result of the file read.')
+  await expect(card.getByRole('button', { name: 'Copy result' })).toBeVisible()
+  await expect(card.getByRole('button', { name: 'Enlarge result' })).toBeVisible()
+  await page.reload()
+  await assertCollapsed()
+  await page.evaluate(() => localStorage.setItem('vista-language', 'zh-CN'))
+  await page.reload()
+  await expect(group.locator('.trace-lookup-title')).toHaveText('已查阅 · 2 次搜索、1 个文件')
+  await assertNoHorizontalOverflow(page)
+  expect(fixture.unexpected).toEqual([])
+})
+
+test('an open tool result stays open when a live lookup group forms @responsive', async ({ page, mockOrigin }) => {
+  const runId = 'lookup-live', createdAt = '2026-01-01T12:00:00Z'
+  const read = { callId: 'read-before', name: 'read_file', summary: '/project/before.txt' }
+  const fixture = await mockExecution(page, mockOrigin, [
+    { sequence: 1, kind: 'message', createdAt, data: { runId, id: 'lookup-live-user', sequence: 1, createdAt, role: 'user', content: 'Check before and after.' } },
+    { sequence: 2, kind: 'tool', createdAt, data: { runId, status: 'succeeded', taskId: 'main', tool: read, content: '{"content":"Already open result."}' } },
+  ])
+  const trace = page.locator(`.run-trace[data-run-id="${runId}"]`)
+  const title = nodeTitle(trace, runId, 'tool/main/read-before')
+  await readFull(title)
+  await expect(stepNode(title).locator('.trace-result-card')).toContainText('Already open result.')
+  const check = { callId: 'read-after', name: 'read_file', summary: '/project/after.txt' }
+  fixture.append('tool', { status: 'started', taskId: 'main', tool: check })
+  const group = lookupGroup(trace, 'tool/main/read-before')
+  await expect(group.locator('.trace-lookup-title')).toContainText('Looking up')
+  await expect(group.locator('.trace-lookup-button')).toHaveAttribute('aria-expanded', 'true')
+  await expect(stepNode(title).locator('.trace-result-card')).toContainText('Already open result.')
+  fixture.append('tool', { status: 'succeeded', taskId: 'main', tool: check, content: '{"content":"Just completed result."}' })
+  await expect(group.locator('.trace-lookup-title')).toContainText('2 files')
+  await expect(group.locator('.trace-lookup-button')).toHaveAttribute('aria-expanded', 'true')
+  await expect(stepNode(title).locator('.trace-result-card')).toContainText('Already open result.')
+  expect(fixture.outputReads).toEqual([])
+  expect(fixture.unexpected).toEqual([])
+})
+
 async function readFull(title: Locator) { await stepNode(title).locator('button.ui-thought-chain-node-header').click() }
 async function scrollPosition(page: Page) { return page.locator('.messages').evaluate(element => element.scrollTop) }
 async function distanceToLatest(page: Page) { return page.locator('.messages').evaluate(element => element.scrollHeight - element.scrollTop - element.clientHeight) }
@@ -673,7 +757,13 @@ for (const theme of ['light', 'dark']) test(`execution messages appear without o
   await expect(trace.locator('pre.trace-output')).toHaveCount(0)
   await expect.poll(() => trace.locator('button.ui-thought-chain-node-header[aria-expanded="false"]').count()).toBeGreaterThan(0)
   expect(await trace.locator('.trace-step-row').count()).toBeLessThan(24)
-  const first = await scrollToTraceStep(page, trace, fixture.runId, 'tool/main/main-1')
+  // Locate the group through the reader's scroll range, including short viewports.
+  const sequence = fixture.events.find(event => event.kind === 'tool' && event.data.tool.callId === 'main-1')!.sequence
+  const group = await scrollToConversationEntry(page,
+    '.trace-lookup-row[data-step-key="lookup/tool/main/main-1"] .trace-lookup-button', sequence)
+  await expect(group).toHaveAttribute('aria-expanded', 'false')
+  await group.click()
+  await scrollToTraceStep(page, trace, fixture.runId, 'tool/main/main-1')
   await expect(page.locator('.conversation-execution')).toBeVisible()
   await expect(page.locator('.conversation-execution-elapsed')).not.toBeEmpty()
   await assertNoHorizontalOverflow(page)
@@ -871,6 +961,7 @@ test('interleaved main and child activity stays ordered and does not disturb ear
   const fixture = await mockExecution(page, mockOrigin, independentWindowEvents())
   const trace = page.locator(`.run-trace[data-run-id="${fixture.runId}"]`)
   await expect(trace.locator('.trace-steps')).toHaveAttribute('data-step-count', '24')
+  await openLookup(trace, 'tool/child-a/child-a-1')
   const first = await scrollToTraceStep(page, trace, fixture.runId, 'tool/child-a/child-a-1')
   await trace.dispatchEvent('click')
   const top = (await first.boundingBox())!.y
@@ -957,6 +1048,7 @@ test('new execution steps preserve the reading position and expanded outputs rem
   const trace = page.locator(`.run-trace[data-run-id="${runId}"]`)
   const steps = trace.locator('.trace-steps')
   await expect(page.locator('.messages')).toHaveAttribute('aria-busy', 'false')
+  await openLookup(trace, 'tool/main/paged-1')
   const first = await scrollToTraceStep(page, trace, runId, 'tool/main/paged-1')
   await readFull(first)
   await expect(stepNode(first).locator('pre.trace-output')).toHaveText(firstOutput)
@@ -1461,9 +1553,10 @@ test('rapid scrolling keeps readable content while a top loader locks and prepar
     id: `viewport-${index}`, sequence: index * 11 + 1, runId, role: index ? 'assistant' : 'user', createdAt,
     content: `Retained message ${index + 1}.\n\n` + 'A complete paragraph to read at the destination.\n\n'.repeat(12),
   }))
+  // Use independent tool rows to make each cold destination taller than the viewport.
   const events: StreamEvent[] = messages.flatMap(message => [{ sequence: message.sequence, kind: 'message', createdAt, data: message },
     ...Array.from({ length: 10 }, (_, index) => ({ sequence: message.sequence + index + 1, kind: 'tool', createdAt,
-      data: { runId, taskId: 'main', status: 'succeeded', tool: { callId: `viewport-tool-${message.id}-${index}`, name: 'read_file', summary: `src/file-${message.id}-${index}.ts` }, content: 'Complete source output.' } })),
+      data: { runId, taskId: 'main', status: 'succeeded', tool: { callId: `viewport-tool-${message.id}-${index}`, name: 'shell', summary: `src/file-${message.id}-${index}.ts` }, content: 'Complete source output.' } })),
   ])
   const fixture = await mockExecution(page, mockOrigin, events, { messages })
   const scroller = page.locator('.messages'), loader = page.locator('.history-loading')
@@ -1637,7 +1730,8 @@ test('historical full text is prepared before display and virtual recycling does
 })
 
 test('current action, timing and internal planning survive live work and reload', { tag: '@smoke' }, async ({ page, mockOrigin }, testInfo) => {
-  const source = independentWindowEvents()
+  // Keep enough independent rows to scroll the original prompt fully out of view.
+  const source = independentWindowEvents('shell')
   const runId = source[0].data.runId as string
   source.push({ sequence: source.at(-1)!.sequence + 1, kind: 'checklist', createdAt: source.at(-1)!.createdAt, data: { runId, items: initialChecklist } })
   const fixture = await mockExecution(page, mockOrigin, source)
@@ -1932,6 +2026,7 @@ test('execution tool results render once, keep useful summaries, and move metada
   await expect(failedNode.locator('p.tool-output-error')).toHaveCount(1)
   await expect(failedNode.locator('p.tool-output-error')).toHaveText(source.error)
   await expect(failedNode.locator('pre.trace-output')).toHaveText('/synthetic\n')
+  await openLookup(trace, 'tool/main/source-read')
   await readFull(nodeTitle(trace, runId, 'tool/main/source-search'))
   await expect(trace.locator('.trace-search-results li')).toHaveCount(1)
   await expect(trace.locator('.trace-search-path')).toHaveText('src/example.ts')
@@ -2021,6 +2116,7 @@ test('reasoning headings and long commands stay readable without hiding executio
   expect(headings[1]).toBeGreaterThan(headings[0])
   expect(headings[2]).toBeGreaterThan(headings[1])
   expect(fixture.events.filter(event => event.kind === 'model_reasoning_delta').map(event => event.data.content)).toEqual(fragments)
+  await openLookup(trace, 'tool/main/source-read')
   await expect(trace.locator('.trace-step-row')).toHaveCount(7)
   await assertNoHorizontalOverflow(page)
   expect(fixture.unexpected).toEqual([])
@@ -2064,6 +2160,7 @@ test('grouped search results keep full paths and permission warnings after refre
   for (const reload of [false, true]) {
     if (reload) await page.reload()
     const trace = page.locator(`.run-trace[data-run-id="${fixture.runId}"]`)
+    await openLookup(trace, 'tool/main/read-source')
     const title = nodeTitle(trace, fixture.runId, 'tool/main/search-title')
     await readFull(title)
     const node = title.locator('xpath=ancestor::div[contains(concat(" ",normalize-space(@class)," ")," ui-thought-chain-node ")][1]')
@@ -2082,6 +2179,8 @@ test('truncated file and search steps hydrate on expansion, and jump to latest r
   const readEvent = fixture.events.find(event => event.kind === 'tool' && event.data.tool.callId === 'read-source' && event.data.status === 'succeeded')!
   const searchEvent = fixture.events.find(event => event.kind === 'tool' && event.data.tool.callId === 'search-title' && event.data.status === 'succeeded')!
   await expect(trace).toHaveAttribute('data-run-status', 'active')
+  expect(fixture.nodeReads).toEqual([])
+  await openLookup(trace, 'tool/main/read-source')
   expect(fixture.nodeReads).toEqual([])
   const readTitle = nodeTitle(trace, fixture.runId, 'tool/main/read-source')
   const searchTitle = nodeTitle(trace, fixture.runId, 'tool/main/search-title')

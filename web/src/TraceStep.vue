@@ -12,6 +12,7 @@ import PlainTextOutput from './PlainTextOutput.vue'
 
 const props = defineProps<{
   item: Node; expanded: boolean; loading: boolean; failure?: string; nodeId: (key: string) => string
+  lookupHint?: string
 }>()
 const emit = defineEmits<{ expand: [keys: string[]]; retry: [node: RunTraceNode] }>()
 const { t } = useI18n()
@@ -31,7 +32,7 @@ function toggle() { if (collapsible.value) emit('expand', props.expanded ? [] : 
     <div class="ui-thought-chain-node" :class="`ui-thought-chain-node-${item.status || 'default'}`">
       <div class="ui-thought-chain-node-box">
         <component :is="collapsible ? 'button' : 'div'" :type="collapsible ? 'button' : undefined" class="ui-thought-chain-node-header" :aria-expanded="collapsible ? expanded : undefined" :aria-controls="collapsible ? `${nodeId(item.key)}-content` : undefined" :title="inputText || undefined" @click="toggle">
-          <span class="trace-step-label"><span class="ui-thought-chain-node-icon" aria-hidden="true"><IconLoader2 v-if="item.status === 'loading'" class="ui-icon-spin" /><IconCircleX v-else-if="item.status === 'error'" /><IconPlayerStop v-else-if="item.status === 'abort'" /><IconCircleCheck v-else /></span><span class="ui-thought-chain-node-title"><span :id="nodeId(item.key)">{{ item.title }}<template v-if="inputText">: <span class="trace-input-preview" :class="{ 'trace-input-code': item.input?.command }">{{ inputPreview }}</span></template></span></span></span>
+          <span class="trace-step-label"><span class="ui-thought-chain-node-icon" aria-hidden="true"><IconLoader2 v-if="item.status === 'loading'" class="ui-icon-spin" /><IconCircleX v-else-if="item.status === 'error'" /><IconPlayerStop v-else-if="item.status === 'abort'" /><IconCircleCheck v-else /></span><span class="ui-thought-chain-node-title"><span :id="nodeId(item.key)">{{ item.title }}<template v-if="inputText">: <span class="trace-input-preview" :class="{ 'trace-input-code': item.input?.command }">{{ inputPreview }}</span></template><span v-if="lookupHint" class="trace-input-preview"> · {{ lookupHint }}</span></span></span></span>
           <IconChevronRight v-if="collapsible" class="ui-thought-chain-node-collapse-icon" :class="{ expanded }" aria-hidden="true" />
         </component>
         <div v-if="!collapsible || expanded" :id="`${nodeId(item.key)}-content`" class="trace-step-details">
