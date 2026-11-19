@@ -52,7 +52,8 @@ test('resource tool URLs display original images in replies and survive reload',
   expect((await page.request.get(`${vista.origin}/api/sessions/${other.id}/resources/${ref.hash}`)).status()).toBe(404)
 })
 
-test('multiple images send once with empty-text Enter and render automatically with a zoom preview', async ({ page, vista }, testInfo) => {
+test('multiple images send once with the shortcut and no text and render automatically with a zoom preview', async ({ page, vista, hasTouch }, testInfo) => {
+  const sendShortcut = hasTouch ? 'Control+Enter' : 'Enter'
   await page.reload()
   const files = await imageFiles(page, 4)
   const sender = page.locator('.sender-card')
@@ -80,15 +81,15 @@ test('multiple images send once with empty-text Enter and render automatically w
   await textarea.press('Shift+Enter')
   await expect(textarea).toHaveValue('\n')
   await textarea.fill('')
-  await textarea.dispatchEvent('keydown', { key: 'Enter', code: 'Enter', isComposing: true })
-  await textarea.dispatchEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 229 })
+  await textarea.dispatchEvent('keydown', { key: 'Enter', code: 'Enter', ctrlKey: hasTouch, isComposing: true })
+  await textarea.dispatchEvent('keydown', { key: 'Enter', code: 'Enter', ctrlKey: hasTouch, keyCode: 229 })
   await textarea.dispatchEvent('compositionstart')
-  await textarea.press('Enter')
+  await textarea.press(sendShortcut)
   await textarea.dispatchEvent('compositionend')
   expect(messagePosts).toHaveLength(0)
   await textarea.fill('')
-  // A fresh Enter after composition ends sends immediately, without a time window.
-  await textarea.press('Enter')
+  // The send shortcut works immediately after composition ends, without a time window.
+  await textarea.press(sendShortcut)
 
   await expect(sender.locator('.sender-attachment')).toHaveCount(0)
   expect(messagePosts).toHaveLength(1)
@@ -132,7 +133,7 @@ test('multiple images send once with empty-text Enter and render automatically w
   await page.screenshot({ path: testInfo.outputPath('image-conversation-refreshed.png'), animations: 'disabled' })
 
   await textarea.fill('Continue without rereading the images')
-  await textarea.press('Enter')
+  await textarea.press(sendShortcut)
   await expect.poll(() => vista.modelRequests.length).toBe(2)
   const history = vista.modelRequests[1]!.messages!
   expect(history.every(message => typeof message.content === 'string')).toBe(true)
@@ -177,7 +178,7 @@ test('editing and withdrawing sent images preserves original bytes through a res
   const textarea = sender.locator('textarea')
   await sender.locator('input[type=file]').setInputFiles([files[0]!])
   await textarea.fill('Inspect the original image')
-  await textarea.press('Enter')
+  await textarea.press('Control+Enter')
   await expect(page.locator('article.assistant')).toContainText('Mock reply: Hi')
   const sessionID = new URL(page.url()).pathname.split('/').at(-1)!
   const idle = () => expect.poll(async () => (await vista.api('/sessions')).find((item: any) => item.id === sessionID).executing).toBe(false)
@@ -190,7 +191,7 @@ test('editing and withdrawing sent images preserves original bytes through a res
   await sender.getByRole('button', { name: 'Remove', exact: true }).click()
   await sender.locator('input[type=file]').setInputFiles([files[1]!])
   await textarea.fill('Inspect the replacement image')
-  await textarea.press('Enter')
+  await textarea.press('Control+Enter')
   await expect.poll(() => vista.modelRequests.length).toBe(2)
   await idle()
   const replaced = await vista.api(`/sessions/${sessionID}/messages`)
@@ -213,7 +214,7 @@ test('editing and withdrawing sent images preserves original bytes through a res
   await expect(sender.locator('.sender-attachment')).toContainText(files[1]!.name)
   expect((await fetch(imageURL)).status).toBe(404)
 
-  await textarea.press('Enter')
+  await textarea.press('Control+Enter')
   await expect.poll(() => vista.modelRequests.length).toBe(3)
   await idle()
   await expect(page.locator('article.assistant')).toContainText('Mock reply: Hi')

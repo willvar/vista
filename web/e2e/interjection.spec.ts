@@ -99,10 +99,10 @@ test('delivered input never returns to pending when its HTTP confirmation arrive
   const releaseModel = vista.pauseModelReplies(true)
   try {
     await sender.fill('First question')
-    await sender.press('Enter')
+    await sender.press('Control+Enter')
     await expect(page.locator('.live-response')).toContainText('Mock reply: First question')
     await sender.fill('Follow-up delivered before confirmation')
-    await sender.press('Enter')
+    await sender.press('Control+Enter')
     await acceptedGate
     releaseModel()
     await expect(page.locator('article.user .markdown').last()).toHaveText('Follow-up delivered before confirmation')

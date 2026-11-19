@@ -103,21 +103,33 @@ async function assertSend(
   await expect(page.locator('.error')).toHaveCount(0)
 }
 
-test('all running send controls deliver at the next decision boundary', async ({ page, vista }) => {
+test('running composer allows newlines and delivers each explicit send at the next decision boundary', { tag: '@responsive' }, async ({ page, vista, hasTouch }) => {
+  if (hasTouch) await expect(page.locator('.composer-hint')).toBeHidden()
+  else await expect(page.locator('.composer-hint')).toBeVisible()
   const fixture = await mockConversation(page, vista)
+  // A narrow desktop window keeps desktop shortcuts.
+  if (!hasTouch) await page.setViewportSize({ width: 390, height: 844 })
   const textarea = page.locator('.sender-card textarea')
-  await textarea.fill('First line')
-  await textarea.press('End')
-  await textarea.press('Shift+Enter')
-  await textarea.pressSequentially('Second line')
+  await textarea.fill('First lineSecond line')
+  await textarea.evaluate(input => (input as HTMLTextAreaElement).setSelectionRange('First line'.length, 'First line'.length))
+  await textarea.press(hasTouch ? 'Enter' : 'Shift+Enter')
   await expect(textarea).toHaveValue('First line\nSecond line')
   expect(fixture.sent).toHaveLength(0)
+  if (hasTouch) await expect(textarea).toHaveAttribute('enterkeyhint', 'enter')
 
   const send = page.getByRole('button', { name: 'Send', exact: true })
   await expect(send).toHaveAttribute('title', /steer/i)
   await expect(page.getByRole('button', { name: 'Queue', exact: true })).toHaveCount(0)
-  await assertSend(page, fixture.sent, 'Default Send steers', 'click')
-  await assertSend(page, fixture.sent, 'Default Enter steers', 'Enter')
+  if (hasTouch) {
+    await send.tap()
+    await expect.poll(() => fixture.sent.length).toBe(1)
+    expect(fixture.sent[0]).toMatchObject({ content: 'First line\nSecond line' })
+    expect(fixture.sent[0]).not.toHaveProperty('mode')
+    await expect(textarea).toHaveValue('')
+  } else {
+    await assertSend(page, fixture.sent, 'Default Send steers', 'click')
+    await assertSend(page, fixture.sent, 'Default Enter steers', 'Enter')
+  }
   await assertSend(page, fixture.sent, 'Control Enter sends immediately', 'Control+Enter')
   await assertSend(page, fixture.sent, 'Command Enter sends immediately', 'Meta+Enter')
   expect(fixture.cancellations()).toBe(0)

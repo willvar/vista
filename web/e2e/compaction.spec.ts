@@ -74,7 +74,7 @@ test.describe('automatic recovery', () => {
     await draft.fill('Continue with the findings')
     const release = vista.pauseModelReplies(false, true)
     try {
-      await draft.press('Enter')
+      await draft.press('Control+Enter')
       await expect(page.locator('.conversation-execution.compaction-progress')).toBeVisible()
       await expect(page.getByText('Compacting context…', { exact: true })).toHaveCount(1)
       await expect(page.locator('.sender-card .context-status-panel')).toHaveCount(0)
@@ -271,7 +271,7 @@ test('manual compaction preserves chat and draft, and Tab completes Continue wit
   await expect(draft).toHaveAttribute('placeholder', 'Continue · click here, then press Tab to fill')
   await expect.poll(() => page.locator('.messages').evaluate(element => element.scrollHeight - element.clientHeight - element.scrollTop)).toBeLessThanOrEqual(3)
   const requests = vista.modelRequests.length
-  await draft.press('Enter')
+  await draft.press('Control+Enter')
   await expect(draft).toHaveValue('')
   await draft.press('Shift+Tab')
   await expect(draft).toHaveValue('')

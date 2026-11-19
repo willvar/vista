@@ -115,15 +115,18 @@ function chooseMessageImages(event: Event) {
 }
 const shortViewport = window.matchMedia('(max-height: 520px)')
 const smallViewport = window.matchMedia('(max-width: 830px)')
+const touchPointer = window.matchMedia('(pointer: coarse)')
 const compactSender = ref(shortViewport.matches)
 const smallScreen = ref(smallViewport.matches)
+const touchFirst = ref(touchPointer.matches)
 const senderAutoSize = computed(() => compactSender.value
   ? { minRows: 1, maxRows: draft.value.trim() ? 4 : 1 }
   : { minRows: 2, maxRows: 8 })
 const senderClass = 'composer sender-card'
-function updateSenderSize() {
+function updateSenderMedia() {
   compactSender.value = shortViewport.matches
   smallScreen.value = smallViewport.matches
+  touchFirst.value = touchPointer.matches
 }
 const tierOptions = computed(() => [{ value: '', label: t('providerTierDefault') }, ...processingTiers.value.map(value => ({ value, label: t(`processingTier_${value}`) })),
   ...(selectedProcessingTier.value && !processingTiers.value.includes(selectedProcessingTier.value) ? [{ value: selectedProcessingTier.value, label: t('processingTierUnavailable'), disabled: true }] : [])])
@@ -170,6 +173,8 @@ function senderKeyDown(event: KeyboardEvent) {
   }
   if (event.key !== 'Enter' || event.shiftKey || event.altKey) return
   if (event.defaultPrevented || event.isComposing || event.keyCode === 229 || composing.value) return false
+  // Use the device's primary pointer, not viewport width or guessed keyboard origin.
+  if (touchFirst.value && !event.ctrlKey && !event.metaKey) return
   event.preventDefault()
   event.stopPropagation()
   // Use the same submission guard for text, quotes, and attachment-only drafts.
@@ -179,14 +184,16 @@ function senderKeyDown(event: KeyboardEvent) {
   return false
 }
 onMounted(() => {
-  shortViewport.addEventListener('change', updateSenderSize)
-  smallViewport.addEventListener('change', updateSenderSize)
+  shortViewport.addEventListener('change', updateSenderMedia)
+  smallViewport.addEventListener('change', updateSenderMedia)
+  touchPointer.addEventListener('change', updateSenderMedia)
   window.addEventListener('dragend', resetImageDrag)
   window.addEventListener('drop', resetImageDrag)
 })
 onUnmounted(() => {
-  shortViewport.removeEventListener('change', updateSenderSize)
-  smallViewport.removeEventListener('change', updateSenderSize)
+  shortViewport.removeEventListener('change', updateSenderMedia)
+  smallViewport.removeEventListener('change', updateSenderMedia)
+  touchPointer.removeEventListener('change', updateSenderMedia)
   window.removeEventListener('dragend', resetImageDrag)
   window.removeEventListener('drop', resetImageDrag)
 })
@@ -199,7 +206,7 @@ onUnmounted(() => {
             <span>{{ t('configureModelToStart') }}</span><IconArrowRight aria-hidden="true" />
           </router-link>
         </div>
-        <Sender v-else ref="sender" v-model:value="draft" :class="[senderClass, { 'sender-card-with-status': !!$slots.execution, 'sender-card-answering': answering }]" :content-active="answering" :data-composer-mode="answering ? 'answers' : pendingQuestion ? 'text' : 'message'" :auto-size="senderAutoSize" :disabled="senderDisabled" :loading="busy || agentWorking && !draft.trim() && !attachedImages.length" :placeholder="senderPlaceholder" :aria-label="t('sendMessage')" :on-key-down="senderKeyDown" @input.capture="trackInput" @compositionstart.capture="compositionStart" @compositionend.capture="compositionEnd" @paste="pasteMessageImages" @dragenter="enterImageDrag" @dragover="overImageDrag" @dragleave="leaveImageDrag" @drop="receiveImageDrop">
+        <Sender v-else ref="sender" v-model:value="draft" :class="[senderClass, { 'sender-card-with-status': !!$slots.execution, 'sender-card-answering': answering }]" :content-active="answering" :data-composer-mode="answering ? 'answers' : pendingQuestion ? 'text' : 'message'" :auto-size="senderAutoSize" :disabled="senderDisabled" :loading="busy || agentWorking && !draft.trim() && !attachedImages.length" :placeholder="senderPlaceholder" :aria-label="t('sendMessage')" :enter-key-hint="touchFirst ? 'enter' : undefined" :on-key-down="senderKeyDown" @input.capture="trackInput" @compositionstart.capture="compositionStart" @compositionend.capture="compositionEnd" @paste="pasteMessageImages" @dragenter="enterImageDrag" @dragover="overImageDrag" @dragleave="leaveImageDrag" @drop="receiveImageDrop">
           <template #header>
           <router-link v-if="!selectedModel && !agentWorking" class="sender-setup" :to="{ path: '/settings/models', query: modalQuery() }">{{ t('configureModelToStart') }}<IconArrowRight aria-hidden="true" /></router-link>
           <div v-if="$slots.execution" class="sender-status"><slot name="execution" /></div>

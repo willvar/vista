@@ -5,7 +5,7 @@ test.use({ backgroundProcess: true })
 test('real process survives foreground completion, persists metadata and logs, and stops from the monitor', { tag: '@responsive' }, async ({ page, vista }, testInfo) => {
   await page.reload()
   await page.locator('.sender-card textarea').fill('Start process')
-  await page.locator('.sender-card textarea').press('Enter')
+  await page.locator('.sender-card textarea').press('Control+Enter')
   await expect(page.locator('article.assistant').last()).toContainText('Process started.')
   const id = new URL(page.url()).pathname.split('/').at(-1)!
   const readJobs = () => vista.api(`/sessions/${id}/jobs`)
@@ -53,7 +53,7 @@ test('real process survives foreground completion, persists metadata and logs, a
   // A failed shell command still returns its evidence to the model, which
   // handles the failure in a subsequent model request.
   await page.locator('.sender-card textarea').fill('Fail command')
-  await page.locator('.sender-card textarea').press('Enter')
+  await page.locator('.sender-card textarea').press('Control+Enter')
   await expect(page.locator('article.assistant').last()).toContainText('Handled exit 7 with command evidence.')
   const artifacts = await vista.api(`/sessions/${id}/artifacts`)
   expect(artifacts.some((artifact: { status: string; error?: string }) => artifact.status === 'failed' && artifact.error?.includes('exit code 7'))).toBe(true)
@@ -85,7 +85,7 @@ test('explicit background timeout beyond 24 hours reaches the model and process 
 test('advance warning stays nonterminal in the process monitor and survives reload @responsive', async ({page,vista})=>{
  await page.reload()
  await page.locator('.sender-card textarea').fill('Start warning process')
- await page.locator('.sender-card textarea').press('Enter')
+ await page.locator('.sender-card textarea').press('Control+Enter')
  await expect(page.locator('article.assistant').last()).toContainText('Process started.')
  const id=new URL(page.url()).pathname.split('/').at(-1)!
  await expect.poll(async()=> (await vista.api(`/sessions/${id}/jobs`))[0]?.warnedAt).toBeTruthy()

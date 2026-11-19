@@ -28,6 +28,7 @@ Use these principles when changing the product:
 
 - First use connects a model provider in Settings. Built-in connections encapsulate provider setup; a custom connection explicitly selects its API format and authentication. Model availability depends on the connected service and account.
 - The first sent message creates a conversation and Worker. Open conversations have resident Workers, subject to admission and health checks. Navigating away or closing the browser leaves work running; closing a conversation stops its Worker and managed work but retains history. Deletion removes its stored conversation data.
+- On touch-first devices, Enter inserts a new line; tap Send or use Ctrl/Cmd + Enter with a keyboard to send. On desktop, Enter sends and Shift + Enter inserts a new line.
 - The sidebar session menu offers renaming, confirmed closing, and confirmed deletion. Sidebar, conversation-header, and session-manager titles save inline when the editor loses focus.
 - Pinned sessions appear first in the sidebar and session manager. The sidebar orders each group by descending creation time, with descending IDs breaking ties; the session manager applies its selected sort within each group.
 - The session manager requires confirmation before closing sessions with running tasks or background processes, including batches. Idle sessions close directly from the manager.

@@ -59,7 +59,7 @@ for (const reducedMotion of ['no-preference', 'reduce'] as const) {
       }
       if (location === 'conversation') {
         await resizeDraft(textarea, 'Send this\n'.repeat(4))
-        await textarea.press('Enter')
+        await textarea.press('Control+Enter')
         await expect(page.locator('article.assistant')).toBeVisible()
         await expect(textarea).toHaveValue('')
         await expect.poll(async () => Math.abs((await textarea.boundingBox())!.height - collapsed)).toBeLessThan(1)

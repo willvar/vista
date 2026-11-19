@@ -399,6 +399,7 @@ onUnmounted(() => {
 .conversation-sync-notice{padding:8px 16px;border-bottom:1px solid var(--border)}
 .conversation-sync-notice[role="alert"]{color:var(--danger)}
 .conversation-render-notice{padding:12px 0}
+@media(pointer:coarse){.composer-hint{display:none}}
 @media(max-height:520px){
   .conversation-column.has-execution .jump-latest{left:auto;right:.5rem;transform:none}
   .conversation-column.has-execution .jump-latest-enter-from,.conversation-column.has-execution .jump-latest-leave-to{transform:translateY(6px) scale(.88)}

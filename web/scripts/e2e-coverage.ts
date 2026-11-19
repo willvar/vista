@@ -56,6 +56,7 @@ const consumers: [RegExp, string[]][] = [
   [/^web\/src\/(?:App\.vue$|SessionActionDialog\.vue$|client\/(?:sse|conversationSync|types)\.)|^internal\/(?:server|store)\/session_actions\.go$|^internal\/agent\/tool_(?:session|history)\.go$/, ['sessions', 'conversation']],
   [/^web\/src\/ui\/TabbedModal\.vue$/, ['about']],
   [/^web\/src\/ui\/Tabs\.vue$/, ['controls', 'about', 'models', 'conversation']],
+  [/^web\/src\/ui\/Sender\.vue$/, ['conversation', 'models', 'sessions']],
   [/^web\/src\/(?:ui\/ProgressBar|BatchOperationModal)\.vue$/, ['operationProgress']],
   [/^web\/src\/ui\/Collapsible\.vue$/, ['conversation', 'models', 'skills', 'mcp']],
   [/^internal\/(?:network|codexauth|copilotauth|useragent)\/|^internal\/server\/(?:network_config|provider_network)|^web\/src\/(?:Network|ProxySelection|client\/network|composables\/useNetwork)/, ['network', 'models', 'search', 'mcp', 'conversation']],

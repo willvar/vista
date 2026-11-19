@@ -87,7 +87,7 @@ test.describe('action reminders', () => {
     const releaseRetry = vista.pauseModelReplies()
     try {
       await page.locator('.sender-card textarea').fill('New task after cancellation')
-      await page.locator('.sender-card textarea').press('Enter')
+      await page.locator('.sender-card textarea').press('Control+Enter')
       await expect(page.locator('article.user .markdown').filter({ hasText: 'New task after cancellation' })).toBeVisible()
       await expect(page.getByRole('button', { name: 'Stop current execution', exact: true })).toBeEnabled()
       await vista.api(`/sessions/${queue.id}/messages`, { method: 'POST', body: JSON.stringify({ content: 'New follow-up', modelKey: 'test' }) })

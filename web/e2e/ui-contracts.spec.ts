@@ -195,7 +195,7 @@ test.describe('inline execution messages', () => {
       await page.goto(vista.origin)
       const input = page.locator('.sender-card textarea')
       await input.fill('Check execution details')
-      await input.press('Enter')
+      await input.press('Control+Enter')
       await expect(page.locator('article.assistant').last()).toContainText('Final progress answer.')
       await expect(page.getByRole('button', { name: 'Execution process', exact: true })).toHaveCount(0)
       const tool = page.locator('.ui-thought-chain-node').filter({ hasText: 'Run command' })

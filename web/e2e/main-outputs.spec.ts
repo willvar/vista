@@ -66,7 +66,7 @@ test.describe('persistent main output', () => {
     const release = vista.pauseModelReplies(true)
     try {
       await page.locator('.sender-card textarea').fill('Show progress')
-      await page.locator('.sender-card textarea').press('Enter')
+      await page.locator('.sender-card textarea').press('Control+Enter')
       await expect(page.locator('.main-output').first()).toContainText('Progress 1.')
       release()
       await expect(page.locator('article.assistant').last()).toContainText('Final progress answer.')
@@ -116,7 +116,7 @@ test.describe('persistent main output', () => {
     const release = vista.pauseModelReplies(true)
     try {
       await page.locator('.sender-card textarea').fill('Cancel progress')
-      await page.locator('.sender-card textarea').press('Enter')
+      await page.locator('.sender-card textarea').press('Control+Enter')
       await expect(page.locator('.main-output')).toContainText('Progress 1.')
       await expect(page.locator('.trace-reasoning')).toContainText('Private progress reasoning.')
       const id = new URL(page.url()).pathname.split('/').at(-1)!
@@ -133,7 +133,7 @@ test.describe('persistent main output', () => {
   test('failed run retains progress and actual tool steps without duplicating the error after refresh', async ({ page, vista }, testInfo) => {
     await page.reload()
     await page.locator('.sender-card textarea').fill('Fail progress')
-    await page.locator('.sender-card textarea').press('Enter')
+    await page.locator('.sender-card textarea').press('Control+Enter')
     await expect(page.locator('.main-output')).toContainText('Progress 1.')
     const id = new URL(page.url()).pathname.split('/').at(-1)!
     await expect.poll(async () => (await vista.api('/sessions')).find((s: any) => s.id === id)?.executing).toBe(false)

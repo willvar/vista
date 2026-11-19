@@ -89,7 +89,7 @@ test.describe('conversation motion', () => {
     try {
       const input = page.locator('.sender-card textarea')
       await input.fill('Scrollable paragraph.\n\n'.repeat(60))
-      await input.press('Enter')
+      await input.press('Control+Enter')
       await expect(page.locator('.main-output')).toContainText('Progress 1.')
       await expect(page.getByRole('button', { name: 'Stop current execution', exact: true })).toBeEnabled()
       await expectReducedMotion(page)

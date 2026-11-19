@@ -95,7 +95,7 @@ test.describe('captured model HTTP', () => {
     await page.evaluate(() => { localStorage.setItem('vista-debug-mode', 'true'); document.cookie = 'vista-debug-mode=; Path=/; Max-Age=0' })
     await page.reload()
     await page.locator('.sender-card textarea').fill('Inspect diagnostic evidence')
-    await page.locator('.sender-card textarea').press('Enter')
+    await page.locator('.sender-card textarea').press('Control+Enter')
     await expect(page.locator('article.assistant').last()).toContainText('Final progress answer.')
     const sessionPath = new URL(page.url()).pathname
     const messages = await vista.api(`${sessionPath}/messages`)

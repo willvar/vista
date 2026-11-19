@@ -53,7 +53,7 @@ test.describe('appearance during execution', () => {
     try {
       const input = page.locator('.sender-card textarea')
       await input.fill('Inspect the current implementation')
-      await input.press('Enter')
+      await input.press('Control+Enter')
       await expect(page.locator('.main-output')).toContainText('Progress 1.')
       await page.emulateMedia({ colorScheme: 'dark' })
       await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark')

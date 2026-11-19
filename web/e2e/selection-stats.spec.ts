@@ -6,7 +6,7 @@ test('connection usage reports real calls without ranking or loading when closed
   await page.goto(`${vista.origin}/sessions/${session.id}`)
   const input = page.locator('.sender-card textarea')
   await input.fill('Hi')
-  await input.press('Enter')
+  await input.press('Control+Enter')
   await expect(page.locator('article.assistant').last()).toContainText('Mock reply: Hi')
   await expect(page.locator('.model-ttft').last()).not.toContainText('—')
   const requests: string[] = []
