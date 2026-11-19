@@ -60,7 +60,7 @@ func (a *App) writeModelSettings(w http.ResponseWriter) {
 		mode := "apiKey"
 		if model.ProviderID == "custom" {
 			mode = model.Authentication
-		} else if model.Provider == "generation" && (model.ProviderID == "comfy" || model.ProviderID == "litellm") && model.APIKey == "" {
+		} else if model.Provider == "generation" && (model.ProviderID == "comfy" || model.ProviderID == "litellm" || model.ProviderID == "onnx" || model.ProviderID == "typesafe") && model.APIKey == "" {
 			mode = "none"
 		}
 		headerNames := make([]string, 0, len(model.Headers))

@@ -23,11 +23,14 @@ func Generate(ctx context.Context, target model.GenerationTarget, input Input) (
 	if err != nil {
 		return Asset{}, err
 	}
-	spec, _ := Find(target.Model.ProviderID, target.Kind)
 	if strings.TrimSpace(input.Prompt) == "" {
 		return Asset{}, errors.New("a generation description is required")
 	}
-	if len(input.Frame) > 0 && (!spec.Frame || target.Kind != model.VideoOutput || (len(target.InputModalities) > 0 && !slices.Contains(target.InputModalities, "image"))) {
+	allowsFrame, requiresFrame := VideoFrameMode(target.Model.ProviderID, target.Model.ID)
+	if len(input.Frame) == 0 && requiresFrame {
+		return Asset{}, errors.New("the selected video model requires a private first frame")
+	}
+	if len(input.Frame) > 0 && (!allowsFrame || target.Kind != model.VideoOutput || (len(target.InputModalities) > 0 && !slices.Contains(target.InputModalities, "image"))) {
 		return Asset{}, errors.New("this adapter cannot use a private first frame")
 	}
 	if target.Kind == model.ImageOutput {
@@ -55,6 +58,13 @@ func (c request) image(prompt string) (Asset, error) {
 		path = "images"
 		delete(body, "response_format")
 	case "clawrouter":
+		allowed, err := c.clawRouterAllows(model.ImageOutput, prompt)
+		if err != nil {
+			return Asset{}, err
+		}
+		if !allowed {
+			return Asset{}, errors.New("the selected ClawRouter connection did not advertise this image model")
+		}
 		delete(body, "response_format")
 	case "minimax", "minimax-portal":
 		path = "v1/image_generation"

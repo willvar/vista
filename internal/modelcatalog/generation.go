@@ -73,7 +73,7 @@ func (c Catalog) EditGeneration(edit GenerationEdit) (Catalog, error) {
 	if adapter == "" {
 		adapter = source.GenerationAdapters(edit.Kind)[0]
 	}
-	if k := provider.DeclaredModelKind(generation.CatalogProviderID(adapter), edit.Model); k != "" && k != edit.Kind && !(k == "chat" && adapter == "openai-codex") {
+	if k := provider.DeclaredModelKind(generation.CatalogProviderID(adapter), edit.Model); k != "" && k != edit.Kind && !generation.DeclaredChoice(adapter, edit.Kind, edit.Model) && !(k == "chat" && adapter == "openai-codex") {
 		return c, errors.New("the selected model has a different output category")
 	}
 	row := Configured{Key: "generation-" + edit.Kind, Provider: generationProvider, ProviderID: adapter, ID: edit.Model, Generation: &model.GenerationBinding{Kind: edit.Kind, Connection: source.GenerationConnectionRef(), Options: edit.Options}}

@@ -72,7 +72,7 @@ func (a *App) rebuildModelsLocked() bool {
 				}
 			}
 		}
-		if source, ok := customSourceFor(model); ok {
+		if source, ok := customSourceFor(model); ok && model.Provider != "generation" {
 			if inventory, ready := a.customInventories[source.identity()]; ready {
 				// A successful inventory replaces saved anchors, even when empty.
 				remote, present := inventoryModel(inventory, model.ID)

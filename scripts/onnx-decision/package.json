@@ -1,0 +1,10 @@
+{
+  "name": "vista-onnx-decision",
+  "private": true,
+  "type": "module",
+  "scripts": { "test": "node --test server.test.mjs" },
+  "dependencies": {
+    "@huggingface/tokenizers": "0.2.0",
+    "onnxruntime-node": "1.30.0"
+  }
+}

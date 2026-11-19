@@ -8,6 +8,7 @@ import (
 	"log"
 	"reflect"
 	"time"
+	"vista/internal/generation"
 	"vista/internal/modelcatalog"
 )
 
@@ -29,10 +30,13 @@ func (source customSource) identity() string {
 }
 
 func customSourceFor(model configuredModel) (customSource, bool) {
+	if generation.NeedsInventory(model.ProviderID) && model.Disabled {
+		return customSource{}, false
+	}
 	zen := modelcatalog.ZenProvider(model.ProviderID)
 	local := modelcatalog.LocalProvider(model.ProviderID) && model.ConnectionID != ""
 	custom := modelcatalog.SetupID(model) == "custom" && model.BaseURL != ""
-	if !local && !custom && !(zen && model.APIKey != "") {
+	if !local && !custom && !generation.NeedsInventory(model.ProviderID) && !(zen && model.APIKey != "") {
 		return customSource{}, false
 	}
 	template := model.DiscoveryTemplate()

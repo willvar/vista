@@ -64,11 +64,14 @@ func newRequest(ctx context.Context, target model.GenerationTarget) (request, er
 	if err != nil {
 		return request{}, err
 	}
+	if m.ProviderID == "onnx" && (!IsLoopbackService(parsed) || m.ProxyID != "" || m.APIKey != "") {
+		return request{}, errors.New("the local ONNX scorer requires a direct loopback connection without credentials")
+	}
 	ctx, m, err = m.BindNetwork(ctx)
 	if err != nil {
 		return request{}, err
 	}
-	if m.APIKey == "" && !m.Custom && m.ProviderID != "comfy" && m.ProviderID != "litellm" {
+	if m.APIKey == "" && !m.Custom && m.ProviderID != "comfy" && m.ProviderID != "litellm" && m.ProviderID != "onnx" && !(m.ProviderID == "typesafe" && IsLoopbackService(parsed)) {
 		return request{}, errors.New("this generation connection requires credentials")
 	}
 	target.Model = m
@@ -84,6 +87,16 @@ func connectionMediaBase(spec Spec, source model.Model) string {
 	}
 	base := strings.TrimRight(source.BaseURL, "/")
 	switch spec.ID {
+	case "opencode":
+		// Console hosts System One separately from its conversation routes.
+		// Do not rewrite a saved alternative host or a Go subscription.
+		if u, err := Endpoint(base); err == nil && u.Scheme == "https" && strings.EqualFold(u.Hostname(), "opencode.ai") && (u.Port() == "" || u.Port() == "443") {
+			return spec.Base
+		}
+	case "clawrouter":
+		if !strings.HasSuffix(base, "/v1") {
+			return base + "/v1"
+		}
 	case "google":
 		if strings.HasSuffix(base, "/v1beta") {
 			return base

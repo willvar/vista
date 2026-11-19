@@ -21,6 +21,8 @@ func target(id, kind, base string) model.GenerationTarget {
 	return model.GenerationTarget{Kind: kind, Model: model.Model{ProviderID: id, BaseURL: base, APIKey: "fixture-key", ID: "fixture-model", Network: &network.Policy{}}}
 }
 
+const clawRouterCatalogFixture = `{"version":"clawrouter.client-catalog.v1","providers":[{"id":"openai","allowed":true,"executable":true,"nativeBaseUrl":"/v1/native/openai","routes":[{"path":"/v1/decisions","requestFormat":"openai.decisions","methods":["POST"]}],"models":[{"id":"openai/gpt-image-2.5-flare","displayName":"GPT Image 2.5 Flare","capabilities":["image.generation"],"pricing":{"unit":"image_token","generation":{"maxPromptCharacters":32000,"maxImages":10,"dimensionMultiple":16,"minPixels":65536,"maxPixels":10000000,"maxEdge":3840,"maxAspectRatio":3}}},{"id":"openai/gpt-6-luna","upstream":"gpt-6-luna","capabilities":["llm.decisions"]}],"offers":[{"endpoint":"images_generations","modelId":"openai/gpt-image-2.5-flare","transport":"http","routeKind":"unified","route":"/v1/images/generations","eligible":true,"affordability":"request-dependent"}]}]}`
+
 func TestImageProtocolFixtures(t *testing.T) {
 	cases := []struct{ id, model, path, reply string }{
 		{"openai", "gpt-image-2", "/images/generations", `{"data":[{"b64_json":"cmVzdWx0"}]}`},
@@ -40,6 +42,10 @@ func TestImageProtocolFixtures(t *testing.T) {
 		t.Run(tc.id+"-"+tc.model, func(t *testing.T) {
 			var posts int
 			h := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if tc.id == "clawrouter" && r.URL.Path == "/catalog" && r.Method == http.MethodGet {
+					io.WriteString(w, clawRouterCatalogFixture)
+					return
+				}
 				if r.URL.Path == "/asset" && r.Method == http.MethodGet {
 					io.WriteString(w, "result")
 					return

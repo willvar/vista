@@ -41,7 +41,7 @@ func (m Configured) GenerationAdapters(kind string) []string {
 			case model.VideoOutput:
 				return []string{"openrouter", "xai", "deepinfra"}
 			case model.DecisionOutput:
-				return []string{"openrouter"}
+				return []string{"openrouter", "opencode", "openai", "google", "baseten", "typesafe", "liquid-ai", "subq", "levanto"}
 			}
 		case "gemini":
 			id = "google"
@@ -69,10 +69,20 @@ func (m Configured) GenerationAdapters(kind string) []string {
 
 func generationSetup(spec generation.Spec) ProviderSetup {
 	var modes []string
+	if spec.ID == "typesafe" {
+		modes = []string{"apiKey", "none"}
+	}
 	if spec.ID == "comfy" || spec.ID == "litellm" {
 		modes = []string{"none", "apiKey"}
 	}
-	return ProviderSetup{ID: generationSetupPrefix + spec.ID, Name: spec.Name, BaseURL: spec.Base, Fields: []string{"baseUrl"}, CredentialModes: modes, GenerationOnly: true}
+	if spec.ID == "onnx" {
+		modes = []string{"none"}
+	}
+	fields := []string{"baseUrl"}
+	if spec.ID == "microsoft-foundry" {
+		fields = append(fields, "deploymentId")
+	}
+	return ProviderSetup{ID: generationSetupPrefix + spec.ID, Name: spec.Name, BaseURL: spec.Base, Fields: fields, CredentialModes: modes, GenerationOnly: true}
 }
 
 func validateGenerationOnlyConnection(m Configured) error {
@@ -82,8 +92,20 @@ func validateGenerationOnlyConnection(m Configured) error {
 	if _, ok := setupFor(generationSetupPrefix + m.ProviderID); !ok {
 		return errors.New("unknown media service connection")
 	}
-	_, err := generation.Endpoint(m.BaseURL)
-	return err
+	endpoint, err := generation.Endpoint(m.BaseURL)
+	if err != nil {
+		return err
+	}
+	if m.ProviderID == "onnx" && (!generation.IsLoopbackService(endpoint) || m.APIKey != "" || m.ProxyID != "") {
+		return errors.New("ONNX requires a direct loopback connection without credentials")
+	}
+	if m.ProviderID == "typesafe" && m.APIKey == "" && (!generation.IsLoopbackService(endpoint) || m.ProxyID != "") {
+		return errors.New("remote TypeSafe requires credentials")
+	}
+	if m.DeploymentID != "" && (m.ProviderID != "microsoft-foundry" || !generation.ValidateModelID(m.DeploymentID) || strings.Contains(m.DeploymentID, "/")) {
+		return errors.New("invalid image deployment name")
+	}
+	return nil
 }
 
 // Old builds attached a credential to each role. Interpret that settings form
@@ -129,6 +151,9 @@ func saveGenerationConnection(raw Catalog, previous *Configured, input Connectio
 		return raw, errors.New("choose models in Specialized models, not in the service connection")
 	}
 	row := input.configured()
+	if err := validateGenerationOnlyConnection(row); err != nil {
+		return raw, err
+	}
 	if previous != nil {
 		row.Key, row.ConnectionID, row.Disabled = previous.Key, previous.ConnectionID, previous.Disabled
 		out := append([]Configured(nil), raw.Models...)

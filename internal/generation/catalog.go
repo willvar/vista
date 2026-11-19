@@ -2,6 +2,7 @@ package generation
 
 import (
 	"errors"
+	"net/netip"
 	"net/url"
 	"slices"
 	"strings"
@@ -24,14 +25,14 @@ type Spec struct {
 }
 
 var specs = []Spec{
-	{"openai", "OpenAI", "https://api.openai.com/v1", []string{model.ImageOutput}, false},
+	{"openai", "OpenAI", "https://api.openai.com/v1", []string{model.ImageOutput, model.DecisionOutput}, false},
 	{"openai-codex", "OpenAI Codex", "", []string{model.ImageOutput}, false},
 	{"openrouter", "OpenRouter", "https://openrouter.ai/api/v1", []string{model.ImageOutput, model.VideoOutput, model.DecisionOutput}, true},
-	{"google", "Google Gemini / Veo", "https://generativelanguage.googleapis.com/v1beta", []string{model.ImageOutput, model.VideoOutput}, true},
+	{"google", "Google Gemini / Veo", "https://generativelanguage.googleapis.com/v1beta", []string{model.ImageOutput, model.VideoOutput, model.DecisionOutput}, true},
 	{"xai", "xAI", "https://api.x.ai/v1", []string{model.ImageOutput, model.VideoOutput}, true},
 	{"deepinfra", "DeepInfra", "https://api.deepinfra.com/v1/openai", []string{model.ImageOutput, model.VideoOutput}, false},
 	{"litellm", "LiteLLM", "", []string{model.ImageOutput}, false},
-	{"clawrouter", "ClawRouter", "", []string{model.ImageOutput}, false},
+	{"clawrouter", "ClawRouter", "https://clawrouter.openclaw.ai/v1", []string{model.ImageOutput, model.DecisionOutput}, false},
 	{"microsoft-foundry", "Microsoft Foundry", "", []string{model.ImageOutput}, false},
 	{"comfy", "ComfyUI", "http://127.0.0.1:8188", []string{model.ImageOutput, model.VideoOutput}, true},
 	{"vydra", "Vydra", "https://www.vydra.ai/api/v1", []string{model.ImageOutput, model.VideoOutput}, false},
@@ -47,6 +48,13 @@ var specs = []Spec{
 	{"runway", "Runway", "https://api.dev.runwayml.com", []string{model.VideoOutput}, true},
 	{"together", "Together AI", "https://api.together.xyz", []string{model.VideoOutput}, true},
 	{"zai", "Z.AI", "https://api.z.ai/api/paas/v4", []string{model.VideoOutput}, true},
+	{"baseten", "Baseten", "https://inference.baseten.co/v1", []string{model.DecisionOutput}, false},
+	{"levanto", "Levanto Sage", "https://sage.levanto.ai", []string{model.DecisionOutput}, false},
+	{"liquid-ai", "Liquid AI Decisions", "https://api.liquid.ai/decisions/v1", []string{model.DecisionOutput}, false},
+	{"onnx", "ONNX (local)", "http://127.0.0.1:8189/v1", []string{model.DecisionOutput}, false},
+	{"opencode", "OpenCode", "https://opencode.ai/inference/systemone/v1", []string{model.DecisionOutput}, false},
+	{"subq", "SubQ", "https://api.subq.ai/v1", []string{model.DecisionOutput}, false},
+	{"typesafe", "TypeSafe", "https://api.typesafe.ai/v1", []string{model.DecisionOutput}, false},
 }
 
 func Specs() []Spec { return slices.Clone(specs) }
@@ -92,4 +100,10 @@ func ValidateModelID(id string) bool {
 		}
 	}
 	return true
+}
+
+// Local service addresses must be literal loopback addresses, not proxy-resolved names.
+func IsLoopbackService(u *url.URL) bool {
+	ip, err := netip.ParseAddr(u.Hostname())
+	return err == nil && ip.Unmap().IsLoopback()
 }

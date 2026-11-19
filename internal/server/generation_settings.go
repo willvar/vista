@@ -74,6 +74,7 @@ func generationOptions(base modelCatalog, inventories map[string][]modelcatalog.
 		}
 		add := func(adapter string, meta provider.OutputMetadata) {
 			spec, ok := generation.Find(adapter, kind)
+			allowsFrame, _ := generation.VideoFrameMode(adapter, meta.ID)
 			if !ok || !generation.ValidateModelID(meta.ID) {
 				return
 			}
@@ -85,9 +86,9 @@ func generationOptions(base modelCatalog, inventories map[string][]modelcatalog.
 			if label == "" {
 				label = spec.Name
 			}
-			result = append(result, generationOption{Kind: kind, Connection: src.GenerationConnectionRef(), ConnectionName: label, Model: meta.ID, Name: name, Workflow: adapter == "comfy", NoFirstFrame: kind == model.VideoOutput && (!spec.Frame || len(meta.Input) > 0 && !slices.Contains(meta.Input, "image")), adapter: adapter, input: meta.Input})
+			result = append(result, generationOption{Kind: kind, Connection: src.GenerationConnectionRef(), ConnectionName: label, Model: meta.ID, Name: name, Workflow: adapter == "comfy", NoFirstFrame: kind == model.VideoOutput && (!allowsFrame || len(meta.Input) > 0 && !slices.Contains(meta.Input, "image")), adapter: adapter, input: meta.Input})
 		}
-		if src.ProviderID == "custom" {
+		if src.ProviderID == "custom" || generation.NeedsInventory(src.ProviderID) {
 			source, ok := customSourceFor(src)
 			if !ok {
 				continue
@@ -103,11 +104,11 @@ func generationOptions(base modelCatalog, inventories map[string][]modelcatalog.
 			continue
 		}
 		id := adapterIDs[0]
-		if id == "comfy" {
-			add(id, provider.OutputMetadata{ID: "workflow", Name: "ComfyUI"})
+		if src.ProviderID == "microsoft-foundry" && src.DeploymentID != "" && kind == model.ImageOutput {
+			add(id, provider.OutputMetadata{ID: src.DeploymentID, Name: src.DeploymentID, Kind: kind})
 			continue
 		}
-		for _, row := range provider.SpecializedModels(generation.CatalogProviderID(id), kind) {
+		for _, row := range generation.Choices(id, kind) {
 			add(id, row)
 		}
 	}

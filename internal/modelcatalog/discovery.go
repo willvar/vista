@@ -4,7 +4,9 @@ import (
 	"context"
 	"errors"
 
+	"vista/internal/generation"
 	"vista/internal/network"
+	"vista/internal/provider"
 )
 
 // ConnectionContext binds all operations on a complete saved/draft connection.
@@ -48,6 +50,19 @@ func DiscoverModels(ctx context.Context, source Configured) ([]Configured, error
 // DiscoverConnectionInventory keeps media declarations for the settings picker.
 // Conversation setup continues to consume only the chat projection.
 func DiscoverConnectionInventory(ctx context.Context, source Configured) ([]Configured, error) {
+	if generation.NeedsInventory(source.ProviderID) {
+		request := provider.CatalogModelRequest(source.providerConfig(), source.providerMetadata())
+		request.ProxyID = source.ProxyID
+		rows, err := generation.DiscoverInventory(ctx, request)
+		result := make([]Configured, 0, len(rows))
+		for _, row := range rows {
+			found := source.DiscoveryTemplate()
+			found.ID, found.modelKind, found.discoveredName, found.inputModalities = row.ID, row.Kind, row.Name, row.Input
+			found.mediaAdapter = source.ProviderID
+			result = append(result, found)
+		}
+		return result, err
+	}
 	if SetupID(source) != "custom" {
 		return DiscoverModels(ctx, source)
 	}

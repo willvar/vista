@@ -198,3 +198,47 @@ test.describe('without an existing provider', () => {
     expect(JSON.stringify(saved)).not.toContain(testKey)
   })
 })
+
+test('discovers a running ONNX model only in classifications and reuses its local connection', async ({ page, vista }) => {
+  let decisions = 0
+  const fixture = createServer(async (request, response) => {
+    response.setHeader('Content-Type', 'application/json')
+    expect(request.headers.authorization).toBeUndefined()
+    if (request.method === 'GET' && request.url === '/v1/models') return response.end(JSON.stringify({ data: [{ id: 'fixture-onnx', name: 'Local Fixture', type: 'decision' }] }))
+    if (request.method === 'POST' && request.url === '/v1/systemone') {
+      decisions++
+      const chunks: Buffer[] = []
+      for await (const chunk of request) chunks.push(chunk as Buffer)
+      expect(JSON.parse(Buffer.concat(chunks).toString())).toMatchObject({ model: 'fixture-onnx', questions: { ready: { type: 'noul' } } })
+      return response.end(JSON.stringify({ answers: { ready: { type: 'noul', noul: 0.9 } } }))
+    }
+    response.writeHead(404).end()
+  })
+  try {
+    const baseUrl = (await waitListening(fixture)) + '/v1'
+    await page.goto(`${vista.origin}/settings/models`)
+    await page.getByRole('button', { name: 'Connect provider', exact: true }).click()
+    const editor = page.locator('.provider-connection-modal')
+    await editor.getByRole('combobox', { name: 'Provider', exact: true }).click()
+    await page.getByRole('option', { name: 'ONNX (local)', exact: true }).click()
+    await editor.getByLabel('Base URL', { exact: true }).fill(baseUrl)
+    await expect(editor.locator('input[type=password]')).toHaveCount(0)
+    await editor.getByRole('button', { name: 'Connect provider', exact: true }).click()
+    await expect(editor).toBeHidden()
+    const row = page.locator('[data-generation-purpose="decision"]')
+    await expect(row.getByRole('combobox')).toBeEnabled()
+    await row.getByRole('combobox').click()
+    await page.locator('.ui-select-dropdown:visible').getByRole('option', { name: 'Local Fixture', exact: true }).click()
+    await expect(row.locator('.ui-select-selection-item')).toHaveText('ONNX (local) · Local Fixture')
+    expect((await vista.api('/models')).models.map((item: { id: string }) => item.id)).not.toContain('fixture-onnx')
+    await closeSettings(page)
+    const sender = page.locator('.sender-card textarea')
+    await sender.fill('Fixture decision')
+    await sender.press('Control+Enter')
+    await expect(page.locator('article.assistant .markdown').last()).toContainText('Fixture result recorded.')
+    expect(decisions).toBe(1)
+  } finally {
+    fixture.closeAllConnections()
+    await new Promise<void>(done => fixture.close(() => done()))
+  }
+})

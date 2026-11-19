@@ -43,7 +43,7 @@ Oh My Pi@overflow rules f1ac114d8d3438bee43010aee559bfe720ba3224; catalog blob 6
   LICENSE: 16c45f9d667442781f03fa198914cc39abcaa48ec5ed8f644643e554ca2fbf63
 
 OpenClaw@v2026.11.5 (e13cf15ece9bbd969b7362927c315362c90c97ff)
-  Use: Adapted media-provider wire protocols and regression cases
+  Use: Adapted media and decision wire protocols and optional local ONNX model loading
   Source: https://github.com/openclaw/openclaw
   LICENSE: 9efd316ecf1c4c60f6fd5d26433142fff2b6794d7d328e9bc6179b29bf9c82a4
 

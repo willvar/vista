@@ -15,10 +15,13 @@ func TestSpecializedModelsShareSavedConnection(t *testing.T) {
 	const ref = "test-gateway-account"
 	source := Configured{Key: "old-chat-anchor", ConnectionID: ref, Provider: "openai-responses", ProviderID: "custom", ID: "chat", BaseURL: "https://example.test/gateway", APIKey: "fixture-key", Authentication: "x-api-key", ProxyID: "saved-proxy", Headers: map[string]string{"X-Fixture-Account": "account-a"}}
 	catalog := Catalog{Default: source.Key, Models: []Configured{source}}
+	if _, err := catalog.EditGeneration(GenerationEdit{Kind: model.DecisionOutput, Model: "judge-test", Connection: ref}); err == nil {
+		t.Fatal("an ambiguous custom connection must use the adapter resolved by model discovery")
+	}
 	for _, edit := range []GenerationEdit{
 		{Kind: model.ImageOutput, Adapter: "openai", Model: "image-test", Connection: ref},
 		{Kind: model.VideoOutput, Adapter: "xai", Model: "video-test", Connection: ref},
-		{Kind: model.DecisionOutput, Model: "judge-test", Connection: ref},
+		{Kind: model.DecisionOutput, Adapter: "openrouter", Model: "judge-test", Connection: ref},
 	} {
 		var err error
 		catalog, err = catalog.EditGeneration(edit)
