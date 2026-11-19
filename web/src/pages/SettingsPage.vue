@@ -317,10 +317,18 @@ watch(() => route.fullPath, () => {
           <GenerationSettings :settings="settings" :client="workspace.client" :state-sync="workspace.stateSync" :disabled="settingsBusy" @saved="acceptModelSettings" @workflow-open="generationWorkflowOpen = $event">
             <div class="generation-binding default-model-setting" data-generation-purpose="chat">
               <label for="generation-chat-model">{{ t('generationChat') }}</label>
-              <v-select id="generation-chat-model" :value="modelCatalog.conversationDefault ?? modelCatalog.default" :options="defaultModelChoices" show-search option-filter-prop="searchText" option-label-prop="fullLabel" :placeholder="t('chooseModel')" :disabled="settingsBusy || !defaultModelChoices.length" @update:value="setDefaultModel(String($event))" />
+              <div class="chat-model-controls">
+                <v-select id="generation-chat-model" :value="modelCatalog.conversationDefault ?? modelCatalog.default" :options="defaultModelChoices" show-search option-filter-prop="searchText" option-label-prop="fullLabel" :placeholder="t('chooseModel')" :disabled="settingsBusy || !defaultModelChoices.length" @update:value="setDefaultModel(String($event))" />
+                <div class="model-visibility-setting general-setting">
+                  <div>
+                    <label for="show-unrecognized-models">{{ t('showUnrecognizedModels') }}</label>
+                    <p id="model-visibility-hint">{{ t('showUnrecognizedModelsHint') }}</p>
+                  </div>
+                  <v-switch id="show-unrecognized-models" :checked="showUnrecognizedModels" :loading="visibilityBusy" :aria-label="t('showUnrecognizedModels')" aria-describedby="model-visibility-hint" @update:checked="setShowUnrecognizedModels($event === true)" />
+                </div>
+              </div>
             </div>
           </GenerationSettings>
-          <div class="model-visibility-setting general-setting"><div><label for="show-unrecognized-models">{{ t('showUnrecognizedModels') }}</label><p id="model-visibility-hint">{{ t('showUnrecognizedModelsHint') }}</p></div><v-switch id="show-unrecognized-models" :checked="showUnrecognizedModels" :loading="visibilityBusy" :aria-label="t('showUnrecognizedModels')" aria-describedby="model-visibility-hint" @update:checked="setShowUnrecognizedModels($event === true)" /></div>
           <div v-if="providerGroups.length" class="configured-providers">
             <h3>{{ t('connectedProviders') }}</h3>
             <p v-if="settings.models.some(model => model.connectionKey)" id="provider-availability-hint" class="provider-availability-hint">{{ t('providerAvailabilityHint') }}</p>
@@ -462,6 +470,8 @@ watch(() => route.fullPath, () => {
   <v-modal :open="providerDiscardOpen" :title="t('networkDiscard')" :footer="null" :z-index="1400" @cancel="finishProviderDiscard(false)"><p>{{ t('configEditorDiscard') }}</p><div class="actions"><v-button @click="finishProviderDiscard(false)">{{ t('cancel') }}</v-button><v-button danger @click="finishProviderDiscard(true)">{{ t('networkDiscard') }}</v-button></div></v-modal>
 </template>
 <style scoped>
+.chat-model-controls { display: grid; gap: 8px; min-width: 0; }
+.model-visibility-setting { margin: 0; gap: 8px; }
 .provider-kind-select,.provider-kind-field,.provider-public-config,.provider-auth-info,.provider-login-workflow { grid-column: 1 / -1; min-width: 0; }
 .provider-proxy-field { grid-column: 1 / -1; min-width: 0; }
 .provider-login-workflow { margin: 0; padding: 0; border: 0; }

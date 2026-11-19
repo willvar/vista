@@ -74,7 +74,7 @@ export default { ...base, ...{
   "statisticsChartHint": "懸停、點擊或使用方向鍵查看數值。",
   "statisticsUnreported": "{count} 次調用未上報用量，未計入總量。",
   "statisticsActivityHint": "有點擊、輸入或滾動的分鐘計為活躍；多個客户端同時操作不重複計數，頁面閒置和後台任務不計入。",
-  "showUnrecognizedModelsHint": "開啓後可選用能力未被 Vista 識別的模型，部分功能可能受限。",
+  "showUnrecognizedModelsHint": "開啓後可選用能力未被 Vista 識別的對話模型，部分功能可能受限。",
   "memorySettings": "內存與容量",
   "memorySettingsHint": "按 Vista 主進程和會話進程的實際內存佔用檢查預算。達到預算時拒絕新的高開銷操作；會話進程超過自身上限時中斷執行。這是軟保護，並非操作系統的內存硬限制。Shell 啓動的程序另佔內存。",
   "memoryBudget": "內存預算",

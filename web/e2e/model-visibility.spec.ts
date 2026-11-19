@@ -58,7 +58,7 @@ test('model choices keep connection headings before their models while searching
   } finally { await stopSecond(); await stopFirst() }
 })
 
-test('visibility synchronizes without redundant reads and removes a hidden selected model', async ({ page, vista }) => {
+test('conversation visibility synchronizes without redundant reads and removes a hidden selected model', { tag: '@responsive' }, async ({ page, vista }) => {
   const stop = await inventory(vista, [
     { id: 'private-bare' },
     { id: 'private-vision', name: 'Private Vision', input_modalities: ['text', 'image'], supported_reasoning_levels: ['low', 'high'] },
@@ -66,7 +66,7 @@ test('visibility synchronizes without redundant reads and removes a hidden selec
   try {
     await expect.poll(async () => (await vista.api('/models')).models.length).toBe(3)
     await page.goto(vista.origin + '/settings/models')
-    const setting = page.getByRole('switch', { name: 'Show unrecognized models', exact: true })
+    const setting = page.locator('[data-generation-purpose="chat"]').getByRole('switch', { name: 'Show unrecognized conversation models', exact: true })
     await expect(setting).not.toBeChecked()
     await expect(page.locator('.configured-provider')).toHaveCount(2)
     const reads: string[] = []
@@ -171,7 +171,7 @@ test('an all-hidden inventory disables selection until enabled in settings', asy
     await expect(page.locator('.composer-model')).toHaveCount(0)
     await expect(page.locator('.sender-setup')).toBeVisible()
     await page.goto(vista.origin + '/settings/models')
-    const setting = page.getByRole('switch', { name: 'Show unrecognized models', exact: true })
+    const setting = page.locator('[data-generation-purpose="chat"]').getByRole('switch', { name: 'Show unrecognized conversation models', exact: true })
     await setting.click()
     await expect(setting).toBeChecked()
     await closeSettings(page)

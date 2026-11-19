@@ -30,8 +30,8 @@ Authentication is independent: Bearer, `x-api-key`, `x-goog-api-key`, or none. C
 
 Metadata supplements names, capabilities, limits, and reasoning settings; it does not override a custom connection's explicit format. Failures do not probe or switch protocols. Manual model IDs are a fallback shown after failed or empty custom discovery, with the specific discovery error retained.
 
-Model pickers hide unrecognized models by default.
-Enable **Show unrecognized models** in Model connections to include them.
+The conversation model picker hides unrecognized models by default.
+Enable **Show unrecognized conversation models** next to that picker in Model connections to include them. This setting does not change specialized model choices.
 An exact catalog match, explicit input capabilities, or validated capabilities/limits from discovery counts as recognized; a display name alone does not.
 Text-only and non-reasoning models can be recognized.
 This classification describes the metadata available to Vista, not whether a model has particular capabilities; recognition does not imply complete metadata.
