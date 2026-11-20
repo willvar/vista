@@ -10,9 +10,9 @@ Windows 使用带 `KILL_ON_JOB_CLOSE` 的 Job Object。启动受管子进程前�
 
 Windows 可在资源管理器中双击 `vista.exe`，启动或复用已运行的实例，并打开默认浏览器。只隐藏资源管理器启动的启动器控制台，终端命令保留正常输出。启动失败时，原生对话框显示原因及日志路径；浏览器命令无法启动时，对话框提供已运行实例的访问地址。
 
-Windows Server 在发布实例记录后，通过 `server.Run` 的就绪回调启动一个托盘图标和原生 UI 线程。再次打开不会增加图标。单击与双击合并为一次 `start` 操作；右键菜单提供 `restart`、解析后的原生状态窗口和 `stop`。状态窗口限时读取 `/api/status`，使用可滚动、可选择的只读文本控件，不阻塞托盘消息循环；关闭状态窗口不会停止服务。服务停止时关闭状态窗口并移除图标，隐藏的顶层托盘窗口通过 `TaskbarCreated` 在资源管理器重启后恢复图标。没有资源管理器的非交互 Windows 会话仍可提供服务，但没有可见图标。
+Windows 的[桌面应用](./desktop.zh-CN.md)负责创建托盘图标，Server 不创建原生窗口。隐藏窗口或退出桌面不会停止 Server。托盘在用户确认后，通过现有本地服务接口发出重启或停止请求。
 
-托盘的生命周期命令以显式脱离的独立进程执行，因此 Restart 可在旧 Server 退出后完成。Server 的外层监管 Job 允许显式脱离；受管子进程各自的 Job 仍禁止脱离，且在恢复执行前完成归入。普通子进程仍在创建时继承外层 Job。隐藏的托盘操作失败时保留原生错误提示，普通终端命令继续使用原有输出。
+启动和重启控制进程会显式脱离，因此不依赖被启动或被替换的 Server 继续存活。Server 的外层监管 Job 允许显式脱离；受管子进程各自的 Job 仍禁止脱离，且在恢复执行前完成归入。普通子进程仍在创建时继承外层 Job。隐藏的托盘操作失败时保留原生错误提示，普通终端命令继续使用原有输出。
 
 关闭 Vista 会话会停止 Worker，切换页面或关闭浏览器不会。
 
@@ -32,7 +32,7 @@ WebUI 的「重启 Vista」始终要求二次确认，重新启动 Server 进程
 独立于旧 Server 的控制进程以显式脱离方式启动，复用 CLI 的 `vista restart` 流程：停止 → 等待实例锁释放 → 启动。
 它加载当前 Server 可执行文件路径的当前版本，可启用已替换到该路径的新版二进制；不下载或安装更新，也不切换到其他 checkout。
 重启沿用当前配置目录和实际监听端口，不额外打开浏览器。
-不打开浏览器仅作用于此次重启命令；新 Server 保留原有环境，后续托盘操作维持正常行为。
+不打开浏览器仅作用于此次重启命令；新 Server 保留原有环境。
 
 会话、资源、凭据、技能、记忆、统计及其他配置均保留，浏览器偏好和草稿也保留。
 打开会话的 Worker 按既有准入和健康检查重新创建。旧执行、未完成的子任务及托管后台任务记为中断。符合条件的智能体任务使用持久化会话、模型历史和压缩检查点，在新执行中继续；复用已完成的工具结果，未确认的副作用须先检查再重试。已取消、完成、失败或关闭的任务、待回答的问题和手动压缩不自动继续。托管后台进程不会被保留、重新接管或自动重建。
@@ -85,4 +85,4 @@ Worker 清理时移除对应脚本目录；Server 启动恢复旧进程所有权
 
 仓库根目录执行 `make test integration` 会覆盖普通 Worker 崩溃、Server 崩溃及 Server/Worker 双崩溃，包含在 `make test all` 中。底层 Linux 集成入口为 `scripts/worker_crash_smoke.mjs` 和 `scripts/background_job_smoke.mjs`；前者可设置 `VISTA_CRASH_MASTER=1`，后者可设置 `VISTA_DOUBLE_CRASH=1`。直接运行脚本时使用独立测试状态和 `VISTA_BIN` 指定待测产物。
 
-跨平台底层测试位于 `internal/platform/platform_test.go`，Windows 另验证父进程突然退出会关闭受管 Job，而显式脱离的控制进程仍能存活。`cmd/vista/platform_test.go` 的 `TestNativeApplication` 通过真实应用产物检验启停、配置、Worker、Shell、取消、后台任务与崩溃恢复；`TestNativeResetPort` 验证重置、端口切换、实例发现和端口冲突后的重试；`TestNativeWindowsDesktopLauncher` 使用独立的父进程和浏览器替身，验证资源管理器启动路径、实例复用及原生启动错误对话框；`TestNativeWindowsTray` 验证图标注册、点击通知、右键菜单关闭、状态解析、图标恢复、存在 Worker 时重启及停止；`TestNativeWindowsTrayLongStatus` 验证长 Unicode 状态、滚动，以及状态窗口打开时的退出。设置 `VISTA_TEST_BINARY` 后在目标平台运行；图标检查需要运行资源管理器的交互式 Windows 会话。
+跨平台底层测试位于 `internal/platform/platform_test.go`，Windows 另验证父进程突然退出会关闭受管 Job，而显式脱离的控制进程仍能存活。`cmd/vista/platform_test.go` 的 `TestNativeApplication` 通过真实应用产物检验启停、配置、Worker、Shell、取消、后台任务与崩溃恢复；`TestNativeResetPort` 验证重置、端口切换、实例发现和端口冲突后的重试；`TestNativeWindowsDesktopLauncher` 使用独立的父进程和浏览器替身，验证资源管理器启动路径、实例复用及原生启动错误对话框。[原生 Wails 托盘测试](./testing.zh-CN.md)覆盖单一图标、重新打开同一窗口、状态、重启和停止。

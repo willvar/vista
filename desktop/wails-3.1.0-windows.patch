@@ -1,0 +1,150 @@
+--- a/pkg/application/application_options.go
++++ b/pkg/application/application_options.go
+@@ -281,0 +282,3 @@
++	// Called on the UI thread after the tray is registered or unavailable.
++	TrayAvailabilityChanged func(bool)
++
+--- a/pkg/application/webview_window_options.go
++++ b/pkg/application/webview_window_options.go
+@@ -356,0 +357,4 @@
++	// Enforce the host navigation policy before the first document and on controller recovery.
++	// Setting a policy also disables the WebView2 page message channel.
++	NavigationPolicy func(uri string, popup, userInitiated bool) bool
++
+--- a/pkg/application/webview_window_windows.go
++++ b/pkg/application/webview_window_windows.go
+@@ -2759,0 +2760,8 @@
++	if opts.NavigationPolicy != nil {
++		if err := settings.PutIsWebMessageEnabled(false); err != nil {
++			return w.setupChromiumConfigError(recovering, err)
++		}
++		if err := installNavigationPolicy(chromium.GetController(), opts.NavigationPolicy); err != nil {
++			return w.setupChromiumConfigError(recovering, err)
++		}
++	}
+--- a/pkg/application/systemtray_windows.go
++++ b/pkg/application/systemtray_windows.go
+@@ -584,0 +585,3 @@
++	if changed := globalApplication.options.Windows.TrayAvailabilityChanged; changed != nil {
++		defer changed(false)
++	}
+@@ -652 +655,4 @@
+-func (s *windowsSystemTray) show() (w32.NOTIFYICONDATA, error) {
++func (s *windowsSystemTray) show() (result w32.NOTIFYICONDATA, err error) {
++	if changed := globalApplication.options.Windows.TrayAvailabilityChanged; changed != nil {
++		defer func() { changed(err == nil) }()
++	}
+--- a/internal/webview2/pkg/webview2/ICoreWebView2NavigationStartingEventArgs.go
++++ b/internal/webview2/pkg/webview2/ICoreWebView2NavigationStartingEventArgs.go
+@@ -37 +37 @@
+-		uintptr(unsafe.Pointer(_uri)),
++		uintptr(unsafe.Pointer(&_uri)),
+--- a/internal/webview2/pkg/webview2/ICoreWebView2NewWindowRequestedEventArgs.go
++++ b/internal/webview2/pkg/webview2/ICoreWebView2NewWindowRequestedEventArgs.go
+@@ -38 +38 @@
+-		uintptr(unsafe.Pointer(_uri)),
++		uintptr(unsafe.Pointer(&_uri)),
+--- /dev/null
++++ b/pkg/application/vista_policy_windows.go
+@@ -0,0 +1,101 @@
++package application
++
++import (
++	"errors"
++	"syscall"
++	"unsafe"
++
++	"github.com/wailsapp/wails/v3/internal/webview2/pkg/combridge"
++	"github.com/wailsapp/wails/v3/internal/webview2/pkg/edge"
++	wv "github.com/wailsapp/wails/v3/internal/webview2/pkg/webview2"
++)
++
++type policyNavigation interface {
++	Navigate(*wv.ICoreWebView2NavigationStartingEventArgs) uintptr
++}
++type policyPopup interface {
++	Popup(*wv.ICoreWebView2NewWindowRequestedEventArgs) uintptr
++}
++type policyNavigationFunc func(*wv.ICoreWebView2NavigationStartingEventArgs) uintptr
++
++func (f policyNavigationFunc) Navigate(a *wv.ICoreWebView2NavigationStartingEventArgs) uintptr {
++	return f(a)
++}
++
++type policyPopupFunc func(*wv.ICoreWebView2NewWindowRequestedEventArgs) uintptr
++
++func (f policyPopupFunc) Popup(a *wv.ICoreWebView2NewWindowRequestedEventArgs) uintptr { return f(a) }
++
++func init() {
++	combridge.RegisterVTable[combridge.IUnknown, policyNavigation]("{9adbe429-f36d-432b-9ddc-f8881fbd76e3}",
++		func(this uintptr, _ *wv.ICoreWebView2, a *wv.ICoreWebView2NavigationStartingEventArgs) uintptr {
++			return combridge.Resolve[policyNavigation](this).Navigate(a)
++		})
++	combridge.RegisterVTable[combridge.IUnknown, policyPopup]("{d4c185fe-c81c-4989-97af-2d3fa7ab5651}",
++		func(this uintptr, _ *wv.ICoreWebView2, a *wv.ICoreWebView2NewWindowRequestedEventArgs) uintptr {
++			return combridge.Resolve[policyPopup](this).Popup(a)
++		})
++}
++
++// Both Wails bindings describe the same ICoreWebView2 ABI. The controller's
++// owning STA registers the policy and the event sources retain the callbacks.
++func installNavigationPolicy(controller *edge.ICoreWebView2Controller, policy func(string, bool, bool) bool) error {
++	if controller == nil {
++		return errors.New("missing WebView2 controller")
++	}
++	raw, err := controller.GetCoreWebView2()
++	if err != nil {
++		return err
++	}
++	defer raw.Release()
++	view := (*wv.ICoreWebView2)(unsafe.Pointer(raw))
++	var top, frame, popup wv.EventRegistrationToken
++	add := func(proc wv.ComProc, callback uintptr, token *wv.EventRegistrationToken) error {
++		hr, _, _ := proc.Call(uintptr(unsafe.Pointer(view)), callback, uintptr(unsafe.Pointer(token)))
++		if int32(hr) < 0 {
++			return syscall.Errno(uint32(hr))
++		}
++		return nil
++	}
++	navigation := func(mainFrame bool) *combridge.ComObject[policyNavigation] {
++		return combridge.New[policyNavigation](policyNavigationFunc(func(a *wv.ICoreWebView2NavigationStartingEventArgs) uintptr {
++			uri, err := a.GetUri()
++			clicked, clickErr := a.GetIsUserInitiated()
++			redirected, redirectErr := a.GetIsRedirected()
++			if err != nil || !policy(uri, false, mainFrame && clickErr == nil && redirectErr == nil && clicked && !redirected) {
++				if a.PutCancel(true) != nil {
++					return 0x80004005
++				}
++			}
++			return 0
++		}))
++	}
++	nav, sub := navigation(true), navigation(false)
++	defer nav.Close()
++	defer sub.Close()
++	pop := combridge.New[policyPopup](policyPopupFunc(func(a *wv.ICoreWebView2NewWindowRequestedEventArgs) uintptr {
++		if a.PutHandled(true) != nil {
++			return 0x80004005
++		}
++		uri, err := a.GetUri()
++		clicked, clickErr := a.GetIsUserInitiated()
++		if err == nil && clickErr == nil && clicked {
++			policy(uri, true, true)
++		}
++		return 0
++	}))
++	defer pop.Close()
++	if err := add(view.Vtbl.AddNavigationStarting, nav.Ref(), &top); err != nil {
++		return err
++	}
++	if err := add(view.Vtbl.AddFrameNavigationStarting, sub.Ref(), &frame); err != nil {
++		_ = view.RemoveNavigationStarting(top)
++		return err
++	}
++	if err := add(view.Vtbl.AddNewWindowRequested, pop.Ref(), &popup); err != nil {
++		_ = view.RemoveFrameNavigationStarting(frame)
++		_ = view.RemoveNavigationStarting(top)
++		return err
++	}
++	return nil
++}

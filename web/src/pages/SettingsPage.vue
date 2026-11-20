@@ -29,6 +29,7 @@ import { IconChartBar, IconReload } from '@tabler/icons-vue'
 import { useWorkspace } from '../composables/useWorkspace'
 import { useProviderSettings } from '../composables/useProviderSettings'
 import { useAppearance } from '../ui/appearance'
+import { readClientRuntime } from '../state/clientRuntime'
 
 const StatisticsSettings = defineAsyncComponent({
   loader: () => import('../StatisticsSettings.vue'),
@@ -36,6 +37,16 @@ const StatisticsSettings = defineAsyncComponent({
 })
 const route = useRoute()
 const { t } = useI18n({ useScope: 'global' })
+const clientRuntime = ref(readClientRuntime())
+const clientRuntimeLabel = computed(() => clientRuntime.value
+  ? [t('runtimeDesktopApp'), ...clientRuntime.value.details].join(' · ')
+  : t('runtimeBrowser'))
+function updateClientRuntime() { clientRuntime.value = readClientRuntime() }
+onMounted(() => {
+  window.addEventListener('wails:runtime-config-ready', updateClientRuntime)
+  updateClientRuntime()
+})
+onUnmounted(() => window.removeEventListener('wails:runtime-config-ready', updateClientRuntime))
 const { appearance, setAppearance } = useAppearance()
 const appearances = [{ value: 'light', icon: IconSun }, { value: 'dark', icon: IconMoon }, { value: 'system', icon: IconDeviceDesktop }] as const
 const delegationExamples = ['delegationDepthSolo', 'delegationDepthMain', 'delegationDepthNested'] as const
@@ -46,7 +57,8 @@ const delegationNodes = [
   { x: 62.5, y: 86, level: 2 }, { x: 87.5, y: 86, level: 2 },
 ]
 const workspace = useWorkspace()
-const { modelCatalog, defaultModelChoices, modelNameById, backToWorkspace, debugMode, serverStatus } = workspace
+const { modelCatalog, defaultModelChoices, modelNameById, backToWorkspace, debugMode, serverStatus, stateConnection } = workspace
+const canRestartFromTray = computed(() => clientRuntime.value?.restartFromTray && stateConnection.value.phase === 'ready')
 const sections = [
   { name: 'settings-general', label: 'appearance', icon: IconPalette },
   { name: 'settings-personalization', label: 'personalizationSettings', icon: IconUser },
@@ -367,20 +379,22 @@ watch(() => route.fullPath, () => {
           </div>
           <OMPCatalogSettings ref="sectionActions" :client="workspace.client" />
           <ResetVistaSettings v-if="debugMode" @modal-open="resetModalOpen = $event" />
-          <RestartVistaSettings @modal-open="restartModalOpen = $event" />
-          <dl v-if="serverStatus" class="about-build-info">
-            <template v-if="serverStatus.binaryHash">
+          <RestartVistaSettings v-if="!canRestartFromTray || restartModalOpen" @modal-open="restartModalOpen = $event" />
+          <dl class="about-build-info">
+            <template v-if="serverStatus?.binaryHash">
               <dt>{{ t('binaryHash') }}</dt>
               <dd><code :title="serverStatus.binaryHash">{{ serverStatus.binaryHash.slice(0, 12) }}</code></dd>
             </template>
-            <template v-if="serverStatus.sourceCommit">
+            <template v-if="serverStatus?.sourceCommit">
               <dt>{{ t('sourceCommit') }}</dt>
               <dd><code :title="serverStatus.sourceCommit">{{ serverStatus.sourceCommit.slice(0, 12) }}<template v-if="serverStatus.sourceModified">-dirty</template></code></dd>
             </template>
-            <template v-if="serverStatus.hostOS">
+            <template v-if="serverStatus?.hostOS">
               <dt>{{ t('hostOS') }}</dt>
               <dd><code>{{ serverStatus.hostOS }}</code></dd>
             </template>
+            <dt>{{ t('runtimeEnvironment') }}</dt>
+            <dd>{{ clientRuntimeLabel }}</dd>
           </dl>
         </div>
         </div>

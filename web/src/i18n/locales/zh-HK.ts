@@ -268,6 +268,7 @@ export default { ...base, ...{
   "binaryHash": "二進制 SHA-256",
   "sourceCommit": "源碼提交",
   "hostOS": "操作系統",
+  "runtimeEnvironment": "運行環境",
   "userAgentHint": "用於普通 API 和網頁讀取，保存後從下一次請求生效；連接中單獨設置的請求頭優先。登錄、令牌交換及特殊接入渠道使用各自的客户端標識。",
   "userAgentInvalid": "請輸入 1–{max} 個可打印的 ASCII 字符，不含換行。",
   "userAgentLoading": "正在加載 UA 設置…",

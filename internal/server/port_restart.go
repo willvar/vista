@@ -141,7 +141,7 @@ func (h *appHandler) changePort(w http.ResponseWriter, r *http.Request, config R
 }
 
 // RunReserved is used by a prepared successor, not by ordinary startup.
-func RunReserved(port int, listener net.Listener, onReady func(context.Context) func(), restart func(int) (func() error, error), reserve func(int) (*ReservedPortRestart, error)) error {
+func RunReserved(port int, listener net.Listener, restart func(int) (func() error, error), reserve func(int) (*ReservedPortRestart, error)) error {
 	if listener == nil {
 		return errors.New("invalid reserved listener")
 	}
@@ -156,7 +156,7 @@ func RunReserved(port int, listener net.Listener, onReady func(context.Context) 
 	if listener.Addr().String() != config.Address() {
 		return errors.New("invalid reserved listener")
 	}
-	return Run(port, onReady, restart, RunOptions{Listener: listener, WaitForInstance: true, ReservePortRestart: reserve})
+	return Run(port, restart, RunOptions{Listener: listener, WaitForInstance: true, ReservePortRestart: reserve})
 }
 
 func waitInstanceLock(ctx context.Context, try func() error) error {

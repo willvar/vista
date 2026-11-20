@@ -1,6 +1,65 @@
 import { test, expect } from './fixtures'
 import { openAboutAdvanced } from './settings-navigation'
 
+test('About lists the client runtime separately from the host OS @responsive', async ({ page, vista }) => {
+  await page.goto(vista.origin + '/settings/about')
+  const info = page.locator('.about-build-info')
+  const runtime = info.locator('dt:text-is("Runtime environment") + dd')
+  await expect(runtime).toHaveText('Browser')
+  await expect(info.locator('dt:text-is("Host OS") + dd + dt')).toHaveText('Runtime environment')
+  const hostOS = info.locator('dt:text-is("Host OS") + dd')
+  const serverOS = await hostOS.innerText()
+
+  // Direct About navigation may render before the desktop runtime is ready.
+  await page.evaluate(() => {
+    Object.assign(window, { _wails: { environment: { OS: 'windows' } } })
+    window.dispatchEvent(new Event('wails:runtime-config-ready'))
+  })
+  await expect(runtime).toHaveText('Desktop app · Wails · WebView2')
+  await page.evaluate(() => {
+    Object.assign(window, { _wails: {
+      environment: { OS: 'linux' },
+      flags: { vistaWailsVersion: '3.1.0', vistaWebViewVersion: '2.54.2' },
+    } })
+    window.dispatchEvent(new Event('wails:runtime-config-ready'))
+  })
+  await expect(runtime).toHaveText('Desktop app · Wails 3.1.0 · WebKitGTK 2.54.2')
+  await expect(hostOS).toHaveText(serverOS)
+})
+
+test('About keeps Restart unless a native tray controls this origin @responsive', async ({ page, vista }) => {
+  await page.goto(vista.origin + '/settings/about')
+  const restart = page.locator('.restart-vista-setting').getByRole('button', { name: 'Restart Vista', exact: true })
+  const runtime = page.locator('.about-build-info dt:text-is("Runtime environment") + dd')
+  const client = (os: string, origin?: string) => page.evaluate(({ os, origin }) => {
+    Object.assign(window, { _wails: { environment: { OS: os }, flags: { vistaRestartTrayOrigin: origin } } })
+    window.dispatchEvent(new Event('wails:runtime-config-ready'))
+  }, { os, origin })
+
+  await expect(restart).toBeVisible()
+  await client('windows')
+  await expect(runtime).toHaveText('Desktop app · Wails · WebView2')
+  await expect(restart).toBeVisible()
+  await client('windows', 'http://127.0.0.1:1')
+  await expect(restart).toBeVisible()
+  await client('windows', vista.origin)
+  await expect(restart).toHaveCount(0)
+  await client('windows')
+  await expect(restart).toBeVisible()
+
+  await restart.click()
+  const confirmation = page.locator('.restart-vista-modal')
+  await expect(confirmation).toBeVisible()
+  await client('windows', vista.origin)
+  await expect(confirmation).toBeVisible()
+  await confirmation.getByRole('button', { name: 'Cancel', exact: true }).click()
+  await expect(restart).toHaveCount(0)
+
+  await client('linux', vista.origin)
+  await expect(runtime).toHaveText('Desktop app · Wails · WebKitGTK')
+  await expect(restart).toBeVisible()
+})
+
 const footer = (page: import('@playwright/test').Page) => page.locator('.about-advanced-modal .ui-modal-footer')
 
 test('advanced tabs retain shared drafts and one save applies all tabs @responsive', async ({ page, vista }, testInfo) => {

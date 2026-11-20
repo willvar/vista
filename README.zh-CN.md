@@ -11,9 +11,9 @@ Vista 是适用于 Linux、Windows 和 macOS 的通用型智能体。在浏览�
 从 [GitHub Releases](https://github.com/willvar/vista/releases/latest) 下载适合当前系统的压缩包并解压。
 Linux、Windows 和 macOS 均提供 x86-64（`amd64`）与 ARM64（`arm64`）版本。
 
-运行 `vista`；Windows 也可以直接双击 `vista.exe`。它会在后台启动服务并打开默认浏览器，再次打开会复用已运行的实例。浏览器默认打开 `http://127.0.0.1:5186/`，服务则监听所有 IPv4 网卡（`0.0.0.0`），其他设备使用 `http://<主机IP>:5186/` 访问。可选环境变量 `VISTA_HOST` 可设为某个 IPv4 地址以收窄监听范围；HTTPS 由反向代理提供，Vista 自身不处理。
+运行 `vista` 会在后台启动服务并打开默认浏览器，再次打开会复用已运行的实例。浏览器默认打开 `http://127.0.0.1:5186/`，服务则监听所有 IPv4 网卡（`0.0.0.0`），其他设备使用 `http://<主机IP>:5186/` 访问。可选环境变量 `VISTA_HOST` 可设为某个 IPv4 地址以收窄监听范围；HTTPS 由反向代理提供，Vista 自身不处理。
 
-Windows 服务运行时会显示托盘图标，单击或双击可打开 Vista；右键提供 Restart（重启）、Status（状态）和 Stop（停止）。Status 通过原生窗口展示服务、会话、进程、内存及构建信息。Stop 停止服务并移除图标。
+Windows 上，打开与 `vista.exe` 同目录的 `vista-desktop.exe`，即可通过 WebView2 使用[桌面应用](./docs/desktop.zh-CN.md)。它打开同一界面，并提供打开 Vista、查看状态、重启和停止服务的托盘菜单。关闭窗口后托盘和服务继续运行。命令行服务自身不创建托盘。
 
 发送第一条消息前，先在设置中连接模型服务商。内置连接封装认证和协议配置；自定义连接可独立选择对话 API 格式与认证方式。可用模型由所连接的账号或服务决定。
 
@@ -38,6 +38,8 @@ make build
 ```
 
 `make build` 会构建并内嵌前端，版本号默认为 `dev`；发布版本使用 `make build VERSION=v0.1.0`。开发约束见 [AGENTS.md](./AGENTS.md)，构建检查与测试命令见[验证](./docs/testing.zh-CN.md)。
+
+如需在桌面窗口中使用同一套界面，参见 [Wails 桌面构建](./docs/desktop.zh-CN.md)。
 
 ## 配置与状态目录
 

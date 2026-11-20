@@ -52,6 +52,7 @@ const groups: Record<string, string[]> = {
   contextHeader: ['resource-storage', 'settings-navigation'],
 }
 const consumers: [RegExp, string[]][] = [
+  [/^web\/src\/state\/clientRuntime\.ts$/, ['about']],
   [/^web\/src\/ContextCompaction\.vue$/, ['contextHeader']],
   [/^internal\/(?:generation\/|provider\/output_catalog|modelcatalog\/(?:generation|inventory|custom_model_metadata)|resources\/generated\.go|server\/generation_settings\.go)|^scripts\/onnx-decision\/|^web\/src\/(?:Generation|state\/generationCards)/, ['models', 'conversation']],
   [/^web\/src\/(?:App\.vue$|SessionActionDialog\.vue$|client\/(?:sse|conversationSync|types)\.)|^internal\/(?:server|store)\/session_actions\.go$|^internal\/agent\/tool_(?:session|history)\.go$/, ['sessions', 'conversation']],

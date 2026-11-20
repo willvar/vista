@@ -29,6 +29,9 @@ class ReleaseTests(unittest.TestCase):
             report = {"target": target, "source_commit": self.source, "source_modified": False,
                       "version": self.version, "status": "passed", "tests": {"required_passed": ["native application"]},
                       "archive": name, "archive_sha256": hashlib.sha256(data).hexdigest(), "archive_size": len(data)}
+            if system == "windows":
+                report["desktop_sha256"] = "b" * 64
+                report["tests"]["required_passed"].append("vista/desktop/TestNativeWindowsTray")
             path = folder / "report.json"
             path.write_text(json.dumps(report))
             self.reports.append(path)

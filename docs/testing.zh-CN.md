@@ -94,10 +94,12 @@ tag 说明作为 Release 正文，使用签名 tag 并保持英文发布说明�
 为目标操作系统构建应用，并在该平台运行应用测试：
 
 ```sh
-VISTA_TEST_BINARY=/absolute/path/to/vista GOWORK=off go test ./cmd/vista -run '^TestNative(Application|ResetPort|WindowsDesktopLauncher|WindowsTray.*)$' -count=1
+VISTA_TEST_BINARY=/absolute/path/to/vista GOWORK=off go test ./cmd/vista -run '^TestNative(Application|ResetPort|WindowsDesktopLauncher)$' -count=1
 ```
 
-Windows 在 PowerShell 设置对应环境变量，路径使用 `.exe`。也可运行交叉编译的 `go test -c` 测试程序，无需在目标机器安装 Go。测试使用临时配置和模拟模型，覆盖实际应用 Worker、shell／后台工作、取消、启停、重置及崩溃恢复。Windows 桌面启动测试使用独立的 Explorer 同名父进程及浏览器替身，验证启动、再次打开和原生启动错误对话框，不打开用户的浏览器。托盘检查覆盖点击通知、右键菜单、原生状态解析与长内容、图标恢复、重启和停止；图标注册检查需要运行资源管理器的交互式 Windows 会话，无桌面的运行会跳过该项。平台专用测试另行覆盖进程归属和清理。
+Windows 在 PowerShell 设置对应环境变量，路径使用 `.exe`。也可运行交叉编译的 `go test -c` 测试程序，无需在目标机器安装 Go。测试使用临时配置和模拟模型，覆盖实际应用 Worker、shell／后台工作、取消、启停、重置及崩溃恢复。Windows 桌面启动测试使用独立的 Explorer 同名父进程及浏览器替身，验证启动、再次打开和原生启动错误对话框，不打开用户的浏览器。平台专用测试另行覆盖进程归属和清理。
+
+在 Windows 上，`ci_native.py` 还会测试解包后的桌面和服务程序。`desktop/build.py --test --output <文件>` 构建原生托盘测试。在运行资源管理器的交互式会话中设置 `VISTA_TEST_DESKTOP` 和 `VISTA_TEST_BINARY` 指向对应可执行文件，再运行该测试。测试覆盖单一图标、隐藏及重新打开同一窗口、原生状态、重启和停止。
 
 交叉编译只证明可编译，模拟端点只证明请求／流行为，不代表真实账号授权或服务商兼容性。
 

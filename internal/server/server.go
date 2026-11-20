@@ -128,7 +128,7 @@ type App struct {
 // A Server process keeps its identity when a full reset replaces its App.
 var processInstanceID = uuid.NewString()
 
-func Run(portOverride int, onReady func(context.Context) func(), startRestart func(port int) (wait func() error, err error), options ...RunOptions) error {
+func Run(portOverride int, startRestart func(port int) (wait func() error, err error), options ...RunOptions) error {
 	option := RunOptions{}
 	if len(options) > 0 {
 		option = options[0]
@@ -249,11 +249,6 @@ func Run(portOverride int, onReady func(context.Context) func(), startRestart fu
 	}
 	defer os.Remove(filepath.Join(dir, "instance.json"))
 	log.Printf("Vista listening on http://%s", listener.Addr())
-	if onReady != nil {
-		if closeControls := onReady(ctx); closeControls != nil {
-			defer closeControls()
-		}
-	}
 	err = srv.Serve(listener)
 	if errors.Is(err, http.ErrServerClosed) {
 		return nil

@@ -9,11 +9,7 @@ import (
 )
 
 func prepareLauncher() bool {
-	control := os.Getenv("VISTA_DESKTOP_CONTROL") == "1"
-	// This marker belongs only to a hidden tray action, never its Server or
-	// Workers. It lets the independent action report failures after shutdown.
-	_ = os.Unsetenv("VISTA_DESKTOP_CONTROL")
-	if !control && !startedFromExplorer() {
+	if !startedFromExplorer() {
 		return false
 	}
 	// Only hide this launcher's own console. A terminal invocation keeps its

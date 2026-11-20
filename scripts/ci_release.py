@@ -4,6 +4,7 @@
 import argparse
 import json
 from pathlib import Path
+import re
 import shutil
 import subprocess
 
@@ -41,6 +42,9 @@ def collect(version, source, artifacts, output):
             raise ValueError("archive was not successfully tested at this clean source and version")
         targets.add(target)
         system, arch = target.split("/")
+        if system == "windows" and (not re.fullmatch(r"[0-9a-f]{64}", report.get("desktop_sha256", ""))
+                or "vista/desktop/TestNativeWindowsTray" not in report["tests"]["required_passed"]):
+            raise ValueError("Windows release requires the tested desktop shell")
         name = f"vista_{version}_{system}_{arch}" + (".zip" if system == "windows" else ".tar.gz")
         if report.get("archive") != name:
             raise ValueError("archive name does not match its version and target")

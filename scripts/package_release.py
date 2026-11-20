@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Package one Vista binary with its matching project and third-party notices."""
+"""Package Vista and the optional Windows desktop shell with their notices."""
 
 import argparse
 import gzip
@@ -16,25 +16,41 @@ import zipfile
 ROOT = Path(__file__).resolve().parent.parent
 
 
-def package(binary: Path, version: str, output: Path) -> Path:
+def metadata(binary):
+    return subprocess.check_output(
+        ["go", "version", "-m", str(binary.resolve())],
+        env=dict(os.environ, GOWORK="off"), text=True,
+    )
+
+
+def settings(info):
+    return dict(re.findall(r"^\s*build\s+(\S+)=(.*?)\s*$", info, re.M))
+
+
+def package(binary: Path, version: str, output: Path, desktop: Path | None = None) -> Path:
     if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9.+_-]*", version):
         raise ValueError("invalid package version")
     data = binary.read_bytes()
     notices = (ROOT / "licenses/NOTICE").read_bytes()
     if notices not in data:
         raise ValueError("binary does not contain the current license notices; rebuild it first")
-    metadata = subprocess.check_output(
-        ["go", "version", "-m", str(binary.resolve())],
-        env=dict(os.environ, GOWORK="off"), text=True,
-    )
-    settings = dict(re.findall(r"^\s*build\s+(GOOS|GOARCH)=(\S+)\s*$", metadata, re.M))
-    target_os, arch = settings["GOOS"], settings["GOARCH"]
+    target = settings(metadata(binary))
+    target_os, arch = target["GOOS"], target["GOARCH"]
     binary_name = "vista.exe" if target_os == "windows" else "vista"
     entries = {
         binary_name: data,
         "LICENSE": (ROOT / "LICENSE").read_bytes(),
         "THIRD_PARTY_NOTICES": notices,
     }
+    if desktop is not None:
+        info = metadata(desktop)
+        companion = settings(info)
+        keys = ("GOOS", "GOARCH", "vcs.revision", "vcs.modified")
+        if (target_os != "windows" or not target.get("vcs.revision")
+                or any(key not in target or target[key] != companion.get(key) for key in keys)
+                or not re.search(r"^\s*path\s+vista/desktop\s*$", info, re.M)):
+            raise ValueError("desktop shell must match the Windows server's source and target")
+        entries["vista-desktop.exe"] = desktop.read_bytes()
     output.mkdir(parents=True, exist_ok=True)
     archive = output / f"vista_{version}_{target_os}_{arch}{'.zip' if target_os == 'windows' else '.tar.gz'}"
     if target_os == "windows":
@@ -42,7 +58,7 @@ def package(binary: Path, version: str, output: Path) -> Path:
             for name, content in entries.items():
                 info = zipfile.ZipInfo(name, (1980, 1, 1, 0, 0, 0))
                 info.create_system = 3
-                info.external_attr = (0o100755 if name == binary_name else 0o100644) << 16
+                info.external_attr = (0o100755 if name.endswith(".exe") else 0o100644) << 16
                 info.compress_type = zipfile.ZIP_DEFLATED
                 package.writestr(info, content)
     else:
@@ -66,7 +82,8 @@ def package(binary: Path, version: str, output: Path) -> Path:
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--binary", type=Path, required=True)
+    parser.add_argument("--desktop", type=Path)
     parser.add_argument("--version", required=True)
     parser.add_argument("--output-dir", type=Path, required=True)
     args = parser.parse_args()
-    print(package(args.binary, args.version, args.output_dir))
+    print(package(args.binary, args.version, args.output_dir, args.desktop))

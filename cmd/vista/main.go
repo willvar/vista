@@ -73,7 +73,7 @@ func newRootCommand() *cobra.Command {
 	root.AddCommand(restartCommand)
 	root.AddCommand(&cobra.Command{Use: "status", RunE: func(*cobra.Command, []string) error { return status() }})
 	serveCommand := &cobra.Command{Use: "serve", Hidden: true, Args: cobra.NoArgs, RunE: func(*cobra.Command, []string) error {
-		return server.Run(port, startDesktopControls, startProcessRestart, server.RunOptions{ReservePortRestart: reservePortRestart})
+		return server.Run(port, startProcessRestart, server.RunOptions{ReservePortRestart: reservePortRestart})
 	}}
 	addPortFlag(serveCommand, &port)
 	root.AddCommand(serveCommand)
@@ -150,7 +150,7 @@ func start(portOverride int, showBrowser bool) error {
 	if portOverride != 0 {
 		args = append(args, "--port", fmt.Sprint(portOverride))
 	}
-	proc, err := startDetached(nil, args...)
+	proc, err := startDetached(args...)
 	if err != nil {
 		return err
 	}
@@ -165,9 +165,9 @@ func start(portOverride int, showBrowser bool) error {
 	return fmt.Errorf("Vista failed to start; see %s", filepath.Join(d, "server.log"))
 }
 
-// startDetached is shared by startup, WebUI restart and desktop controls. These
+// startDetached is shared by startup and service restart. These
 // processes must survive the old Server, unlike managed Workers and their tools.
-func startDetached(env []string, args ...string) (*exec.Cmd, error) {
+func startDetached(args ...string) (*exec.Cmd, error) {
 	// os.Executable resolves the installed path even after Linux unlinks the
 	// running image during replacement; never execute /proc/self/exe instead.
 	exe, err := os.Executable()
@@ -184,7 +184,6 @@ func startDetached(env []string, args ...string) (*exec.Cmd, error) {
 	}
 	defer output.Close()
 	cmd := exec.Command(exe, args...)
-	cmd.Env = env
 	cmd.Stdout, cmd.Stderr = output, output
 	platform.Detach(cmd)
 	if err := cmd.Start(); err != nil {
@@ -194,7 +193,7 @@ func startDetached(env []string, args ...string) (*exec.Cmd, error) {
 }
 
 func startProcessRestart(port int) (func() error, error) {
-	cmd, err := startDetached(nil, "restart", "--port", fmt.Sprint(port), "--no-browser")
+	cmd, err := startDetached("restart", "--port", fmt.Sprint(port), "--no-browser")
 	if err != nil {
 		return nil, err
 	}

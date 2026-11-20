@@ -183,5 +183,5 @@ func serveReserved(port int) error {
 	}
 	os.Stdout = output
 	_ = protocol.Close()
-	return server.RunReserved(port, listener, startDesktopControls, startProcessRestart, reservePortRestart)
+	return server.RunReserved(port, listener, startProcessRestart, reservePortRestart)
 }

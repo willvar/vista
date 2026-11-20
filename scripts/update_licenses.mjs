@@ -96,13 +96,13 @@ export async function licenseFiles(directory, recursive = false) {
   return files.sort((a, b) => compare(a.name, b.name))
 }
 
-function go(args) {
-  return execFileSync('go', args, { cwd: root, env: { ...process.env, GOWORK: 'off' }, encoding: 'utf8', maxBuffer: 16 * 1024 * 1024 })
+function go(args, cwd = root) {
+  return execFileSync('go', args, { cwd, env: { ...process.env, GOWORK: 'off' }, encoding: 'utf8', maxBuffer: 16 * 1024 * 1024 })
 }
 
-async function goNotices() {
-  const requirements = JSON.parse(go(['mod', 'edit', '-json'])).Require
-  const list = () => go(['list', '-m', '-f', '{{.Path}}\t{{.Version}}\t{{.Dir}}', ...requirements.map(item => item.Path)])
+async function goModuleNotices(cwd, scope) {
+  const requirements = JSON.parse(go(['mod', 'edit', '-json'], cwd)).Require.filter(item => item.Path !== 'vista')
+  const list = () => go(['list', '-m', '-f', '{{.Path}}\t{{.Version}}\t{{.Dir}}', ...requirements.map(item => item.Path)], cwd)
     .trim().split('\n').map(line => {
       const [name, version, directory] = line.trimEnd().split('\t')
       return { name, version, directory }
@@ -110,7 +110,7 @@ async function goNotices() {
   let modules = list()
   const missing = modules.filter(item => !item.directory)
   if (missing.length) {
-    go(['mod', 'download', ...missing.map(item => `${item.name}@${item.version}`)])
+    go(['mod', 'download', ...missing.map(item => `${item.name}@${item.version}`)], cwd)
     modules = list()
   }
   const entries = []
@@ -118,8 +118,13 @@ async function goNotices() {
     if (!module.directory) throw new Error(`Go module is unavailable: ${module.name}@${module.version}`)
     const files = await licenseFiles(module.directory, true)
     if (!files.length) throw new Error(`No license found for Go module ${module.name}@${module.version}`)
-    entries.push({ name: module.name, version: module.version, scope: 'Go dependency', files })
+    entries.push({ name: module.name, version: module.version, scope, files })
   }
+  return entries
+}
+
+async function goNotices() {
+  const entries = [...await goModuleNotices(root, 'Go dependency'), ...await goModuleNotices(join(root, 'desktop'), 'Desktop Go dependency')]
   const toolchain = JSON.parse(go(['env', '-json', 'GOROOT', 'GOVERSION']))
   const goLicense = await readFile(join(toolchain.GOROOT, 'LICENSE'), 'utf8').catch(error => {
     // Some distribution packages install Go's license outside GOROOT.

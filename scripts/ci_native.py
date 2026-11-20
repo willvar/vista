@@ -33,12 +33,14 @@ def run(command, env):
     return subprocess.check_output(command, cwd=ROOT, env=env, text=True, stderr=subprocess.STDOUT)
 
 
-def unpack(archive, binary, output):
+def unpack(archive, binary, output, desktop=None):
     expected = {
         binary.name: binary.read_bytes(),
         "LICENSE": (ROOT / "LICENSE").read_bytes(),
         "THIRD_PARTY_NOTICES": (ROOT / "licenses/NOTICE").read_bytes(),
     }
+    if desktop is not None:
+        expected[desktop.name] = desktop.read_bytes()
     if archive.suffix == ".zip":
         with zipfile.ZipFile(archive) as package:
             if set(package.namelist()) != set(expected):
@@ -57,7 +59,7 @@ def unpack(archive, binary, output):
     for name, contents in actual.items():
         path = output / name
         path.write_bytes(contents)
-        path.chmod(0o755 if name == binary.name else 0o644)
+        path.chmod(0o755 if name == binary.name or name == "vista-desktop.exe" else 0o644)
     return output / binary.name
 
 
@@ -98,8 +100,7 @@ def native_tests(binary, output, env):
     required |= {("vista/internal/platform", name) for name in (
         "TestNativeFileLock", "TestNativeMemory", "TestNativeOwnedSession", "TestNativeShell", "TestNativeShellErrorsRemainText")}
     if sys.platform == "win32":
-        required |= {("vista/cmd/vista", name) for name in (
-            "TestNativeWindowsDesktopLauncher", "TestNativeWindowsTray", "TestNativeWindowsTrayLongStatus")}
+        required.add(("vista/cmd/vista", "TestNativeWindowsDesktopLauncher"))
     elif sys.platform == "darwin":
         required.add(("vista/internal/platform", "TestNativeReapedOwnedSession"))
     if missing := required - passed:
@@ -144,15 +145,33 @@ def main():
                               "vcs.revision": source, "vcs.modified": str(dirty).lower()}.items():
             if settings.get(key) != expected:
                 raise ValueError("binary metadata mismatch for " + key)
-        archive = Path(run([sys.executable, "scripts/package_release.py", "--binary", str(binary),
-                            "--version", args.version, "--output-dir", str(output / "dist")], env).strip())
+        command = [sys.executable, "scripts/package_release.py", "--binary", str(binary),
+                   "--version", args.version, "--output-dir", str(output / "dist")]
+        desktop = None
+        if sys.platform == "win32":
+            desktop = output / "vista-desktop.exe"
+            run([sys.executable, "desktop/build.py", "--output", str(desktop)], env)
+            command += ["--desktop", str(desktop)]
+            report["desktop_sha256"] = sha256(desktop)
+        archive = Path(run(command, env).strip())
         report.update(binary_sha256=sha256(binary), archive=archive.name, archive_sha256=sha256(archive),
                       archive_size=archive.stat().st_size, build_metadata=metadata)
         expected_checksum = report["archive_sha256"] + "  " + archive.name + "\n"
         if (output / "dist/SHA256SUMS").read_text(encoding="utf-8") != expected_checksum:
             raise ValueError("archive checksum file does not match")
-        packed_binary = unpack(archive, binary, output / "unpacked")
+        packed_binary = unpack(archive, binary, output / "unpacked", desktop)
         report["tests"] = native_tests(packed_binary, output, env)
+        if desktop is not None:
+            test = output / "vista-desktop.test.exe"
+            run([sys.executable, "desktop/build.py", "--test", "--output", str(test)], env)
+            test_env = dict(env, VISTA_TEST_BINARY=str(packed_binary),
+                            VISTA_TEST_DESKTOP=str(packed_binary.with_name(desktop.name)))
+            tray_log = run([str(test), "-test.v", "-test.timeout=90s", "-test.run=^TestNativeWindowsTray$"], test_env)
+            (output / "desktop-test.log").write_text(tray_log, encoding="utf-8")
+            if not re.search(r"^--- PASS: TestNativeWindowsTray ", tray_log, re.M):
+                raise ValueError("mandatory Windows desktop tray test did not pass")
+            report["tests"]["passed"] += 1
+            report["tests"]["required_passed"].append("vista/desktop/TestNativeWindowsTray")
         report["status"] = "passed"
     except Exception as error:
         report.update(status="failed", error=str(error))

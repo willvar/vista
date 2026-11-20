@@ -3,6 +3,8 @@
 VERSION ?= dev
 UPDATE_UA ?= $(if $(filter dev,$(VERSION)),0,1)
 BUILD_LDFLAGS := -X vista/internal/buildinfo.Version=$(VERSION)
+TARGET_OS := $(shell GOWORK=off go env GOOS)
+BIN_SUFFIX := $(if $(filter windows,$(TARGET_OS)),.exe)
 
 TEST_GOALS := go frontend e2e integration mcp memory capacity
 BENCHMARK_GOALS := tb gaia
@@ -23,7 +25,7 @@ INTEGRATION_SCRIPTS := artifact background_job background_deadline catalog check
 IMAGE_PROTOCOLS := openai-chat mistral cohere bedrock vercel-gateway \
 	bedrock-mantle-responses sap-ai-core copilot
 
-.PHONY: build update-ua licenses check-licenses package test web benchmark $(BENCHMARK_GOALS) $(TEST_GOALS) all test-bin test-mcp-fixture \
+.PHONY: build desktop update-ua licenses check-licenses package test web benchmark $(BENCHMARK_GOALS) $(TEST_GOALS) all test-bin test-mcp-fixture \
 	test-frontend-unit test-frontend-types test-e2e-bin check-browser check-sqlite
 # Memory measurements and builds share resources, including with multiple goals.
 .NOTPARALLEL:
@@ -63,10 +65,13 @@ check-licenses: web
 
 build: $(if $(filter 1,$(UPDATE_UA)),update-ua) licenses
 	mkdir -p bin
-	GOWORK=off CGO_ENABLED=0 go build -ldflags="$(BUILD_LDFLAGS)" -o bin/vista ./cmd/vista
+	GOWORK=off CGO_ENABLED=0 go build -ldflags="$(BUILD_LDFLAGS)" -o bin/vista$(BIN_SUFFIX) ./cmd/vista
 
-package: build
-	python3 scripts/package_release.py --binary bin/vista --version "$(VERSION)" --output-dir .vista/dist
+desktop: build
+	python3 desktop/build.py --output bin/vista-desktop$(BIN_SUFFIX)
+
+package: $(if $(filter windows,$(TARGET_OS)),desktop,build)
+	python3 scripts/package_release.py --binary bin/vista$(BIN_SUFFIX) $(if $(filter windows,$(TARGET_OS)),--desktop bin/vista-desktop.exe) --version "$(VERSION)" --output-dir .vista/dist
 
 benchmark:
 ifeq ($(filter $(BENCHMARK_GOALS),$(MAKECMDGOALS)),)
@@ -126,7 +131,7 @@ e2e: test-e2e-bin
 	VISTA_BIN="$(TEST_E2E_BIN)" VISTA_CHROME="$(VISTA_CHROME)" npm --prefix web run test:e2e -- $(E2E_ARGS)
 
 integration: check-sqlite test-bin
-	VISTA_TEST_BINARY="$(TEST_BIN)" GOWORK=off CGO_ENABLED=0 go test ./cmd/vista -run '^TestNative(Application|ResetPort|WindowsDesktopLauncher|WindowsTray.*)$$' -count=1
+	VISTA_TEST_BINARY="$(TEST_BIN)" GOWORK=off CGO_ENABLED=0 go test ./cmd/vista -run '^TestNative(Application|ResetPort|WindowsDesktopLauncher)$$' -count=1
 	@set -eu; \
 	for script in $(INTEGRATION_SCRIPTS); do \
 		printf '\nRunning scripts/%s_smoke.mjs\n' "$$script"; \

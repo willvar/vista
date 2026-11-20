@@ -94,10 +94,12 @@ Only the publishing job has repository write permission; it creates a regular Gi
 Build the application for the target OS, then run its application test there:
 
 ```sh
-VISTA_TEST_BINARY=/absolute/path/to/vista GOWORK=off go test ./cmd/vista -run '^TestNative(Application|ResetPort|WindowsDesktopLauncher|WindowsTray.*)$' -count=1
+VISTA_TEST_BINARY=/absolute/path/to/vista GOWORK=off go test ./cmd/vista -run '^TestNative(Application|ResetPort|WindowsDesktopLauncher)$' -count=1
 ```
 
-On Windows, set the equivalent environment variables in PowerShell and use the `.exe` path. A cross-compiled `go test -c` executable can run without installing Go on that machine. The tests use temporary configuration and a simulated model, exercising real application Workers, shell/background work, cancellation, startup/shutdown, reset, and crash recovery. The Windows desktop-launch test uses a private Explorer-named parent and browser command to check startup, reopening, and the native startup-error dialog without opening the user's browser. Tray checks cover click notifications, the context menu, parsed/long native status, icon restoration, Restart, and Stop. Icon registration checks require an interactive Windows session with Explorer; a headless run skips that test. Platform-specific tests also cover process ownership and cleanup.
+On Windows, set the equivalent environment variables in PowerShell and use the `.exe` path. A cross-compiled `go test -c` executable can run without installing Go on that machine. The tests use temporary configuration and a simulated model, exercising real application Workers, shell/background work, cancellation, startup/shutdown, reset, and crash recovery. The Windows desktop-launch test uses a private Explorer-named parent and browser command to check startup, reopening, and the native startup-error dialog without opening the user's browser. Platform-specific tests also cover process ownership and cleanup.
+
+On Windows, `ci_native.py` also tests the unpacked desktop and server as a pair. `desktop/build.py --test --output <file>` builds the native tray test. In the interactive Explorer session, invoke it with `VISTA_TEST_DESKTOP` and `VISTA_TEST_BINARY` pointing to the executables. The test exercises a single registered icon, closing and reopening the same window, native status, restart, and stop.
 
 Cross-compilation confirms compilation only. Mock endpoints establish request/stream behavior, not real account authorization or live-provider compatibility.
 
