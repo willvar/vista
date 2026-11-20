@@ -20,7 +20,7 @@ type ResourceStorage struct {
 	ScannedAt       string `json:"scannedAt"`
 }
 
-const resourceReferenced = `EXISTS(SELECT 1 FROM session_resources WHERE hash=?) OR EXISTS(SELECT 1 FROM message_resources WHERE hash=?) OR EXISTS(SELECT 1 FROM queued_input_resources WHERE hash=?)`
+const resourceReferenced = `EXISTS(SELECT 1 FROM session_resources WHERE hash=?) OR EXISTS(SELECT 1 FROM message_resources WHERE hash=?) OR EXISTS(SELECT 1 FROM queued_input_resources WHERE hash=?) OR EXISTS(SELECT 1 FROM draft_resources WHERE hash=?)`
 
 func (s *Store) ResourceStorage(ctx context.Context) (ResourceStorage, error) {
 	release, err := s.library.Lock(ctx)
@@ -41,7 +41,7 @@ func (s *Store) ResourceStorage(ctx context.Context) (ResourceStorage, error) {
 	if err != nil {
 		return ResourceStorage{}, err
 	}
-	rows, err := s.orm.WithContext(ctx).Raw(`SELECT hash FROM session_resources UNION SELECT hash FROM message_resources UNION SELECT hash FROM queued_input_resources`).Rows()
+	rows, err := s.orm.WithContext(ctx).Raw(`SELECT hash FROM session_resources UNION SELECT hash FROM message_resources UNION SELECT hash FROM queued_input_resources UNION SELECT hash FROM draft_resources`).Rows()
 	if err != nil {
 		return ResourceStorage{}, err
 	}
@@ -129,7 +129,7 @@ func (s *Store) CleanResources(ctx context.Context, progress func(int, int64)) (
 						return err
 					}
 					if file.Hash != "" {
-						if err = tx.WithContext(ctx).Raw("SELECT "+resourceReferenced, file.Hash, file.Hash, file.Hash).Row().Scan(&used); err != nil {
+						if err = tx.WithContext(ctx).Raw("SELECT "+resourceReferenced, file.Hash, file.Hash, file.Hash, file.Hash).Row().Scan(&used); err != nil {
 							return err
 						}
 					}
@@ -152,7 +152,7 @@ func (s *Store) CleanResources(ctx context.Context, progress func(int, int64)) (
 				removed = err == nil
 				return s.orm.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 					if id == stamp.BackendID && file.Hash != "" && !used {
-						if _, err := execSQL(ctx, tx, "DELETE FROM resources WHERE hash=? AND NOT ("+resourceReferenced+")", file.Hash, file.Hash, file.Hash, file.Hash); err != nil {
+						if _, err := execSQL(ctx, tx, "DELETE FROM resources WHERE hash=? AND NOT ("+resourceReferenced+")", file.Hash, file.Hash, file.Hash, file.Hash, file.Hash); err != nil {
 							return err
 						}
 					}

@@ -59,7 +59,7 @@ function createWorkspace() {
   watch(wantsMetrics, value => stateSync.setMetrics(value && !document.hidden))
   let disposed = false
   let stopActivity: (() => void) | undefined
-  const conversation = useConversation({ client, sessions, modelCatalog, error, busy, refresh: refreshSessions, translate: t, interactionPreferences,
+  const conversation = useConversation({ client, sessions, modelCatalog, error, busy, refresh: refreshSessions, translate: t, interactionPreferences, serverDrafts: true,
     onSessionStarted: async session => { await router.push(`/sessions/${session.id}`) } })
   const { selected, manualCompacting, compactionRequestPending, agentWorking, selectedModel } = conversation
   const senderDisabled = computed(() => manualCompacting.value || compactionRequestPending.value || !interactionPreferences.ready.value
@@ -126,6 +126,14 @@ function createWorkspace() {
     }))
   }
   stateSync.subscribe(['sessions', 'status', 'models'], refreshTopics)
+  // Settings and the session manager can cover the composer. Keep its local
+  // unsaved edits, but reconcile remote revisions only when it is in use.
+  watch(() => route.name === 'home' || route.name === 'session', (visible, _, cleanup) => {
+    if (!visible) return
+    cleanup(stateSync.subscribe(['drafts'], async (_, signal) => {
+      if (route.name === 'home' || route.name === 'session' && selected.value?.id === route.params.id) await conversation.refreshDraft(signal)
+    }))
+  }, { immediate: true })
   async function refreshSessions() {
     try { await refreshTopics(['sessions', 'status']) }
     catch (cause) { if (!disposed) error.value = String(cause) }

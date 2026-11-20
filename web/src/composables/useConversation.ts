@@ -1,4 +1,5 @@
 import { profileStorageKey } from '../client/profileScope.ts'
+import { serviceDrafts, type DraftInput } from './serviceDrafts.ts'
 import { computed, onScopeDispose, reactive, ref, toRefs, watch, type Ref } from 'vue'
 import { VistaAPIError, restoreConversationSnapshot, createConversationSync, appendMessage, createConversationState, messageResults, runResults, pruneConversationWindow, reduceConversationEvent, replyTraceSegments, trailingTraceSegment, conversationItems, displayBodyVersion, displayOutputKey, hydrateMainOutput, mainOutputKey, mainOutputText, mergeMainOutputs, confirmInputEvent, projectInputQueue, jobActive } from '@vista/client'
 import type { VistaClient, ConversationSyncStatus, ConversationSyncDiagnostics, Artifact, ConversationSnapshot, CompactionStatus, ContextUsage, Job, MainOutput, Message, ModelCatalog, OutputView, QuestionAnswer, QueuedInput, SendMessageResult, Session, SessionActionPreview, StreamEvent, ReplyTraceSegment, ConversationItem, MainOutputRecord } from '@vista/client'
@@ -18,6 +19,7 @@ export type ConversationOptions = {
   refresh: () => Promise<void>
   translate: (key: string, params?: Record<string, unknown>) => string
   interactionPreferences?: InteractionPreferences
+  serverDrafts?: boolean
   onSessionStarted?: (session: Session) => Promise<void>
 }
 type Scope = { id: string; generation: number; controller: AbortController; initialSelectionVersion?: number; sync?: ReturnType<typeof createConversationSync> }
@@ -34,7 +36,7 @@ function mergeOutputSnapshot<T extends { id: string }>(snapshot: T[], current: T
   return [...newer, ...snapshot.filter(item => !newerIDs.has(item.id))]
 }
 
-export function useConversation({ client, sessions, modelCatalog, error, busy, refresh, translate: t, interactionPreferences = useInteractionPreferences(), onSessionStarted }: ConversationOptions) {
+export function useConversation({ client, sessions, modelCatalog, error, busy, refresh, translate: t, interactionPreferences = useInteractionPreferences(), serverDrafts = false, onSessionStarted }: ConversationOptions) {
   const { rememberedModel, reasoningByModelId: reasoningByModel } = interactionPreferences
   const state = reactive(createConversationState())
   const synchronization = ref<ConversationSyncStatus>({ phase: 'ready' })
@@ -113,6 +115,34 @@ export function useConversation({ client, sessions, modelCatalog, error, busy, r
   const analysisImageDrafts = new Map<string, File[]>()
   let restoringDraft = false
   let firstSendController: AbortController | null = null
+  const draftKey = () => selected.value?.id || 'home'
+  const inputs = (): DraftInput => ({ text: draft.value, quote: quotedReply.value, files: [...attachedImages.value] })
+  const persisted = serverDrafts ? serviceDrafts(client, (key, value) => {
+    if (draftKey() !== key || editingMessage.value) return
+    restoringDraft = true
+    draft.value = value.text; quotedReply.value = value.quote; attachedImages.value = value.files
+    restoringDraft = false
+  }) : undefined
+  let loadedDraftKey: string | undefined
+  function selectDraft() {
+    if (!persisted) return
+    const key = loadedDraftKey = draftKey()
+    const textKey = key === 'home' ? welcomeDraftStorageKey : draftStoragePrefix + key
+    const oldText = draft.value, oldQuote = quotedReply.value
+    persisted.select(key, inputs(), () => {
+      try {
+        if (localStorage.getItem(textKey) === oldText) localStorage.removeItem(textKey)
+        if (oldQuote && JSON.stringify(readQuotedReply(key)) === JSON.stringify(oldQuote)) localStorage.removeItem(quoteStoragePrefix + key)
+      } catch { /* Imported and still intact on the server. */ }
+    },currentScope?.controller.signal)
+  }
+  async function refreshDraft(signal?: AbortSignal) {
+    if (editingMessage.value || busy.value) return
+    if (loadedDraftKey !== draftKey()) { selectDraft(); return }
+    await persisted?.refresh(draftKey(),signal)
+  }
+  function saveDraftRetry() { void persisted?.save(draftKey(),inputs()).catch(() => {}) }
+  function stageDraft() { if (!restoringDraft && !editingMessage.value) persisted?.change(draftKey(),inputs()) }
 
   function readWelcomeDraft() {
     try { return localStorage.getItem(welcomeDraftStorageKey) || '' } catch { return '' }
@@ -376,6 +406,7 @@ export function useConversation({ client, sessions, modelCatalog, error, busy, r
   watch(draft, value => {
     draftRevision++
     if (restoringDraft) return
+    if (persisted) { stageDraft(); return }
     const key = selected.value ? draftStoragePrefix + selected.value.id : welcomeDraftStorageKey
     try {
       if (value) localStorage.setItem(key, value)
@@ -385,6 +416,7 @@ export function useConversation({ client, sessions, modelCatalog, error, busy, r
   watch(quotedReply, quote => {
     draftRevision++
     if (restoringDraft || !selected.value) return
+    if (persisted) { stageDraft(); return }
     try {
       const key = quoteStoragePrefix + selected.value.id
       if (quote) localStorage.setItem(key, JSON.stringify(quote))
@@ -394,6 +426,7 @@ export function useConversation({ client, sessions, modelCatalog, error, busy, r
   watch(attachedImages, files => {
     for (const url of attachedPreviewURLs.value) URL.revokeObjectURL(url)
     attachedPreviewURLs.value = files.map(file => URL.createObjectURL(file))
+    stageDraft()
   }, { flush: 'sync' })
   watch(sessions, list => {
     if (!selected.value) return
@@ -465,7 +498,8 @@ export function useConversation({ client, sessions, modelCatalog, error, busy, r
     return current(scope) && reads.every(Boolean)
   }
 
-  function clearSession() {
+  function clearSession(loadDraft = true) {
+    if (persisted) restoringDraft = true
     cancelEditMessage()
     rollbackFailure.value = ''
     if (!selected.value) welcomeImages = [...attachedImages.value]
@@ -508,8 +542,9 @@ export function useConversation({ client, sessions, modelCatalog, error, busy, r
     paging.value = false
     recentOldestEvent = olderActivityCursor = 0
     recentHasOlderActivity = false
+    if (loadDraft) selectDraft()
   }
-  onScopeDispose(() => { clearSession(); analysisImageDrafts.clear() })
+  onScopeDispose(() => { persisted?.dispose(); clearSession(false); analysisImageDrafts.clear() })
 
   function restoreSelection(session: Session) {
     const saved = session.manualModelKey || session.modelKey
@@ -518,7 +553,8 @@ export function useConversation({ client, sessions, modelCatalog, error, busy, r
     selectedProcessingTier.value = selectedModel.value === saved ? session.processingTier || '' : ''
   }
   async function selectSession(session: Session) {
-    clearSession()
+    clearSession(false)
+    if (persisted) restoringDraft = true
     const scope: Scope = { id: session.id, generation, controller: new AbortController(), initialSelectionVersion: selectionVersion }
     currentScope = scope
     selected.value = session
@@ -526,6 +562,8 @@ export function useConversation({ client, sessions, modelCatalog, error, busy, r
     analysisImageDrafts.delete(session.id)
     draft.value = readDraft(session.id)
     quotedReply.value = readQuotedReply(session.id)
+    restoringDraft = false
+    selectDraft()
     restoreSelection(session)
     await connectStream(scope)
   }
@@ -865,6 +903,7 @@ export function useConversation({ client, sessions, modelCatalog, error, busy, r
     const content = formatQuotedReply(text, quote, (item, number) => t('quoteNumber', { number }) + ' · ' + t(item.role === 'assistant' ? 'quotedReply' : 'quotedMessage'))
     const files = [...attachedImages.value]
     const edited = editingMessage.value
+    const sentInput: DraftInput = {text,quote,files}
     const modelKey = selectedModel.value
     if (!selectedModelInfo.value) { error.value = t('chooseModelBeforeSending'); return }
     const reasoningEffort = selectedReasoning.value
@@ -875,6 +914,8 @@ export function useConversation({ client, sessions, modelCatalog, error, busy, r
     const owner = startBusy()
     const startedGeneration = generation
     try {
+      const saved = !edited && persisted ? await persisted.save(session?.id || 'home',sentInput) : undefined
+      if (generation !== startedGeneration) return
       if (!session) {
         const controller = new AbortController()
         firstSendController = controller
@@ -889,27 +930,37 @@ export function useConversation({ client, sessions, modelCatalog, error, busy, r
         currentScope = scope
         selected.value = session
         welcomeImages = []
-        try {
+        if (!persisted) try {
           localStorage.removeItem(welcomeDraftStorageKey)
           if (draft.value) localStorage.setItem(draftStoragePrefix + session.id, draft.value)
         } catch { /* The in-memory draft remains available. */ }
         await connectStream(scope)
-        await onSessionStarted?.(session)
+        if (!persisted) await onSessionStarted?.(session)
       }
       if (!scope) return
       if (!current(scope)) return
-      const images: ImageRef[] = []
-      for (const file of files) {
+      const images: ImageRef[] = saved?.images || []
+      for (const file of saved ? [] : files) {
         images.push(await request<ImageRef>(scope, `/sessions/${scope.id}/resources?name=${encodeURIComponent(file.name)}`, {
           method: 'POST', headers: { 'Content-Type': file.type }, body: file,
         }))
         if (!current(scope)) return
       }
-      const result = await request<SendMessageResult>(scope, `/sessions/${scope.id}/messages`, { method: 'POST', body: JSON.stringify({ content, images, modelKey, reasoningEffort, processingTier, ...(edited ? { replacesMessageId: edited.id } : {}) }) })
+      const result = await request<SendMessageResult>(scope, `/sessions/${scope.id}/messages`, { method: 'POST', body: JSON.stringify({ content, images, modelKey, reasoningEffort, processingTier, ...(edited ? { replacesMessageId: edited.id } : {}), ...(saved ? { draft: {key:saved.key,revision:saved.revision} } : {}) }) })
       if (!current(scope)) return
+      if (persisted) restoringDraft = true
       if (draft.value === text) draft.value = ''
       if (quotedReply.value === quote) quotedReply.value = null
       if (attachedImages.value.length === files.length && files.every((file, index) => attachedImages.value[index] === file)) attachedImages.value = []
+      restoringDraft = false
+      if (saved) {
+        persisted?.sent(saved.key,saved.revision,sentInput)
+        if (saved.key === 'home' && session) {
+          welcomeImages = []
+          selectDraft()
+          await onSessionStarted?.(session)
+        }
+      }
       if (edited) {
         const backup = editBackup
         editingMessage.value = null
@@ -1183,6 +1234,7 @@ export function useConversation({ client, sessions, modelCatalog, error, busy, r
 
   return {
     editingMessage, beginEditMessage, cancelEditMessage, withdrawMessage, rollbackFailure, sessionAction, decideSessionAction,
+    draftPhase: persisted?.phase, refreshDraft, saveDraftRetry,
     ...refs, displayMessages, readOutputIndexes, readDisplayOutput, releaseDisplayOutput, olderActivity, hasOlderActivity, activityPaging, paging, selectedModel, selectedModelInfo,
     selectedReasoning, reasoningChoices, canAttachImage, attachedImages, attachedPreviewURLs,
     selectedProcessingTier, processingTiers, chooseProcessingTier,

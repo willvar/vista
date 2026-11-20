@@ -444,6 +444,7 @@ func (a *App) handler() http.Handler {
 	mux.HandleFunc("/api/model-discovery", a.discoverCustomModels)
 	mux.HandleFunc("/api/zen-model-discovery", a.discoverZenModels)
 	mux.HandleFunc("/api/stop", a.stop)
+	mux.HandleFunc("/api/drafts/", a.drafts)
 	mux.HandleFunc("/api/sessions", a.sessions)
 	mux.HandleFunc("/api/sessions/", a.session)
 	mux.HandleFunc("/assets/", a.asset)

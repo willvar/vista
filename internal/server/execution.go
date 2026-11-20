@@ -47,8 +47,9 @@ func (a *App) submitMessage(w http.ResponseWriter, r *http.Request, sessionID st
 		ReasoningEffort   string  `json:"reasoningEffort"`
 		ProcessingTier    *string `json:"processingTier"`
 
-		QuestionReply *question.Reply `json:"questionReply,omitempty"`
-		Images        []resources.Ref `json:"images"`
+		Draft         *store.DraftVersion `json:"draft,omitempty"`
+		QuestionReply *question.Reply     `json:"questionReply,omitempty"`
+		Images        []resources.Ref     `json:"images"`
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, 64<<10)
 	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
@@ -58,6 +59,10 @@ func (a *App) submitMessage(w http.ResponseWriter, r *http.Request, sessionID st
 	input.Content = strings.TrimSpace(input.Content)
 	if input.QuestionReply == nil && input.Content == "" && len(input.Images) == 0 || len(input.Content) > workerproto.MaxPromptBytes {
 		http.Error(w, "message must have text or an image; text is limited to 8192 bytes", 400)
+		return
+	}
+	if d := input.Draft; d != nil && (d.Revision < 1 || d.Key != sessionID && d.Key != store.HomeDraft || input.QuestionReply != nil || input.ReplacesMessageID != "") {
+		http.Error(w, "invalid sent draft", 400)
 		return
 	}
 	images := make([]store.Image, 0, len(input.Images))
@@ -76,7 +81,11 @@ func (a *App) submitMessage(w http.ResponseWriter, r *http.Request, sessionID st
 	}
 	for _, image := range images {
 		ref, err := a.store.SessionResource(r.Context(), sessionID, image.Hash)
-		if err != nil || ref.MediaType != image.MediaType || ref.Bytes != image.Bytes {
+		allowed := err == nil && ref.MediaType == image.MediaType && ref.Bytes == image.Bytes
+		if !allowed && input.Draft != nil {
+			allowed, _ = a.store.CanSendDraftImage(r.Context(), sessionID, input.Draft.Key, image.Ref())
+		}
+		if !allowed {
 			http.Error(w, "image resource is unavailable or metadata does not match this Session", 400)
 			return
 		}
@@ -214,8 +223,11 @@ func (a *App) submitMessage(w http.ResponseWriter, r *http.Request, sessionID st
 				return
 			}
 		}
-		queued, event, queueErr := a.store.QueueInputWithDiagnostics(r.Context(), sessionID, messageID, input.Content, images, debug, key, effort)
+		queued, event, queueErr := a.store.QueueDraftInput(r.Context(), sessionID, messageID, input.Content, images, debug, input.Draft, key, effort)
 		if queueErr == nil {
+			if input.Draft != nil {
+				a.updates.notify("drafts")
+			}
 			a.notifySession(sessionID, "sessions")
 			_ = a.sendWorker(sessionID, workerproto.Command{Action: "wake", RunID: queued.RunID})
 			w.WriteHeader(202)
@@ -281,12 +293,15 @@ func (a *App) submitMessage(w http.ResponseWriter, r *http.Request, sessionID st
 	if input.QuestionReply != nil {
 		message, event, err = a.store.BeginQuestionRun(r.Context(), sessionID, runID, messageID, *input.QuestionReply, modelKey)
 	} else {
-		message, event, err = a.store.BeginRunWithImages(r.Context(), sessionID, runID, messageID, input.Content, images, modelKey)
+		message, event, err = a.store.BeginDraftRun(r.Context(), sessionID, runID, messageID, input.Content, images, input.Draft, modelKey)
 	}
 	a.admissionLock().Unlock()
 	if errors.Is(err, store.ErrBranchRunning) {
 		revertHTTPError(w, err)
 		return
+	}
+	if err == nil && input.Draft != nil {
+		a.updates.notify("drafts")
 	}
 	if errors.Is(err, store.ErrNoPendingQuestion) {
 		http.Error(w, err.Error(), http.StatusConflict)

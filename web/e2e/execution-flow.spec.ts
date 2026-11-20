@@ -362,6 +362,7 @@ async function mockExecution(page: Page, origin: string, source = replayEvents()
     if (options.imageContents?.[path]) { imageReads.push(path); return route.fulfill({ contentType: 'image/png', body: options.imageContents[path] }) }
     if (path === `/sessions/${session.id}/checkpoint`) return reply(checkpoint())
     if (path === `/sessions/${session.id}/branches`) return reply([{ id: session.id, rootId: session.id, createdAt: session.createdAt, open: session.open }])
+    if (path === `/drafts/${session.id}`) return reply({ revision: 0, text: '', images: [] })
     if (path === '/preferences') return reply({ userId: 'replay-user', manualModelKey: 'replay-model', reasoningByModelId: { 'gpt-6-astra': 'high' } })
     if (path === '/agent-settings') return reply({ instructions: '', instructionsPath: '/home/test/.config/vista/AGENTS.md', instructionsSha256: 'missing', automaticTitles: true, delegationDepth: 1, maxDelegationDepth: 8 })
     if (path === '/server-config') return reply({

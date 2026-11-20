@@ -5,7 +5,7 @@ import type { Page } from '@playwright/test'
 import type { Message, QueuedInput, StreamEvent } from '@vista/client'
 import { test, expect } from './fixtures'
 
-type Submission = { content: string }
+type Submission = { content: string; draft?: { key: string; revision: number } }
 type FixtureAPI = {
   origin: string
   modelId: string
@@ -41,6 +41,14 @@ async function mockConversation(page: Page, vista: FixtureAPI, options: { cancel
     if (request.method() === 'POST' && path === `/api/sessions/${session.id}/messages`) {
       const input = request.postDataJSON() as Submission
       sent.push(input)
+      // The intercepted message still acknowledges the submitted draft version.
+      // Apply that same compare-and-clear to the real fixture's draft endpoint.
+      if (input.draft) {
+        const { key, revision } = input.draft
+        expect(key).toBe(session.id)
+        const response = await page.request.put(`${vista.origin}/api/drafts/${encodeURIComponent(key)}`, { data: { revision, text: '', images: [] } })
+        expect([200, 409]).toContain(response.status())
+      }
       if (executing) {
         const queued = { id: `follow-up-input-${sent.length}`, status: 'queued', content: input.content }
         const event = { sequence: ++sequence, kind: 'input_queued', data: { ...queued } }
@@ -359,8 +367,16 @@ test('ArrowUp recalls only the latest user message into the current empty draft 
   await expect(page.locator('.welcome')).toBeVisible()
   await textarea.press('ArrowUp')
   await expect(textarea).toHaveValue('')
-  await page.goto(`${vista.origin}/sessions/${fixture.session.id}`)
-  await expect(messages).toHaveText(history.map(message => message.content))
+  let releaseModels!: () => void
+  const delayedModels = new Promise<void>(resolve => { releaseModels = resolve })
+  await page.route('**/api/models', async route => { await delayedModels; return route.continue() })
+  try {
+    await page.goto(`${vista.origin}/sessions/${fixture.session.id}`)
+    // A running conversation can load its history before the model catalog
+    // allows the composer to mount. Focus must follow the mounted input.
+    await expect(messages).toHaveText(history.map(message => message.content))
+    await expect(textarea).toHaveCount(0)
+  } finally { releaseModels() }
   await expect(textarea).toBeFocused()
   await page.keyboard.press('ArrowUp')
   await expect(textarea).toHaveValue(latest)

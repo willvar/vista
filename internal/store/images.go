@@ -47,7 +47,7 @@ func (s *Store) lockImages(ctx context.Context, images []Image) (func(), error) 
 	return s.library.Lock(ctx)
 }
 
-func (s *Store) writeImages(ctx context.Context, tx *gorm.DB, sessionID, table, column, id string, images []Image) error {
+func (s *Store) writeImages(ctx context.Context, tx *gorm.DB, sessionID, table, column, id string, images []Image, draftKeys ...string) error {
 	if err := ValidateImages(images); err != nil {
 		return err
 	}
@@ -64,7 +64,16 @@ func (s *Store) writeImages(ctx context.Context, tx *gorm.DB, sessionID, table, 
 				return err
 			}
 			if exists != 1 {
-				return errors.New("image resource is not owned by this Session")
+				owned := false
+				if len(draftKeys) > 0 && draftKeys[0] != "" {
+					owned, err = draftImageOwned(ctx, tx, sessionID, draftKeys[0], image.Ref())
+					if err != nil {
+						return err
+					}
+				}
+				if !owned {
+					return errors.New("image resource is not owned by this Session or draft")
+				}
 			}
 		}
 		if _, err := execSQL(ctx, tx, "INSERT INTO resources(hash,media_type,bytes,created_at) VALUES(?,?,?,?) ON CONFLICT(hash) DO NOTHING", hash, image.MediaType, size, time.Now().UTC().Format(time.RFC3339Nano)); err != nil {

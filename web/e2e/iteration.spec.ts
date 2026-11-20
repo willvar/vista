@@ -11,6 +11,8 @@ async function mockWorkspace(page: Page, origin: string, withTiers = false, canA
   const models = [{ key: 'first', name: 'Example', provider: 'openai-chat', id: 'model-alpha', recognized: true, tools: true, processingTiers: withTiers ? ['standard', 'fast', 'ultrafast'] : [], reasoningOptions: canAdjustReasoning ? ['low', 'high'] : ['low'] }, { key: 'second', name: 'Example', provider: 'openai-chat', id: 'model-beta', recognized: true, tools: true, reasoningOptions: canAdjustReasoning ? ['low', 'high'] : ['low'], inputModalities: ['text', 'image'] }]
   let inputs = [{ id: 'pending-1', status: 'queued', content: 'Add drought-resistant plants and keep the budget under $100.' }, { id: 'pending-2', status: 'queued', content: 'Use the sunny corner.' }]
   const posts: any[] = []
+  const drafts = new Map<string, { revision: number; text: string; images: unknown[] }>()
+  const emptyDraft = (revision = 0) => ({ revision, text: '', images: [] })
   let sequence = 10
   const budget: CompactionStatus = { runId: 'run-1', phase: 'compacted', manual: false, sequence: 4 }
   const messages: Message[] = [{ id: 'user-1', runId: 'run-1', role: 'user', sequence: 1, content: 'Help me plan a small garden.', createdAt: '2026-01-01T12:00:00Z' }, { id: 'assistant-1', runId: 'run-1', role: 'assistant', sequence: 3, content: 'Start with herbs and native flowering plants.\n\n- Put sun-loving plants in the bright corner.\n- Leave a narrow path for access.', modelId: 'model-alpha', modelKey: 'first', createdAt: '2026-01-01T12:00:01Z' }]
@@ -49,6 +51,16 @@ async function mockWorkspace(page: Page, origin: string, withTiers = false, canA
     const request = route.request(); const path = new URL(request.url()).pathname.slice(4); const method = request.method()
     const body = method === 'GET' || method === 'DELETE' ? {} : request.postDataJSON() || {}
     const reply = (json: unknown) => route.fulfill({ json })
+    if (path.startsWith('/drafts/')) {
+      const key = path.slice('/drafts/'.length)
+      const draft = drafts.get(key) || emptyDraft()
+      if (method === 'GET') return reply(draft)
+      if (method !== 'PUT') return route.fulfill({ status: 405 })
+      if (body.revision !== draft.revision) return route.fulfill({ status: 409 })
+      const saved = { ...body, revision: draft.revision + 1 }
+      drafts.set(key, saved)
+      return reply(saved)
+    }
     if (path === '/preferences') {
       if (method === 'PATCH') Object.assign(preferences, body)
       return reply(preferences)
@@ -89,7 +101,16 @@ async function mockWorkspace(page: Page, origin: string, withTiers = false, canA
     }
     if (path.endsWith('/inputs')) return reply(inputs)
     if (path.endsWith('/messages')) {
-      if (method === 'POST') { posts.push(body); const input = { id: `pending-${++sequence}`, status: session.inputQueuePaused ? 'paused' : 'queued', content: body.content }; inputs.push(input); const event = { sequence, kind: 'input_queued', data: input }; events.push(event); return reply({ input, event }) }
+      if (method === 'POST') {
+        posts.push(body)
+        const stamp = body.draft
+        if (stamp && drafts.get(stamp.key)?.revision === stamp.revision) drafts.set(stamp.key, emptyDraft(stamp.revision + 1))
+        const input = { id: `pending-${++sequence}`, status: session.inputQueuePaused ? 'paused' : 'queued', content: body.content }
+        inputs.push(input)
+        const event = { sequence, kind: 'input_queued', data: input }
+        events.push(event)
+        return reply({ input, event })
+      }
       return reply(messages)
     }
     if (path.endsWith('/event-page')) return reply(events)

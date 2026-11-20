@@ -22,6 +22,10 @@ func (s *Store) QueueInputWithImages(ctx context.Context, sessionID, inputID, co
 }
 
 func (s *Store) QueueInputWithDiagnostics(ctx context.Context, sessionID, inputID, content string, images []Image, debug bool, modelKey ...string) (QueuedInput, Event, error) {
+	return s.QueueDraftInput(ctx, sessionID, inputID, content, images, debug, nil, modelKey...)
+}
+
+func (s *Store) QueueDraftInput(ctx context.Context, sessionID, inputID, content string, images []Image, debug bool, draft *DraftVersion, modelKey ...string) (QueuedInput, Event, error) {
 	unlock, lockErr := s.lockImages(ctx, images)
 	if lockErr != nil {
 		return QueuedInput{}, Event{}, lockErr
@@ -70,11 +74,14 @@ func (s *Store) QueueInputWithDiagnostics(ctx context.Context, sessionID, inputI
 	if _, err := execSQL(ctx, tx, "INSERT INTO queued_inputs(id,session_id,run_id,model_key,reasoning_effort,mode,status,content,image_count,created_at,debug) VALUES(?,?,?,?,?,'now',?,?,?,?,?)", input.ID, input.SessionID, input.RunID, input.ModelKey, input.ReasoningEffort, input.Status, input.Content, input.ImageCount, input.CreatedAt, input.Debug); err != nil {
 		return QueuedInput{}, Event{}, err
 	}
-	if err := s.writeImages(ctx, tx, sessionID, "queued_input_resources", "input_id", input.ID, images); err != nil {
+	if err := s.writeImages(ctx, tx, sessionID, "queued_input_resources", "input_id", input.ID, images, draftKey(draft)); err != nil {
 		return QueuedInput{}, Event{}, err
 	}
 	event, err := appendEvent(ctx, tx, sessionID, "input_queued", input)
 	if err != nil {
+		return QueuedInput{}, Event{}, err
+	}
+	if err := consumeDraft(ctx, tx, draft); err != nil {
 		return QueuedInput{}, Event{}, err
 	}
 	if err := tx.Commit().Error; err != nil {

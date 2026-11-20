@@ -145,16 +145,20 @@ func (s *Store) BeginRun(ctx context.Context, sessionID, runID, messageID, conte
 }
 
 func (s *Store) BeginRunWithImages(ctx context.Context, sessionID, runID, messageID, content string, images []Image, modelKey ...string) (Message, Event, error) {
-	return s.beginRun(ctx, sessionID, runID, messageID, content, images, nil, modelKey...)
+	return s.BeginDraftRun(ctx, sessionID, runID, messageID, content, images, nil, modelKey...)
 }
 
 // BeginQuestionRun checks and consumes the pending request in the same
 // transaction as the new user message, so stale tabs cannot answer it twice.
 func (s *Store) BeginQuestionRun(ctx context.Context, sessionID, runID, messageID string, reply question.Reply, modelKey ...string) (Message, Event, error) {
-	return s.beginRun(ctx, sessionID, runID, messageID, "", nil, &reply, modelKey...)
+	return s.beginRun(ctx, sessionID, runID, messageID, "", nil, &reply, nil, modelKey...)
 }
 
-func (s *Store) beginRun(ctx context.Context, sessionID, runID, messageID, content string, images []Image, reply *question.Reply, modelKey ...string) (Message, Event, error) {
+func (s *Store) BeginDraftRun(ctx context.Context, sessionID, runID, messageID, content string, images []Image, draft *DraftVersion, modelKey ...string) (Message, Event, error) {
+	return s.beginRun(ctx, sessionID, runID, messageID, content, images, nil, draft, modelKey...)
+}
+
+func (s *Store) beginRun(ctx context.Context, sessionID, runID, messageID, content string, images []Image, reply *question.Reply, draft *DraftVersion, modelKey ...string) (Message, Event, error) {
 	unlock, lockErr := s.lockImages(ctx, images)
 	if lockErr != nil {
 		return Message{}, Event{}, lockErr
@@ -235,7 +239,7 @@ func (s *Store) beginRun(ctx context.Context, sessionID, runID, messageID, conte
 	if _, err = execSQL(ctx, tx, "INSERT INTO messages(id,session_id,run_id,sequence,role,content,created_at) VALUES(?,?,?,?,?,?,?)", m.ID, m.SessionID, m.RunID, m.Sequence, m.Role, m.Content, m.CreatedAt); err != nil {
 		return Message{}, Event{}, err
 	}
-	if err := s.writeImages(ctx, tx, sessionID, "message_resources", "message_id", m.ID, images); err != nil {
+	if err := s.writeImages(ctx, tx, sessionID, "message_resources", "message_id", m.ID, images, draftKey(draft)); err != nil {
 		return Message{}, Event{}, err
 	}
 	e, err := appendEvent(ctx, tx, sessionID, "message", m)
@@ -244,6 +248,9 @@ func (s *Store) beginRun(ctx context.Context, sessionID, runID, messageID, conte
 	}
 	if e.Sequence != m.Sequence {
 		return Message{}, Event{}, fmt.Errorf("message/event sequence mismatch")
+	}
+	if err = consumeDraft(ctx, tx, draft); err != nil {
+		return Message{}, Event{}, err
 	}
 	if err = tx.Commit().Error; err != nil {
 		return Message{}, Event{}, err

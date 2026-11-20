@@ -211,7 +211,7 @@ func (c Control) Missing(ctx context.Context, job Migration) ([]File, error) {
 		Hash  string
 		Bytes int64
 	}
-	if err = c.DB.WithContext(ctx).Raw(`SELECT r.hash,r.bytes FROM resources r WHERE EXISTS(SELECT 1 FROM session_resources s WHERE s.hash=r.hash) OR EXISTS(SELECT 1 FROM message_resources m WHERE m.hash=r.hash) OR EXISTS(SELECT 1 FROM queued_input_resources q WHERE q.hash=r.hash)`).Scan(&required).Error; err != nil {
+	if err = c.DB.WithContext(ctx).Raw(`SELECT r.hash,r.bytes FROM resources r WHERE EXISTS(SELECT 1 FROM session_resources s WHERE s.hash=r.hash) OR EXISTS(SELECT 1 FROM message_resources m WHERE m.hash=r.hash) OR EXISTS(SELECT 1 FROM queued_input_resources q WHERE q.hash=r.hash) OR EXISTS(SELECT 1 FROM draft_resources d WHERE d.hash=r.hash)`).Scan(&required).Error; err != nil {
 		return nil, err
 	}
 	present := map[string]int64{}

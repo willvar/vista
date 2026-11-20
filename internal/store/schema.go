@@ -92,6 +92,16 @@ func (s *Store) initializeSchema() error {
    PRIMARY KEY(input_id,position)
   )`,
 		`CREATE INDEX IF NOT EXISTS resource_queued_inputs ON queued_input_resources(hash)`,
+		`CREATE TABLE IF NOT EXISTS drafts (
+   key TEXT PRIMARY KEY, session_id TEXT REFERENCES sessions(id) ON DELETE CASCADE,
+   revision INTEGER NOT NULL, text TEXT NOT NULL DEFAULT '', quote BLOB
+  )`,
+		`CREATE TABLE IF NOT EXISTS draft_resources (
+   draft_key TEXT NOT NULL REFERENCES drafts(key) ON DELETE CASCADE,
+   position INTEGER NOT NULL, hash TEXT NOT NULL REFERENCES resources(hash), name TEXT NOT NULL DEFAULT '',
+   PRIMARY KEY(draft_key,position)
+  )`,
+		`CREATE INDEX IF NOT EXISTS resource_drafts ON draft_resources(hash)`,
 		`CREATE TABLE IF NOT EXISTS events (
    session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
    sequence INTEGER NOT NULL, kind TEXT NOT NULL, data BLOB NOT NULL,

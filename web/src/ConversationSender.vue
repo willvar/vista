@@ -18,7 +18,7 @@ const { selected, busy, needsProvider, senderDisabled, conversation, route, mobi
 const { draft, quotedTexts, removeQuote, agentWorking, editingMessage, cancelEditMessage, selectedModel,
   canAttachImage, attachedImages, attachedPreviewURLs, chooseImages, pasteImages, dropImages, removeImage,
   submitMessage, submitQuestion, cancelExecution, recallLastUserMessage,
-  continueAfterCompaction, fillContinueDraft } = conversation
+  continueAfterCompaction, fillContinueDraft, draftPhase, saveDraftRetry } = conversation
 const sender = ref<SenderRef | null>(null)
 const composing = ref(false)
 const inputEdited = ref(false)
@@ -39,11 +39,13 @@ const inputViewKey = computed(() => {
 })
 const activeInputKey = computed(() => answering.value ? undefined : inputViewKey.value)
 let lastInputKey: string | undefined
-watch(activeInputKey, async id => {
-  if (!id) return
+// History and the model catalog can arrive in either order. Focus when the
+// input is actually mounted as well as when the active conversation changes.
+watch([activeInputKey, sender], async ([id, control]) => {
+  if (!id || !control) return
   await nextTick()
-  if (activeInputKey.value === id) {
-    sender.value?.focus({ cursor: lastInputKey === id ? undefined : 'end', preventScroll: true })
+  if (activeInputKey.value === id && sender.value === control) {
+    control.focus({ cursor: lastInputKey === id ? undefined : 'end', preventScroll: true })
     lastInputKey = id
   }
 }, { immediate: true, flush: 'post' })
@@ -225,6 +227,8 @@ onUnmounted(() => {
             </section>
           </template>
           <template #footer><div v-if="!answering" class="sender-footer">
+            <small v-if="draftPhase && !editingMessage && (draft || attachedImages.length || quotedTexts.length)" role="status" class="draft-save-status">{{ t({loading:'draftLoading',saving:'draftSaving',saved:'draftSaved',unsaved:'draftUnsaved',conflict:'draftConflict'}[draftPhase]) }}</small>
+            <v-button v-if="draftPhase === 'unsaved'" size="small" variant="text" @click="saveDraftRetry">{{ t('retry') }}</v-button>
             <div class="sender-actions">
              <div class="composer-submit">
               <v-tooltip v-if="canAttachImage" :title="t('addImagesHint')"><span class="sender-attach">

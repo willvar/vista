@@ -4,6 +4,11 @@ import base from './zh-TW.ts'
 export default { ...base, ...{
   "defaultProfile": "默認檔案",
   "profileNewTab": "在新標籤頁打開",
+  "draftLoading": "正在加載草稿…",
+  "draftSaving": "正在保存草稿…",
+  "draftSaved": "草稿已保存",
+  "draftUnsaved": "草稿未保存",
+  "draftConflict": "另一標籤頁修改了已保存的草稿，你的輸入仍然保留。",
   "storageMethod": "存儲方式",
   "storageLocal": "本地存儲",
   "storageObject": "對象存儲（S3 兼容）",
