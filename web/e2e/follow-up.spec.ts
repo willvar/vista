@@ -251,7 +251,7 @@ test('Escape stops only the current running session, preserves drafts, and ignor
   expect(fixture.sent).toHaveLength(0)
 })
 
-test('Escape dismisses settings, the context popup, or the title editor before stopping execution', async ({ page, vista }) => {
+test('Escape dismisses settings, the context popup, or the title editor before stopping execution', { tag: '@responsive' }, async ({ page, vista }) => {
   test.setTimeout(60_000)
   const fixture = await mockConversation(page, vista, { compactionStatus: true })
   const textarea = page.locator('.sender-card textarea')
@@ -275,15 +275,17 @@ test('Escape dismisses settings, the context popup, or the title editor before s
       await page.getByRole('button', { name: 'Settings', exact: true }).click()
       await expect(page.locator('.settings-page')).toBeVisible()
     } else if (overlay === 'context') {
-      await page.locator('.context-compaction-trigger').focus()
-      await expect(page.locator('.context-usage-hint:visible')).toHaveCount(1)
+      await header.getByRole('button', { name: 'Context', exact: true }).click()
+      const panel = page.getByRole('dialog', { name: 'Context', exact: true })
+      await expect(panel.locator('.context-usage-estimate')).toBeVisible()
+      await expect(panel.getByRole('button', { name: 'Compact context', exact: true })).toBeDisabled()
     } else {
       await header.getByRole('button', { name: 'Rename', exact: true }).click()
       await header.getByRole('textbox', { name: 'Session title', exact: true }).fill('Do not save this title')
     }
     await page.keyboard.press('Escape')
     if (overlay === 'settings') await expect(page.locator('.settings-page')).toBeHidden()
-    else if (overlay === 'context') await expect(page.locator('.context-usage-hint:visible')).toHaveCount(0)
+    else if (overlay === 'context') await expect(page.getByRole('dialog', { name: 'Context', exact: true })).toBeHidden()
     else await expect(header.locator('.session-rename')).toHaveCount(0)
     expect(fixture.cancellations(), `First Escape closes ${overlay} without stopping the run`).toBe(before)
     await expect(textarea).toHaveValue(draft)

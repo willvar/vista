@@ -191,14 +191,14 @@ an older status. There is no capacity, remaining-token, or percentage display. T
 composer card shows automatic and manual compaction progress once, without a dedicated cancel
 control. Manual maintenance does not expose the ordinary task stop button or Escape action.
 Stopping an ordinary task during automatic recovery still interrupts that task.
-Interrupted and failed outcomes retain error details, copying and failure analysis here. The conversation header's compaction icon shows an estimated token total on hover for the retained main context,
-including instructions, summaries, messages and tool content. Runtime
+Interrupted and failed outcomes retain error details, copying and failure analysis here. Click the conversation header's **Context** icon to view an estimated token total for the retained main context,
+including instructions, summaries, messages and tool content. The popover uses compact units (for example, 128.4K or 1.2M) and distinguishes an unavailable estimate from zero. Runtime
 `context_usage` events and committed compaction notices update the total;
 `GET /api/sessions/:id/context-usage` restores it outside the recent event window.
 While idle, the same context assembly used for the next request recomputes the
 estimate, including retained tool turns from completed or interrupted runs. This number
 is never cumulative request usage or an automatic compaction threshold.
-Clicking the icon opens a confirmation explaining automatic compaction, reduced context size, model-call cost and possible loss of detail; only confirmation starts manual compaction.
+The same popover explains automatic compaction, reduced context size, model-call cost and possible loss of detail. Opening or closing it does not request a new estimate or start compaction. The estimate remains viewable during execution; only an explicit click on **Compact context** in an eligible session starts manual compaction.
 Successful automatic and manual compaction hide the compaction progress and display
 the committed summary as a normal assistant message, with Markdown, copying,
 the actual compression model and its token usage/call details,

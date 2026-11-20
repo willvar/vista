@@ -418,7 +418,7 @@ export default { ...base, ...{
   "contextUsageDetail": "根據當前保留的指令、訊息、摘要和工具內容估算詞元：{tokens}。",
   "contextUnavailable": "壓縮未完成",
   "compactContext": "壓縮上下文",
-  "compactContextTitle": "壓縮當前上下文？",
+  "contextUsageMissing": "暫未獲得估算。",
   "compactContextAutomatic": "上下文超出模型容量時，Vista 會自動壓縮；你也可以提前手動壓縮。",
   "compactContextTradeoff": "壓縮會呼叫模型整理摘要，減少後續請求的上下文佔用，但會消耗詞元，也可能丟失細節。聊天記錄仍會保留。",
   "continuePlaceholder": "繼續 · 點選此處後按 Tab 填入",

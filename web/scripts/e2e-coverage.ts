@@ -49,8 +49,10 @@ const groups: Record<string, string[]> = {
   about: ['about-advanced', 'capacity-settings', 'environment-check', 'model-catalog', 'reset-settings', 'resource-destination', 'resource-storage', 'user-agent', 'ui-contracts', 'onboarding', 'execution-flow'],
   statistics: ['statistics'],
   operationProgress: ['environment-check', 'resource-storage', 'session-batch', 'settings-batch'],
+  contextHeader: ['resource-storage', 'settings-navigation'],
 }
 const consumers: [RegExp, string[]][] = [
+  [/^web\/src\/ContextCompaction\.vue$/, ['contextHeader']],
   [/^internal\/(?:generation\/|provider\/output_catalog|modelcatalog\/(?:generation|inventory|custom_model_metadata)|resources\/generated\.go|server\/generation_settings\.go)|^scripts\/onnx-decision\/|^web\/src\/(?:Generation|state\/generationCards)/, ['models', 'conversation']],
   [/^web\/src\/(?:App\.vue$|SessionActionDialog\.vue$|client\/(?:sse|conversationSync|types)\.)|^internal\/(?:server|store)\/session_actions\.go$|^internal\/agent\/tool_(?:session|history)\.go$/, ['sessions', 'conversation']],
   [/^web\/src\/ui\/TabbedModal\.vue$/, ['about']],

@@ -65,7 +65,7 @@ About Vista → Advanced settings → Memory and capacity offers Background proc
 
 ## Context and resources
 
-Completed model turns and tool results survive later messages and Worker restarts. Explicit upstream context-overflow evidence triggers compaction and retry of the failed request. The conversation header's compaction icon shows the retained-context estimate on hover; clicking asks for confirmation and explains automatic compaction and its tradeoffs. Manual compaction uses the same checkpoint mechanism while idle and does not send or continue automatically. The estimate is neither cumulative usage nor a model-capacity percentage. See [compaction](./context-compaction.md).
+Completed model turns and tool results survive later messages and Worker restarts. Explicit upstream context-overflow evidence triggers compaction and retry of the failed request. Click the conversation header's **Context** icon to view the retained-context estimate and compaction tradeoffs. The popover stays available during execution; only its **Compact context** action requires an available, idle session. Manual compaction uses the same checkpoint mechanism while idle and does not send or continue automatically. The estimate is neither cumulative usage nor a model-capacity percentage. See [compaction](./context-compaction.md).
 
 Images use shared original files with conversation-owned references. New attachments or explicit resource reads activate visual input for the next supported request; earlier images are not automatically resent. Closing retains ownership; deleting a conversation releases its links, and fully unreferenced files can be cleaned manually. See [resources](./resources.md).
 

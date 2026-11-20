@@ -93,13 +93,22 @@ test('direct settings links, reload, browser history and viewport changes keep n
 
 test('the header compaction icon exposes the context estimate without taking composer space', async ({ page, vista }, testInfo) => {
   const session = await vista.api('/sessions', { method: 'POST', body: '{}' })
-  await page.route('**/api/sessions/*/context-usage', route => route.fulfill({ json: { tokens: 3940, sequence: 0 } }))
+  let tokens: number | null = 3940
+  let usageReads = 0
+  let compactRequests = 0
+  await page.route('**/api/sessions/*/context-usage', route => {
+    usageReads++
+    return route.fulfill({ json: tokens === null ? null : { tokens, sequence: 0 } })
+  })
+  page.on('request', request => {
+    if (request.method() === 'POST' && new URL(request.url()).pathname === `/api/sessions/${session.id}/compact`) compactRequests++
+  })
   await page.goto(`${vista.origin}/sessions/${session.id}`)
   const usage = page.locator('.conversation-header .context-compaction')
-  const trigger = page.locator('.context-compaction-trigger')
-  const hint = page.locator('.context-usage-hint:visible')
+  const panel = page.getByRole('dialog', { name: 'Context', exact: true })
+  const estimate = panel.locator('.context-usage-estimate')
   await expect(usage).toHaveText('')
-  await expect(usage).toBeDisabled()
+  await expect(usage).toBeEnabled()
   await expect(usage).toHaveAttribute('data-tokens', '3940')
   await expect(page.locator('.sender-card .context-compaction, .sender-card .context-usage')).toHaveCount(0)
   await expect(page.locator('.composer-send-label')).toHaveText('Send')
@@ -118,21 +127,44 @@ test('the header compaction icon exposes the context estimate without taking com
   expect(bounds.headerRight - bounds.optionsRight).toBeLessThanOrEqual(40)
   expect(bounds.top).toBeGreaterThanOrEqual(bounds.headerTop)
   expect(bounds.bottom).toBeLessThanOrEqual(bounds.headerBottom)
-  const explanation = 'Estimated tokens from retained instructions, messages, summaries and tool content: 3.9K.'
-  await trigger.hover()
-  await expect(hint).toHaveText(explanation)
-  await page.keyboard.press('Escape')
-  await expect(hint).toHaveCount(0)
+  const before = usageReads
+  await expect(panel).toBeHidden()
   await page.getByRole('button', { name: 'Rename', exact: true }).focus()
   await page.keyboard.press('Tab')
-  await expect(trigger).toBeFocused()
-  await expect(hint).toHaveText(explanation)
+  await expect(usage).toBeFocused()
+  await expect(panel).toBeHidden()
+  await page.keyboard.press('Enter')
+  await expect(estimate).toHaveText('Estimated tokens from retained instructions, messages, summaries and tool content: 3.9K.')
+  await expect(panel.getByRole('button', { name: 'Compact context', exact: true })).toBeDisabled()
   await page.keyboard.press('Escape')
-  await expect(hint).toHaveCount(0)
+  await expect(panel).toBeHidden()
+  await expect(usage).toBeFocused()
+  expect(usageReads).toBe(before)
+
+  for (const [count, display] of [[0, '0'], [876, '876'], [999950, '1M']] as const) {
+    tokens = count
+    await page.reload()
+    await expect(usage).toHaveAttribute('data-tokens', String(count))
+    if (testInfo.project.use.hasTouch) await usage.tap()
+    else await usage.click()
+    await expect(estimate.locator('strong')).toHaveText(display)
+  }
   await page.evaluate(() => localStorage.setItem('vista-language', 'zh-CN'))
+  tokens = 1240000
   await page.reload()
-  await expect(usage).toHaveAttribute('data-tokens', '3940')
-  await trigger.hover()
-  await expect(hint).toHaveText('根据当前保留的指令、消息、摘要和工具内容估算词元：3.9K。')
-  await page.screenshot({ path: testInfo.outputPath('compact-context-hint.png'), animations: 'disabled' })
+  const chinesePanel = page.getByRole('dialog', { name: '上下文', exact: true })
+  await expect(usage).toHaveAccessibleName('上下文')
+  await expect(usage).toHaveAttribute('data-tokens', String(tokens))
+  await usage.click()
+  await expect(chinesePanel.locator('.context-usage-estimate')).toHaveText('根据当前保留的指令、消息、摘要和工具内容估算词元：1.2M。')
+  await page.screenshot({ path: testInfo.outputPath('context-popover.png'), animations: 'disabled' })
+  tokens = null
+  await page.reload()
+  await usage.click()
+  await expect(chinesePanel.locator('.context-usage-estimate')).toHaveText('暂未获得估算。')
+  const outside = page.locator('.conversation-heading h2')
+  if (testInfo.project.use.hasTouch) await outside.tap()
+  else await outside.click()
+  await expect(chinesePanel).toBeHidden()
+  expect(compactRequests).toBe(0)
 })
