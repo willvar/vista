@@ -4,7 +4,7 @@ import { rendererProps, useJsonFormsControl } from '@jsonforms/vue'
 import type { ControlElement } from '@jsonforms/core'
 import { useI18n } from 'vue-i18n'
 import { Checkbox, Radio, TextArea } from '../ui'
-import type { QuestionPrompt } from '../client/types'
+import type { QuestionPrompt } from '@vista/client'
 import { emptyQuestionDraft, optionValue, type QuestionDraft } from './question'
 
 const props = defineProps(rendererProps<ControlElement>())

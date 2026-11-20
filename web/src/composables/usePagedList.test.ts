@@ -1,9 +1,8 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { effectScope, nextTick, ref } from 'vue'
-import type { PageInfo } from '../client/types.ts'
-import type { VistaClient } from '../client/vista.ts'
-import { createWorkspaceSync, stateTopics } from '../client/workspaceSync.ts'
+import { createWorkspaceSync, stateTopics } from '@vista/client'
+import type { PageInfo, VistaClient } from '@vista/client'
 import { usePagedList } from './usePagedList.ts'
 
 const settle = async () => { await nextTick(); await new Promise(resolve => setImmediate(resolve)) }

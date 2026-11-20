@@ -1,5 +1,5 @@
 import { test, expect } from './fixtures'
-import type { ModelDiagnosticRecord, ModelDiagnosticSummary } from '../src/client/modelDiagnostics'
+import type { ModelDiagnosticRecord, ModelDiagnosticSummary } from '@vista/client'
 
 test.describe('captured model HTTP', () => {
   test.use({ progressCalls: 1 })

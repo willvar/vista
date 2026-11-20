@@ -5,8 +5,7 @@ import { Button, Modal, Switch, TabbedModal } from './ui'
 import UserAgentSettings from './UserAgentSettings.vue'
 import CapacitySettings from './CapacitySettings.vue'
 import ServerConfigSettings from './ServerConfigSettings.vue'
-import type { VistaClient } from './client/vista'
-import type { ServerStatus } from './client/types'
+import type { VistaClient, ServerStatus } from '@vista/client'
 
 const props = defineProps<{ open: boolean; client: VistaClient; status: ServerStatus | null; debugMode: boolean }>()
 const emit = defineEmits<{ cancel: []; 'update:debugMode': [enabled: boolean] }>()

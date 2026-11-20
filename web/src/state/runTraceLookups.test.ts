@@ -2,7 +2,7 @@ import { strict as assert } from 'node:assert'
 import { test } from 'node:test'
 import { buildRunTrace, type RunTraceNode } from './runTrace.ts'
 import { runTraceLookupRows, summarizeTraceLookups } from './runTraceLookups.ts'
-import type { StreamEvent } from '../client/types.ts'
+import type { StreamEvent } from '@vista/client'
 
 function tool(sequence: number, toolName: string, summary: string, overrides: Partial<RunTraceNode> = {}): RunTraceNode {
   return { key: `tool/${sequence}`, sequence, lastSequence: sequence, kind: 'tool', title: '', body: '',

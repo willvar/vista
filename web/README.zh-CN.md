@@ -24,6 +24,8 @@ VISTA_DEV_BACKEND=http://127.0.0.1:5186 npm run dev
 
 仓库根目录的 `make test frontend` 执行单测／类型／构建，`make test e2e` 构建独立应用并执行浏览器检查。一般要求和证据边界见[验证](../docs/testing.zh-CN.md)。
 
+`web/` 通过本地 npm 依赖使用 `@vista/client`。开发、检查和生产构建都会先编译 SDK，再加载其入口。修改 SDK 源码后可用 `npm run build:sdk` 重新编译；若 Vite 仍在提供旧模块，重启开发服务。Vue 的生命周期、路由、页面语言和可见性、已读确认仍由 WebUI 决定。连接和同步契约见[客户端 SDK](../docs/client-sdk.zh-CN.md)。
+
 ## 浏览器 fixture
 
 `e2e/frontend-fixture.ts` 通过 Vite preview 提供已构建的应用，工作进程只共享 `internal/server/assets/` 中的只读文件。
@@ -64,10 +66,10 @@ Vista 返回未压缩的资源，部署时可在反向代理层配置响应压�
 
 | 层次 | 入口 |
 | --- | --- |
-| HTTP／SSE 客户端 | `src/client/types.ts`、`vista.ts`、`sse.ts` |
-| 全局状态同步 | `src/client/workspaceSync.ts` |
-| 会话初始化／恢复 | `src/client/conversationSync.ts` |
-| 事件状态 | `src/state/conversation.ts`、`workspace.ts`、`runTrace.ts` |
+| HTTP／SSE 客户端 | `../sdk/src/{types,vista,sse}.ts` |
+| 全局状态同步 | `../sdk/src/workspaceSync.ts` |
+| 会话初始化／恢复 | `../sdk/src/conversationSync.ts` |
+| 事件状态 | `../sdk/src/state/{conversation,workspace}.ts`、`src/state/runTrace.ts` |
 | 会话加载／发送 | `src/composables/useConversation.ts` |
 | 共享工作区、模型、状态订阅 | `src/composables/useWorkspace.ts` |
 | 服务商设置／历史执行 | `src/composables/useProviderSettings.ts`、`useRunHistory.ts` |

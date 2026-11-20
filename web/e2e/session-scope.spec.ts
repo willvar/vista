@@ -1,5 +1,5 @@
 import { test, expect } from './fixtures'
-import type { Session, SessionListSnapshot } from '../src/client/types'
+import type { Session, SessionListSnapshot } from '@vista/client'
 
 test('archives stay out of homepage HTTP and SSE and synchronize only while the manager is open', async ({ page, vista }, info) => {
   test.skip(info.project.name !== 'desktop', 'Payload ownership is independent of viewport')

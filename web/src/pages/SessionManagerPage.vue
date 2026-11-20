@@ -15,7 +15,7 @@ import ListPagination from '../ListPagination.vue'
 import { useWorkspace } from '../composables/useWorkspace'
 import { usePagedList } from '../composables/usePagedList'
 import { formatDateTime } from '../ui/datetime.ts'
-import type { Session, SessionPage } from '../client/types'
+import type { Session, SessionPage } from '@vista/client'
 
 const router = useRouter()
 const { t, n, locale } = useI18n({ useScope: 'global' })

@@ -1,13 +1,13 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { effectScope, nextTick, reactive, ref } from 'vue'
-import type { VistaClient } from '../client/vista.ts'
-import type { RunOverview, StreamEvent } from '../client/types.ts'
+import { createVistaClient } from '@vista/client'
+import type { VistaClient, RunOverview, StreamEvent } from '@vista/client'
 import { useRunHistory, type RunHistoryCache } from './useRunHistory.ts'
 
 const event = (sequence: number, kind = 'model_request', data: any = {}): StreamEvent => ({ sequence, kind, data: { runId: 'run', taskId: 'main', ...data } })
 const settle = async () => { await nextTick(); await new Promise(resolve => setImmediate(resolve)) }
-function client(request: VistaClient['request']): VistaClient { return { request, async *requestStream() { throw new Error('Unexpected streamed request') }, image: async () => new Blob(), streamEvents: async () => {} } }
+function client(request: VistaClient['request']): VistaClient { return { ...createVistaClient({ fetch: async () => { throw new Error('Unexpected request') } }), request } }
 
 test('collapsed runs fetch only an overview and merge unique live events without extra reads', async () => {
   const paths: string[] = []

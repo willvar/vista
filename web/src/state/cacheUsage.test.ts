@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { cacheReadCount, cacheTotals } from './cacheUsage.ts'
-import type { ModelResultView } from '../client/types.ts'
+import type { ModelResultView } from '@vista/client'
 
 const result = (cacheReadKnown?: boolean, cacheReadTokens = 0, cacheWriteTokens?: number) => ({
   usage: { inputTokens: 100, outputTokens: 2, reasoningTokens: 0, cacheReadKnown, cacheReadTokens, cacheWriteTokens },

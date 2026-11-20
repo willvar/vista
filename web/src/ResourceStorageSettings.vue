@@ -7,7 +7,7 @@ import { useWorkspace } from './composables/useWorkspace'
 import { formatDateTime } from './ui/datetime.ts'
 import BatchOperationModal from './BatchOperationModal.vue'
 import ResourceStorageDestination from './ResourceStorageDestination.vue'
-import type { ResourceStorageStatus as Status } from './client/types'
+import type { ResourceStorageStatus as Status } from '@vista/client'
 
 const emit = defineEmits<{ 'modal-open': [open: boolean] }>()
 const { t, locale } = useI18n({ useScope: 'global' })

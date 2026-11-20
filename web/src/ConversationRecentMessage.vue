@@ -7,7 +7,7 @@ import MessageMarkdown from './MessageMarkdown.vue'
 import MessageImages from './MessageImages.vue'
 import MessageActions from './MessageActions.vue'
 import { sentMessageBody } from './state/quotedReply'
-import type { ConversationItem } from './state/mainOutputs'
+import type { ConversationItem } from '@vista/client'
 import { useEscapeDismiss } from './composables/useEscape'
 import { useWorkspace } from './composables/useWorkspace'
 

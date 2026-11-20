@@ -1,4 +1,4 @@
-import type { Message, ModelInfo, Session } from '../client/types.ts'
+import type { Message, ModelInfo, Session } from '@vista/client'
 
 export type FailureContext = {
   kind: 'execution' | 'compaction'

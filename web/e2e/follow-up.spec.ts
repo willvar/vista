@@ -2,7 +2,7 @@ import { coreSnapshot, installConversationStream } from './conversation-fixture'
 import { scrollToConversationEntry } from './conversation-scroll'
 import { closeSettings } from './settings-navigation'
 import type { Page } from '@playwright/test'
-import type { Message, QueuedInput, StreamEvent } from '../src/client/types'
+import type { Message, QueuedInput, StreamEvent } from '@vista/client'
 import { test, expect } from './fixtures'
 
 type Submission = { content: string }

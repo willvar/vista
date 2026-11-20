@@ -2,7 +2,7 @@ import { test as base, expect } from '@playwright/test'
 import { startFrontend } from './frontend-server'
 import { nativeFixture } from './fixtures'
 import { sharedFixture } from './shared-fixture'
-import { stateTopics } from '../src/client/workspaceSync'
+import { stateTopics } from '@vista/client'
 import type { ServerResponse } from 'node:http'
 
 type SettingsFrontend = { origin: string; unexpected: string[] }

@@ -5,7 +5,7 @@ import { Alert, Button, Modal, TextArea, Tree } from './ui'
 import { IconArrowLeft } from '@tabler/icons-vue'
 import type { TreeNode } from './ui/types'
 import { useWorkspace } from './composables/useWorkspace'
-import { VistaAPIError } from './client/vista'
+import { VistaAPIError } from '@vista/client'
 
 const props = defineProps<{ open: boolean; skill: { id: string; source: 'system' | 'user' }; revision?: string }>()
 const emit = defineEmits<{ 'update:open': [open: boolean]; saved: [] }>()
@@ -22,7 +22,7 @@ const loading = ref(false), initialized = ref(false), saving = ref(false), error
 const canSave = computed(() => props.skill.source === 'user' && !loading.value && !saving.value && !!document.value?.sha256 && dirtyPaths.value.includes(activePath.value))
 const basePath = computed(() => `/skills/${encodeURIComponent(props.skill.id)}`)
 const filePath = (name: string) => `${basePath.value}?file=${encodeURIComponent(name)}`
-const previewPath = computed(() => '/api' + filePath(activePath.value) + '&preview=1')
+const previewPath = computed(() => client.url(filePath(activePath.value) + '&preview=1'))
 let controller = new AbortController(), fileController = new AbortController(), fileGeneration = 0, treeGeneration = 0
 let discardAction: (() => void) | undefined
 

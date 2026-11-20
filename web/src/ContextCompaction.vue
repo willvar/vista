@@ -3,7 +3,7 @@ import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { IconProgressBolt } from '@tabler/icons-vue'
 import { Button as VButton, Popover as VPopover } from './ui'
-import type { ContextUsage } from './client/types'
+import type { ContextUsage } from '@vista/client'
 import { useWorkspace } from './composables/useWorkspace'
 
 const props = defineProps<{ usage: ContextUsage | null; disabled: boolean }>()

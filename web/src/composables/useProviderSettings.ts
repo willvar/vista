@@ -1,9 +1,8 @@
 import { computed, onScopeDispose, reactive, ref, watch, type Ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { ControlElement, JsonSchema7, UISchemaElement } from '@jsonforms/core'
-import { VistaAPIError, type VistaClient } from '../client/vista'
-import type { createWorkspaceSync } from '../client/workspaceSync'
-import type { AgentSettings, ModelCatalog, ModelInfo, ModelSetting, ModelSettings, PromptCaching, ProviderSetup } from '../client/types'
+import { VistaAPIError } from '@vista/client'
+import type { VistaClient, createWorkspaceSync, AgentSettings, ModelCatalog, ModelInfo, ModelSetting, ModelSettings, PromptCaching, ProviderSetup } from '@vista/client'
 import { languages } from '../i18n/languages.ts'
 import { readLanguagePreference, setLanguagePreference, type LanguagePreference } from '../i18n'
 

@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { jobActive, jobStatusKey } from './jobs.ts'
-import type { Job } from '../client/types.ts'
+import { jobActive } from '@vista/client'
+import type { Job } from '@vista/client'
+import { jobStatusKey } from './jobs.ts'
 
 test('process state distinguishes running, normal exit, requested stop, timeout and interruption', () => {
   const job: Job = { id: 'job', runId: 'run', directory: '/work', command: 'sleep 10', status: 'starting', bytes: 0, exitCode: -1, complete: false }

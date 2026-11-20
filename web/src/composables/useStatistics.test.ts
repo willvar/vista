@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { effectScope,nextTick,ref } from 'vue'
-import type { VistaClient } from '../client/vista.ts'
-import { createWorkspaceSync,stateTopics } from '../client/workspaceSync.ts'
+import { createWorkspaceSync, stateTopics } from '@vista/client'
+import type { VistaClient } from '@vista/client'
 import { localDateKey,type UsageStatistics } from '../client/statistics.ts'
 import { useStatistics } from './useStatistics.ts'
 

@@ -1,4 +1,4 @@
-import type { ModelResultView } from '../client/types.ts'
+import type { ModelResultView } from '@vista/client'
 
 export function cacheReadCount(usage: ModelResultView['usage']): number | undefined {
   if (!usage || usage.cacheReadKnown === false) return undefined

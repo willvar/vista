@@ -2,7 +2,7 @@
 import { computed } from 'vue'
 import { Button } from './ui'
 import { useI18n } from 'vue-i18n'
-import type { Artifact, Job } from './client/types'
+import type { Artifact, Job } from '@vista/client'
 import { projectToolOutput, toolOperationLabelKey, type RunTraceNode } from './state/runTrace'
 import { artifactsForTool, jobsForTool, toolOutputErrors } from './state/toolOutputs'
 import FullTraceOutput from './FullTraceOutput.vue'

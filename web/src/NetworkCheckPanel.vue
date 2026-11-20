@@ -3,7 +3,7 @@ import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import SchemaForm from './SchemaForm.vue'
 import { Alert as VAlert, Button as VButton } from './ui'
-import type { NetworkCheck } from './client/network'
+import type { NetworkCheck } from '@vista/client'
 const props = defineProps<{ perform: (target: string, signal: AbortSignal) => Promise<NetworkCheck>; disabled?: boolean; revisionKey?: string | number }>()
 const { t } = useI18n({ useScope: 'global' })
 const target = ref<Record<string, unknown>>({ target: '' }), valid = ref(false), busy = ref(false), result = ref<NetworkCheck>(), error = ref('')

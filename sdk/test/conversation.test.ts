@@ -1,0 +1,436 @@
+import assert from 'node:assert/strict'
+import test from 'node:test'
+import { appendMessage, createConversationState, messageResults, runResults, reduceConversationEvent, replyTraceSegments, trailingTraceSegment } from '../dist/state/conversation.js'
+import type { Message, Session, StreamEvent } from '../dist/types.js'
+
+const session: Session = { id: 'session-a', title: 'Example', modelKey: '', open: true, running: true, executing: true, createdAt: '' }
+const message = (id: string, sequence: number, runId: string, role = 'user'): Message => ({ id, sequence, runId, role, content: id, createdAt: '' })
+const event = (sequence: number, kind: string, data: unknown): StreamEvent => ({ sequence, kind, data })
+
+test('the composer clock retains the run start while child activity and steering continue', () => {
+  const startedAt = '2026-11-08T01:00:00Z'
+  let state = reduceConversationEvent(createConversationState(session), { ...event(1, 'message', { ...message('input', 1, 'run'), createdAt: startedAt }), createdAt: startedAt })
+  state = reduceConversationEvent(state, { ...event(2, 'tool', { runId: 'run', status: 'started', tool: { name: 'shell', input: { command: 'make build' } } }), createdAt: '2026-11-08T01:01:00Z' })
+  state = reduceConversationEvent(state, { ...event(3, 'model_delta', { runId: 'run', taskId: 'child', depth: 1, turn: 2, content: 'Child progress' }), createdAt: '2026-11-08T01:02:00Z' })
+  assert.deepEqual(state.runClock, { id: 'run', startedAt, lastActivityAt: '2026-11-08T01:02:00Z' })
+  assert.equal(state.runProgress?.summary, 'make build', 'A child cannot replace the main action')
+  state = reduceConversationEvent(state, { ...event(4, 'model_request', { runId: 'run', purpose: 'summary' }), createdAt: '2026-11-08T01:03:00Z' })
+  assert.equal(state.runClock?.lastActivityAt, '2026-11-08T01:02:00Z')
+  state = reduceConversationEvent(state, { ...event(5, 'message', { ...message('followup', 5, 'run'), createdAt: '2026-11-08T01:04:00Z' }) })
+  assert.equal(state.runClock?.startedAt, startedAt, 'Steering retains the original start')
+  state = reduceConversationEvent(state, event(6, 'message', { ...message('next', 6, 'new-run'), createdAt: '2026-11-08T02:00:00Z' }))
+  assert.deepEqual(state.runClock, { id: 'new-run', startedAt: '2026-11-08T02:00:00Z' })
+})
+
+test('internal checklist events advance coverage without retaining UI state or progress', () => {
+ let state=reduceConversationEvent(createConversationState(session),event(1,'message',message('input',1,'run')))
+ const progress=state.runProgress
+ for (const [index,kind] of ['checklist','tool','tool','internal'].entries()) {
+  state=reduceConversationEvent(state,event(index+2,kind,{runId:'run',items:[{text:'Private plan',status:'pending'}],tool:{name:'update_checklist'},status:'started'}))
+ }
+ assert.equal(state.lastEvent,5)
+ assert.deepEqual(state.runProgress,progress)
+ assert.equal('checklist' in state,false)
+ assert.equal(state.processEvents.some(e=>e.kind==='checklist'||e.data?.tool?.name==='update_checklist'),false)
+ assert.equal(state.messages.length,1)
+})
+
+test('model retry progress survives event replay and remains cancellable execution', () => {
+  let state = createConversationState(session)
+  state = reduceConversationEvent(state, event(1, 'message', message('input', 1, 'run')))
+  const retry = event(2, 'model_retry', { runId: 'run', turn: 2, status: 'waiting', modelRetry: { attempt: 1, maxRetries: 3, retryAt: '2026-11-07T01:00:00Z' } })
+  state = reduceConversationEvent(state, retry)
+  assert.equal(state.runProgress?.phase, 'retry')
+  assert.equal(state.runProgress?.retry?.attempt, 1)
+  assert.equal(state.selected?.executing, true)
+  assert.equal(reduceConversationEvent(state, retry), state)
+  state = reduceConversationEvent(state, event(3, 'model_retry', { ...retry.data, taskId: 'child', depth: 1, modelRetry: { ...retry.data.modelRetry, attempt: 2 } }))
+  assert.equal(state.runProgress?.retry?.attempt, 1)
+  state = reduceConversationEvent(state, event(4, 'model_request', { runId: 'run', turn: 2, id: 'model' }))
+  assert.equal(state.runProgress?.phase, 'model')
+  state = reduceConversationEvent(state, event(5, 'run_finished', { runId: 'run', status: 'interrupted' }))
+  assert.equal(state.runProgress?.phase, 'finished')
+  assert.equal(state.selected?.executing, false)
+})
+
+test('hundreds of completed runs retain loaded indexes and both conversation ends', () => {
+  let state = createConversationState(session)
+  for (let index = 0; index < 320; index++) {
+    const runId = `run-${index}`, seq = index * 10
+    state = reduceConversationEvent(state, event(seq + 1, 'message', message(`user-${index}`, seq + 1, runId)))
+    state = reduceConversationEvent(state, event(seq + 2, 'model_delta', { runId, turn: 1, content: 'x'.repeat(16 * 1024) }))
+    state = reduceConversationEvent(state, event(seq + 3, 'model_result', { runId, turn: 1, modelResult: { provider: 'test', id: 'test', finishReason: 'stop' } }))
+    state = reduceConversationEvent(state, event(seq + 4, 'run_finished', { runId, status: 'succeeded', message: { ...message(`reply-${index}`, seq + 4, runId, 'assistant'), outputTurn: 1 } }))
+    state.modelOutput[`reply-${index}`] = { content: 'x'.repeat(16 * 1024), offset: 0, nextOffset: 16 * 1024, availableBytes: 16 * 1024 }
+  }
+  assert.equal(state.messages.length, 640)
+  assert.equal(state.messages[0]!.id, 'user-0')
+  assert.equal(state.messages.at(-1)!.id, 'reply-319')
+  assert.equal(state.mainOutputs.length, 320)
+  assert.equal(Object.keys(state.modelOutput).length, 320)
+  assert.equal(state.modelResults.length, 320)
+  const retained = new Set(state.messages.map(message => message.runId))
+  assert.ok(state.mainOutputs.every(output => retained.has(output.runId)))
+  assert.ok(Object.keys(state.finishedRuns).every(id => retained.has(id)))
+})
+
+test('reply trace scopes remain separate across steering, followups and off-page replies', () => {
+  const question = message('question', 198, 'run')
+  const steering = message('steering', 210, 'run')
+  const firstReply = { ...message('reply', 251, 'run', 'assistant'), resultsAfter: 0 }
+  const followup = message('price', 252, 'run')
+  const lastReply = { ...message('price-reply', 307, 'run', 'assistant'), resultsAfter: 251 }
+  const live = replyTraceSegments([question, steering], 'run')
+  assert.equal(live.get(question.id)?.anchorId, question.id)
+  assert.equal(live.get(steering.id), live.get(question.id))
+  const continued = replyTraceSegments([question, steering, firstReply, followup], 'run')
+  assert.equal(continued.get(question.id)?.key, live.get(question.id)?.key)
+  assert.equal(continued.get(firstReply.id)?.through, 251)
+  assert.equal(continued.get(firstReply.id)?.active, false)
+  assert.equal(continued.get(followup.id)?.after, 251)
+  assert.equal(continued.get(followup.id)?.active, true)
+  const ended = replyTraceSegments([question, steering, firstReply, followup, lastReply])
+  assert.equal(ended.get(lastReply.id)?.key, continued.get(followup.id)?.key)
+  assert.equal(ended.get(lastReply.id)?.anchorId, followup.id)
+  assert.equal(ended.get(lastReply.id)?.through, undefined)
+  const page = replyTraceSegments([lastReply])
+  assert.equal(page.get(lastReply.id)?.after, 251)
+  assert.equal(page.get(lastReply.id)?.anchorId, lastReply.id)
+  assert.equal(replyTraceSegments([firstReply], '', true).get(firstReply.id)?.through, 251)
+})
+
+test('unanchored activity uses the next reply range without claiming older rows', () => {
+  const written = { ...message('first-reply', 8, 'continued', 'assistant'), resultsAfter: 0 }
+  const segments = replyTraceSegments([written], 'continued')
+  const reasoning = event(10, 'model_reasoning_delta', { runId: 'continued', turn: 2, content: 'review' })
+  const tool = event(11, 'tool', { runId: 'continued', tool: { name: 'read_file' } })
+  const unchanged = [
+    { ...reasoning, sequence: 7 },
+    { ...tool, data: { ...tool.data, runId: 'other' } },
+    event(9, 'model_request', { runId: 'continued', turn: 2 }),
+    event(12, 'model_delta', { runId: 'continued', turn: 2, content: 'ordinary assistant text' }),
+    event(13, 'tool', { runId: 'continued', tool: { name: 'update_checklist' } }),
+  ]
+  assert.equal(trailingTraceSegment(segments, 'continued', unchanged, true), undefined)
+  assert.deepEqual(trailingTraceSegment(segments, 'continued', [reasoning, tool], true), {
+    key: 'continued/8', runId: 'continued', after: 8, firstSequence: 10, startedAt: '', active: true,
+  })
+  assert.equal(trailingTraceSegment(new Map(), 'continued', [reasoning], true)?.key, 'continued/0')
+  const followup = message('followup', 9, 'continued')
+  assert.equal(trailingTraceSegment(replyTraceSegments([written, followup], 'continued'), 'continued', [reasoning], true), undefined)
+  const final = { ...message('last-reply', 14, 'continued', 'assistant'), resultsAfter: 8 }
+  const ended = replyTraceSegments([written, final])
+  assert.equal(ended.get(final.id)?.key, 'continued/8')
+  assert.equal(trailingTraceSegment(ended, 'continued', [reasoning], false), undefined)
+})
+
+test('event sequence replay cannot duplicate draft tokens or model usage', () => {
+  const started = reduceConversationEvent(createConversationState(session), event(1, 'message', message('user-a', 1, 'run-a')))
+  const delta = event(2, 'model_delta', { runId: 'run-a', turn: 1, content: 'Hi' })
+  const state = reduceConversationEvent(started, delta)
+  assert.equal(reduceConversationEvent(state, delta), state)
+  assert.equal(state.modelDrafts[0].content, 'Hi')
+  const result = { ...event(3, 'model_result', { runId: 'run-a', turn: 1, modelResult: { provider: 'openai-chat', id: 'example', finishReason: 'stop', durationMs: 125, firstTokenMs: 27.5, usage: { inputTokens: 11, outputTokens: 2, cacheReadTokens: 0, reasoningTokens: 0 } } }), createdAt: '2026-10-11T01:00:00Z' }
+  const completed = reduceConversationEvent(state, result)
+  assert.equal(reduceConversationEvent(completed, result), completed)
+  assert.equal(completed.modelResults.length, 1)
+  assert.equal(completed.modelResults[0].durationMs, 125)
+  assert.equal(completed.modelResults[0].firstTokenMs, 27.5)
+  assert.equal(completed.modelResults[0].createdAt, '2026-10-11T01:00:00Z')
+})
+
+test('late completion from an old run cannot finish or change pending questions of the new run', () => {
+  let state = createConversationState(session)
+  state = reduceConversationEvent(state, event(1, 'message', message('user-a', 1, 'run-a')))
+  state = reduceConversationEvent(state, event(2, 'message', message('user-b', 2, 'run-b')))
+  state = reduceConversationEvent(state, event(3, 'run_finished', { runId: 'run-a', status: 'succeeded', pendingReply: { runId: 'run-a', kind: 'question', content: 'Old question', questions: [{ question: 'Old question', options: [{ label: 'A' }] }] }, message: message('reply-a', 3, 'run-a', 'assistant') }))
+  assert.equal(state.activeRunID, 'run-b')
+  assert.deepEqual(state.runProgress, { runId: 'run-b', phase: 'starting' })
+  assert.equal(state.selected?.executing, true)
+  assert.equal(state.selected?.pendingReply, undefined)
+  assert.equal(state.messages.at(-1)?.id, 'reply-a')
+  assert.equal(state.finishedRuns['run-a'], true)
+})
+
+test('same numbered turns at different depths have independent drafts and completion', () => {
+  let state = createConversationState(session)
+  state = reduceConversationEvent(state, event(1, 'message', message('user-a', 1, 'run-a')))
+  state = reduceConversationEvent(state, event(2, 'model_delta', { runId: 'run-a', turn: 1, depth: 0, content: 'root' }))
+  state = reduceConversationEvent(state, event(3, 'model_delta', { runId: 'run-a', turn: 1, depth: 1, content: 'child' }))
+  state = reduceConversationEvent(state, event(4, 'model_delta', { runId: 'run-a', turn: 1, depth: 0, content: ' reply' }))
+  state = reduceConversationEvent(state, event(5, 'model_result', { runId: 'run-a', turn: 1, depth: 1, modelResult: { provider: 'openai-chat', id: 'child-model', finishReason: 'stop' } }))
+  assert.deepEqual(state.modelDrafts.map(draft => [draft.depth, draft.content, draft.finished]), [[0, 'root reply', false], [1, 'child', true]])
+  assert.deepEqual(state.runProgress, { runId: 'run-a', phase: 'response' })
+  assert.equal(state.modelResults[0].depth, 1)
+})
+
+test('final reply replaces its root draft and late deltas do not recreate it', () => {
+  let state = createConversationState(session)
+  state = reduceConversationEvent(state, event(1, 'message', message('user-a', 1, 'run-a')))
+  state = reduceConversationEvent(state, event(2, 'model_delta', { runId: 'run-a', turn: 1, depth: 0, content: 'root' }))
+  state = reduceConversationEvent(state, event(3, 'model_delta', { runId: 'run-a', turn: 1, depth: 1, content: 'child' }))
+  state = reduceConversationEvent(state, event(4, 'run_finished', { runId: 'run-a', status: 'succeeded', message: { ...message('reply-a', 4, 'run-a', 'assistant'), outputTurn: 1 } }))
+  assert.deepEqual(state.modelDrafts.map(draft => [draft.depth, draft.finished]), [[1, true]])
+  assert.equal(state.selected?.executing, false)
+  assert.deepEqual(state.runProgress, { runId: 'run-a', phase: 'finished' })
+  state = reduceConversationEvent(state, event(5, 'model_delta', { runId: 'run-a', turn: 1, content: 'late' }))
+  assert.equal(state.modelDrafts.length, 1)
+  assert.equal(state.modelDrafts[0].content, 'child')
+})
+
+test('stored and live usage join by event sequence only for the message run', () => {
+  let state = createConversationState(session)
+  const usage = { inputTokens: 100, outputTokens: 20, cacheReadTokens: 10, reasoningTokens: 3 }
+  state = reduceConversationEvent(state, event(1, 'model_result', { runId: 'run-a', turn: 1, modelResult: { provider: 'openai-chat', id: 'model-a', finishReason: 'stop', usage, durationMs: 250, firstTokenMs: 0 } }))
+  state = reduceConversationEvent(state, event(2, 'model_result', { runId: 'run-b', turn: 1, modelResult: { provider: 'openai-chat', id: 'model-b', finishReason: 'stop' } }))
+  const otherRun = state.modelResults[1]
+  state = appendMessage(state, message('reply-a', 3, 'run-a', 'assistant'))
+  assert.equal(state.messages[0].modelResults?.length, 1)
+  const reply = { ...state.messages[0], modelResults: [...state.messages[0].modelResults!, { ...state.modelResults[0], sequence: 0, turn: 0 }, otherRun] }
+  const results = messageResults(reply, state.modelResults)
+  assert.deepEqual(results.map(result => result.sequence), [1])
+  assert.deepEqual(results[0].usage, usage)
+  assert.equal(results[0].durationMs, 250)
+  assert.equal(results[0].firstTokenMs, 0)
+  assert.deepEqual(messageResults(message('user-a', 4, 'run-a'), state.modelResults), [])
+})
+
+test('stage assistant replies keep only the model results through their own sequence', () => {
+  let state = createConversationState(session)
+  const first = event(1, 'model_result', { runId: 'run-a', turn: 1, modelResult: { provider: 'openai-chat', id: 'model-a', finishReason: 'stop' } })
+  const second = event(4, 'model_result', { runId: 'run-a', turn: 2, modelResult: { provider: 'openai-chat', id: 'model-a', finishReason: 'stop' } })
+  state = reduceConversationEvent(state, first)
+  state = reduceConversationEvent(state, event(2, 'message', { ...message('stage', 2, 'run-a', 'assistant'), outputTurn: 1, resultsAfter: 0 }))
+  state = reduceConversationEvent(state, event(3, 'message', message('followup', 3, 'run-a')))
+  state = reduceConversationEvent(state, second)
+  state = reduceConversationEvent(state, event(5, 'run_finished', { runId: 'run-a', status: 'succeeded', message: { ...message('final', 5, 'run-a', 'assistant'), outputTurn: 2, resultsAfter: 2 } }))
+  assert.deepEqual(state.messages.filter(item => item.role === 'assistant').map(item => item.modelResults?.map(result => result.turn)), [[1], [2]])
+  assert.equal(state.modelDrafts.some(draft => draft.turn === 1), false)
+})
+
+test('historical user messages cannot replace the current run while loading an event page', () => {
+  const initial = createConversationState(session)
+  initial.messages = [message('user-new', 200, 'run-new')]
+  initial.activeRunID = 'run-new'
+  initial.activeRunSequence = 200
+  let state = reduceConversationEvent(initial, event(100, 'message', message('user-old', 100, 'run-old')))
+  state = reduceConversationEvent(state, event(150, 'run_finished', { runId: 'run-old', pendingReply: { runId: 'run-old', kind: 'question', content: 'Old question', questions: [{ question: 'Old question', options: [{ label: 'A' }] }] } }))
+  assert.equal(state.activeRunID, 'run-new')
+  assert.equal(state.selected?.pendingReply, undefined)
+  assert.equal(state.selected?.executing, true)
+})
+
+test('run results include active subagents without adding usage to the user reply footer', () => {
+  const user = message('user-a', 1, 'run-a')
+  const result = { sequence: 2, runId: 'run-a', turn: 1, depth: 0, provider: 'openai-chat', id: 'model', finishReason: 'tool_calls' }
+  const child = { ...result, sequence: 3, turn: 2, depth: 1 }
+  const reply = { ...message('reply-a', 4, 'run-a', 'assistant'), modelResults: [result, child] }
+  assert.equal(runResults('run-a', [user], [result, child]).length, 2)
+  assert.deepEqual(runResults('run-a', [user, reply], [result, child, { ...result, sequence: 5, runId: 'other' }]), [result, child])
+  assert.deepEqual(messageResults(user, [result, child]), [])
+})
+
+test('execution overview events retain task ownership, timestamps and output references', () => {
+  let state = createConversationState(session)
+  const data = { runId: 'run-a', taskId: 'child', parentTaskId: 'main', task: { id: 'child', parentId: 'main', title: 'Analyze images', status: 'started' } }
+  state = reduceConversationEvent(state, { ...event(1, 'agent_task', data), createdAt: '2026-10-03T10:00:00Z' })
+  state = reduceConversationEvent(state, event(2, 'model_request', { runId: 'run-a', taskId: 'child', depth: 1, provider: 'openai-chat', id: 'model' }))
+  state = reduceConversationEvent(state, event(3, 'artifact', { id: 'artifact-a', runId: 'run-a', taskId: 'child', callId: 'child/shell-a' }))
+  state = reduceConversationEvent(state, event(4, 'checklist', { runId: 'run-a', items: [{ text: 'Analyze images', status: 'in_progress' }] }))
+  assert.deepEqual(state.processEvents.map(item => item.kind), ['agent_task', 'model_request', 'artifact'])
+  assert.equal(state.processEvents[0].data.taskId, 'child')
+  assert.equal(state.processEvents[0].createdAt, '2026-10-03T10:00:00Z')
+  assert.equal(state.modelByRun['run-a'], undefined)
+})
+
+
+test('a new user message updates execution state before the next status poll', () => {
+  const initial = createConversationState({ ...session, executing: false })
+  const state = reduceConversationEvent(initial, event(1, 'message', message('user-a', 1, 'run-a')))
+  assert.equal(state.selected?.executing, true)
+  assert.deepEqual(state.runProgress, { runId: 'run-a', phase: 'starting' })
+})
+
+test('execution compaction projects one ordinary assistant message without ending the run or repeating trace usage', () => {
+  let state = createConversationState(session)
+  state = reduceConversationEvent(state, event(1, 'message', message('user-a', 1, 'run-a')))
+  state = reduceConversationEvent(state, event(2, 'model_result', { runId: 'run-a', turn: 1, modelResult: { provider: 'custom', id: 'model' } }))
+  const notice = { ...event(3, 'context_notice', { runId: 'run-a', summary: 'Completed changes and unresolved work.', depth: 0 }), createdAt: '2026-11-08T00:00:00Z' }
+  state = reduceConversationEvent(state, notice)
+  const summary = state.messages[1]!
+  assert.deepEqual(summary, {
+    id: 'context-summary/3', runId: 'run-a', role: 'assistant', content: notice.data.summary,
+    sequence: 3, createdAt: notice.createdAt, contextSummary: true, resultsAfter: 0, modelResults: [],
+  })
+  assert.equal(reduceConversationEvent(state, notice), state)
+  assert.equal(state.activeRunID, 'run-a')
+  assert.equal(state.selected?.executing, true)
+  assert.equal(state.selected?.latestReplySequence || 0, 0)
+  assert.equal(state.processEvents.some(item => item.kind === 'context_notice'), false)
+  assert.deepEqual(messageResults(summary, state.modelResults), [])
+  const reply = message('reply', 5, 'run-a', 'assistant')
+  const segments = replyTraceSegments([...state.messages, reply], 'run-a')
+  assert.equal(segments.get(summary.id), undefined)
+  assert.equal(segments.get(reply.id)?.anchorId, 'user-a')
+  assert.equal(messageResults(reply, state.modelResults).length, 1)
+  // Replaying a recent event after loading its message from the snapshot is idempotent.
+  const restored = createConversationState(session)
+  restored.messages = [summary]
+  assert.equal(reduceConversationEvent(restored, notice).messages.length, 1)
+})
+
+test('summary references advance replay without becoming reply text and retain the full-output reference', () => {
+  let state = reduceConversationEvent(createConversationState(session), event(1, 'message', message('input', 1, 'run')))
+  const reference = event(2, 'model_delta', { runId: 'run', turn: 3, purpose: 'summary', offset: 0, contentBytes: 2048 })
+  state = reduceConversationEvent(state, reference)
+  assert.equal(state.lastEvent, 2)
+  assert.equal(state.messages.length, 1)
+  assert.deepEqual(state.modelDrafts, [])
+  assert.deepEqual(state.mainOutputs, [])
+  assert.equal(reduceConversationEvent(state, reference), state, 'Replay remains idempotent')
+  state = reduceConversationEvent(state, event(3, 'context_notice', { runId: 'run', summary: 'Summary preview', outputTurn: 3, outputBytes: 106496 }))
+  assert.equal(state.lastEvent, 3)
+  assert.equal(state.messages.at(-1)?.content, 'Summary preview')
+  assert.equal(state.messages.at(-1)?.outputTurn, 3)
+  assert.equal(state.messages.at(-1)?.outputBytes, 106496)
+  state = reduceConversationEvent(state, event(4, 'model_delta', { runId: 'run', turn: 4, content: 'Continued answer', offset: 0 }))
+  assert.equal(state.lastEvent, 4)
+  assert.equal(state.modelDrafts.at(-1)?.content, 'Continued answer')
+})
+
+test('each summary owns only its root compaction calls, independently of ordinary replies and other compactions', () => {
+  let state = reduceConversationEvent(createConversationState(session), event(1, 'message', message('input', 1, 'run')))
+  const result = (sequence: number, purpose = '', depth = 0) => event(sequence, 'model_result', {
+    runId: 'run', turn: sequence, depth, modelResult: { provider: 'custom', id: purpose ? 'summary-model' : 'chat-model', purpose, usage: { inputTokens: sequence } },
+  })
+  state = reduceConversationEvent(state, result(2))
+  state = reduceConversationEvent(state, event(3, 'context_status', { runId: 'run', phase: 'compacting' }))
+  state = reduceConversationEvent(state, result(4, 'summary'))
+  state = reduceConversationEvent(state, event(5, 'context_status', { runId: 'run', depth: 1, phase: 'compacting' }))
+  state = reduceConversationEvent(state, result(6, 'summary', 1))
+  state = reduceConversationEvent(state, result(7, 'summary'))
+  state = reduceConversationEvent(state, event(8, 'context_notice', { runId: 'run', depth: 0, summary: 'First summary' }))
+  const first = state.messages.at(-1)!
+  assert.deepEqual(messageResults(first, state.modelResults).map(result => result.sequence), [4, 7])
+  state = reduceConversationEvent(state, event(9, 'context_status', { runId: 'run', phase: 'compacting' }))
+  state = reduceConversationEvent(state, result(10, 'summary'))
+  state = reduceConversationEvent(state, event(11, 'context_notice', { runId: 'run', depth: 0, summary: 'Second summary' }))
+  const second = state.messages.at(-1)!
+  assert.deepEqual(messageResults(second, state.modelResults).map(result => result.sequence), [10])
+  state = reduceConversationEvent(state, result(12))
+  const reply = { ...message('answer', 13, 'run', 'assistant') }
+  assert.deepEqual(messageResults(reply, state.modelResults).map(result => result.sequence), [2, 6, 12])
+  assert.deepEqual(messageResults(first, []).map(result => result.sequence), [4, 7], 'Persisted metadata survives event-window eviction')
+})
+
+test('summary connection identity follows its own request without replacing the main model or leaking across compactions', () => {
+  let state = reduceConversationEvent(createConversationState(session), event(1, 'message', message('input', 1, 'run')))
+  state = reduceConversationEvent(state, event(2, 'model_request', { runId: 'run', key: 'main', provider: 'custom', id: 'same-model' }))
+  for (const [start, key] of [[3, 'first-connection'], [8, 'second-connection']] as const) {
+    state = reduceConversationEvent(state, event(start, 'context_status', { runId: 'run', phase: 'compacting' }))
+    state = reduceConversationEvent(state, event(start + 1, 'model_request', { runId: 'run', purpose: 'summary', key, provider: 'custom', id: 'same-model' }))
+    state = reduceConversationEvent(state, event(start + 2, 'model_request', { runId: 'run', purpose: 'summary', depth: 1, key: 'child', provider: 'custom', id: 'same-model' }))
+    state = reduceConversationEvent(state, event(start + 3, 'context_notice', { runId: 'run', summary: 'Verified summary' }))
+    assert.equal(state.messages.at(-1)?.modelKey, key)
+    assert.equal(state.messages.at(-1)?.provider, 'custom')
+    assert.equal(state.messages.at(-1)?.modelId, 'same-model')
+    assert.equal(state.modelByRun.run?.key, 'main')
+  }
+  state = reduceConversationEvent(state, event(13, 'context_status', { runId: 'run', phase: 'compacting' }))
+  state = reduceConversationEvent(state, event(14, 'context_notice', { runId: 'run', summary: 'Legacy summary without a request' }))
+  assert.equal(state.messages.at(-1)?.modelKey, undefined)
+})
+
+test('internal plans never create terminal messages or unread replies', () => {
+ for(const status of ['succeeded','failed','interrupted']) for(const hasReply of [true,false]) {
+  let state=reduceConversationEvent(createConversationState(session),event(1,'message',message('input',1,'run')))
+  state=reduceConversationEvent(state,event(2,'checklist',{runId:'run',items:[{text:'Private',status:'in_progress'}]}))
+  const finish=event(3,'run_finished',{runId:'run',status,message:hasReply?message('answer',3,'run','assistant'):null})
+  state=reduceConversationEvent(state,finish)
+  assert.equal(state.messages.length,hasReply?2:1)
+  assert.equal(state.selected?.latestReplySequence||0,hasReply?3:0)
+  assert.equal(reduceConversationEvent(state,finish),state)
+  assert.equal(JSON.stringify(state.messages).includes('Private'),false)
+ }
+})
+
+test('checklist timestamps and statuses do not become display messages after interruption', () => {
+ for(const status of ['done','blocked','pending','in_progress']) {
+  let state=reduceConversationEvent(createConversationState(session),event(1,'message',message('input',1,'run')))
+  state=reduceConversationEvent(state,{...event(2,'checklist',{runId:'run',items:[{text:'Private',status}]}),createdAt:'2026-11-06T04:51:38Z'})
+  state=reduceConversationEvent(state,event(3,'run_finished',{runId:'run',status:'interrupted'}))
+  assert.deepEqual(state.messages.map(m=>m.id),['input'])
+ }
+})
+
+test('clearing a checklist and child-only plans do not create final checklist messages', () => {
+  let state = reduceConversationEvent(createConversationState(session), event(1, 'message', message('input', 1, 'run')))
+  state = reduceConversationEvent(state, event(2, 'checklist', { runId: 'run', items: [{ text: 'Plan', status: 'pending' }] }))
+  state = reduceConversationEvent(state, event(3, 'checklist', { runId: 'run', items: [] }))
+  state = reduceConversationEvent(state, event(4, 'checklist', { runId: 'run', depth: 1, taskId: 'child', items: [{ text: 'Child', status: 'done' }] }))
+  state = reduceConversationEvent(state, event(5, 'run_finished', { runId: 'run', status: 'succeeded' }))
+  assert.equal(state.messages.length, 1)
+})
+
+test('child compaction and empty summaries do not add chat messages', () => {
+  let state = createConversationState(session)
+  state = reduceConversationEvent(state, event(1, 'context_notice', { runId: 'run-a', summary: 'child', depth: 1 }))
+  state = reduceConversationEvent(state, event(2, 'context_notice', { runId: 'run-a', summary: '  ', depth: 0 }))
+  assert.deepEqual(state.messages, [])
+})
+
+test('long live runs preserve cumulative usage through completion and reload', () => {
+  let state = createConversationState(session)
+  for (let turn = 1; turn <= 117; turn++) state = reduceConversationEvent(state, event(turn, 'model_result', {
+    runId: 'long-run', turn, taskId: turn % 2 ? 'main' : 'child', depth: turn % 2 ? 0 : 1,
+    modelResult: { provider: 'openai-chat', id: 'model', finishReason: 'tool_calls', durationMs: 1000,
+      usage: { inputTokens: turn, outputTokens: 10, cacheReadTokens: 0, reasoningTokens: 0 } },
+  }))
+  const live = runResults('long-run', [], state.modelResults)
+  assert.equal(live.length, 117)
+  assert.equal(live.reduce((sum, result) => sum + result.usage!.inputTokens, 0), 6903)
+  state = reduceConversationEvent(state, event(118, 'run_finished', {
+    runId: 'long-run', status: 'succeeded', message: message('long-reply', 118, 'long-run', 'assistant'),
+  }))
+  assert.deepEqual(messageResults(state.messages[0], state.modelResults), live)
+  assert.deepEqual(messageResults(state.messages[0], []), live)
+})
+
+
+test('partial input status events preserve content and ordering, and queue resume clears pause', () => {
+  let state = createConversationState(session)
+  state.queuedInputs = [{ id: 'first', status: 'queued', content: 'Preserve me', imageCount: 1 }, { id: 'second', status: 'queued', content: 'Next' }]
+  state = reduceConversationEvent(state, { sequence: 1, kind: 'input_status', data: { id: 'first', status: 'paused' } })
+  assert.deepEqual(state.queuedInputs[0], { id: 'first', status: 'paused', content: 'Preserve me', imageCount: 1 })
+  state = reduceConversationEvent(state, { sequence: 2, kind: 'input_queue_state', data: { paused: true } })
+  assert.equal(state.selected?.inputQueuePaused, true)
+  assert.equal(state.queuedInputs[1].status, 'queued')
+  state = reduceConversationEvent(state, { sequence: 3, kind: 'input_queue_state', data: { paused: false } })
+  assert.equal(state.queuedInputs[0].status, 'queued')
+  assert.equal(state.selected?.inputQueuePaused, false)
+  state = reduceConversationEvent(state, { sequence: 4, kind: 'input_delivered', data: { id: 'first', runId: 'run' } })
+  assert.deepEqual(state.queuedInputs.map(item => item.id), ['second'])
+})
+
+test('actual reasoning survives request, live result and persisted reply without summary requests overwriting it', () => {
+  let state = createConversationState(session)
+  state = reduceConversationEvent(state, event(1, 'model_request', { runId: 'run-a', key: 'model-key', provider: 'openai-chat', id: 'model', reasoningEffort: 'high' }))
+  state = reduceConversationEvent(state, event(2, 'model_request', { runId: 'run-a', key: 'model-key', provider: 'openai-chat', id: 'model', reasoningEffort: 'none', purpose: 'summary' }))
+  assert.equal(state.modelByRun['run-a'].reasoningEffort, 'high')
+  state = reduceConversationEvent(state, event(3, 'model_result', { runId: 'run-a', turn: 2, depth: 0, modelResult: { provider: 'openai-chat', id: 'model', finishReason: 'stop', reasoningEffort: 'high' } }))
+  state = appendMessage(state, { ...message('reply-a', 4, 'run-a', 'assistant'), outputTurn: 2 })
+  assert.equal(state.modelResults[0].reasoningEffort, 'high')
+  assert.equal(state.messages[0].modelResults?.[0].reasoningEffort, 'high')
+  const reloaded = { ...state.messages[0], modelResults: [{ ...state.modelResults[0], reasoningEffort: 'max' }] }
+  assert.equal(messageResults(reloaded, [])[0].reasoningEffort, 'max')
+})
+
+test('background output growth preserves job details and does not displace execution steps', () => {
+  let state = createConversationState(session)
+  state = reduceConversationEvent(state, event(1, 'job', { id: 'job', runId: 'run-a', status: 'running', command: 'long task', bytes: 0 }))
+  for (let sequence = 2; sequence < 1600; sequence++) state = reduceConversationEvent(state, event(sequence, 'job_output', { id: 'job', runId: 'run-a', bytes: sequence }))
+  assert.equal(state.jobs[0].bytes, 1599)
+  assert.equal(state.jobs[0].command, 'long task')
+  assert.equal(state.processEvents.length, 1)
+  assert.equal(state.lastEvent, 1599)
+})

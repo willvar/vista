@@ -1,6 +1,5 @@
-import type { Job } from '../client/types.ts'
+import type { Job } from '@vista/client'
 
-export function jobActive(job: Job) { return job.status === 'starting' || job.status === 'running' }
 export function jobStatusKey(job: Job) {
   if (job.status === 'starting') return 'processStarting'
   if (job.status === 'running') return 'processRunning'

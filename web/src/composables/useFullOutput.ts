@@ -1,7 +1,6 @@
 import { computed } from 'vue'
 import { useQuery, type QueryClient } from '@tanstack/vue-query'
-import type { OutputView } from '../client/types.ts'
-import type { VistaClient } from '../client/vista.ts'
+import type { OutputView, VistaClient } from '@vista/client'
 import { queriesFor } from '../client/queries.ts'
 import { useHistoryRead } from './useConversationHistory.ts'
 

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { conversationTimeline, recentSentMessage } from './conversationTimeline.ts'
-import type { ConversationItem } from './mainOutputs.ts'
+import type { ConversationItem } from '@vista/client'
 import { formatQuotedReply, readQuotedReply, sentMessageBody } from './quotedReply.ts'
 
 test('messages and execution steps share event order and stable keys across prepends', () => {

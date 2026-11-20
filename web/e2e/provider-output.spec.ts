@@ -1,5 +1,5 @@
 import { test, expect } from './fixtures'
-import type { StreamEvent } from '../src/client/types'
+import type { StreamEvent } from '@vista/client'
 
 const source = 'https://example.com/source'
 

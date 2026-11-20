@@ -4,14 +4,15 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "npm run generate:i18n && vite",
-    "test:unit": "node --test src/client/*.test.ts src/state/*.test.ts src/composables/*.test.ts src/i18n/*.test.ts scripts/e2e-*.test.ts",
+    "dev": "npm run build:sdk && npm run generate:i18n && vite",
+    "test:unit": "npm run build:sdk && node --test '../sdk/test/**/*.test.ts' src/client/*.test.ts src/state/*.test.ts src/composables/*.test.ts src/i18n/*.test.ts scripts/e2e-*.test.ts",
     "test:e2e": "playwright test",
-    "build": "npm run generate:i18n && npm run check:i18n && vite build",
-    "check": "vue-tsc --noEmit -p tsconfig.json",
-    "typecheck": "vue-tsc --noEmit -p tsconfig.json",
+    "build": "npm run build:sdk && npm run generate:i18n && npm run check:i18n && vite build",
+    "check": "npm run typecheck",
+    "typecheck": "npm run build:sdk && vue-tsc --noEmit -p tsconfig.json",
     "generate:i18n": "node scripts/generate-chinese.ts && node scripts/generate-reply-languages.ts",
-    "check:i18n": "node scripts/generate-chinese.ts --check && node scripts/generate-reply-languages.ts --check && node scripts/check-i18n.ts"
+    "check:i18n": "node scripts/generate-chinese.ts --check && node scripts/generate-reply-languages.ts --check && node scripts/check-i18n.ts",
+    "build:sdk": "tsc -p ../sdk/tsconfig.json"
   },
   "dependencies": {
     "@ark-ui/vue": "5.40.0",
@@ -21,6 +22,7 @@
     "@tanstack/charts": "1.5.0",
     "@tanstack/vue-query": "5.107.1",
     "@tanstack/vue-virtual": "3.13.52",
+    "@vista/client": "file:../sdk",
     "dompurify": "^3.4.16",
     "markdown-it": "^15.0.2",
     "medium-zoom": "1.1.0",

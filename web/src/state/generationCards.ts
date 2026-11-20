@@ -1,4 +1,4 @@
-import type { StreamEvent } from '../client/types.ts'
+import type { StreamEvent } from '@vista/client'
 
 export type GenerationCard = {
   key: string; runId: string; source: number; kind: 'image' | 'video'

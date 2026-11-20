@@ -2,7 +2,8 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import { computed, effectScope, nextTick, ref, watch } from 'vue'
 import { useConversationHistory } from './useConversationHistory.ts'
-import { conversationItems, displayBodyVersion, hydrateMainOutput, mergeMainOutputs, type ConversationItem } from '../state/mainOutputs.ts'
+import { conversationItems, displayBodyVersion, hydrateMainOutput, mergeMainOutputs } from '@vista/client'
+import type { ConversationItem } from '@vista/client'
 
 const item = (sequence: number): ConversationItem => ({ id: String(sequence), displayKey: String(sequence), sequence, displaySequence: sequence, runId: String(sequence), role: 'assistant', content: 'text', createdAt: '' })
 const settle = async () => { await nextTick(); await new Promise(resolve => setImmediate(resolve)) }

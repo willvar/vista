@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import type { StreamEvent } from '../client/types.ts'
+import type { StreamEvent } from '@vista/client'
 import { buildRunTrace, buildTraceAgentHierarchy, projectToolOutput, reasoningDisplayText, toolOperationLabelKey, toolSummaryText, type RunTraceTask } from './runTrace.ts'
 
 test('patch results retain committed file diffs even when later writes failed', () => {

@@ -4,8 +4,7 @@ import { useI18n } from 'vue-i18n'
 import { RuleEffect, type JsonSchema, type UISchemaElement } from '@jsonforms/core'
 import { Alert as VAlert, Button as VButton } from './ui'
 import SchemaForm from './SchemaForm.vue'
-import type { VistaClient } from './client/vista'
-import type { UserAgentSettings } from './client/types'
+import type { VistaClient, UserAgentSettings } from '@vista/client'
 const props = defineProps<{ client: VistaClient; disabled?: boolean }>()
 const emit = defineEmits<{ busy: [busy: boolean]; submit: [] }>()
 const { t } = useI18n({ useScope: 'global' })

@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import type { MainOutput, Message, StreamEvent } from '../client/types.ts'
-import { createConversationState, pruneConversationWindow, reduceConversationEvent, replyTraceSegments } from './conversation.ts'
-import { conversationItems, hydrateMainOutput, mainOutputText, mergeMainOutputs, reduceMainOutputEvent } from './mainOutputs.ts'
+import type { MainOutput, Message, StreamEvent } from '@vista/client'
+import { createConversationState, pruneConversationWindow, reduceConversationEvent, replyTraceSegments } from '@vista/client'
+import { conversationItems, hydrateMainOutput, mainOutputText, mergeMainOutputs, reduceMainOutputEvent } from '@vista/client'
 import { buildRunTrace } from './runTrace.ts'
 import { conversationTimeline } from './conversationTimeline.ts'
 

@@ -1,4 +1,4 @@
-import type { ModelCatalog, ModelInfo } from '../client/types'
+import type { ModelCatalog, ModelInfo } from '@vista/client'
 
 export function visibleModels(catalog: ModelCatalog): ModelInfo[] {
   return catalog.models.filter(model => !model.disabled && (!model.kind || model.kind === 'chat') && (!model.status || model.status === 'active' || model.status === 'deprecated')

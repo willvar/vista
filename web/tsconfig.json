@@ -19,6 +19,7 @@
     "skipLibCheck": true
   },
   "include": [
+    "../sdk/test/**/*.test.ts",
     "src/**/*.ts",
     "src/**/*.vue",
     "vite.config.ts",

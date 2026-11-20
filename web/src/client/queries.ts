@@ -1,5 +1,5 @@
 import { QueryClient } from '@tanstack/vue-query'
-import type { VistaClient } from './vista.ts'
+import type { VistaClient } from '@vista/client'
 
 const clients = new WeakMap<VistaClient, QueryClient>()
 

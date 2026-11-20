@@ -55,14 +55,16 @@ const consumers: [RegExp, string[]][] = [
   [/^web\/src\/state\/clientRuntime\.ts$/, ['about']],
   [/^web\/src\/ContextCompaction\.vue$/, ['contextHeader']],
   [/^internal\/(?:generation\/|provider\/output_catalog|modelcatalog\/(?:generation|inventory|custom_model_metadata)|resources\/generated\.go|server\/generation_settings\.go)|^scripts\/onnx-decision\/|^web\/src\/(?:Generation|state\/generationCards)/, ['models', 'conversation']],
-  [/^web\/src\/(?:App\.vue$|SessionActionDialog\.vue$|client\/(?:sse|conversationSync|types)\.)|^internal\/(?:server|store)\/session_actions\.go$|^internal\/agent\/tool_(?:session|history)\.go$/, ['sessions', 'conversation']],
+  [/^web\/src\/(?:App\.vue$|SessionActionDialog\.vue$)|^internal\/(?:server|store)\/session_actions\.go$|^internal\/agent\/tool_(?:session|history)\.go$/, ['sessions', 'conversation']],
+  [/^sdk\/src\/(?:conversationSync\.ts|state\/workspace\.ts)$/, ['sessions', 'conversation']],
+  [/^sdk\/src\/state\/(?:conversation|events|inputQueue|mainOutputs)\.ts$/, ['conversation']],
   [/^web\/src\/ui\/TabbedModal\.vue$/, ['about']],
   [/^web\/src\/ui\/Tabs\.vue$/, ['controls', 'about', 'models', 'conversation']],
   [/^web\/src\/ui\/Sender\.vue$/, ['conversation', 'models', 'sessions']],
   [/^web\/src\/(?:ui\/ProgressBar|BatchOperationModal)\.vue$/, ['operationProgress']],
   [/^web\/src\/ui\/Collapsible\.vue$/, ['conversation', 'models', 'skills', 'mcp']],
   [/^internal\/(?:network|codexauth|copilotauth|useragent)\/|^internal\/server\/(?:network_config|provider_network)|^web\/src\/(?:Network|ProxySelection|client\/network|composables\/useNetwork)/, ['network', 'models', 'search', 'mcp', 'conversation']],
-  [/^web\/src\/(?:pages\/ConversationPage|Conversation|Message|Run|Trace|TimelineItem|Context|PendingInputs|QuestionForm|BackgroundProcesses|WorkerStatus)|^web\/src\/(?:client\/queries|state\/(?:conversation|inputQueue|mainOutputs|runTrace|quotedReply|jobs|failureAnalysis)|composables\/use(?:Conversation|Presentation|FullOutput|RunHistory|ScrollbarDrag))|^internal\/(?:agent|worker|workerproto|provider|modeltrace|tool)\//, ['conversation']],
+  [/^web\/src\/(?:pages\/ConversationPage|Conversation|Message|Run|Trace|TimelineItem|Context|PendingInputs|QuestionForm|BackgroundProcesses|WorkerStatus)|^web\/src\/(?:client\/queries|state\/(?:conversationTimeline|runTrace|quotedReply|jobs|failureAnalysis)|composables\/use(?:Conversation|Presentation|FullOutput|RunHistory|ScrollbarDrag))|^internal\/(?:agent|worker|workerproto|provider|modeltrace|tool)\//, ['conversation']],
   [/^web\/src\/schema\/(?:question|QuestionChoiceControl)|^internal\/question\//, ['conversation']],
   [/^web\/src\/composables\/useQuestionComposer/, ['conversation']],
   [/^web\/src\/state\/cacheUsage/, ['conversation']],
@@ -83,7 +85,7 @@ const consumers: [RegExp, string[]][] = [
 
 export function browserScope(paths: readonly string[], available: readonly string[]) {
   const selected = new Set<string>()
-  const frontendSourceChanged = paths.some(path => /^web\/src\//.test(path) && !/\.(?:test|spec)\.ts$/.test(path))
+  const frontendSourceChanged = paths.some(path => /^(?:web|sdk)\/src\//.test(path) && !/\.(?:test|spec)\.ts$/.test(path))
   for (const path of paths) {
     if (/^(?:docs\/|\.vista\/)|(?:\.md|LICENSE|NOTICE)$/.test(path) || /^licenses\//.test(path)) continue
     if (frontendSourceChanged && /^internal\/server\/assets\//.test(path)) continue

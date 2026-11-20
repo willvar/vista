@@ -4,8 +4,7 @@ import { useI18n } from 'vue-i18n'
 import { Empty as VEmpty, Alert as VAlert, Button as VButton, Modal as VModal } from './ui'
 import { IconHistory } from '@tabler/icons-vue'
 import { useWorkspace } from './composables/useWorkspace'
-import type { VistaClient } from './client/vista'
-import type { OMPCatalogInfo } from './client/types'
+import type { VistaClient, OMPCatalogInfo } from '@vista/client'
 import { formatDateTime } from './ui/datetime.ts'
 
 const props = defineProps<{ client: VistaClient }>()

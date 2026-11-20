@@ -45,7 +45,7 @@ $(error Select one benchmark suite: make benchmark tb OR make benchmark gaia)
 endif
 endif
 
-web/node_modules/.package-lock.json: web/package.json web/package-lock.json
+web/node_modules/.package-lock.json: web/package.json web/package-lock.json sdk/package.json
 	npm --prefix web ci
 
 scripts/mcp_upstream/node_modules/.package-lock.json: scripts/mcp_upstream/package.json scripts/mcp_upstream/package-lock.json

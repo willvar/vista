@@ -1,5 +1,5 @@
 import { ref, watch } from 'vue'
-import type { VistaClient } from '../client/vista'
+import type { VistaClient } from '@vista/client'
 
 export type RememberedModel = { key: string; id: string; reasoningEffort: string }
 export type UserPreferences = {

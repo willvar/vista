@@ -1,6 +1,6 @@
-import type { AgentTaskView, ModelResultView, StreamEvent, ToolOutputRef } from '../client/types.ts'
+import { isTimelineEvent } from '@vista/client'
+import type { AgentTaskView, ModelResultView, StreamEvent, ToolOutputRef } from '@vista/client'
 import { inRunTraceRange, type RunTraceRange } from './runTraceRange.ts'
-import { isTimelineEvent } from './conversationTimeline.ts'
 
 export type TraceStatus = 'loading' | 'success' | 'error' | 'abort'
 export type TraceSearchOutput = { matches: { path: string; line?: number; text: string; context?: boolean }[]; paths?: string[]; count?: number; filesScanned?: number; truncated: boolean; warnings?: { path: string; error: string }[] }

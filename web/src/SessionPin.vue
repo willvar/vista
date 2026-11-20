@@ -3,7 +3,7 @@ import { ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { IconPinFilled, IconPin } from '@tabler/icons-vue'
 import { Button as VButton, Tooltip as VTooltip } from './ui'
-import type { Session } from './client/types'
+import type { Session } from '@vista/client'
 import { useWorkspace } from './composables/useWorkspace'
 
 const props = defineProps<{ session: Session }>()

@@ -1,5 +1,5 @@
 import { computed, ref, watch } from 'vue'
-import type { Session } from '../client/types'
+import type { Session } from '@vista/client'
 
 type QuestionMode = 'answers' | 'text'
 

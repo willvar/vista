@@ -5,8 +5,8 @@ import type { ControlElement } from '@jsonforms/core'
 import { Alert as VAlert, Button as VButton, Modal as VModal } from './ui'
 import ConfirmPopover from './ConfirmPopover.vue'
 import SchemaForm from './SchemaForm.vue'
-import { VistaAPIError } from './client/vista'
-import type { ServerConfig } from './client/types'
+import { VistaAPIError } from '@vista/client'
+import type { ServerConfig } from '@vista/client'
 import { useWorkspace } from './composables/useWorkspace'
 const props = defineProps<{ disabled?: boolean }>()
 const { t } = useI18n({ useScope: 'global' })

@@ -2,7 +2,7 @@ import { installMockStateStream, notifyState } from './state-stream-fixture'
 import { openSettingsSection } from './settings-navigation'
 import { test, expect } from './frontend-fixture'
 import type { Page } from '@playwright/test'
-import type { MCPServer, MCPState } from '../src/client/types'
+import type { MCPServer, MCPState } from '@vista/client'
 
 type MockLogin = { id: string; serverId: string; name: string; status: string; expiresAt: string }
 

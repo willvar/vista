@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
-import type { AgentTaskView } from './client/types'
+import type { AgentTaskView } from '@vista/client'
 import FullTraceOutput from './FullTraceOutput.vue'
 import { Button } from './ui'
 

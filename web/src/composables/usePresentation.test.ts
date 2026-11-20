@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import type { Message, ModelInfo, ModelResultView } from '../client/types'
+import type { Message, ModelInfo, ModelResultView } from '@vista/client'
 import { catalogModelName, displayModelName, historicalModelInfo, messageModelIdentity, messageReasoningEffort, modelPickerOptions, modelSearchText, reasoningEffortSuffix } from './usePresentation.ts'
 
 const reply: Message = { id: 'reply', runId: 'run', sequence: 10, role: 'assistant', content: 'Hello', createdAt: '', provider: 'openai-chat', modelId: 'model', outputTurn: 2 }

@@ -4,7 +4,7 @@ import { Button, TextArea } from './ui'
 import { IconTrash, IconPencil, IconArrowBackUp, IconPlayerPlay } from '@tabler/icons-vue'
 import { useI18n } from 'vue-i18n'
 import ConfirmPopover from './ConfirmPopover.vue'
-import type { QueuedInput } from './client/types'
+import type { QueuedInput } from '@vista/client'
 const props = defineProps<{
   items: QueuedInput[]; paused: boolean; busy: Record<string, boolean>
   mutate: (input: QueuedInput, action: 'edit' | 'delete' | 'withdraw', patch?: { content?: string }) => Promise<boolean>

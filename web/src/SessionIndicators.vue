@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { useI18n } from 'vue-i18n'
-import type { Session } from './client/types'
-import { sessionHasUnread } from './state/workspace'
+import { sessionHasUnread } from '@vista/client'
+import type { Session } from '@vista/client'
 
 defineProps<{ session: Session; workerAvailable?: boolean }>()
 const { t } = useI18n({ useScope: 'global' })

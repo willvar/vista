@@ -2,7 +2,7 @@
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import SchemaForm from './SchemaForm.vue'
-import type { ProxyProfile } from './client/network'
+import type { ProxyProfile } from '@vista/client'
 const props = defineProps<{ id: string; modelValue: string; profiles: ProxyProfile[]; disabled?: boolean; resetKey?: string | number }>()
 const emit = defineEmits<{ 'update:modelValue': [value: string]; validity: [valid: boolean] }>()
 const { t } = useI18n({ useScope: 'global' })

@@ -2,7 +2,7 @@
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { IconThinkingHigh } from '@tabler/icons-vue'
-import type { VistaClient } from './client/vista'
+import type { VistaClient } from '@vista/client'
 import { Button, Modal, ProgressBar } from './ui'
 
 const props = defineProps<{ client: VistaClient }>()

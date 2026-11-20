@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { initialModelKey, visibleModels } from './modelVisibility.ts'
-import type { ModelCatalog } from '../client/types'
+import type { ModelCatalog } from '@vista/client'
 
 const catalog: ModelCatalog = { default: 'unknown', models: [
   { key: 'unknown', id: 'private-id', provider: 'openai-chat', recognized: false },

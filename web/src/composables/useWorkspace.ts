@@ -1,14 +1,12 @@
 import { computed, inject, nextTick, onMounted, onUnmounted, provide, ref, watch, type InjectionKey } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
-import { createVistaClient, VistaAPIError } from '../client/vista'
-import { createWorkspaceSync, type StateTopic, type StateConnection, type WorkspaceSnapshots } from '../client/workspaceSync'
-import type { ModelCatalog, ServerStatus, Session, SyncCheckpoint } from '../client/types'
+import { createVistaClient, VistaAPIError, createWorkspaceSync, compareSessionOrder, mergeSessionSnapshot, sessionNeedsAttention } from '@vista/client'
+import type { StateTopic, StateConnection, WorkspaceSnapshots, ModelCatalog, ServerStatus, Session, SyncCheckpoint } from '@vista/client'
 import { useConversation } from './useConversation'
 import { usePresentation } from './usePresentation'
 import { useInteractionPreferences } from './useInteractionPreferences'
 import { isPlainEscape } from './useEscape'
-import { compareSessionOrder, mergeSessionSnapshot, sessionNeedsAttention } from '../state/workspace'
 import { quoteStoragePrefix } from '../state/quotedReply'
 import { trackActivity } from '../client/activity'
 
@@ -16,7 +14,7 @@ function createWorkspace() {
   const route = useRoute()
   const router = useRouter()
   const { t } = useI18n({ useScope: 'global' })
-  const client = createVistaClient()
+  const client = createVistaClient({ language: () => document.documentElement.lang })
   const error = ref('')
   const busy = ref(false)
   const debugMode = ref(false)
@@ -47,10 +45,7 @@ function createWorkspace() {
   const revisions = { sessions: 0, models: 0, status: 0 }
   const stateConnection = ref<StateConnection>({ phase: 'connecting' })
   const stateSync = createWorkspaceSync({
-    open: (metrics, signal) => fetch(`/api/events${metrics ? '?metrics=1' : ''}`, { signal }),
-    interests: async (id, topics, timezone, signal) => {
-      await client.request('/events/subscriptions', { method: 'PUT', body: JSON.stringify({ id, topics, timezone }), signal })
-    },
+    client,
     status: value => { stateConnection.value = value },
     metrics: value => {
       if (!serverStatus.value || Date.parse(value.sampledAt) >= Date.parse(serverStatus.value.sampledAt)) {

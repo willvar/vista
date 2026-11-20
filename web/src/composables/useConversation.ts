@@ -1,16 +1,10 @@
 import { computed, onScopeDispose, reactive, ref, toRefs, watch, type Ref } from 'vue'
-import type { VistaClient } from '../client/vista'
-import { VistaAPIError } from '../client/vista.ts'
-import { createConversationSync, type ConversationSyncStatus, type ConversationSyncDiagnostics } from '../client/conversationSync.ts'
-import type { Artifact, ConversationSnapshot, CompactionStatus, ContextUsage, Job, MainOutput, Message, ModelCatalog, OutputView, QuestionAnswer, QueuedInput, SendMessageResult, Session, SessionActionPreview, StreamEvent } from '../client/types'
-import { appendMessage, createConversationState, messageResults, runResults, pruneConversationWindow, reduceConversationEvent, replyTraceSegments, trailingTraceSegment, type ReplyTraceSegment } from '../state/conversation.ts'
+import { VistaAPIError, restoreConversationSnapshot, createConversationSync, appendMessage, createConversationState, messageResults, runResults, pruneConversationWindow, reduceConversationEvent, replyTraceSegments, trailingTraceSegment, conversationItems, displayBodyVersion, displayOutputKey, hydrateMainOutput, mainOutputKey, mainOutputText, mergeMainOutputs, confirmInputEvent, projectInputQueue, jobActive } from '@vista/client'
+import type { VistaClient, ConversationSyncStatus, ConversationSyncDiagnostics, Artifact, ConversationSnapshot, CompactionStatus, ContextUsage, Job, MainOutput, Message, ModelCatalog, OutputView, QuestionAnswer, QueuedInput, SendMessageResult, Session, SessionActionPreview, StreamEvent, ReplyTraceSegment, ConversationItem, MainOutputRecord } from '@vista/client'
 import { toolOperationLabelKey, compactTraceText, toolSummaryText } from '../state/runTrace.ts'
-import { conversationItems, displayBodyVersion, displayOutputKey, hydrateMainOutput, mainOutputKey, mainOutputText, mergeMainOutputs, type ConversationItem, type MainOutputRecord } from '../state/mainOutputs.ts'
 import { useInteractionPreferences, type InteractionPreferences } from './useInteractionPreferences.ts'
 import { formatQuotedReply, quoteStoragePrefix, readQuotedReply, type QuotedReply, type QuotedText } from '../state/quotedReply.ts'
 import { reasoningChoiceLabel } from '../ui/reasoning.ts'
-import { confirmInputEvent, projectInputQueue } from '../state/inputQueue.ts'
-import { jobActive } from '../state/jobs.ts'
 import { configuredConversationModel, visibleModels } from '../state/modelVisibility.ts'
 import { failureAnalysisPrompt, type FailureContext } from '../state/failureAnalysis.ts'
 
@@ -315,52 +309,8 @@ export function useConversation({ client, sessions, modelCatalog, error, busy, r
     const old = state
     const updated = { ...snapshot.session, readSequence: Math.max(snapshot.session.readSequence || 0, selected.value?.readSequence || 0),
       manualModelKey: choice?.manualModelKey, manualReasoningEffort: choice?.manualReasoningEffort, processingTier: choice?.processingTier }
-    let next = createConversationState(updated)
-    next.messages = snapshot.messages
-    const latestUser = snapshot.messages.filter(message => message.role === 'user').at(-1)
-    next.activeRunID = snapshot.currentRun?.id || latestUser?.runId || snapshot.messages.at(-1)?.runId || ''
-    next.activeRunSequence = latestUser?.sequence || 0
-    next.runClock = snapshot.currentRun || (next.activeRunID ? { id: next.activeRunID, startedAt: snapshot.messages.find(message => message.role === 'user' && message.runId === next.activeRunID)?.createdAt || '' } : null)
-    next.latestMessageSequence = snapshot.messages.at(-1)?.sequence || 0
-    next.hasOlder = snapshot.hasOlder
-    next.jobs = old.jobs; next.artifacts = old.artifacts
-    for (const event of snapshot.events) next = reduceConversationEvent(next, event)
-    next.lastEvent = snapshot.throughSequence
-    // The transaction owns the queue at this boundary, including inputs whose
-    // lifecycle records are outside the recent event window. Retain only HTTP
-    // confirmations that this snapshot has not covered yet.
-    next.queuedInputs = snapshot.queuedInputs
-    next.inputQueuePaused = !!snapshot.session.inputQueuePaused
-    next.inputConfirmations = old.inputConfirmations.filter(event => event.sequence > snapshot.throughSequence)
-    const queue = projectInputQueue(next)
-    // The database snapshot wins over older lifecycle records in its event window.
-    next.selected = { ...updated, inputQueuePaused: queue.paused, pendingInputCount: queue.items.length }
-    if (!updated.executing && next.activeRunID) {
-      next.finishedRuns = { ...next.finishedRuns, [next.activeRunID]: true }
-      next.runProgress = { runId: next.activeRunID, phase: 'finished' }
-    }
     const rollback = (snapshot.revertedSequence || 0) > old.lastEvent
-    if (old.hasNewer && !rollback) {
-      next.messages = old.messages
-      next.hasOlder = old.hasOlder
-      next.hasNewer = (next.messages.at(-1)?.sequence || 0) < next.latestMessageSequence
-    } else if (!rollback) {
-      const window = new Map(old.messages.filter(message => message.sequence < (snapshot.messages[0]?.sequence || 0)).map(message => [message.id, message]))
-      for (const message of next.messages) window.set(message.id, message)
-      next.messages = [...window.values()].sort((a, b) => a.sequence - b.sequence)
-      next.hasOlder = old.hasOlder
-    }
-    // A POST acknowledgement can finish after the snapshot's read boundary.
-    for (const message of old.messages.filter(message => message.sequence > snapshot.throughSequence)) next = appendMessage(next, message)
-    if (old.activeRunSequence > snapshot.throughSequence) {
-      next.activeRunID = old.activeRunID; next.activeRunSequence = old.activeRunSequence
-      next.runProgress = old.runProgress
-      next.runClock = old.runClock
-      next.selected = { ...next.selected!, executing: old.selected?.executing || false }
-    }
-    const unchanged = new Set(next.messages.filter(message => old.messages.some(previous => previous.id === message.id
-      && previous.content === message.content && previous.outputTurn === message.outputTurn && previous.outputBytes === message.outputBytes)).map(message => message.id))
-    next.modelOutput = Object.fromEntries(Object.entries(old.modelOutput).filter(([id]) => unchanged.has(id)))
+    const next = restoreConversationSnapshot(old, snapshot, updated)
     // In-flight indexes/bodies belong to the view they started from. Reload
     // indexes after replacement, including runs whose IDs have not changed.
     indexedRuns.clear(); modelOutputRequests.clear(); mainOutputRequests.clear()
@@ -371,7 +321,7 @@ export function useConversation({ client, sessions, modelCatalog, error, busy, r
       contextUsageRequest++
     }
     viewRevision.value++
-    Object.assign(state, pruneConversationWindow(next))
+    Object.assign(state, next)
     snapshotReady.value = true
     acknowledgedReplySequence = snapshot.session.latestReplySequence || 0
     latestUserSequence.value = next.activeRunSequence
@@ -386,7 +336,8 @@ export function useConversation({ client, sessions, modelCatalog, error, busy, r
     void refreshContextUsage()
   }
   function connectStream(scope: Scope) {
-    if (!scope.sync) scope.sync = createConversationSync({
+    if (scope.sync) return scope.sync.start()
+    const sync = scope.sync = createConversationSync({
       client, sessionId: scope.id, scope: scope.generation, signal: scope.controller.signal,
       cursor: () => state.lastEvent, replySequence: () => acknowledgedReplySequence,
       inputQueue: () => ({ count: state.queuedInputs.length, paused: state.inputQueuePaused }),
@@ -411,7 +362,12 @@ export function useConversation({ client, sessions, modelCatalog, error, busy, r
       status: status => { if (current(scope)) synchronization.value = status },
       diagnostics: value => { if (current(scope)) syncDiagnostics.value = value },
     })
-    return scope.sync.start()
+    const { signal } = scope.controller
+    if (typeof document !== 'undefined') document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible') sync.reconnect('foreground')
+    }, { signal })
+    if (typeof window !== 'undefined') window.addEventListener('online', () => sync.reconnect('online'), { signal })
+    return sync.start()
   }
   function resynchronize() { currentScope?.sync?.reconnect('manual recovery', true) }
   function renderFailure(failure: unknown) { currentScope?.sync?.diagnostic('render failed', failure) }

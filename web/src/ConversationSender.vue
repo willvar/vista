@@ -9,7 +9,7 @@ import ConversationQuotes from './ConversationQuotes.vue'
 import type { QuotedExcerpt } from './state/quotedReply'
 import { useWorkspace } from './composables/useWorkspace'
 import { useQuestionComposer } from './composables/useQuestionComposer'
-import type { QuestionAnswer } from './client/types'
+import type { QuestionAnswer } from '@vista/client'
 
 const QuestionForm = defineAsyncComponent(() => import('./QuestionForm.vue'))
 const { t } = useI18n({ useScope: 'global' })

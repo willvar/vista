@@ -8,10 +8,10 @@ import ConfirmPopover from './ConfirmPopover.vue'
 import CopyAction from './ui/CopyAction.vue'
 import SchemaForm from './SchemaForm.vue'
 import type { FormIssue } from './schema/validation'
-import { VistaAPIError } from './client/vista'
+import { VistaAPIError } from '@vista/client'
+import type { MCPCheck as Check, MCPServer, MCPConfig, LoginUpdate } from '@vista/client'
 import { useWorkspace } from './composables/useWorkspace'
 import { formatDateTime } from './ui/datetime.ts'
-import type { MCPCheck as Check, MCPServer, MCPConfig, LoginUpdate } from './client/types'
 
 type Tool = { name: string; description: string; inputSchema: unknown }
 type Login = { id: string; name: string; status: string; authorizationUrl?: string; error?: string; expiresAt: string }

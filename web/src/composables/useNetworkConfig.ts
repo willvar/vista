@@ -1,7 +1,6 @@
 import { onScopeDispose, ref, shallowRef, toValue, watch, type MaybeRefOrGetter } from 'vue'
-import type { VistaClient } from '../client/vista'
-import type { createWorkspaceSync } from '../client/workspaceSync'
-import { networkInput, type NetworkConfiguration, type NetworkSettings } from '../client/network.ts'
+import type { VistaClient, createWorkspaceSync, NetworkConfiguration, NetworkSettings } from '@vista/client'
+import { networkInput } from '../client/network.ts'
 
 type Dependencies = { client: VistaClient; stateSync: ReturnType<typeof createWorkspaceSync> }
 type SnapshotRead = { controller: AbortController; readers: number; promise: Promise<void> }

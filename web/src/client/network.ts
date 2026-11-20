@@ -1,12 +1,5 @@
-export type ProxyProfile = {
-  id: string; name: string; protocol: 'http' | 'https' | 'socks5'; server: string; port: number
-  authentication: 'none' | 'password'; connectIp?: string; insecureSkipVerify?: boolean; hasCredentials?: boolean
-  username?: string; password?: string
-}
-export type NetworkSettings = { globalProxy: string; profiles: ProxyProfile[] }
-export type NetworkConfiguration = { config: NetworkSettings; revision: string; version: string }
-export type NetworkReference = { kind: 'global' | 'provider'; name: string; key?: string }
-export type NetworkCheck = { ok: boolean; route?: string; stage: string; httpStatus: number; error: string; checkedAt: string; target: string }
+import type { NetworkSettings, ProxyProfile } from '@vista/client'
+
 // Typed projection: never send write-only placeholders, public credential flags,
 // or a complete application configuration document back as saved credentials.
 export function networkInput(config: NetworkSettings): NetworkSettings {

@@ -1,5 +1,6 @@
 import { computed, hasInjectionContext, inject, nextTick, onScopeDispose, ref, shallowRef, watch, type InjectionKey, type Ref } from 'vue'
-import { displayBodyVersion as bodyVersion, displayOutputKey, needsFullDisplayText, type ConversationItem, type DisplayBody } from '../state/mainOutputs.ts'
+import { displayBodyVersion as bodyVersion, displayOutputKey, needsFullDisplayText } from '@vista/client'
+import type { ConversationItem, DisplayBody } from '@vista/client'
 
 export const historyReadKey: InjectionKey<(key: symbol, pending: boolean) => void> = Symbol('historyReads')
 export function useHistoryRead(loading: Ref<boolean>) {

@@ -5,7 +5,7 @@ import { Empty as VEmpty, Button } from './ui'
 import { IconArrowBarDown } from '@tabler/icons-vue'
 import { useI18n } from 'vue-i18n'
 import { useWorkspace } from './composables/useWorkspace'
-import type { Job, OutputView } from './client/types'
+import type { Job, OutputView } from '@vista/client'
 import PlainTextOutput from './PlainTextOutput.vue'
 
 const props = defineProps<{ sessionId: string; job: Job }>()

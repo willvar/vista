@@ -1,7 +1,7 @@
 import type { Locator, Page } from '@playwright/test'
 import { test, expect, type VistaFixture } from './fixtures'
 import { test as historyTest } from './long-history-fixture'
-import type { MainOutput, Message, QueuedInput } from '../src/client/types'
+import type { MainOutput, Message, QueuedInput } from '@vista/client'
 import { quoteStoragePrefix } from '../src/state/quotedReply'
 
 test.use({ replyWithPrompt: true })

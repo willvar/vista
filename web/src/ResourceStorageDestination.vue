@@ -5,7 +5,7 @@ import { Alert as VAlert, Button as VButton, Modal as VModal, Spin as VSpin } fr
 import SchemaForm from './SchemaForm.vue'
 import ConfirmPopover from './ConfirmPopover.vue'
 import { useWorkspace } from './composables/useWorkspace'
-import type { ResourceStorageConfiguration, ResourceStorageStatus } from './client/types'
+import type { ResourceStorageConfiguration, ResourceStorageStatus } from '@vista/client'
 
 const props = defineProps<{ configuration?: ResourceStorageConfiguration; busy: boolean }>()
 const emit = defineEmits<{ changed: [value: ResourceStorageStatus]; 'modal-open': [value: boolean] }>()

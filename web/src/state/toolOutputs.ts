@@ -1,4 +1,4 @@
-import type { Artifact, Job, ToolOutputRef } from '../client/types'
+import type { Artifact, Job, ToolOutputRef } from '@vista/client'
 
 type OutputNode = {
   callId?: string

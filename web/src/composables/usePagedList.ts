@@ -1,7 +1,5 @@
 import { computed, onScopeDispose, ref, shallowRef, watch, type Ref } from 'vue'
-import type { PageInfo } from '../client/types.ts'
-import type { VistaClient } from '../client/vista.ts'
-import type { createWorkspaceSync, StateTopic } from '../client/workspaceSync.ts'
+import type { PageInfo, VistaClient, createWorkspaceSync, StateTopic } from '@vista/client'
 
 function atLeast(value: string | undefined, expected: string) {
   const [epoch, revision] = value?.split(':') ?? []

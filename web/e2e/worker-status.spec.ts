@@ -1,5 +1,5 @@
 import { test, expect } from './fixtures'
-import type { CompactionStatus } from '../src/client/types'
+import type { CompactionStatus } from '@vista/client'
 import { settleLayout } from './layout-ready'
 
 test('worker metrics stay behind an icon and their popup fits the viewport', async ({ page, vista }, testInfo) => {

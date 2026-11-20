@@ -1,7 +1,7 @@
 import { useI18n } from 'vue-i18n'
 import { computed, type Ref } from 'vue'
 import { reasoningChoiceLabel } from '../ui/reasoning.ts'
-import type { Message, ModelCatalog, ModelInfo, ModelResultView, Session, StreamEvent } from '../client/types'
+import type { Message, ModelCatalog, ModelInfo, ModelResultView, Session, StreamEvent } from '@vista/client'
 import { formatDateTime } from '../ui/datetime.ts'
 import { visibleModels } from '../state/modelVisibility.ts'
 

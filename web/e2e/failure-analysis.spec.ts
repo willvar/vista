@@ -1,6 +1,6 @@
 import type { Page, TestInfo } from '@playwright/test'
 import { test, expect, type VistaFixture } from './fixtures'
-import type { Message, SessionListSnapshot } from '../src/client/types'
+import type { Message, SessionListSnapshot } from '@vista/client'
 import { installMockStateStream, notifyState } from './state-stream-fixture'
 
 test.use({ modelFailure: { status: 400, body: { error: { type: 'invalid_request_error',

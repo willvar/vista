@@ -1,5 +1,5 @@
 import { createAjv, isVisible, RuleEffect, type ControlElement, type JsonSchema7 as JsonSchema } from '@jsonforms/core'
-import type { QuestionAnswer, QuestionPrompt } from '../client/types'
+import type { QuestionAnswer, QuestionPrompt } from '@vista/client'
 
 export type QuestionDraft = { options: string[]; custom: boolean; text: string }
 export type QuestionData = Record<string, QuestionDraft>

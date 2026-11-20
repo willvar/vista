@@ -1,6 +1,5 @@
 import { computed, onScopeDispose, ref, watch, type Ref } from 'vue'
-import type { VistaClient } from '../client/vista'
-import type { RunOverview, StreamEvent } from '../client/types'
+import type { VistaClient, RunOverview, StreamEvent } from '@vista/client'
 import { inRunTraceRange, runTraceRangeQuery, type RunTraceRange } from '../state/runTraceRange.ts'
 
 type RunHistoryOptions = RunTraceRange & {

@@ -4,11 +4,9 @@ import { effectScope, nextTick, ref } from 'vue'
 import { useConversation, welcomeDraftStorageKey, type ConversationOptions } from './useConversation.ts'
 import { useInteractionPreferences } from './useInteractionPreferences.ts'
 import { useConversationHistory } from './useConversationHistory.ts'
-import { displayBodyVersion } from '../state/mainOutputs.ts'
+import { displayBodyVersion, createVistaClient } from '@vista/client'
+import type { VistaClient, EventStreamOptions, Artifact, Job, CompactionStatus, ConversationSnapshot, QueuedInput, Message, ModelCatalog, OutputView, PendingReply, Session, StreamEvent } from '@vista/client'
 import { quoteStoragePrefix, sentMessageBody } from '../state/quotedReply.ts'
-import type { VistaClient } from '../client/vista'
-import type { EventStreamOptions } from '../client/sse'
-import type { Artifact, Job, CompactionStatus, ConversationSnapshot, QueuedInput, Message, ModelCatalog, OutputView, PendingReply, Session, StreamEvent } from '../client/types'
 
 function deferred<T>() {
   let resolve!: (value: T) => void
@@ -175,6 +173,7 @@ function fixture(t: TestContext, response?: (path: string, options?: RequestInit
   let refreshes = 0
   const streams = new Map<string, EventStreamOptions>()
   const client: VistaClient = {
+    ...createVistaClient({ fetch: async () => { throw new Error('Unexpected request') } }),
     async request<T>(path: string, options?: RequestInit): Promise<T> {
       const custom = response?.(path, options)
       if (custom) return await custom as T

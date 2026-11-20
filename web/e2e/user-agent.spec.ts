@@ -1,7 +1,7 @@
 import { openAboutAdvanced } from './settings-navigation'
 import { test, expect } from './fixtures'
 import { deferPointerDownFrames } from './deferred-frames'
-import type { UserAgentSettings } from '../src/client/types'
+import type { UserAgentSettings } from '@vista/client'
 
 test('UA presets preview exact headers and custom changes reach a resident Worker @responsive', async ({ page, vista }, testInfo) => {
   const initial = await vista.api('/user-agent') as UserAgentSettings

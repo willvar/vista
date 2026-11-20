@@ -1,5 +1,5 @@
 import type { Page } from '@playwright/test'
-import type { ConversationSnapshot, Message, QueuedInput, Session, StreamEvent } from '../src/client/types'
+import type { ConversationSnapshot, Message, QueuedInput, Session, StreamEvent } from '@vista/client'
 
 // A mock core read must describe the same saved state as its message/events
 // endpoints. Tests with delayed loads should delay this whole view together.

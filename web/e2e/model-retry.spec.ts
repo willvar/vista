@@ -1,6 +1,6 @@
 import { test, expect } from './fixtures'
-import type { Message, StreamEvent } from '../src/client/types'
-import type { ModelDiagnosticSummary } from '../src/client/modelDiagnostics'
+import type { Message, StreamEvent } from '@vista/client'
+import type { ModelDiagnosticSummary } from '@vista/client'
 
 test.describe('transient model failure', () => {
   test.use({ modelFailure: { status: 502, attempts: 1, retryAfterMs: 8000,

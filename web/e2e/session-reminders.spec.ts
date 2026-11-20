@@ -1,6 +1,6 @@
 import { closeSettings } from './settings-navigation'
 import { test, expect } from './fixtures'
-import type { Session } from '../src/client/types'
+import type { Session } from '@vista/client'
 
 test.setTimeout(45_000)
 

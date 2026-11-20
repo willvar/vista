@@ -2,7 +2,7 @@
 import { nextTick, onUnmounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { Input as VInput } from './ui'
-import type { Session } from './client/types'
+import type { Session } from '@vista/client'
 import { useWorkspace } from './composables/useWorkspace'
 
 const props = defineProps<{ session: Session }>()

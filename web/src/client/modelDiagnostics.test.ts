@@ -1,6 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { mergeDiagnosticSummaries, type ModelDiagnosticSummary } from './modelDiagnostics.ts'
+import type { ModelDiagnosticSummary } from '@vista/client'
+import { mergeDiagnosticSummaries } from './modelDiagnostics.ts'
 
 test('diagnostic index updates are scoped, ordered and deduplicated without bodies', () => {
   const a: ModelDiagnosticSummary = { id: 'a', sessionId: 'session', runId: 'run', provider: 'mock', protocol: 'chat', model: 'fixture', startedAt: '2026-10-25T00:00:00Z', durationMs: 10, truncated: false }

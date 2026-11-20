@@ -1,7 +1,7 @@
 import { installMockStateStream, notifyState } from './state-stream-fixture'
 import { openSettingsSection } from './settings-navigation'
 import { test, expect } from './fixtures'
-import type { OMPCatalogInfo } from '../src/client/types'
+import type { OMPCatalogInfo } from '@vista/client'
 
 function recordCheck(info: OMPCatalogInfo, automatic = false): OMPCatalogInfo {
   return { ...info, history: [{ checkedAt: info.checkedAt!, automatic, changed: !!info.lastCheckChanged, error: info.checkError,

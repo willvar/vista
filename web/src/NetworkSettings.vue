@@ -7,8 +7,9 @@ import ProxySelection from './ProxySelection.vue'
 import NetworkProfileEditor from './NetworkProfileEditor.vue'
 import { useNetworkConfig } from './composables/useNetworkConfig'
 import { useWorkspace } from './composables/useWorkspace'
-import { VistaAPIError } from './client/vista'
-import { networkInput, type NetworkCheck, type NetworkReference, type ProxyProfile } from './client/network'
+import { VistaAPIError } from '@vista/client'
+import type { NetworkCheck, NetworkReference, ProxyProfile } from '@vista/client'
+import { networkInput } from './client/network'
 const { t } = useI18n({ useScope: 'global' })
 const workspace = useWorkspace(), router = useRouter(), route = useRoute(), state = useNetworkConfig(workspace)
 const emit = defineEmits<{ 'modal-open': [open: boolean] }>()

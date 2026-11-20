@@ -1,9 +1,8 @@
 import assert from 'node:assert/strict'
 import test, { type TestContext } from 'node:test'
 import { effectScope } from 'vue'
-import { createVistaClient } from '../client/vista.ts'
-import { createWorkspaceSync, stateTopics } from '../client/workspaceSync.ts'
-import type { NetworkConfiguration, NetworkSettings } from '../client/network.ts'
+import { createVistaClient, createWorkspaceSync, stateTopics } from '@vista/client'
+import type { NetworkConfiguration, NetworkSettings } from '@vista/client'
 import { useNetworkConfig } from './useNetworkConfig.ts'
 
 const sample: NetworkConfiguration = {
@@ -24,7 +23,19 @@ function fixture(t: TestContext) {
   const writes: { body: { config: NetworkSettings }; resolve: (value: NetworkConfiguration) => void }[] = []
   const sinks: ReadableStreamDefaultController<Uint8Array>[] = []
   const deliveries: AbortSignal[] = []
-  const client = createVistaClient(async (path, init) => {
+  const frame = () => new TextEncoder().encode(`event: state\ndata: ${JSON.stringify({
+    epoch: 'fixture', revisions: Object.fromEntries(stateTopics.map(topic => [topic, topic === 'network' ? 1 : 0])),
+  })}\n\n`)
+  const client = createVistaClient({ fetch: async (path, init) => {
+    if (path === '/api/events') {
+      assert.ok(init?.signal)
+      const signal = init.signal
+      return new Response(new ReadableStream<Uint8Array>({ start(sink) {
+        sinks.push(sink)
+        signal.addEventListener('abort', () => { try { sink.close() } catch {} }, { once: true })
+        sink.enqueue(frame())
+      } }), { headers: { 'Content-Type': 'text/event-stream' } })
+    }
     assert.equal(path, '/api/network-config')
     if (init?.method === 'PUT') return new Promise<Response>(resolve => {
       writes.push({ body: JSON.parse(String(init.body)), resolve: value => resolve(new Response(JSON.stringify(value))) })
@@ -36,20 +47,8 @@ function fixture(t: TestContext) {
       // Keep a cancelled promise pending briefly to expose reuse/finally races.
       signal.addEventListener('abort', () => setTimeout(() => reject(signal.reason), 10), { once: true })
     })
-  })
-  const frame = () => new TextEncoder().encode(`event: state\ndata: ${JSON.stringify({
-    epoch: 'fixture', revisions: Object.fromEntries(stateTopics.map(topic => [topic, topic === 'network' ? 1 : 0])),
-  })}\n\n`)
-  const sync = createWorkspaceSync({
-    async open(_, signal) {
-      return new Response(new ReadableStream<Uint8Array>({ start(sink) {
-        sinks.push(sink)
-        signal.addEventListener('abort', () => { try { sink.close() } catch {} }, { once: true })
-        sink.enqueue(frame())
-      } }), { headers: { 'Content-Type': 'text/event-stream' } })
-    },
-    status() {}, metrics() {}, reconnectDelayMs: 1,
-  })
+  } })
+  const sync = createWorkspaceSync({ client, status() {}, metrics() {}, reconnectDelayMs: 1 })
   const dependencies = { client, stateSync: { ...sync, subscribe(topics, receive) {
     return sync.subscribe(topics, (...args) => { deliveries.push(args[1]); return receive(...args) })
   } } } satisfies Parameters<typeof useNetworkConfig>[0]

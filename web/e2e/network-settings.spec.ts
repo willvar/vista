@@ -1,5 +1,5 @@
 import { test, expect } from './fixtures'
-import type { NetworkConfiguration } from '../src/client/network'
+import type { NetworkConfiguration } from '@vista/client'
 import { expectFieldPair, settleLayout } from './layout-ready'
 
 async function choose(page: import('@playwright/test').Page, control: import('@playwright/test').Locator, label: string) {

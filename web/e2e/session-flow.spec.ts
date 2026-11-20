@@ -1,7 +1,7 @@
 import { coreSnapshot, installConversationStream } from './conversation-fixture'
 import { closeSettings } from './settings-navigation'
 import type { Page } from '@playwright/test'
-import type { StreamEvent } from '../src/client/types'
+import type { StreamEvent } from '@vista/client'
 import { test, expect } from './fixtures'
 
 function gate() {

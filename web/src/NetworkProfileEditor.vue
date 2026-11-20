@@ -4,10 +4,10 @@ import { useI18n } from 'vue-i18n'
 import { RuleEffect, type ControlElement, type JsonSchema7 } from '@jsonforms/core'
 import SchemaForm from './SchemaForm.vue'
 import NetworkCheckPanel from './NetworkCheckPanel.vue'
-import type { NetworkCheck } from './client/network'
+import type { NetworkCheck, ProxyProfile } from '@vista/client'
 import { Alert as VAlert, Button as VButton } from './ui'
 import type { FormIssue } from './schema/validation'
-import { newProxyProfile, validConnectionIP, type ProxyProfile } from './client/network'
+import { newProxyProfile, validConnectionIP } from './client/network'
 const props = defineProps<{ profile?: ProxyProfile; busy?: boolean; error?: string; stale?: boolean; check?: (profile: ProxyProfile, reuse: boolean, target: string, signal: AbortSignal) => Promise<NetworkCheck> }>()
 const emit = defineEmits<{ save: [profile: ProxyProfile, reuse: boolean]; cancel: []; dirty: [value: boolean] }>()
 const { t } = useI18n({ useScope: 'global' })

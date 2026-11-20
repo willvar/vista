@@ -2,7 +2,7 @@
 import { computed, onUnmounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { Empty as VEmpty, Popover, Button, Select } from './ui'
-import type { ModelResultView as Result } from './client/types'
+import type { ModelResultView as Result } from '@vista/client'
 import { useEscapeDismiss } from './composables/useEscape'
 import { cacheReadCount, cacheTotals } from './state/cacheUsage.ts'
 import { formatTime } from './ui/datetime.ts'

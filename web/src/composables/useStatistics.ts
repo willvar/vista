@@ -1,6 +1,5 @@
 import { computed, onScopeDispose, ref, shallowRef, watch, type Ref } from 'vue'
-import type { VistaClient } from '../client/vista.ts'
-import type { createWorkspaceSync } from '../client/workspaceSync.ts'
+import type { VistaClient, createWorkspaceSync } from '@vista/client'
 import { localDateKey, revisionAtLeast, type UsageStatistics } from '../client/statistics.ts'
 
 const caches = new WeakMap<VistaClient, Map<string, UsageStatistics>>()

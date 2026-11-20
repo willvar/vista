@@ -2,7 +2,7 @@ import { installMockStateStream } from './state-stream-fixture'
 import { coreSnapshot } from './conversation-fixture'
 import { test, expect } from './frontend-fixture'
 import type { Page } from '@playwright/test'
-import type { CompactionStatus, Message, Session, StreamEvent } from '../src/client/types'
+import type { CompactionStatus, Message, Session, StreamEvent } from '@vista/client'
 
 async function mockWorkspace(page: Page, origin: string, withTiers = false, canAdjustReasoning = true) {
   const session: Session = { id: 'iteration-session', title: 'Plan a small garden', modelKey: 'first', manualModelKey: 'first', manualReasoningEffort: 'high', open: true, running: true, executing: true, inputQueuePaused: false, createdAt: '2026-01-01T12:00:00Z' }

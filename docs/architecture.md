@@ -150,7 +150,7 @@ SSE `record` frames carry `afterSequence`, the preceding delivered boundary, so 
 Separate `sync` frames report committed state after initial catch-up, every 15 seconds, and after execution completion or rollback.
 Records through each checkpoint are sent first; the checkpoint never advances the browser's applied cursor.
 
-The selected conversation's `web/src/client/conversationSync.ts` owns initialization and serialized recovery.
+The selected conversation's `sdk/src/conversationSync.ts` owns initialization and serialized recovery.
 Stream failure, 45 seconds without received bytes, a coverage/checkpoint mismatch, foreground/connectivity restoration, or manual retry initiates on-demand reconciliation.
 Recovery replays at most ten event pages, with an optional inclusive `through` boundary, and rebuilds the core snapshot if replay cannot restore it.
 Connection attempts and recovery reads have 10-second timeouts; reconnection backs off from one to 30 seconds, stopping on terminal client errors or closed conversations.
@@ -190,7 +190,7 @@ Run/compaction, task/process and Worker lifecycle transitions also push runtime 
 Successful message and execution-control acknowledgements do not initiate a separate workspace refresh; the state stream reconciles shared views.
 Session-list entries and their per-conversation event boundaries come from one SQLite read transaction; newer conversation events and accepted sends take precedence when applying delayed lists.
 Global revisions are captured before snapshot reads so concurrent commits retain a later notification.
-Each connection and 15-second heartbeat carries the server generation and all current revisions; `web/src/client/workspaceSync.ts` applies changed payloads directly and reads subscribed snapshots when a changed topic has no payload.
+Each connection and 15-second heartbeat carries the server generation and all current revisions; `sdk/src/workspaceSync.ts` applies changed payloads directly and reads subscribed snapshots when a changed topic has no payload.
 Initial and reconnect checkpoints use HTTP snapshot calibration; unchanged heartbeats carry no repeated payload or HTTP reads.
 Application state frames have a server-side budget of 512 KiB including encoded JSON and SSE framing; larger frames omit their largest optional snapshots until they fit, preserving topic revisions for targeted HTTP recovery.
 The shared browser parser has no frame-size ceiling; this state budget never truncates complete conversation records, canonical model content or replay data.

@@ -15,8 +15,8 @@ import SessionIndicators from './SessionIndicators.vue'
 import InlineSessionTitle from './InlineSessionTitle.vue'
 import SessionPin from './SessionPin.vue'
 import SessionActionDialog from './SessionActionDialog.vue'
-import type { Session } from './client/types'
-import { sessionHasUnread } from './state/workspace'
+import { sessionHasUnread } from '@vista/client'
+import type { Session } from '@vista/client'
 const { t } = useI18n({ useScope: 'global' })
 onErrorCaptured(error => { if (captureAssetError(error)) return false })
 const { route, conversation, router, error, busy, totalSessions, openSessions, selected, serverStatus, mobileSessionsOpen, settingsOpen,

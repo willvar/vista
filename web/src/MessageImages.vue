@@ -4,14 +4,16 @@ import { useI18n } from 'vue-i18n'
 import { Button as VButton } from './ui'
 import { IconX } from '@tabler/icons-vue'
 import { isPlainEscape } from './composables/useEscape'
+import { useWorkspace } from './composables/useWorkspace'
 import { messageImageZoom } from './ui/messageImageZoom'
 
 const props = defineProps<{ sessionId: string; messageId: string; count: number; inline?: boolean }>()
 const { t } = useI18n({ useScope: 'global' })
+const { client } = useWorkspace()
 const failed = ref<Record<number, boolean>>({})
 const retries = ref<Record<number, number>>({})
 const sources = computed(() => Array.from({ length: props.count }, (_, index) =>
-  `/api/sessions/${encodeURIComponent(props.sessionId)}/messages/${encodeURIComponent(props.messageId)}/images/${index}${retries.value[index] ? `?retry=${retries.value[index]}` : ''}`))
+  client.url(`/sessions/${encodeURIComponent(props.sessionId)}/messages/${encodeURIComponent(props.messageId)}/images/${index}${retries.value[index] ? `?retry=${retries.value[index]}` : ''}`)))
 const previewOpen = ref(false)
 const closeControl = ref<InstanceType<typeof VButton> | null>(null)
 let image: HTMLImageElement | undefined

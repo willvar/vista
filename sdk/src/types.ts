@@ -1,0 +1,164 @@
+export type QuestionOption = { id?: string; label: string; description?: string }
+export type QuestionPrompt = { id?: string; header?: string; question: string; options: QuestionOption[]; multiple?: boolean; custom?: boolean; when?: { questionId: string; optionId: string } }
+export type QuestionAnswer = { questionId?: string; options: string[]; text?: string }
+export type PendingReply = { runId: string; callId?: string; kind: 'question'; content: string; questions: QuestionPrompt[] }
+export type SessionActionPreview = { requestId: string; kind: 'close' | 'delete'; targets: { id: string; title: string }[] }
+
+export type Session = { id: string; title: string; modelKey: string; open: boolean; pinned?: boolean; running: boolean; executing: boolean; createdAt: string; updatedAt?: string; pendingReply?: PendingReply; inputQueuePaused?: boolean; readSequence?: number; latestReplySequence?: number; latestRunStatus?: string; pendingInputCount?: number; manualModelKey?: string; manualReasoningEffort?: string; processingTier?: string }
+export type SessionListSnapshot = { items: Session[]; throughSequences: Record<string, number> }
+export type ModelInfo = { kind?: string; disabled?: boolean; proxyId?: string; key: string; connectionId?: string; name?: string; modelName?: string; recognized?: boolean; provider: string; providerId?: string; id: string; baseUrl?: string; tools?: boolean; context?: number; inputLimit?: number; outputLimit?: number; catalogReasoning?: boolean; status?: string; inputModalities?: string[]; outputModalities?: string[]; discoverySource?: string; processingTiers?: string[]; reasoningOptions?: string[]; reasoningEffort?: string }
+export type CopilotAuthOptions = { enterpriseUrl?: string; clientId?: string }
+export type PromptCaching = { format?: 'auto' | 'none' | 'openai' | 'anthropic' | 'alibaba' | 'bedrock' | 'gemini'; key?: boolean; retention?: 'in_memory' | '24h'; ttl?: '5m' | '1h' | '30m' | '12h'; cachedContent?: { name: string; sha256: string; messages: number } }
+export type ModelSetting = {
+  disabled?: boolean; connectionKey?: string; generationAdapters?: Partial<Record<GenerationKind, string[]>>;
+  promptCaching?: PromptCaching; responsesRoute?: '' | 'codex-compatible' | 'codex';
+  proxyId?: string; headerNames?: string[]; copilotAuth?: CopilotAuthOptions; key: string; connectionId?: string; kind?: string; name?: string; provider: string; providerId?: string; id: string; baseUrl?: string; hasApiKey: boolean; hasAccessToken?: boolean; credentialMode?: string; region?: string; project?: string; location?: string; resourceName?: string; deploymentId?: string; apiVersion?: string; editable: boolean }
+export type GenerationKind = 'image' | 'video' | 'decision'
+export type GenerationAdapter = { id: string; name: string; baseUrl: string; kinds: GenerationKind[]; frame: boolean }
+export type GenerationOption = { kind: GenerationKind; connection: string; connectionName: string; model: string; name: string; workflow?: boolean; noFirstFrame?: boolean }
+export type GenerationSetting = { kind: GenerationKind; adapter: string; model: string; connection?: string; options?: unknown; hasWorkflow?: boolean }
+export type ModelSettings = { default: string; models: ModelSetting[]; settingsRevision?: string; generation?: GenerationSetting[]; generationAdapters?: GenerationAdapter[] }
+export type ProviderSetup = { id: string; name: string; generationOnly?: boolean; aliases?: string; baseUrl?: string; fields?: string[]; credentialModes?: string[]; apiFormats?: string[]; models?: { id: string; name: string }[] }
+export type AgentSettings = { instructions: string; instructionsPath: string; instructionsSha256: string; delegationDepth: number; maxDelegationDepth: number; automaticTitles: boolean }
+export type PageInfo = { page: number; pageSize: number; total: number; version: string }
+export type SessionPage = PageInfo & { items: Session[] }
+export type LoginUpdate = { id: string; status: string; error?: string }
+export type MCPCheck = { status: string; checkedAt?: string; toolCount: number; error?: string }
+export type MCPServer = {
+  id: string; name: string; transport: 'stdio' | 'http'; disabled?: boolean
+  command?: string; args?: string[]; directory?: string; endpoint?: string
+  oauth?: boolean; clientId?: string; hasToken: boolean; hasClientSecret: boolean
+  headerNames?: string[]; authorized: boolean; check: MCPCheck
+}
+export type MCPConfig = { servers: MCPServer[]; maxServers: number; defaultDirectory: string }
+export type MCPState = MCPConfig & { logins: LoginUpdate[] }
+export type ResourceStorageStats = { totalBytes: number; totalCount: number; referencedBytes: number; referencedCount: number; cleanableBytes: number; cleanableCount: number; scannedAt: string }
+export type ResourceStorageBackend = { kind: 'local' | 's3'; endpoint?: string; bucket?: string; region?: string; prefix?: string; hasCredentials: boolean }
+export type ResourceStorageConfiguration = { objectStorage?: ResourceStorageBackend; current: ResourceStorageBackend; revision: string; migration?: { id: string; phase: string; error?: string; copiedCount: number; copiedBytes: number }; target?: ResourceStorageBackend }
+export type ResourceStorageStatus = { checkError?: string; config?: ResourceStorageConfiguration; phase: string; action?: string; stats?: ResourceStorageStats; deletedCount: number; deletedBytes: number; error?: string }
+export type ModelCatalog = { default: string; conversationDefault?: string; models: ModelInfo[]; showUnrecognizedModels?: boolean; settingsRevision?: string }
+export type OMPCatalogInfo = {
+  revision: string
+  modelsDevRevision?: string
+  modelCount: number
+  providerCount: number
+  updatedAt?: string
+  checkedAt?: string
+  nextCheckAt?: string
+  checkError?: string
+  lastCheckChanged?: boolean
+  updating?: boolean
+  history?: CatalogCheckRecord[]
+}
+export type UserAgentSettings = {
+  preset: string
+  custom: string
+  value: string
+  presets: { id: string; name: string; value: string }[]
+  maxLength: number
+}
+export type CatalogCheckRecord = Pick<OMPCatalogInfo, 'revision' | 'modelsDevRevision' | 'modelCount' | 'providerCount' | 'updatedAt'> & {
+  checkedAt: string
+  automatic: boolean
+  changed: boolean
+  error?: string
+}
+export type Message = { failure?: boolean; contextSummary?: boolean; id: string; runId: string; provider?: string; modelId?: string; modelKey?: string; outputTurn?: number; outputBytes?: number; imageCount?: number; questionCallId?: string; sequence: number; resultsAfter?: number; role: string; content: string; createdAt: string; modelResults?: ModelResultView[] }
+export type StreamEvent = { sequence: number; kind: string; createdAt?: string; data: any }
+export type SyncCheckpoint = { throughSequence: number; revertedSequence?: number; session: Session }
+export type RunClock = { id: string; startedAt: string; lastActivityAt?: string }
+export type ConversationSnapshot = SyncCheckpoint & { messages: Message[]; events: StreamEvent[]; queuedInputs: QueuedInput[]; hasOlder: boolean; hasOlderEvents: boolean; eventsBefore?: number; currentRun?: RunClock }
+export type ToolOutputRef = { artifactId?: string; outputPath?: string; runId?: string; turn?: number; bytes: number }
+export type AgentTaskView = { id: string; parentId?: string; join?: 'required' | 'best_effort' | 'detached'; title: string; status: string; report?: { runId: string; turn: number; bytes: number } }
+export type RunOverview = { modelCalls: number; firstSequence?: number; throughSequence: number; startedAt: string; finishedAt?: string; lastActivityAt?: string; events: StreamEvent[] }
+export type ModelDraft = { runId: string; turn: number; depth: number; sequence: number; content: string; finished: boolean }
+export type MainOutput = { runId: string; taskId: string; turn: number; sequence: number; lastSequence: number; offset?: number; endOffset?: number; createdAt: string; provider?: string; modelId?: string; modelKey?: string; bytes: number; complete: boolean }
+export type SummaryResultView = { refinement: boolean; upstreamFinishReason?: string; validation: string; textBytes: number; estimatedTokens: number; toolCalls: number }
+export type ModelResultView = { summary?: SummaryResultView; sequence: number; runId: string; turn: number; depth: number; createdAt?: string; taskId?: string; parentTaskId?: string; purpose?: string; provider: string; id: string; finishReason: string; reasoningEffort?: string; durationMs?: number; firstTokenMs?: number; requestedProcessingTier?: string; actualProcessingTier?: string; usage?: { inputTokens: number; outputTokens: number; cacheReadTokens: number; cacheReadKnown?: boolean; cacheWriteTokens?: number; reasoningTokens: number } }
+export type CompactionStatus = { runId: string; phase: 'compacting' | 'compacted' | 'failed' | 'interrupted'; manual: boolean; error?: string; sequence?: number }
+export type ContextUsage = { tokens: number; sequence: number; runId?: string }
+export type QueuedInput = { id: string; status: string; content: string; imageCount?: number }
+export type RunProgress = { runId: string; phase: 'starting' | 'model' | 'retry' | 'reasoning' | 'response' | 'tool' | 'processing' | 'finished'; tool?: string; summary?: string; retry?: { attempt: number; maxRetries: number; retryAt: string } }
+export type Job = { id: string; runId: string; callId?: string; taskId?: string; parentTaskId?: string; directory: string; command: string; status: string; bytes: number; exitCode: number; complete: boolean; error?: string; createdAt?: string; startedAt?: string; expiresAt?: string; warnAt?: string; warnedAt?: string; deadlineRevision?: number; finishedAt?: string; signal?: string; terminationReason?: string }
+export type Artifact = { id: string; runId: string; callId?: string; taskId?: string; parentTaskId?: string; status: string; bytes: number; complete: boolean; error?: string }
+export type OutputView = { content: string; offset: number; nextOffset: number; availableBytes: number; lastSequence?: number; complete?: boolean }
+export type ServerConfig = {
+  config: { port: number }
+  revision: string
+  version: string
+  source: 'file' | 'default'
+  runningPort: number
+  schema: Record<string, unknown>
+}
+export type MemoryConfig = { budgetMiB: number; workerMiB: number; concurrentRuns: number; backgroundJobsPerSession: number }
+export type ServerStatus = {
+  instanceId?: string // Server process identity; unchanged by an in-process reset.
+  pid?: number
+  capacity?: { config: MemoryConfig; residentBytes: number }
+  state: string
+  version: string
+  binaryHash: string
+  sourceCommit: string
+  sourceModified: boolean
+  hostOS: string
+  address: string
+  provider: string
+  model: string
+  defaultModel: string
+  defaultModelKey: string
+  uptimeSeconds: number
+  sessions: { total: number; open: number; closed: number; running: number; idle: number; unavailable: number; workers: number }
+  managedBackgroundProcesses: number
+  eventStreams: number
+  eventStreamLimit: number
+  memory: { heapBytes: number; rssBytes: number; peakRssBytes: number }
+  workerMetrics: Array<{ sessionId: string; pid: number; memory: { heapBytes: number; rssBytes: number; sampledAt: string } }>
+  mcpHost?: { pid: number; memory: { heapBytes: number; rssBytes: number; sampledAt?: string } } | null
+  sampledAt: string
+}
+export type QuestionReplyInput = { runId: string; callId?: string; answers: QuestionAnswer[] }
+export type SendMessageInput = { content?: string; images?: Array<{ mediaType: string; hash: string; bytes: number; name?: string }>; questionReply?: QuestionReplyInput; modelKey?: string; reasoningEffort?: string }
+export type SendMessageResult = { runId?: string; message?: Message; input?: QueuedInput; event: StreamEvent }
+export type ModelSpeedStats = { count: number; failures: number; medianMs: number | null; p90Ms: number | null; lowConfidence: boolean }
+
+export type ProxyProfile = {
+  id: string; name: string; protocol: 'http' | 'https' | 'socks5'; server: string; port: number
+  authentication: 'none' | 'password'; connectIp?: string; insecureSkipVerify?: boolean; hasCredentials?: boolean
+  username?: string; password?: string
+}
+export type NetworkSettings = { globalProxy: string; profiles: ProxyProfile[] }
+export type NetworkConfiguration = { config: NetworkSettings; revision: string; version: string }
+export type NetworkReference = { kind: 'global' | 'provider'; name: string; key?: string }
+export type NetworkCheck = { ok: boolean; route?: string; stage: string; httpStatus: number; error: string; checkedAt: string; target: string }
+
+export type ModelDiagnosticSummary = {
+  id: string
+  sessionId: string
+  runId: string
+  taskId?: string
+  turn?: number
+  purpose?: string
+  provider: string
+  protocol: string
+  model: string
+  startedAt: string
+  durationMs: number
+  error?: string
+  truncated: boolean
+}
+
+type CapturedBody = { content: string; encoding: string; bytes: number; truncated: boolean }
+export type ModelDiagnosticRecord = ModelDiagnosticSummary & {
+  finishReason?: string
+  parsing?: {
+    line?: number; event?: number; reasoningFields?: string[]
+    reasoningFragments: number; reasoningBlocks: number; reasoningBytes: number; visibleReasoningBytes: number
+  }
+  exchanges: {
+    method: string; url: string; requestHeaders: Record<string, string[]>; request: CapturedBody
+    status: number; responseHeaders?: Record<string, string[]>; response: CapturedBody
+    startedMs: number; headersMs: number; durationMs: number
+    chunks: { offset: number; bytes: number; atMs: number }[]
+    timingsTruncated: boolean; eof: boolean; readError?: string; error?: string
+  }[]
+}

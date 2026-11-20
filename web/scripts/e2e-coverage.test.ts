@@ -4,13 +4,13 @@ import { browserScope, browserSelection, localBrowserArgumentsValid, responsiveG
 
 const files = ['compaction.spec.ts', 'conversation-sync.spec.ts', 'execution-flow.spec.ts', 'session-flow.spec.ts', 'session-manager.spec.ts', 'statistics.spec.ts', 'usage.spec.ts']
 test('local coverage includes consumers, staged/new specs and core smoke', () => {
-  const scope = browserScope(['web/src/state/conversation.ts', 'web/e2e/session-flow.spec.ts'], files)
+  const scope = browserScope(['sdk/src/state/conversation.ts', 'web/e2e/session-flow.spec.ts'], files)
   assert.equal(scope.full, false)
   assert.deepEqual(scope.files, ['compaction.spec.ts', 'conversation-sync.spec.ts', 'execution-flow.spec.ts', 'session-flow.spec.ts', 'usage.spec.ts'])
   for (const path of ['internal/store/compaction.go', 'internal/server/worker_results_context.go']) {
     assert.deepEqual(browserScope([path], files).files, ['compaction.spec.ts', 'conversation-sync.spec.ts', 'execution-flow.spec.ts', 'usage.spec.ts'])
   }
-  for (const path of ['web/src/ConversationSender.vue', 'web/src/ConversationExecution.vue', 'web/src/ConversationRecentMessage.vue', 'web/src/pages/ConversationPage.vue', 'web/src/state/cacheUsage.ts', 'web/src/state/inputQueue.ts']) {
+  for (const path of ['web/src/ConversationSender.vue', 'web/src/ConversationExecution.vue', 'web/src/ConversationRecentMessage.vue', 'web/src/pages/ConversationPage.vue', 'web/src/state/cacheUsage.ts', 'sdk/src/state/inputQueue.ts']) {
     assert.deepEqual(browserScope([path], ['layout.spec.ts']).files, ['layout.spec.ts'])
   }
   for (const path of ['internal/server/custom_models.go', 'internal/server/local_models.go', 'internal/server/model_directory.go']) {
@@ -48,16 +48,18 @@ test('restart scheduling retains conversation and service-control consumers', ()
   }
 })
 test('documentation and unit-only changes keep smoke without inventing affected browser tests', () => {
-  const scope = browserScope(['AGENTS.md', 'docs/testing.md', 'internal/store/display_messages_test.go', 'web/src/state/conversation.test.ts'], files)
+  const scope = browserScope(['AGENTS.md', 'docs/testing.md', 'internal/store/display_messages_test.go', 'sdk/test/conversation.test.ts'], files)
   assert.deepEqual(scope, { full: false, files: [] })
   assert.equal(browserSelection(scope.files), '@smoke')
 })
 test('regenerated frontend bundles follow source coverage and remain conservative without source', () => {
   const assets = ['internal/server/assets/index.html', 'internal/server/assets/assets/index-abcdef.js', 'internal/server/assets/assets/SettingsPage-ghijkl.css']
-  const source = ['web/src/state/conversation.ts']
+  const source = ['sdk/src/state/conversation.ts']
   assert.deepEqual(browserScope([...source, ...assets], files), browserScope(source, files))
+  assert.equal(browserScope(['sdk/src/vista.ts', ...assets], files).full, true)
+  assert.equal(browserScope(['sdk/src/workspaceSync.ts'], files).full, true)
   assert.equal(browserScope(assets, files).full, true)
-  assert.equal(browserScope([...assets, 'web/src/state/conversation.test.ts'], files).full, true)
+  assert.equal(browserScope([...assets, 'sdk/test/conversation.test.ts'], files).full, true)
 })
 test('responsive coverage retains touch/layout checks while business recovery runs once on desktop', () => {
   for (const title of ['mobile-portrait layout.spec.ts composer fits', 'mobile-landscape execution-flow.spec.ts new runs clear the composer checklist', 'mobile-portrait i18n.spec.ts UI language de translated settings @responsive']) assert.ok(responsiveGrep.test(title), title)

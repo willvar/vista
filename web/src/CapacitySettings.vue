@@ -5,8 +5,7 @@ import type { JsonSchema, ControlElement, VerticalLayout } from '@jsonforms/core
 import { Alert as VAlert } from './ui'
 import SchemaForm from './SchemaForm.vue'
 import type { FormIssue } from './schema/validation'
-import type { VistaClient } from './client/vista'
-import type { MemoryConfig, ServerStatus } from './client/types'
+import type { VistaClient, MemoryConfig, ServerStatus } from '@vista/client'
 const props = defineProps<{ client: VistaClient; status: ServerStatus | null; disabled?: boolean }>()
 const emit = defineEmits<{ busy: [busy: boolean]; submit: [] }>()
 const { t } = useI18n({ useScope: 'global' })

@@ -1,5 +1,5 @@
 import { test, expect } from './fixtures'
-import type { Message, StreamEvent } from '../src/client/types'
+import type { Message, StreamEvent } from '@vista/client'
 
 const explanation = "OpenCode's free tier can only be used from within OpenCode. Rejected <request> key: test-key."
 const displayedExplanation = explanation.replace('test-key', '[redacted]')

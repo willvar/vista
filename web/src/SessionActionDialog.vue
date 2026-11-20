@@ -2,7 +2,7 @@
 import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { Checkbox as VCheckbox, Modal as VModal } from './ui'
-import type { SessionActionPreview } from './client/types'
+import type { SessionActionPreview } from '@vista/client'
 
 const props = defineProps<{ action: SessionActionPreview | null; busy: boolean }>()
 const emit = defineEmits<{ decision: [requestId: string, sessionIds: string[]] }>()

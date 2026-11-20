@@ -2,7 +2,7 @@
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import HeaderStatusPopover from './HeaderStatusPopover.vue'
-import type { ServerStatus } from './client/types'
+import type { ServerStatus } from '@vista/client'
 import { useWorkspace } from './composables/useWorkspace'
 
 const props = defineProps<{ memory?: ServerStatus['workerMetrics'][number]['memory']; available: boolean }>()

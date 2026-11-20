@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { effectScope } from 'vue'
-import type { VistaClient } from '../client/vista'
+import type { VistaClient } from '@vista/client'
 import { useInteractionPreferences } from './useInteractionPreferences.ts'
 
 test('remembering the current model does not rewrite its key but changing models persists it', async t => {

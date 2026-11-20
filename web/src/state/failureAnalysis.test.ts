@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { failureAnalysisPrompt, type FailureContext } from './failureAnalysis.ts'
-import type { Message, Session } from '../client/types.ts'
+import type { Message, Session } from '@vista/client'
 
 const session: Session = { id: 'source', title: 'Source', modelKey: 'example', open: true, running: true, executing: false, createdAt: '' }
 const failure: FailureContext = { kind: 'execution', runId: 'failed-run', sequence: 12,

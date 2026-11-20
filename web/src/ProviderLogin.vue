@@ -3,9 +3,9 @@ import { onBeforeUnmount, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { Alert as VAlert, Button as VButton, Spin as VSpin } from './ui'
 import { IconCopy } from '@tabler/icons-vue'
-import { VistaAPIError, type VistaClient } from './client/vista'
+import { VistaAPIError } from '@vista/client'
+import type { VistaClient, CopilotAuthOptions, LoginUpdate } from '@vista/client'
 import { useWorkspace } from './composables/useWorkspace'
-import type { CopilotAuthOptions, LoginUpdate } from './client/types'
 
 type Login = { id: string; verificationUrl: string; userCode: string; status: 'pending' | 'connected' | 'failed' | 'expired' | 'canceled'; error?: string }
 const props = defineProps<{ kind: 'codex' | 'copilot'; client: VistaClient; name: string; connectionKey?: string; proxyId?: string; revision?: string; copilotAuth?: CopilotAuthOptions }>()

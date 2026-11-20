@@ -1,5 +1,5 @@
 import { test, expect } from './fixtures'
-import type { Message } from '../src/client/types'
+import type { Message } from '@vista/client'
 import { coreSnapshot, installConversationStream } from './conversation-fixture'
 
 for (const failedRead of [false, true]) {

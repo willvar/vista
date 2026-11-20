@@ -7,7 +7,7 @@ import MessageActions from './MessageActions.vue'
 import FailureHelp from './FailureHelp.vue'
 import { useEscapeDismiss } from './composables/useEscape'
 import { useWorkspace } from './composables/useWorkspace'
-import type { CompactionStatus, RunClock } from './client/types'
+import type { CompactionStatus, RunClock } from '@vista/client'
 
 const props = defineProps<{ status: string; clock?: RunClock | null; compacting?: boolean; manual?: boolean; compaction?: CompactionStatus | null }>()
 const { t } = useI18n()

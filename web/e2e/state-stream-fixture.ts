@@ -1,5 +1,5 @@
 import type { Page } from '@playwright/test'
-import { stateTopics, type StateTopic, type WorkspaceSnapshots } from '../src/client/workspaceSync'
+import { stateTopics, type StateTopic, type WorkspaceSnapshots } from '@vista/client'
 
 // Mock-only UI suites still need a persistent connection. Explicit revision
 // notifications replace fixtures that used to change state on the next poll.

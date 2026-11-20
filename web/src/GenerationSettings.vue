@@ -2,9 +2,7 @@
 import { computed, onScopeDispose, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { Button as VButton, Modal as VModal, Alert as VAlert, Select as VSelect } from './ui'
-import type { VistaClient } from './client/vista'
-import type { createWorkspaceSync } from './client/workspaceSync'
-import type { GenerationKind, GenerationOption, ModelSettings } from './client/types'
+import type { VistaClient, createWorkspaceSync, GenerationKind, GenerationOption, ModelSettings } from '@vista/client'
 import { displayModelName, modelPickerOptions } from './composables/usePresentation'
 
 const props = defineProps<{ settings: ModelSettings; client: VistaClient; stateSync: ReturnType<typeof createWorkspaceSync>; disabled?: boolean }>()

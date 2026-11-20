@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import type { Session } from '../src/client/types'
+import type { Session } from '@vista/client'
 import type { VistaFixture } from './fixtures'
 import { test, expect } from './fixtures'
 

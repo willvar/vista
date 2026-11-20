@@ -24,6 +24,8 @@ Use the backend's actual port. The dev server listens on `127.0.0.1`; `/api` str
 
 From the repository root, `make test frontend` runs unit/types/build and `make test e2e` builds its isolated application and runs browser checks. General requirements and evidence limits are in [verification](../docs/testing.md).
 
+`web/` imports `@vista/client` as a local npm dependency. Dev, checks, and production builds compile the SDK before loading its entry point. Rebuild with `npm run build:sdk` after editing SDK sources; restart Vite if it is serving old modules. Vue scopes, routing, the document language and visibility, and read acknowledgements remain WebUI concerns. See [Client SDK](../docs/client-sdk.md) for the connection and synchronization contracts.
+
 ## Browser fixtures
 
 `e2e/frontend-fixture.ts` serves the built application through Vite preview; workers share only the read-only files in `internal/server/assets/`.
@@ -64,10 +66,10 @@ Lazy-load failures preserve the active view and editors, with an explicit reload
 
 | Layer | Entry points |
 | --- | --- |
-| HTTP/SSE client | `src/client/types.ts`, `vista.ts`, `sse.ts` |
-| Global state synchronization | `src/client/workspaceSync.ts` |
-| Conversation initialization/recovery | `src/client/conversationSync.ts` |
-| Event state | `src/state/conversation.ts`, `workspace.ts`, `runTrace.ts` |
+| HTTP/SSE client | `../sdk/src/{types,vista,sse}.ts` |
+| Global state synchronization | `../sdk/src/workspaceSync.ts` |
+| Conversation initialization/recovery | `../sdk/src/conversationSync.ts` |
+| Event state | `../sdk/src/state/{conversation,workspace}.ts`, `src/state/runTrace.ts` |
 | Conversation loading/sending | `src/composables/useConversation.ts` |
 | Shared workspace, models, state subscriptions | `src/composables/useWorkspace.ts` |
 | Provider settings / historical runs | `src/composables/useProviderSettings.ts`, `useRunHistory.ts` |

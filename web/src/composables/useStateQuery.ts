@@ -1,6 +1,5 @@
 import { onScopeDispose, ref, shallowRef } from 'vue'
-import type { VistaClient } from '../client/vista.ts'
-import type { createWorkspaceSync, StateTopic } from '../client/workspaceSync.ts'
+import type { VistaClient, createWorkspaceSync, StateTopic } from '@vista/client'
 
 type Versioned = { version?: string }
 const caches = new WeakMap<VistaClient, Map<string, { value: Versioned; at: number }>>()

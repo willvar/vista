@@ -1,11 +1,13 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { useWorkspace } from './composables/useWorkspace'
 import type { GenerationCard } from './state/generationCards'
 import { Spin as VSpin } from './ui'
 const props = defineProps<{ sessionId: string; card: GenerationCard }>()
 const { t } = useI18n()
-const url = computed(() => props.card.hash ? `/api/sessions/${encodeURIComponent(props.sessionId)}/resources/${props.card.hash}` : '')
+const { client } = useWorkspace()
+const url = computed(() => props.card.hash ? client.url(`/sessions/${encodeURIComponent(props.sessionId)}/resources/${encodeURIComponent(props.card.hash)}`) : '')
 const statusKey = computed(() => ({ started: props.card.kind === 'video' ? 'generationVideoRunning' : 'generationImageRunning', succeeded: 'generationReady', failed: 'generationFailed', stopped: 'generationStopped', canceled: 'generationCanceled' })[props.card.status])
 </script>
 

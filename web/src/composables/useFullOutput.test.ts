@@ -1,13 +1,13 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { effectScope, nextTick, reactive } from 'vue'
-import type { VistaClient } from '../client/vista.ts'
-import type { OutputView } from '../client/types.ts'
+import { createVistaClient } from '@vista/client'
+import type { VistaClient, OutputView } from '@vista/client'
 import { useFullOutput } from './useFullOutput.ts'
 
 const settle = async () => { await nextTick(); await new Promise(resolve => setImmediate(resolve)) }
 const view = (content: string): OutputView => ({ content, offset: 0, nextOffset: Buffer.byteLength(content), availableBytes: Buffer.byteLength(content) })
-function client(request: VistaClient['request']): VistaClient { return { request, async *requestStream() { throw new Error('Unexpected streamed request') }, image: async () => new Blob(), streamEvents: async () => {} } }
+function client(request: VistaClient['request']): VistaClient { return { ...createVistaClient({ fetch: async () => { throw new Error('Unexpected request') } }), request } }
 
 test('full output stays unloaded while collapsed and cached across reopening', async () => {
   const paths: string[] = []
