@@ -10,8 +10,10 @@ import (
 	"net/http/httptest"
 	"os"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	modelcfg "vista/internal/model"
@@ -200,30 +202,82 @@ func TestAgentPreservesLargerMCPResultAsArtifact(t *testing.T) {
 	for _, failure := range []bool{false, true} {
 		t.Run(fmt.Sprintf("failure=%v", failure), func(t *testing.T) {
 			db, ctx := checkpointFixture(t)
+			ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
+			defer cancel()
 			const contentSize = 60 * 1024
+			const executionID = "run:tool:main/large_1"
+			expectedStatus := "succeeded"
+			if failure {
+				expectedStatus = "failed"
+			}
+			completion := func(message provider.ChatMessage) (string, bool) {
+				if message.Role != "user" || !strings.HasPrefix(message.Content, "Runtime completion event.") {
+					return "", false
+				}
+				_, body, ok := strings.Cut(message.Content, "\n")
+				var notice workerproto.RuntimeEvent
+				if !ok || json.Unmarshal([]byte(body), &notice) != nil {
+					return "", false
+				}
+				return notice.Content, notice.Kind == "tool" && notice.ID == executionID && notice.RunID == "run" && notice.Recipient == "main" && notice.SourceID == "large_1" && notice.Status == expectedStatus
+			}
+			// Hold the failed response until the model sees the pending reply.
+			release := make(chan struct{})
+			var releaseOnce sync.Once
 			mcpServer := mcp.NewServer(&mcp.Implementation{Name: "large-result", Version: "1"}, nil)
-			mcpServer.AddTool(&mcp.Tool{Name: "large", InputSchema: json.RawMessage(`{"type":"object"}`)}, func(context.Context, *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			mcpServer.AddTool(&mcp.Tool{Name: "large", InputSchema: json.RawMessage(`{"type":"object"}`)}, func(ctx context.Context, _ *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+				if failure {
+					select {
+					case <-release:
+					case <-ctx.Done():
+						return nil, ctx.Err()
+					}
+				}
 				return &mcp.CallToolResult{IsError: failure, StructuredContent: map[string]any{"diagnostic": "STRUCTURED_DETAILS"}, Content: []mcp.Content{&mcp.TextContent{Text: strings.Repeat("x", contentSize) + "OUTPUT_END"}}}, nil
 			})
 			mcpHTTP := httptest.NewServer(mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return mcpServer }, &mcp.StreamableHTTPOptions{Stateless: true, JSONResponse: true}))
 			defer mcpHTTP.Close()
-			modelCalls := 0
+			defer releaseOnce.Do(func() { close(release) })
+			var modelCalls atomic.Int32
+			var pendingSeen, deferredSeen atomic.Bool
+			var terminalContent atomic.Pointer[string]
 			modelHTTP := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				modelCalls++
-				var request struct {
-					Messages []struct {
-						Role    string `json:"role"`
-						Content string `json:"content"`
-					} `json:"messages"`
-				}
+				n := modelCalls.Add(1)
+				var request struct{ Messages []provider.ChatMessage }
 				if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
 					t.Error(err)
 					return
 				}
 				var event any
-				if modelCalls == 1 {
+				if n == 1 {
 					event = mcpToolEvent("large_1", "mcp_call_tool", `{"server":"remote","name":"large","arguments":{}}`)
 				} else {
+					last := request.Messages[len(request.Messages)-1]
+					content := last.Content
+					switch {
+					case last.Role == "tool" && last.ToolCallID == "large_1":
+						var progress struct {
+							Status      string `json:"status"`
+							ExecutionID string `json:"executionId"`
+						}
+						if json.Unmarshal([]byte(content), &progress) == nil && progress.Status == "running" {
+							if n != 2 || progress.ExecutionID != executionID || pendingSeen.Swap(true) {
+								t.Errorf("incorrect pending MCP reply: %.240s", content)
+							}
+							continuationAnswer(w, "")
+							releaseOnce.Do(func() { close(release) })
+							return
+						}
+					default:
+						var ok bool
+						content, ok = completion(last)
+						if !ok {
+							t.Errorf("missing terminal MCP result: %s %.240s", last.Role, last.Content)
+							return
+						}
+						deferredSeen.Store(true)
+					}
+					terminalContent.Store(&content)
 					var result struct {
 						ArtifactID string `json:"artifactId"`
 						OutputPath string `json:"outputPath"`
@@ -231,15 +285,14 @@ func TestAgentPreservesLargerMCPResultAsArtifact(t *testing.T) {
 						Complete   bool   `json:"complete"`
 						Error      string `json:"error"`
 					}
-					last := request.Messages[len(request.Messages)-1]
-					if last.Role != "tool" || json.Unmarshal([]byte(last.Content), &result) != nil || result.ArtifactID == "" || !result.Complete || result.Bytes <= contentSize {
-						t.Errorf("large MCP result was not preserved as an artifact: %+v, %s", result, last.Content)
+					if json.Unmarshal([]byte(content), &result) != nil || result.ArtifactID == "" || !result.Complete || result.Bytes <= contentSize {
+						t.Errorf("large MCP result was not preserved as an artifact: %+v, %.240s", result, content)
 					}
 					if (result.Error != "") != failure {
-						t.Errorf("MCP failure status lost: %s", last.Content)
+						t.Errorf("MCP failure status lost: %.240s", content)
 					}
-					if result.OutputPath != "" || strings.Contains(last.Content, "outputPath") || !strings.Contains(last.Content, "read_tool_output") {
-						t.Errorf("MCP output should be recoverable by artifact ID without a local path: %s", last.Content)
+					if result.OutputPath != "" || strings.Contains(content, "outputPath") || !strings.Contains(content, "read_tool_output") {
+						t.Errorf("MCP output should be recoverable by artifact ID without a local path: %.240s", content)
 					}
 					event = map[string]any{"choices": []any{map[string]any{"delta": map[string]string{"content": "MCP output saved"}, "finish_reason": "stop"}}}
 				}
@@ -257,14 +310,17 @@ func TestAgentPreservesLargerMCPResultAsArtifact(t *testing.T) {
 			var final store.ModelOutputRef
 			sink := historyTestSink(db, command, &final)
 			answer, err := Run(ctx, command, func(event workerproto.Result) error { events = append(events, event); return sink(event) })
-			if err != nil || answer != "MCP output saved" || modelCalls != 2 {
-				t.Fatalf("large MCP Agent flow: answer=%q, modelCalls=%d, err=%v", answer, modelCalls, err)
+			wantCalls := int32(2)
+			if pendingSeen.Load() {
+				wantCalls++
+			}
+			if err != nil || answer != "MCP output saved" || modelCalls.Load() != wantCalls {
+				t.Fatalf("large MCP Agent flow: answer=%q, modelCalls=%d, err=%v", answer, modelCalls.Load(), err)
+			}
+			if (failure || pendingSeen.Load()) && !deferredSeen.Load() {
+				t.Fatal("terminal deferred MCP result was not delivered")
 			}
 			started, completed, resultRecorded := false, false, false
-			expectedStatus := "succeeded"
-			if failure {
-				expectedStatus = "failed"
-			}
 			for _, event := range events {
 				if event.Kind == "artifact" && event.Status == "started" {
 					started = true
@@ -296,14 +352,21 @@ func TestAgentPreservesLargerMCPResultAsArtifact(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			var result *provider.ChatMessage
-			for i := range loaded {
-				if loaded[i].Role == "tool" && loaded[i].ToolCallID == "large_1" {
-					result = &loaded[i]
+			// A deferred result follows its original tool reply as a separate
+			// runtime notice. Both forms must retain the same terminal payload.
+			wantContent := terminalContent.Load()
+			var restored string
+			for _, message := range loaded {
+				if deferredSeen.Load() {
+					if content, ok := completion(message); ok && message.RuntimeData {
+						restored = content
+					}
+				} else if message.Role == "tool" && message.ToolCallID == "large_1" {
+					restored = message.Content
 				}
 			}
-			if result == nil || !strings.Contains(result.Content, "artifactId") || (strings.Contains(result.Content, `"error"`)) != failure {
-				t.Fatalf("restored MCP result lost its artifact or failure: %+v", result)
+			if wantContent == nil || restored != *wantContent {
+				t.Fatalf("restored MCP result lost its terminal payload: %.240s", restored)
 			}
 		})
 	}

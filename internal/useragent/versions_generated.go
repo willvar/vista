@@ -3,22 +3,22 @@
 package useragent
 
 // CodexVersion tracks @openai/codex@latest.
-const CodexVersion = "0.170.0"
+const CodexVersion = "0.171.0"
 
 // OpenCodeVersion tracks opencode-ai@latest.
 const OpenCodeVersion = "1.19.6"
 
 // OhMyPiVersion tracks @oh-my-pi/pi-coding-agent@latest.
-const OhMyPiVersion = "18.22.2"
+const OhMyPiVersion = "19.0.1"
 
 // ClaudeCodeVersion tracks @anthropic-ai/claude-code@latest.
-const ClaudeCodeVersion = "2.1.327"
+const ClaudeCodeVersion = "2.1.329"
 
 // GeminiCLIVersion tracks @google/gemini-cli@latest.
-const GeminiCLIVersion = "0.68.0"
+const GeminiCLIVersion = "0.70.0"
 
 // KimiCodeVersion tracks @moonshot-ai/kimi-code@latest.
-const KimiCodeVersion = "2.6.3"
+const KimiCodeVersion = "2.7.2"
 
 // ClineVersion tracks cline@latest.
 const ClineVersion = "3.0.74"

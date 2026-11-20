@@ -53,6 +53,7 @@ test('worker metrics stay behind an icon and their popup fits the viewport', asy
   await expect(popup).toContainText('Worker heap')
   await expect(popup).toContainText('RSS')
   await expect(popup).toContainText('Sampled')
+  await settleLayout(page)
   const popupGeometry = await popup.evaluate(element => {
     const bounds = element.getBoundingClientRect()
     return { left: bounds.left, right: bounds.right, top: bounds.top, bottom: bounds.bottom, width: innerWidth, height: innerHeight, overflow: element.scrollWidth - element.clientWidth }
@@ -77,6 +78,8 @@ test('worker metrics stay behind an icon and their popup fits the viewport', asy
   await expect(context).toHaveAttribute('aria-expanded', 'true')
   await expect(contextPopup).toContainText('The previous context was retained.')
   await expect(context.locator('.ui-progress')).toHaveCount(0)
+  // The teleported content is visible before the entrance transition settles.
+  await settleLayout(page)
   const contextGeometry = await contextPopup.evaluate(element => {
     const bounds = element.getBoundingClientRect()
     return { left: bounds.left, right: bounds.right, top: bounds.top, bottom: bounds.bottom, width: innerWidth, height: innerHeight, overflow: element.scrollWidth - element.clientWidth, teleported: !element.closest('.conversation-header') }

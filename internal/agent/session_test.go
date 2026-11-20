@@ -19,7 +19,8 @@ func TestDetachedTaskSurvivesParentAndNextRun(t *testing.T) {
 	for _, ending := range []string{"success", "failure", "cancel"} {
 		t.Run(ending, func(t *testing.T) {
 			db, baseCtx := checkpointFixture(t)
-			ctx, cancel := context.WithTimeout(baseCtx, 5*time.Second)
+			// This deadline bounds the entire sequence of persisted runs and replay.
+			ctx, cancel := context.WithTimeout(baseCtx, 15*time.Second)
 			defer cancel()
 			parentCtx, cancelParent := context.WithCancel(ctx)
 			defer cancelParent()
@@ -93,7 +94,7 @@ func TestDetachedTaskSurvivesParentAndNextRun(t *testing.T) {
 			}})
 			completed := make(chan workerproto.AgentTask, 1)
 			notified := make(chan struct{})
-			var finalMessages atomic.Int32
+			var finalMessages, reports atomic.Int32
 			var final store.ModelOutputRef
 			sink := historyTestSink(db, workerproto.Command{SessionID: "session"}, &final)
 			emit := func(result workerproto.Result) error {
@@ -108,8 +109,14 @@ func TestDetachedTaskSurvivesParentAndNextRun(t *testing.T) {
 					return err
 				}
 				err := sink(result)
-				if result.Kind == "runtime_event" {
-					close(notified)
+				// A slow delegate call may publish its tool result before the
+				// detached agent reports back. Only its persisted report wakes us.
+				if event := result.RuntimeEvent; err == nil && result.Kind == "runtime_event" && event != nil && event.Kind == "agent" && event.RunID == "continuation-run" && event.SourceID == "main/child" {
+					if reports.Add(1) == 1 {
+						close(notified)
+					} else {
+						t.Error("detached agent report emitted more than once")
+					}
 				}
 				return err
 			}
