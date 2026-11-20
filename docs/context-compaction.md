@@ -71,6 +71,8 @@ turn identity. Token statistics keep the provider-dispatch accounting path;
 these result records do not count the same usage twice.
 The summary prompt preserves goals, constraints, existing authorization,
 verified work and side effects, pending work, uncertainties and evidence references.
+The prompt prefers references over recoverable detail and aims for a summary within 2 KiB, allowing longer text when needed to preserve essential facts.
+This is advisory, not an output or acceptance limit.
 Each compaction has at most 32 summary requests, including rejected requests and
 at most one final refinement, shared across all transcript segments. Complete,
 nonempty UTF-8 text with no local or hosted tool calls is eligible; explicitly

@@ -30,13 +30,15 @@ func TestCompactionTriesOneRequestBeforeOverflowAndRecordsEachOutcome(t *testing
 			}
 			transcript := executionTranscript(messages, []executionGroup{{2, 3}})
 			const marker = "Completed execution transcript (possibly a continued segment):\n"
+			summary := strings.Repeat("Retained task, authorization and verified evidence.\n", 48) + "Unresolved follow-up."
 			var chunks []string
 			requests, failures := 0, 0
 			upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				var body struct {
-					Input     []struct{ Role, Content string }
-					Tools     []any
-					Reasoning struct{ Effort string }
+					Instructions string
+					Input        []struct{ Role, Content string }
+					Tools        []any
+					Reasoning    struct{ Effort string }
 				}
 				if err := json.NewDecoder(r.Body).Decode(&body); err != nil || len(body.Input) == 0 {
 					t.Errorf("invalid summary request: %v", err)
@@ -44,6 +46,9 @@ func TestCompactionTriesOneRequestBeforeOverflowAndRecordsEachOutcome(t *testing
 					return
 				}
 				_, chunk, found := strings.Cut(body.Input[len(body.Input)-1].Content, marker)
+				if !strings.Contains(body.Instructions, "aim for a summary within 2 KiB, but exceed that target if necessary to preserve essential facts.") {
+					t.Error("summary request lacks the advisory 2 KiB goal and exception for essential facts")
+				}
 				if !found || len(body.Tools) != 0 || body.Reasoning.Effort != "high" {
 					t.Error("summary changed effort, used tools or lost the transcript")
 				}
@@ -59,7 +64,7 @@ func TestCompactionTriesOneRequestBeforeOverflowAndRecordsEachOutcome(t *testing
 				}
 				chunks = append(chunks, chunk)
 				w.Header().Set("Content-Type", "text/event-stream")
-				fmt.Fprint(w, `data: {"type":"response.completed","response":{"status":"completed","output":[{"type":"message","role":"assistant","content":[{"type":"output_text","text":"Retained task, authorization and verified evidence."}]}],"usage":{"input_tokens":123,"output_tokens":9}}}`+"\n\n")
+				fmt.Fprintf(w, `data: {"type":"response.completed","response":{"status":"completed","output":[{"type":"message","role":"assistant","content":[{"type":"output_text","text":%q}]}],"usage":{"input_tokens":123,"output_tokens":9}}}`+"\n\n", summary)
 			}))
 			defer upstream.Close()
 			command := workerproto.Command{Action: "compact", RunID: "efficiency", Model: modelcfg.Model{Provider: "openai-responses", ID: "fixture", BaseURL: upstream.URL, APIKey: "fixture", ReasoningEffort: "high"}}
@@ -68,6 +73,9 @@ func TestCompactionTriesOneRequestBeforeOverflowAndRecordsEachOutcome(t *testing
 			next, changed, err := c.compact(context.Background(), command, messages, nil, func(r workerproto.Result) error { events = append(events, r); return nil }, &runScope{}, 0)
 			if err != nil || !changed || provider.EstimateRequestTokens(context.Background(), next, nil) >= provider.EstimateRequestTokens(context.Background(), messages, nil) || strings.Join(chunks, "") != transcript {
 				t.Fatalf("changed=%v requests=%d reconstruction=%v error=%v", changed, requests, strings.Join(chunks, "") == transcript, err)
+			}
+			if c.summaryIndex < 0 || next[c.summaryIndex].Content != executionSummaryPrefix+summary {
+				t.Fatal("valid summary beyond 2 KiB was not retained intact")
 			}
 			if !overflow && requests != 1 || overflow && (failures != 2 || len(chunks) != 4) {
 				t.Fatalf("requests=%d failures=%d successful chunks=%d", requests, failures, len(chunks))
