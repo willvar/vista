@@ -353,7 +353,7 @@ func loadApp(parent context.Context, cancel context.CancelFunc, configDir, dir s
 }
 
 func (a *App) start() error {
-	items, err := a.store.List(a.ctx)
+	items, err := a.store.RuntimeSessions(a.ctx)
 	if err != nil {
 		return err
 	}
@@ -697,6 +697,16 @@ func (a *App) session(w http.ResponseWriter, r *http.Request) {
 		a.revertMessage(w, r, item.ID, messageID.String())
 		return
 	}
+	if len(bits) == 2 && bits[1] == "branches" && r.Method == http.MethodGet {
+		branches, err := a.store.Branches(r.Context(), item.ID)
+		if err != nil {
+			revertHTTPError(w, err)
+			return
+		}
+		w.Header().Set("Cache-Control", "no-store")
+		jsonOut(w, branches)
+		return
+	}
 	if len(bits) >= 3 && bits[1] == "inputs" {
 		a.inputQueue(w, r, item.ID, bits[2:])
 		return
@@ -775,6 +785,17 @@ func (a *App) session(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if r.Method == "DELETE" && len(bits) == 1 {
+		branches, err := a.store.Branches(r.Context(), item.ID)
+		if err != nil {
+			revertHTTPError(w, err)
+			return
+		}
+		for _, branch := range branches {
+			if branch.ParentID == item.ID || branch.RootID == item.ID && branch.ID != item.ID {
+				http.Error(w, store.ErrBranchHasChildren.Error(), 409)
+				return
+			}
+		}
 		if err := a.store.SetOpen(r.Context(), item.ID, false); err != nil {
 			http.Error(w, "could not close session", http.StatusInternalServerError)
 			return

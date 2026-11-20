@@ -4,7 +4,7 @@ import { test, expect } from './fixtures'
 
 test.use({ replyWithPrompt: true, fileChanges: true })
 
-test('edit and withdrawal roll back context while retaining file changes', async ({ page, vista }, testInfo) => {
+test('editing and withdrawal create independent branches and retain file changes', async ({ page, vista }, testInfo) => {
   const session = await vista.api('/sessions', { method: 'POST', body: '{}' })
   const send = async (content: string) => {
     await vista.api(`/sessions/${session.id}/messages`, { method: 'POST', body: JSON.stringify({ content }) })
@@ -36,7 +36,11 @@ test('edit and withdrawal roll back context while retaining file changes', async
   await draft.press('Enter')
   await expect(page.locator('article.assistant').last()).toContainText('Mock reply: Edit files v2')
   await expect(page.locator('.sender-editing')).toHaveCount(0)
-  const edited = await vista.api(`/sessions/${session.id}/messages`)
+  const editedID=page.url().split('/').at(-1)
+  expect(editedID).not.toBe(session.id)
+  expect(await vista.api(`/sessions/${session.id}/messages`)).toEqual(original)
+  expect(await vista.api('/sessions')).toHaveLength(1)
+  const edited = await vista.api(`/sessions/${editedID}/messages`)
   expect(edited).toHaveLength(4)
   expect(edited[2].content).toBe('Edit files v2')
   expect(readFileSync(join(vista.workspacePath, 'source.txt'), 'utf8')).toBe('agent version 2')
@@ -44,7 +48,7 @@ test('edit and withdrawal roll back context while retaining file changes', async
   const revised = page.locator('article.user').filter({ hasText: 'Edit files v2' })
   await revised.hover()
   await revised.getByRole('button', { name: 'Withdraw message', exact: true }).click()
-  await expect(page.getByRole('dialog')).toContainText('Only the conversation is rolled back. File changes are kept.')
+  await expect(page.getByRole('dialog')).toContainText('File changes are kept.')
   await page.getByRole('dialog').getByRole('button', { name: 'Withdraw message', exact: true }).click()
   await expect(page.getByRole('dialog')).toHaveCount(0)
   await expect(draft).toHaveValue('Edit files v2')
@@ -74,13 +78,16 @@ test('external file changes do not block conversation withdrawal', async ({ page
   const dialog = page.getByRole('dialog')
   await dialog.getByRole('button', { name: 'Withdraw message', exact: true }).click()
   await expect(dialog).toHaveCount(0)
-  expect(await vista.api(`/sessions/${session.id}/messages`)).toEqual([])
+  const fork=page.url().split('/').at(-1)
+  expect(fork).not.toBe(session.id)
+  expect(await vista.api(`/sessions/${fork}/messages`)).toEqual([])
+  expect(await vista.api(`/sessions/${session.id}/messages`)).toHaveLength(2)
   await expect(page.locator('.sender-card textarea')).toHaveValue('Edit files')
   expect(readFileSync(join(vista.workspacePath, 'source.txt'), 'utf8')).toBe('user changes')
   expect(readFileSync(join(vista.workspacePath, 'added.txt'), 'utf8')).toBe('created')
 })
 
-test('withdrawal during a live response stops execution and retains file changes', async ({ page, vista }) => {
+test('withdrawal during a live response preserves both branches and file changes', async ({ page, vista }) => {
   const session = await vista.api('/sessions', { method: 'POST', body: '{}' })
   const release = vista.pauseModelReplies(true)
   try {
@@ -94,7 +101,10 @@ test('withdrawal during a live response stops execution and retains file changes
     await expect(page.getByRole('dialog')).toHaveCount(0)
     expect(readFileSync(join(vista.workspacePath, 'source.txt'), 'utf8')).toBe('agent version 1')
     release()
-    await expect.poll(async () => (await vista.api(`/sessions/${session.id}/messages`)).length).toBe(0)
+    const fork=page.url().split('/').at(-1)
+    expect(fork).not.toBe(session.id)
+    expect(await vista.api(`/sessions/${fork}/messages`)).toEqual([])
+    await expect.poll(async () => (await vista.api(`/sessions/${session.id}/messages`)).length).toBe(2)
     await expect.poll(async () => (await vista.api('/sessions')).find((item: any) => item.id === session.id).executing).toBe(false)
     await expect(page.locator('.sender-card textarea')).toHaveValue('Edit files')
   } finally { release() }
@@ -102,7 +112,7 @@ test('withdrawal during a live response stops execution and retains file changes
 
 test.describe('background and interjection boundaries', () => {
   test.use({ backgroundProcess: true })
-  test('withdrawal stops a session-owned background process', async ({ page, vista }) => {
+  test('withdrawal leaves a background process on its original branch', async ({ page, vista }) => {
     const session = await vista.api('/sessions', { method: 'POST', body: '{}' })
     await vista.api(`/sessions/${session.id}/messages`, { method: 'POST', body: JSON.stringify({ content: 'Start process' }) })
     await expect.poll(async () => (await vista.api(`/sessions/${session.id}/jobs`))[0]?.status).toBe('running')
@@ -113,8 +123,10 @@ test.describe('background and interjection boundaries', () => {
     await user.getByRole('button', { name: 'Withdraw message', exact: true }).click()
     await page.getByRole('dialog').getByRole('button', { name: 'Withdraw message', exact: true }).click()
     await expect(page.getByRole('dialog')).toHaveCount(0)
-    expect(await vista.api(`/sessions/${session.id}/jobs`)).toEqual([])
-    await expect.poll(async () => (await vista.api('/sessions')).find((item: any) => item.id === session.id).running).toBe(false)
+    const fork=page.url().split('/').at(-1)
+    expect(fork).not.toBe(session.id)
+    expect(await vista.api(`/sessions/${fork}/jobs`)).toEqual([])
+    expect((await vista.api(`/sessions/${session.id}/jobs`))[0]?.status).toBe('running')
   })
 })
 
@@ -146,4 +158,20 @@ test.describe('same-run interjection', () => {
       expect((await vista.api('/sessions')).find((item: any) => item.id === session.id).executing).toBe(false)
     } finally { release() }
   })
+})
+
+
+test('the branch picker returns to the original timeline without adding a sidebar conversation', { tag:'@responsive' }, async ({ page, vista }) => {
+  const session=await vista.api('/sessions',{method:'POST',body:'{}'})
+  const sent=await vista.api(`/sessions/${session.id}/messages`,{method:'POST',body:JSON.stringify({content:'Timeline fixture'})})
+  await expect.poll(async () => (await vista.api(`/sessions/${session.id}/checkpoint`)).session.executing).toBe(false)
+  const result=await vista.api(`/sessions/${session.id}/messages/${sent.message.id}/revert`,{method:'POST'})
+  await page.goto(`${vista.origin}/sessions/${result.session.id}`)
+  await expect(page.locator('article.user')).toHaveCount(0)
+  await page.getByRole('button',{name:'Conversation branches',exact:true}).click()
+  await page.getByText('Original',{exact:true}).click()
+  await expect(page).toHaveURL(`${vista.origin}/sessions/${session.id}`)
+  await expect(page.locator('article.user')).toContainText('Timeline fixture')
+  expect((await vista.api('/sessions')).map((item:{id:string})=>item.id)).toEqual([session.id])
+  expect((await vista.api('/status')).sessions.total).toBe(1)
 })

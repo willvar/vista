@@ -238,7 +238,10 @@ func (a *App) applySessionAction(ctx context.Context, source string, pending *pe
 
 func (a *App) removeSessionOutputs(id string, paths []string) {
 	for _, path := range paths {
-		_ = a.removeOutput(path)
+		used, err := a.store.BranchOutputReferenced(context.Background(), path)
+		if err == nil && !used {
+			_ = a.removeOutput(path)
+		}
 	}
 	_ = modeltrace.DeleteSession(a.dir, id)
 }

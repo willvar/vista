@@ -18,6 +18,12 @@ import (
 var ErrBusy = errors.New("session already has a running execution")
 var ErrClosed = errors.New("session is closed")
 
+func nextEventSequence(ctx context.Context, tx *gorm.DB, sessionID string, out *int64) error {
+	return tx.WithContext(ctx).Raw(`SELECT MAX(
+  COALESCE((SELECT MAX(sequence) FROM events WHERE session_id=?),0),
+  COALESCE((SELECT fork_before-1 FROM conversation_branches WHERE branch_id=?),0))+1`, sessionID, sessionID).Row().Scan(out)
+}
+
 func appendEvent(ctx context.Context, tx *gorm.DB, sessionID, kind string, data any) (Event, error) {
 	encoded, err := json.Marshal(data)
 	if err != nil {
@@ -31,7 +37,7 @@ func appendEvent(ctx context.Context, tx *gorm.DB, sessionID, kind string, data 
 		return Event{}, fmt.Errorf("%s event exceeds %d KiB", kind, limit>>10)
 	}
 	var sequence int64
-	if err = tx.WithContext(ctx).Raw("SELECT COALESCE(MAX(sequence),0)+1 FROM events WHERE session_id=?", sessionID).Row().Scan(&sequence); err != nil {
+	if err = nextEventSequence(ctx, tx, sessionID, &sequence); err != nil {
 		return Event{}, err
 	}
 	e := Event{SessionID: sessionID, Sequence: sequence, Kind: kind, Data: encoded, CreatedAt: time.Now().UTC().Format(time.RFC3339Nano)}
@@ -215,7 +221,7 @@ func (s *Store) beginRun(ctx context.Context, sessionID, runID, messageID, conte
 		return Message{}, Event{}, err
 	}
 	var next int64
-	if err = tx.WithContext(ctx).Raw("SELECT COALESCE(MAX(sequence),0)+1 FROM events WHERE session_id=?", sessionID).Row().Scan(&next); err != nil {
+	if err = nextEventSequence(ctx, tx, sessionID, &next); err != nil {
 		return Message{}, Event{}, err
 	}
 	m := Message{ID: messageID, SessionID: sessionID, RunID: runID, Sequence: next, Role: "user", Content: content, QuestionCallID: questionCallID, ImageCount: len(images), CreatedAt: at}
@@ -249,10 +255,10 @@ func (s *Store) beginRun(ctx context.Context, sessionID, runID, messageID, conte
 // is stored. A manual title makes the session ineligible for automatic naming.
 func (s *Store) FirstMessageTitleCandidate(ctx context.Context, sessionID, messageID string) (string, bool, error) {
 	var prompt string
-	err := s.orm.WithContext(ctx).Raw(`SELECT m.content FROM messages m JOIN sessions s ON s.id=m.session_id
+	err := s.orm.WithContext(ctx).Raw(`SELECT m.content FROM history_messages m JOIN sessions s ON s.id=m.session_id
  WHERE m.session_id=? AND m.id=? AND m.role='user' AND s.title='New session'
- AND NOT EXISTS(SELECT 1 FROM events e WHERE e.session_id=s.id AND e.kind='session_renamed')
- AND m.sequence=(SELECT MIN(sequence) FROM messages WHERE session_id=s.id AND role='user')
+ AND NOT EXISTS(SELECT 1 FROM history_events e WHERE e.session_id=s.id AND e.kind='session_renamed')
+ AND m.sequence=(SELECT MIN(sequence) FROM history_messages WHERE session_id=s.id AND role='user')
  LIMIT 1`, sessionID, messageID).Row().Scan(&prompt)
 	if errors.Is(err, ErrNotFound) {
 		return "", false, nil
@@ -268,7 +274,7 @@ func (s *Store) SetGeneratedTitle(ctx context.Context, sessionID, messageID, tit
 		return nil, err
 	}
 	defer tx.Rollback()
-	result, err := execSQL(ctx, tx, `UPDATE sessions SET title=? WHERE id=? AND title='New session' AND NOT EXISTS(SELECT 1 FROM events WHERE session_id=? AND kind='session_renamed') AND EXISTS(SELECT 1 FROM messages WHERE session_id=? AND id=? AND role='user' AND sequence=(SELECT MIN(sequence) FROM messages WHERE session_id=? AND role='user'))`, title, sessionID, sessionID, sessionID, messageID, sessionID)
+	result, err := execSQL(ctx, tx, `UPDATE sessions SET title=? WHERE id=? AND title='New session' AND NOT EXISTS(SELECT 1 FROM history_events WHERE session_id=? AND kind='session_renamed') AND EXISTS(SELECT 1 FROM history_messages WHERE session_id=? AND id=? AND role='user' AND sequence=(SELECT MIN(sequence) FROM history_messages WHERE session_id=? AND role='user'))`, title, sessionID, sessionID, sessionID, messageID, sessionID)
 	if err != nil {
 		return nil, err
 	}
@@ -379,7 +385,7 @@ func (s *Store) FinishRunWithPending(ctx context.Context, sessionID, runID, mess
 	var message *Message
 	if content != "" && status != "interrupted" {
 		var next int64
-		if err = tx.WithContext(ctx).Raw("SELECT COALESCE(MAX(sequence),0)+1 FROM events WHERE session_id=?", sessionID).Row().Scan(&next); err != nil {
+		if err = nextEventSequence(ctx, tx, sessionID, &next); err != nil {
 			return nil, err
 		}
 		m := Message{ID: messageID, SessionID: sessionID, RunID: runID, Sequence: next, Role: "assistant", Content: content, CreatedAt: at, Failure: status == "failed"}
@@ -536,11 +542,11 @@ func interruptRunning(ctx context.Context, tx *gorm.DB, sessionID string, reason
 
 func appendUnknownTools(ctx context.Context, tx *gorm.DB, sessionID, runID string, onlyTask ...string) (int, error) {
 	var start int64
-	if err := tx.WithContext(ctx).Raw(`SELECT COALESCE((SELECT MIN(sequence) FROM messages WHERE session_id=? AND run_id=? AND role='user'),(SELECT MIN(sequence) FROM events WHERE session_id=? AND json_extract(data,'$.runId')=?),0)`, sessionID, runID, sessionID, runID).Row().Scan(&start); err != nil {
+	if err := tx.WithContext(ctx).Raw(`SELECT COALESCE((SELECT MIN(sequence) FROM history_messages WHERE session_id=? AND run_id=? AND role='user'),(SELECT MIN(sequence) FROM history_events WHERE session_id=? AND json_extract(data,'$.runId')=?),0)`, sessionID, runID, sessionID, runID).Row().Scan(&start); err != nil {
 		return 0, err
 	}
-	query := `SELECT sequence,data FROM events e WHERE session_id=? AND kind='tool' AND sequence>=?
- AND NOT EXISTS(SELECT 1 FROM agent_tasks t WHERE t.run_id=? AND t.task_id=json_extract(e.data,'$.taskId') AND t.background=1 AND t.status='started')`
+	query := `SELECT sequence,data FROM history_events e WHERE session_id=? AND kind='tool' AND sequence>=?
+ AND NOT EXISTS(SELECT 1 FROM agent_tasks t WHERE t.session_id=e.session_id AND t.run_id=? AND t.task_id=json_extract(e.data,'$.taskId') AND t.background=1 AND t.status='started')`
 	args := []any{sessionID, start, runID}
 	if len(onlyTask) > 0 {
 		query += " AND json_extract(e.data,'$.taskId')=?"
@@ -621,7 +627,7 @@ func (s *Store) EventsThrough(ctx context.Context, sessionID string, after, thro
 		return nil, errors.New("invalid event page size")
 	}
 	// SQLite JSON functions return TEXT; normalize data before scanning it into json.RawMessage.
-	query := "SELECT sequence,kind,CAST(data AS BLOB) AS data,created_at FROM events WHERE session_id=? AND sequence>?"
+	query := "SELECT sequence,kind,CAST(data AS BLOB) AS data,created_at FROM history_events WHERE session_id=? AND sequence>?"
 	args := []any{sessionID, after}
 	if through > 0 {
 		query += " AND sequence<=?"
@@ -647,7 +653,7 @@ func (s *Store) EventsBefore(ctx context.Context, sessionID string, before int64
 	if limit < 1 || limit > 200 {
 		return nil, errors.New("invalid event page size")
 	}
-	query := "SELECT sequence,kind,CAST(data AS BLOB) AS data,created_at FROM events WHERE session_id=?"
+	query := "SELECT sequence,kind,CAST(data AS BLOB) AS data,created_at FROM history_events WHERE session_id=?"
 	args := []any{sessionID}
 	if before > 0 {
 		query += " AND sequence<?"
@@ -681,7 +687,7 @@ func (s *Store) MessagesAfter(ctx context.Context, sessionID string, after int64
 	if limit < 1 || limit > 200 {
 		return nil, errors.New("invalid message page size")
 	}
-	rows, err := s.orm.WithContext(ctx).Raw("SELECT id,run_id,sequence,role,content,created_at,provider_id,model_id,model_key,output_turn,output_bytes,(SELECT COUNT(*) FROM message_resources WHERE message_id=messages.id),(SELECT COALESCE(SUM(r.bytes),0) FROM message_resources JOIN resources r USING(hash) WHERE message_id=messages.id),EXISTS(SELECT 1 FROM events e WHERE e.session_id=messages.session_id AND e.sequence=messages.sequence AND e.kind='run_finished' AND json_extract(e.data,'$.status')='failed') FROM messages WHERE session_id=? AND sequence>? ORDER BY sequence LIMIT ?", sessionID, after, limit).Rows()
+	rows, err := s.orm.WithContext(ctx).Raw("SELECT id,run_id,sequence,role,content,created_at,provider_id,model_id,model_key,output_turn,output_bytes,(SELECT COUNT(*) FROM message_resources WHERE message_id=history_messages.id),(SELECT COALESCE(SUM(r.bytes),0) FROM message_resources JOIN resources r USING(hash) WHERE message_id=history_messages.id),EXISTS(SELECT 1 FROM history_events e WHERE e.session_id=history_messages.session_id AND e.sequence=history_messages.sequence AND e.kind='run_finished' AND json_extract(e.data,'$.status')='failed') FROM history_messages WHERE session_id=? AND sequence>? ORDER BY sequence LIMIT ?", sessionID, after, limit).Rows()
 	if err != nil {
 		return nil, err
 	}
@@ -701,7 +707,7 @@ func (s *Store) MessagesBefore(ctx context.Context, sessionID string, before int
 	if limit < 1 || limit > 200 {
 		return nil, errors.New("invalid message page size")
 	}
-	query := "SELECT id,run_id,sequence,role,content,created_at,provider_id,model_id,model_key,output_turn,output_bytes,(SELECT COUNT(*) FROM message_resources WHERE message_id=messages.id),(SELECT COALESCE(SUM(r.bytes),0) FROM message_resources JOIN resources r USING(hash) WHERE message_id=messages.id),EXISTS(SELECT 1 FROM events e WHERE e.session_id=messages.session_id AND e.sequence=messages.sequence AND e.kind='run_finished' AND json_extract(e.data,'$.status')='failed') FROM messages WHERE session_id=?"
+	query := "SELECT id,run_id,sequence,role,content,created_at,provider_id,model_id,model_key,output_turn,output_bytes,(SELECT COUNT(*) FROM message_resources WHERE message_id=history_messages.id),(SELECT COALESCE(SUM(r.bytes),0) FROM message_resources JOIN resources r USING(hash) WHERE message_id=history_messages.id),EXISTS(SELECT 1 FROM history_events e WHERE e.session_id=history_messages.session_id AND e.sequence=history_messages.sequence AND e.kind='run_finished' AND json_extract(e.data,'$.status')='failed') FROM history_messages WHERE session_id=?"
 	args := []any{sessionID}
 	if before > 0 {
 		query += " AND sequence<?"

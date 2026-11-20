@@ -89,7 +89,7 @@ function createWorkspace() {
           if (selected.value?.id !== activeID) return refreshTopics(['sessions'], signal, {
             ...pushed, sessions: { items: snapshot, throughSequences: pushed.sessions?.throughSequences ?? {} },
           })
-          if (point?.session.open) snapshot = [...snapshot, point.session]
+          // A direct branch bookmark is not an extra sidebar item.
         }
         const boundary = selected.value ? {
           sessionId: selected.value.id,
@@ -108,8 +108,8 @@ function createWorkspace() {
         }
         if (route.name === 'session') {
           const routed = list.find(item => item.id === route.params.id) ?? (point?.session.id === route.params.id ? point.session : undefined)
-          if (!routed) await router.replace('/')
-          else if (!routed.open && selected.value?.id !== routed.id) await router.replace('/sessions')
+          if (!routed && lookupID === route.params.id) await router.replace('/')
+          else if (routed && !routed.open && selected.value?.id !== routed.id) await router.replace('/sessions')
         }
         // A new session can receive a list push before its first send leaves
         // home. Only actual route navigation may clear that in-flight scope.
@@ -205,7 +205,15 @@ function createWorkspace() {
   async function syncRoute() {
     const id = route.name === 'session' ? String(route.params.id || '')
       : typeof route.query.session === 'string' ? route.query.session : ''
-    const item = sessions.value.find(session => session.id === id && session.open)
+    let item = sessions.value.find(session => session.id === id && session.open)
+    if (id && !item && selected.value?.id !== id) {
+      const target = route.fullPath
+      try {
+        const point = await client.request<SyncCheckpoint>(`/sessions/${id}/checkpoint`)
+        if (disposed || route.fullPath !== target) return
+        item = point.session
+      } catch (cause) { if (!disposed && route.fullPath === target && !(cause instanceof VistaAPIError && cause.status === 404)) error.value = String(cause) }
+    }
     if (item && selected.value?.id !== item.id) await conversation.selectSession(item)
     else if (route.name === 'home') conversation.clearSession()
   }

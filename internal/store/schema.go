@@ -21,6 +21,12 @@ func (s *Store) initializeSchema() error {
    input_queue_paused INTEGER NOT NULL DEFAULT 0, read_sequence INTEGER NOT NULL DEFAULT 0,
    open_revision INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL
   )`,
+		`CREATE TABLE IF NOT EXISTS conversation_branches (
+   branch_id TEXT PRIMARY KEY REFERENCES sessions(id) ON DELETE CASCADE,
+   root_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE, parent_id TEXT NOT NULL,
+   fork_message_id TEXT NOT NULL, fork_before INTEGER NOT NULL
+  )`,
+		`CREATE INDEX IF NOT EXISTS branches_by_root ON conversation_branches(root_id)`,
 		`CREATE TABLE IF NOT EXISTS runs (
    id TEXT PRIMARY KEY, session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
    provider_id TEXT NOT NULL DEFAULT '', model_id TEXT NOT NULL DEFAULT '', model_key TEXT NOT NULL DEFAULT '',
@@ -29,6 +35,11 @@ func (s *Store) initializeSchema() error {
 		`CREATE UNIQUE INDEX IF NOT EXISTS one_running_run_per_session ON runs(session_id) WHERE status='running'`,
 		`CREATE INDEX IF NOT EXISTS runs_by_session ON runs(session_id,created_at DESC,id DESC)`,
 		`CREATE INDEX IF NOT EXISTS runs_by_session_row ON runs(session_id)`,
+		`CREATE TRIGGER IF NOT EXISTS branch_execution_slot BEFORE INSERT ON runs WHEN NEW.status='running' AND EXISTS(
+ SELECT 1 FROM runs r WHERE r.status='running' AND r.session_id<>NEW.session_id
+ AND COALESCE((SELECT root_id FROM conversation_branches WHERE branch_id=r.session_id),r.session_id)
+   =COALESCE((SELECT root_id FROM conversation_branches WHERE branch_id=NEW.session_id),NEW.session_id))
+ BEGIN SELECT RAISE(ABORT,'vista_branch_execution_slot'); END`,
 		`CREATE TABLE IF NOT EXISTS agent_tasks (
    session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
    run_id TEXT NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
@@ -126,6 +137,11 @@ func (s *Store) initializeSchema() error {
 	} {
 		if err := s.orm.Exec(q).Error; err != nil {
 			return fmt.Errorf("initialize database: %w", err)
+		}
+	}
+	for _, q := range branchHistorySchema {
+		if err := s.orm.Exec(q).Error; err != nil {
+			return fmt.Errorf("initialize branch history: %w", err)
 		}
 	}
 	if err := resources.InitSchema(s.orm); err != nil {

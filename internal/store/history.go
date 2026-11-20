@@ -17,7 +17,7 @@ func (s *Store) HistoryIndex(ctx context.Context, sessionID string, before int64
 	if before <= 0 || limit < 1 || limit > 10 {
 		return nil, errors.New("invalid history index range")
 	}
-	rows, err := s.orm.WithContext(ctx).Raw("SELECT sequence,role,CASE WHEN output_bytes>0 THEN output_bytes ELSE length(CAST(content AS BLOB)) END,substr(content,1,100),(SELECT COUNT(*) FROM message_resources WHERE message_id=messages.id) FROM messages WHERE session_id=? AND sequence<? ORDER BY sequence DESC LIMIT ?", sessionID, before, limit).Rows()
+	rows, err := s.orm.WithContext(ctx).Raw("SELECT sequence,role,CASE WHEN output_bytes>0 THEN output_bytes ELSE length(CAST(content AS BLOB)) END,substr(content,1,100),(SELECT COUNT(*) FROM message_resources WHERE message_id=history_messages.id) FROM history_messages WHERE session_id=? AND sequence<? ORDER BY sequence DESC LIMIT ?", sessionID, before, limit).Rows()
 	if err != nil {
 		return nil, err
 	}
@@ -36,7 +36,7 @@ func (s *Store) HistoryIndex(ctx context.Context, sessionID string, before int64
 func (s *Store) HistoryMessage(ctx context.Context, sessionID string, sequence int64) (Message, error) {
 	var message Message
 	message.SessionID = sessionID
-	err := s.orm.WithContext(ctx).Raw("SELECT id,run_id,sequence,role,content,created_at,provider_id,model_id,model_key,output_turn,output_bytes,(SELECT COUNT(*) FROM message_resources WHERE message_id=messages.id) FROM messages WHERE session_id=? AND sequence=?", sessionID, sequence).Row().Scan(&message.ID, &message.RunID, &message.Sequence, &message.Role, &message.Content, &message.CreatedAt, &message.Provider, &message.ModelID, &message.ModelKey, &message.OutputTurn, &message.OutputBytes, &message.ImageCount)
+	err := s.orm.WithContext(ctx).Raw("SELECT id,run_id,sequence,role,content,created_at,provider_id,model_id,model_key,output_turn,output_bytes,(SELECT COUNT(*) FROM message_resources WHERE message_id=history_messages.id) FROM history_messages WHERE session_id=? AND sequence=?", sessionID, sequence).Row().Scan(&message.ID, &message.RunID, &message.Sequence, &message.Role, &message.Content, &message.CreatedAt, &message.Provider, &message.ModelID, &message.ModelKey, &message.OutputTurn, &message.OutputBytes, &message.ImageCount)
 	if errors.Is(err, ErrNotFound) {
 		return Message{}, ErrNotFound
 	}
@@ -46,6 +46,6 @@ func (s *Store) HistoryMessage(ctx context.Context, sessionID string, sequence i
 func (s *Store) NextHistoryMessage(ctx context.Context, sessionID string, after, before int64) (Message, error) {
 	var message Message
 	message.SessionID = sessionID
-	err := s.orm.WithContext(ctx).Raw("SELECT id,run_id,sequence,role,content,created_at,provider_id,model_id,model_key,output_turn,output_bytes,(SELECT COUNT(*) FROM message_resources WHERE message_id=messages.id) FROM messages WHERE session_id=? AND sequence>? AND sequence<? ORDER BY sequence LIMIT 1", sessionID, after, before).Row().Scan(&message.ID, &message.RunID, &message.Sequence, &message.Role, &message.Content, &message.CreatedAt, &message.Provider, &message.ModelID, &message.ModelKey, &message.OutputTurn, &message.OutputBytes, &message.ImageCount)
+	err := s.orm.WithContext(ctx).Raw("SELECT id,run_id,sequence,role,content,created_at,provider_id,model_id,model_key,output_turn,output_bytes,(SELECT COUNT(*) FROM message_resources WHERE message_id=history_messages.id) FROM history_messages WHERE session_id=? AND sequence>? AND sequence<? ORDER BY sequence LIMIT 1", sessionID, after, before).Row().Scan(&message.ID, &message.RunID, &message.Sequence, &message.Role, &message.Content, &message.CreatedAt, &message.Provider, &message.ModelID, &message.ModelKey, &message.OutputTurn, &message.OutputBytes, &message.ImageCount)
 	return message, err
 }

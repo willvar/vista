@@ -120,6 +120,7 @@ func (a *App) submitMessage(w http.ResponseWriter, r *http.Request, sessionID st
 		}
 	}
 	catalog := a.modelsSnapshot()
+	var forked *store.Session
 	if input.ReplacesMessageID != "" {
 		// Reject malformed model/image choices before discarding usable history.
 		{
@@ -160,15 +161,19 @@ func (a *App) submitMessage(w http.ResponseWriter, r *http.Request, sessionID st
 			http.Error(w, "invalid replaced message", 400)
 			return
 		}
-		if _, err := a.revertConversation(r.Context(), sessionID, messageID.String(), input.Images...); err != nil {
+		if _, err := a.store.RunningRunID(r.Context(), sessionID); err == nil {
+			revertHTTPError(w, store.ErrBranchRunning)
+			return
+		}
+		result, err := a.revertConversation(r.Context(), sessionID, messageID.String(), input.Images...)
+		if err != nil {
 			revertHTTPError(w, err)
 			return
 		}
-		item, err = a.store.Get(r.Context(), sessionID)
-		if err != nil {
-			http.Error(w, err.Error(), 500)
-			return
-		}
+		forked = result.Session
+		item = *forked
+		sessionID = item.ID
+		w.Header().Set("X-Vista-Forked-Session", sessionID)
 	}
 	_, runningErr := a.store.RunningRunID(r.Context(), sessionID)
 	if runningErr != nil && !errors.Is(runningErr, store.ErrNotFound) {
@@ -279,6 +284,10 @@ func (a *App) submitMessage(w http.ResponseWriter, r *http.Request, sessionID st
 		message, event, err = a.store.BeginRunWithImages(r.Context(), sessionID, runID, messageID, input.Content, images, modelKey)
 	}
 	a.admissionLock().Unlock()
+	if errors.Is(err, store.ErrBranchRunning) {
+		revertHTTPError(w, err)
+		return
+	}
 	if errors.Is(err, store.ErrNoPendingQuestion) {
 		http.Error(w, err.Error(), http.StatusConflict)
 		return
@@ -308,7 +317,7 @@ func (a *App) submitMessage(w http.ResponseWriter, r *http.Request, sessionID st
 		return
 	}
 	w.WriteHeader(202)
-	jsonOut(w, map[string]any{"runId": runID, "message": message, "event": event})
+	jsonOut(w, map[string]any{"runId": runID, "message": message, "event": event, "session": forked})
 }
 
 func (a *App) dispatchRun(ctx context.Context, sessionID, runID string, message store.Message, model modelcfg.Model, debug ...bool) (dispatchErr error) {

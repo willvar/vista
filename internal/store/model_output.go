@@ -104,14 +104,14 @@ func (s *Store) readModelOutput(ctx context.Context, sessionID, runID string, tu
 	}
 	defer tx.Rollback()
 	var exists bool
-	if err := tx.WithContext(ctx).Raw("SELECT EXISTS(SELECT 1 FROM runs WHERE id=? AND session_id=?)", runID, sessionID).Row().Scan(&exists); err != nil {
+	if err := tx.WithContext(ctx).Raw("SELECT EXISTS(SELECT 1 FROM history_runs WHERE id=? AND session_id=?)", runID, sessionID).Row().Scan(&exists); err != nil {
 		return ModelOutputPage{}, err
 	}
 	if !exists {
 		return ModelOutputPage{}, ErrNotFound
 	}
 	page := ModelOutputPage{RunID: runID, Turn: turn, Offset: offset, NextOffset: offset}
-	if err := tx.WithContext(ctx).Raw("SELECT COALESCE(MAX(offset+length),0),COALESCE(MAX(event_sequence),0) FROM model_output_chunks WHERE session_id=? AND run_id=? AND turn=?", sessionID, runID, turn).Row().Scan(&page.AvailableBytes, &page.LastSequence); err != nil {
+	if err := tx.WithContext(ctx).Raw("SELECT COALESCE(MAX(offset+length),0),COALESCE(MAX(event_sequence),0) FROM history_output_chunks WHERE session_id=? AND run_id=? AND turn=?", sessionID, runID, turn).Row().Scan(&page.AvailableBytes, &page.LastSequence); err != nil {
 		return ModelOutputPage{}, err
 	}
 	if page.AvailableBytes == 0 {
@@ -120,11 +120,11 @@ func (s *Store) readModelOutput(ctx context.Context, sessionID, runID string, tu
 	if full {
 		limit = int(page.AvailableBytes)
 	}
-	if err := tx.WithContext(ctx).Raw("SELECT EXISTS(SELECT 1 FROM messages WHERE session_id=? AND run_id=? AND output_turn=? AND output_bytes=?)", sessionID, runID, turn, page.AvailableBytes).Row().Scan(&page.Complete); err != nil {
+	if err := tx.WithContext(ctx).Raw("SELECT EXISTS(SELECT 1 FROM history_messages WHERE session_id=? AND run_id=? AND output_turn=? AND output_bytes=?)", sessionID, runID, turn, page.AvailableBytes).Row().Scan(&page.Complete); err != nil {
 		return ModelOutputPage{}, err
 	}
 	if !page.Complete {
-		if err := tx.WithContext(ctx).Raw(`SELECT EXISTS(SELECT 1 FROM events WHERE session_id=? AND kind='agent_task'
+		if err := tx.WithContext(ctx).Raw(`SELECT EXISTS(SELECT 1 FROM history_events WHERE session_id=? AND kind='agent_task'
    AND json_extract(data,'$.runId')=? AND json_extract(data,'$.task.status')='succeeded'
    AND json_extract(data,'$.task.report.runId')=? AND json_extract(data,'$.task.report.turn')=?
    AND json_extract(data,'$.task.report.bytes')=?)`, sessionID, runID, runID, turn, page.AvailableBytes).Row().Scan(&page.Complete); err != nil {
@@ -132,7 +132,7 @@ func (s *Store) readModelOutput(ctx context.Context, sessionID, runID string, tu
 		}
 	}
 	if !page.Complete {
-		if err := tx.WithContext(ctx).Raw(`SELECT EXISTS(SELECT 1 FROM events WHERE session_id=? AND kind='context_notice'
+		if err := tx.WithContext(ctx).Raw(`SELECT EXISTS(SELECT 1 FROM history_events WHERE session_id=? AND kind='context_notice'
    AND json_extract(data,'$.runId')=? AND json_extract(data,'$.outputTurn')=?
    AND json_extract(data,'$.outputBytes')=?)`, sessionID, runID, turn, page.AvailableBytes).Row().Scan(&page.Complete); err != nil {
 			return ModelOutputPage{}, err
@@ -141,8 +141,8 @@ func (s *Store) readModelOutput(ctx context.Context, sessionID, runID string, tu
 	if offset > page.AvailableBytes {
 		return ModelOutputPage{}, ErrModelOutputRange
 	}
-	rows, err := tx.WithContext(ctx).Raw(`SELECT c.offset,c.length,e.data FROM model_output_chunks c
- JOIN events e ON e.session_id=c.session_id AND e.sequence=c.event_sequence
+	rows, err := tx.WithContext(ctx).Raw(`SELECT c.offset,c.length,e.data FROM history_output_chunks c
+ JOIN history_events e ON e.session_id=c.session_id AND e.sequence=c.event_sequence
  WHERE c.session_id=? AND c.run_id=? AND c.turn=? AND c.offset+c.length>?
  ORDER BY c.offset`, sessionID, runID, turn, offset).Rows()
 	if err != nil {

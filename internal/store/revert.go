@@ -11,7 +11,7 @@ import (
 
 func (s *Store) RevertTarget(ctx context.Context, sessionID, messageID string) (Message, error) {
 	var sequence int64
-	err := s.orm.WithContext(ctx).Raw(`SELECT sequence FROM messages WHERE session_id=? AND id=? AND role='user'`, sessionID, messageID).Row().Scan(&sequence)
+	err := s.orm.WithContext(ctx).Raw(`SELECT sequence FROM history_messages WHERE session_id=? AND id=? AND role='user'`, sessionID, messageID).Row().Scan(&sequence)
 	if err != nil {
 		return Message{}, err
 	}
@@ -28,6 +28,14 @@ func (s *Store) Revert(ctx context.Context, sessionID, messageID string, sequenc
 		return Event{}, err
 	}
 	defer tx.Rollback()
+	// Legacy destructive rewind is only safe for streams without branches.
+	var branched bool
+	if err := tx.WithContext(ctx).Raw(`SELECT EXISTS(SELECT 1 FROM conversation_branches WHERE parent_id=? OR branch_id=?)`, sessionID, sessionID).Row().Scan(&branched); err != nil {
+		return Event{}, err
+	}
+	if branched {
+		return Event{}, ErrBranchHasChildren
+	}
 	var exists bool
 	if err := tx.WithContext(ctx).Raw(`SELECT EXISTS(SELECT 1 FROM messages WHERE session_id=? AND id=? AND sequence=? AND role='user')`, sessionID, messageID, sequence).Row().Scan(&exists); err != nil {
 		return Event{}, err

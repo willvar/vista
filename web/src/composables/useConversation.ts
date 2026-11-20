@@ -106,7 +106,7 @@ export function useConversation({ client, sessions, modelCatalog, error, busy, r
   const canAnalyzeFailure = computed(() => interactionPreferences.ready.value && !!selectedModelInfo.value?.provider)
   let editBackup: { draft: string; quote: QuotedReply | null; images: File[] } | null = null
   type ImageRef = { hash: string; name: string; mediaType: string; bytes: number }
-  type MessageDraft = { message: Message; images: ImageRef[] }
+  type MessageDraft = { message: Message; images: ImageRef[]; session?: Session }
   let draftRevision = 0
   let recallingScope: Scope | null = null
   let welcomeImages: File[] = []
@@ -760,10 +760,16 @@ export function useConversation({ client, sessions, modelCatalog, error, busy, r
       if (!current(scope)) return false
       editingMessage.value = null
       editBackup = null
+      if (result.session) {
+        endBusy(scope, owner)
+        await selectSession(result.session)
+        if (selected.value?.id !== result.session.id) return false
+        await onSessionStarted?.(result.session)
+      }
       draft.value = result.message.content
       quotedReply.value = null
       attachedImages.value = files
-      await reloadAfterRollback()
+      if (!result.session) await reloadAfterRollback()
       return true
     } catch (failure) {
       if (current(scope)) { rollbackFailure.value = String(failure); error.value = rollbackFailure.value; await refresh() }
@@ -905,9 +911,17 @@ export function useConversation({ client, sessions, modelCatalog, error, busy, r
       if (quotedReply.value === quote) quotedReply.value = null
       if (attachedImages.value.length === files.length && files.every((file, index) => attachedImages.value[index] === file)) attachedImages.value = []
       if (edited) {
+        const backup = editBackup
         editingMessage.value = null
         editBackup = null
-        await reloadAfterRollback()
+        if (result.session) {
+          if (backup) {
+            draft.value = backup.draft; quotedReply.value = backup.quote; attachedImages.value = backup.images
+          }
+          endBusy(scope,owner)
+          await selectSession(result.session)
+          await onSessionStarted?.(result.session)
+        } else await reloadAfterRollback()
       } else await applySentMessage(scope, result)
     } catch (failure) {
       if (scope && edited && current(scope)) {

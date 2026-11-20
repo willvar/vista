@@ -31,8 +31,8 @@ type SessionActionState struct {
 }
 
 const agentSessionColumns = `s.id, s.title, s.is_open AS open, s.pinned, s.created_at,
- EXISTS(SELECT 1 FROM messages WHERE session_id=s.id AND role='assistant' AND sequence>s.read_sequence) AS unread,
- COALESCE((SELECT created_at FROM events WHERE session_id=s.id ORDER BY sequence DESC LIMIT 1),s.created_at) AS updated_at,
+ EXISTS(SELECT 1 FROM history_messages WHERE session_id=s.id AND role='assistant' AND sequence>s.read_sequence) AS unread,
+ COALESCE((SELECT created_at FROM history_events WHERE session_id=s.id ORDER BY sequence DESC LIMIT 1),s.created_at) AS updated_at,
  (EXISTS(SELECT 1 FROM runs WHERE session_id=s.id AND status='running') OR
   EXISTS(SELECT 1 FROM jobs WHERE session_id=s.id AND status IN ('starting','running')) OR
   EXISTS(SELECT 1 FROM agent_tasks WHERE session_id=s.id AND status='started')) AS running,
@@ -41,7 +41,7 @@ const agentSessionColumns = `s.id, s.title, s.is_open AS open, s.pinned, s.creat
  EXISTS(SELECT 1 FROM runtime_events WHERE session_id=s.id AND status IN ('pending','restart')) AS pending_continuation`
 
 func (s *Store) AgentSessions(ctx context.Context, source, title string, open *bool, updatedBefore time.Time, idleOnly bool, offset, limit int) ([]AgentSession, error) {
-	query := s.orm.WithContext(ctx).Table("sessions AS s").Select(agentSessionColumns)
+	query := s.orm.WithContext(ctx).Table("sessions AS s").Select(agentSessionColumns).Where("NOT EXISTS(SELECT 1 FROM conversation_branches WHERE branch_id=s.id)")
 	if title != "" {
 		query = query.Where("vista_contains(s.title, ?)", title)
 	}

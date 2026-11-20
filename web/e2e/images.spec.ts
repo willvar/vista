@@ -181,8 +181,8 @@ test('editing and withdrawing sent images preserves original bytes through a res
   await textarea.press('Control+Enter')
   await expect(page.locator('article.assistant')).toContainText('Mock reply: Hi')
   const sessionID = new URL(page.url()).pathname.split('/').at(-1)!
-  const idle = () => expect.poll(async () => (await vista.api('/sessions')).find((item: any) => item.id === sessionID).executing).toBe(false)
-  await idle()
+  const idle = (id: string) => expect.poll(async () => (await vista.api(`/sessions/${id}/checkpoint`)).session.executing).toBe(false)
+  await idle(sessionID)
 
   const original = page.locator('article.user')
   await original.hover()
@@ -193,13 +193,16 @@ test('editing and withdrawing sent images preserves original bytes through a res
   await textarea.fill('Inspect the replacement image')
   await textarea.press('Control+Enter')
   await expect.poll(() => vista.modelRequests.length).toBe(2)
-  await idle()
-  const replaced = await vista.api(`/sessions/${sessionID}/messages`)
+  await expect(page).not.toHaveURL(`${vista.origin}/sessions/${sessionID}`)
+  const branchID = new URL(page.url()).pathname.split('/').at(-1)!
+  expect(branchID).not.toBe(sessionID)
+  await idle(branchID)
+  const replaced = await vista.api(`/sessions/${branchID}/messages`)
   expect(replaced).toHaveLength(2)
   expect(replaced[0].content).toBe('Inspect the replacement image')
-  const draft = await vista.api(`/sessions/${sessionID}/messages/${replaced[0].id}/draft`)
+  const draft = await vista.api(`/sessions/${branchID}/messages/${replaced[0].id}/draft`)
   expect(draft.images).toHaveLength(1)
-  const imageURL = `${vista.origin}/api/sessions/${sessionID}/resources/${draft.images[0].hash}`
+  const imageURL = `${vista.origin}/api/sessions/${branchID}/resources/${draft.images[0].hash}`
   expect(Buffer.from(await (await fetch(imageURL)).arrayBuffer())).toEqual(files[1]!.buffer)
 
   await page.reload()
@@ -212,11 +215,12 @@ test('editing and withdrawing sent images preserves original bytes through a res
   await expect(textarea).toHaveValue('Inspect the replacement image')
   await expect(sender.locator('.sender-attachment')).toHaveCount(1)
   await expect(sender.locator('.sender-attachment')).toContainText(files[1]!.name)
-  expect((await fetch(imageURL)).status).toBe(404)
+  expect((await fetch(imageURL)).status).toBe(200)
 
+  const withdrawnID = new URL(page.url()).pathname.split('/').at(-1)!
   await textarea.press('Control+Enter')
   await expect.poll(() => vista.modelRequests.length).toBe(3)
-  await idle()
+  await idle(withdrawnID)
   await expect(page.locator('article.assistant')).toContainText('Mock reply: Hi')
   const visualInput = vista.modelRequests.at(-1)!.messages!.flatMap(message => Array.isArray(message.content) ? message.content : [])
     .filter(part => part.type === 'image_url')

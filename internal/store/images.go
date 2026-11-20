@@ -95,7 +95,7 @@ func readResourceRows(rows *sql.Rows) ([]resources.Ref, error) {
 
 func (s *Store) MessageResources(ctx context.Context, sessionID, messageID string) ([]resources.Ref, error) {
 	rows, err := s.orm.WithContext(ctx).Raw(`SELECT r.hash,r.media_type,r.bytes,i.name FROM message_resources i
- JOIN resources r ON r.hash=i.hash JOIN messages m ON m.id=i.message_id
+ JOIN resources r ON r.hash=i.hash JOIN history_messages m ON m.id=i.message_id
  WHERE m.session_id=? AND m.id=? ORDER BY i.position`, sessionID, messageID).Rows()
 	if err != nil {
 		return nil, err
@@ -151,13 +151,13 @@ func (s *Store) MessageImage(ctx context.Context, sessionID, messageID string, p
 
 func (s *Store) SessionResource(ctx context.Context, sessionID, hash string) (resources.Ref, error) {
 	var ref resources.Ref
-	err := s.orm.WithContext(ctx).Raw(`SELECT r.hash,r.media_type,r.bytes,COALESCE((SELECT i.name FROM message_resources i JOIN messages m ON m.id=i.message_id WHERE m.session_id=? AND i.hash=r.hash ORDER BY m.sequence DESC LIMIT 1),sr.name)
+	err := s.orm.WithContext(ctx).Raw(`SELECT r.hash,r.media_type,r.bytes,COALESCE((SELECT i.name FROM message_resources i JOIN history_messages m ON m.id=i.message_id WHERE m.session_id=? AND i.hash=r.hash ORDER BY m.sequence DESC LIMIT 1),sr.name)
  FROM resources r JOIN session_resources sr ON sr.hash=r.hash WHERE sr.session_id=? AND r.hash=?`, sessionID, sessionID, hash).Row().Scan(&ref.Hash, &ref.MediaType, &ref.Bytes, &ref.Name)
 	return ref, err
 }
 
 func (s *Store) SessionResources(ctx context.Context, sessionID string, after string, limit int) ([]resources.Ref, error) {
-	rows, err := s.orm.WithContext(ctx).Raw(`SELECT r.hash,r.media_type,r.bytes,COALESCE((SELECT i.name FROM message_resources i JOIN messages m ON m.id=i.message_id WHERE m.session_id=? AND i.hash=r.hash ORDER BY m.sequence DESC LIMIT 1),sr.name)
+	rows, err := s.orm.WithContext(ctx).Raw(`SELECT r.hash,r.media_type,r.bytes,COALESCE((SELECT i.name FROM message_resources i JOIN history_messages m ON m.id=i.message_id WHERE m.session_id=? AND i.hash=r.hash ORDER BY m.sequence DESC LIMIT 1),sr.name)
  FROM resources r JOIN session_resources sr ON sr.hash=r.hash WHERE sr.session_id=? AND (?='' OR r.hash>?) ORDER BY r.hash LIMIT ?`, sessionID, sessionID, after, after, limit).Rows()
 	if err != nil {
 		return nil, err

@@ -30,12 +30,12 @@ func (s *Store) displayMessages(ctx context.Context, sessionID string, cursor in
  SELECT e.sequence,COALESCE(json_extract(e.data,'$.runId'),'') AS run_id,e.kind,e.created_at,
  COALESCE(json_extract(e.data,'$.summary'),'') AS summary,
  COALESCE(json_extract(e.data,'$.outputTurn'),0) AS output_turn,COALESCE(json_extract(e.data,'$.outputBytes'),0) AS output_bytes,
- CASE WHEN e.kind='context_notice' THEN COALESCE((SELECT MAX(start.sequence) FROM events start
+ CASE WHEN e.kind='context_notice' THEN COALESCE((SELECT MAX(start.sequence) FROM history_events start
   WHERE start.session_id=e.session_id AND json_extract(start.data,'$.runId')=json_extract(e.data,'$.runId')
   AND start.sequence<e.sequence AND COALESCE(json_extract(start.data,'$.depth'),0)=0
   AND (start.kind='context_notice' OR (start.kind='context_status' AND json_extract(start.data,'$.phase')='compacting'))),0) ELSE 0 END AS results_after,
   0 AS reserved
- FROM events e WHERE e.session_id=? AND e.kind='context_notice'
+ FROM history_events e WHERE e.session_id=? AND e.kind='context_notice'
  AND COALESCE(json_extract(e.data,'$.depth'),0)=0 AND json_type(e.data,'$.summary')='text' AND length(trim(json_extract(e.data,'$.summary')))>0`
 
 	args := []any{sessionID}
@@ -59,7 +59,7 @@ func (s *Store) displayMessages(ctx context.Context, sessionID string, cursor in
 	// Summary results carry a provider/model ID, but that pair can be shared
 	// by several connections. Retain the exact request key even off the event page.
 	query += `) SELECT sequence,run_id,kind,created_at,summary,results_after,output_turn,output_bytes,
- CASE WHEN kind='context_notice' THEN COALESCE((SELECT json_extract(request.data,'$.key') FROM events request
+ CASE WHEN kind='context_notice' THEN COALESCE((SELECT json_extract(request.data,'$.key') FROM history_events request
   WHERE request.session_id=? AND request.kind='model_request' AND json_extract(request.data,'$.runId')=display.run_id
   AND json_extract(request.data,'$.purpose')='summary' AND COALESCE(json_extract(request.data,'$.depth'),0)=0
   AND COALESCE(json_extract(request.data,'$.taskId'),'main') IN ('','main')

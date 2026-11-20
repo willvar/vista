@@ -9,7 +9,7 @@ import (
 // in call IDs distinguish sibling subagents without a second storage index.
 func (s *Store) ToolArtifact(ctx context.Context, sessionID, runID, callID string) (Artifact, error) {
 	var event Event
-	err := s.orm.WithContext(ctx).Table("events").Select("CAST(data AS BLOB) AS data").
+	err := s.orm.WithContext(ctx).Table("history_events").Select("CAST(data AS BLOB) AS data").
 		Where("session_id=? AND kind='artifact' AND json_extract(data,'$.runId')=? AND json_extract(data,'$.callId')=?", sessionID, runID, callID).
 		Order("sequence DESC").Take(&event).Error
 	if err != nil {

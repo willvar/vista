@@ -11,7 +11,7 @@ import (
 // The latest preference also applies when a queued message starts a new run.
 func (s *Store) ReplyLanguage(ctx context.Context, sessionID string) (string, error) {
 	var code string
-	err := s.orm.WithContext(ctx).Raw(`SELECT json_extract(data,'$.language') FROM events WHERE session_id=? AND kind='reply_language' ORDER BY sequence DESC LIMIT 1`, sessionID).Row().Scan(&code)
+	err := s.orm.WithContext(ctx).Raw(`SELECT json_extract(data,'$.language') FROM history_events WHERE session_id=? AND kind='reply_language' ORDER BY sequence DESC LIMIT 1`, sessionID).Row().Scan(&code)
 	if errors.Is(err, ErrNotFound) {
 		return "", nil
 	}
@@ -28,7 +28,7 @@ func (s *Store) SetReplyLanguage(ctx context.Context, sessionID, code string) er
 	}
 	defer tx.Rollback()
 	var current string
-	err = tx.WithContext(ctx).Raw(`SELECT json_extract(data,'$.language') FROM events WHERE session_id=? AND kind='reply_language' ORDER BY sequence DESC LIMIT 1`, sessionID).Row().Scan(&current)
+	err = tx.WithContext(ctx).Raw(`SELECT json_extract(data,'$.language') FROM history_events WHERE session_id=? AND kind='reply_language' ORDER BY sequence DESC LIMIT 1`, sessionID).Row().Scan(&current)
 	if err != nil && !errors.Is(err, ErrNotFound) {
 		return err
 	}

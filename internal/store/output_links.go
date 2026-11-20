@@ -59,7 +59,7 @@ func (s *Store) outputLinks(ctx context.Context, sessionID, kind string, ids []s
 		return links, nil
 	}
 	var events []Event
-	if err := s.orm.WithContext(ctx).Table("events").Select("CAST(data AS BLOB) AS data").
+	if err := s.orm.WithContext(ctx).Table("history_events").Select("CAST(data AS BLOB) AS data").
 		Where("session_id=? AND kind=? AND json_extract(data,'$.id') IN ?", sessionID, kind, ids).
 		Order("sequence DESC").Find(&events).Error; err != nil {
 		return nil, err

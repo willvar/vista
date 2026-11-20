@@ -54,6 +54,7 @@ const groups: Record<string, string[]> = {
 const consumers: [RegExp, string[]][] = [
   [/^web\/src\/state\/clientRuntime\.ts$/, ['about']],
   [/^internal\/server\/profiles\.go$|^web\/src\/(?:ProfileMenu\.vue|client\/profileScope\.)/, ['sessions', 'models', 'about']],
+  [/^internal\/store\/(?:branches|branch_history)\.go$|^internal\/server\/revert\.go$/, ['conversation', 'sessions']],
   [/^web\/src\/ContextCompaction\.vue$/, ['contextHeader']],
   [/^internal\/(?:generation\/|provider\/output_catalog|modelcatalog\/(?:generation|inventory|custom_model_metadata)|resources\/generated\.go|server\/generation_settings\.go)|^scripts\/onnx-decision\/|^web\/src\/(?:Generation|state\/generationCards)/, ['models', 'conversation']],
   [/^web\/src\/(?:App\.vue$|SessionActionDialog\.vue$)|^internal\/(?:server|store)\/session_actions\.go$|^internal\/agent\/tool_(?:session|history)\.go$/, ['sessions', 'conversation']],

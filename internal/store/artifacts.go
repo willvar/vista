@@ -81,7 +81,7 @@ func (s *Store) RecordArtifact(ctx context.Context, artifact Artifact) (*Event, 
 
 func (s *Store) GetArtifact(ctx context.Context, sessionID, artifactID string) (Artifact, error) {
 	var item Artifact
-	err := s.orm.WithContext(ctx).Raw("SELECT id,session_id,run_id,output_path,status,bytes,complete,error,created_at,COALESCE(finished_at,'') FROM artifacts WHERE session_id=? AND id=?", sessionID, artifactID).Row().Scan(&item.ID, &item.SessionID, &item.RunID, &item.OutputPath, &item.Status, &item.Bytes, &item.Complete, &item.Error, &item.CreatedAt, &item.FinishedAt)
+	err := s.orm.WithContext(ctx).Raw("SELECT id,session_id,run_id,output_path,status,bytes,complete,error,created_at,COALESCE(finished_at,'') FROM history_artifacts WHERE session_id=? AND id=?", sessionID, artifactID).Row().Scan(&item.ID, &item.SessionID, &item.RunID, &item.OutputPath, &item.Status, &item.Bytes, &item.Complete, &item.Error, &item.CreatedAt, &item.FinishedAt)
 	if err != nil {
 		return item, err
 	}
@@ -92,7 +92,7 @@ func (s *Store) GetArtifact(ctx context.Context, sessionID, artifactID string) (
 }
 
 func (s *Store) Artifacts(ctx context.Context, sessionID string) ([]Artifact, error) {
-	rows, err := s.orm.WithContext(ctx).Raw("SELECT id,session_id,run_id,output_path,status,bytes,complete,error,created_at,COALESCE(finished_at,'') FROM artifacts WHERE session_id=? ORDER BY created_at DESC,id DESC LIMIT 200", sessionID).Rows()
+	rows, err := s.orm.WithContext(ctx).Raw("SELECT id,session_id,run_id,output_path,status,bytes,complete,error,created_at,COALESCE(finished_at,'') FROM history_artifacts WHERE session_id=? ORDER BY created_at DESC,id DESC LIMIT 200", sessionID).Rows()
 	if err != nil {
 		return nil, err
 	}

@@ -88,7 +88,7 @@ func (a *App) compactSession(w http.ResponseWriter, r *http.Request, sessionID s
 	a.admissionLock().Unlock()
 	if err != nil {
 		code := http.StatusBadRequest
-		if errors.Is(err, store.ErrBusy) || errors.Is(err, store.ErrClosed) {
+		if errors.Is(err, store.ErrBusy) || errors.Is(err, store.ErrClosed) || errors.Is(err, store.ErrBranchRunning) {
 			code = http.StatusConflict
 		}
 		http.Error(w, err.Error(), code)

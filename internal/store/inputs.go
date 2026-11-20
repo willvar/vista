@@ -127,7 +127,7 @@ func (s *Store) DeliverInput(ctx context.Context, sessionID, runID, inputID, mes
 		}
 	}
 	var sequence int64
-	if err := tx.WithContext(ctx).Raw("SELECT COALESCE(MAX(sequence),0)+1 FROM events WHERE session_id=?", sessionID).Row().Scan(&sequence); err != nil {
+	if err := nextEventSequence(ctx, tx, sessionID, &sequence); err != nil {
 		return nil, err
 	}
 	message := Message{ID: messageID, SessionID: sessionID, RunID: runID, Sequence: sequence, Role: "user", Content: input.Content, CreatedAt: time.Now().UTC().Format(time.RFC3339Nano)}
@@ -175,7 +175,7 @@ func appendCompletedReply(ctx context.Context, tx *gorm.DB, sessionID, runID str
 	}
 	message := Message{ID: reply.ID, SessionID: sessionID, RunID: runID, Role: "assistant", Content: reply.Content,
 		OutputTurn: reply.Output.Turn, OutputBytes: reply.Output.Bytes, CreatedAt: time.Now().UTC().Format(time.RFC3339Nano)}
-	if err := tx.WithContext(ctx).Raw("SELECT COALESCE(MAX(sequence),0)+1 FROM events WHERE session_id=?", sessionID).Row().Scan(&message.Sequence); err != nil {
+	if err := nextEventSequence(ctx, tx, sessionID, &message.Sequence); err != nil {
 		return err
 	}
 	if err := tx.WithContext(ctx).Raw("SELECT COALESCE(MAX(sequence),0) FROM messages WHERE session_id=? AND run_id=? AND role='assistant'", sessionID, runID).Row().Scan(&message.ResultsAfter); err != nil {
@@ -250,7 +250,7 @@ func (s *Store) BeginQueuedRun(ctx context.Context, sessionID, inputID, runID, m
 		return nil, err
 	}
 	var sequence int64
-	if err := tx.WithContext(ctx).Raw("SELECT COALESCE(MAX(sequence),0)+1 FROM events WHERE session_id=?", sessionID).Row().Scan(&sequence); err != nil {
+	if err := nextEventSequence(ctx, tx, sessionID, &sequence); err != nil {
 		return nil, err
 	}
 	message := Message{ID: messageID, SessionID: sessionID, RunID: runID, Sequence: sequence, Role: "user", Content: input.Content, CreatedAt: at}

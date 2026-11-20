@@ -42,11 +42,11 @@ func (s *Store) RunOverviewRange(ctx context.Context, sessionID, runID string, a
 			CreatedAt  string
 			FinishedAt *string
 		}
-		if err := tx.Table("runs").Select("created_at,finished_at").Where("id=? AND session_id=?", runID, sessionID).Take(&run).Error; err != nil {
+		if err := tx.Table("history_runs").Select("created_at,finished_at").Where("id=? AND session_id=?", runID, sessionID).Take(&run).Error; err != nil {
 			return err
 		}
 		overview.StartedAt, overview.FinishedAt = run.CreatedAt, run.FinishedAt
-		base := tx.Table("events").Where("session_id=? AND json_extract(data,'$.runId')=? AND sequence>?", sessionID, runID, after)
+		base := tx.Table("history_events").Where("session_id=? AND json_extract(data,'$.runId')=? AND sequence>?", sessionID, runID, after)
 		if through > 0 {
 			base = base.Where("sequence<=?", through)
 		}
@@ -65,7 +65,7 @@ func (s *Store) RunOverviewRange(ctx context.Context, sessionID, runID string, a
 			overview.StartedAt, overview.FinishedAt = "", nil
 			if totals.FirstSequence > 0 {
 				var first struct{ CreatedAt string }
-				if err := tx.Table("events").Select("created_at").Where("session_id=? AND sequence=?", sessionID, totals.FirstSequence).Take(&first).Error; err != nil {
+				if err := tx.Table("history_events").Select("created_at").Where("session_id=? AND sequence=?", sessionID, totals.FirstSequence).Take(&first).Error; err != nil {
 					return err
 				}
 				overview.StartedAt = first.CreatedAt
@@ -76,7 +76,7 @@ func (s *Store) RunOverviewRange(ctx context.Context, sessionID, runID string, a
 		}
 		if totals.ThroughSequence > 0 {
 			var last struct{ CreatedAt string }
-			if err := tx.Table("events").Select("created_at").Where("session_id=? AND sequence=?", sessionID, totals.ThroughSequence).Take(&last).Error; err != nil {
+			if err := tx.Table("history_events").Select("created_at").Where("session_id=? AND sequence=?", sessionID, totals.ThroughSequence).Take(&last).Error; err != nil {
 				return err
 			}
 			overview.LastActivityAt = last.CreatedAt

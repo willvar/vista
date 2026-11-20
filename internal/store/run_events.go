@@ -14,7 +14,7 @@ var ErrRunEventRange = errors.New("invalid execution event range")
 
 func requireRunOwnership(tx *gorm.DB, sessionID, runID string) error {
 	var count int64
-	if err := tx.Table("runs").Where("session_id=? AND id=?", sessionID, runID).Count(&count).Error; err != nil {
+	if err := tx.Table("history_runs").Where("session_id=? AND id=?", sessionID, runID).Count(&count).Error; err != nil {
 		return err
 	}
 	if count == 0 {
@@ -37,7 +37,7 @@ func (s *Store) RunEvent(ctx context.Context, sessionID, runID string, sequence 
 		if err := requireRunOwnership(tx, sessionID, runID); err != nil {
 			return err
 		}
-		return tx.Table("events").Select("session_id,sequence,kind,CAST(data AS BLOB) AS data,created_at").
+		return tx.Table("history_events").Select("session_id,sequence,kind,CAST(data AS BLOB) AS data,created_at").
 			Where("session_id=? AND sequence=? AND json_extract(data,'$.runId')=?", sessionID, sequence, runID).Take(&event).Error
 	}, &sql.TxOptions{ReadOnly: true})
 	if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -57,7 +57,7 @@ func (s *Store) RunTurnEvents(ctx context.Context, sessionID, runID string, turn
 		if err := requireRunOwnership(tx, sessionID, runID); err != nil {
 			return err
 		}
-		query := tx.Table("events").Select("session_id,sequence,kind,CAST(data AS BLOB) AS data,created_at").
+		query := tx.Table("history_events").Select("session_id,sequence,kind,CAST(data AS BLOB) AS data,created_at").
 			Where("session_id=? AND json_extract(data,'$.runId')=? AND json_extract(data,'$.turn')=?", sessionID, runID, turn)
 		if before > 0 {
 			query = query.Where("sequence<?", before)

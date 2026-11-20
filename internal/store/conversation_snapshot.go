@@ -53,8 +53,8 @@ func (s *Store) checkpoint(ctx context.Context, id string) (SyncCheckpoint, erro
 	err = s.orm.WithContext(ctx).Raw(`SELECT
  COALESCE((SELECT MAX(sequence) FROM events WHERE session_id=?),0) AS through_sequence,
  COALESCE((SELECT MAX(sequence) FROM events WHERE session_id=? AND kind='conversation_reverted'),0) AS reverted_sequence,
- COALESCE((SELECT MAX(sequence) FROM messages WHERE session_id=? AND role='assistant'),0) AS latest_reply_sequence,
- COALESCE((SELECT status FROM runs WHERE session_id=? ORDER BY created_at DESC,id DESC LIMIT 1),'') AS latest_run_status,
+ COALESCE((SELECT sequence FROM history_messages WHERE session_id=? AND role='assistant' ORDER BY sequence DESC LIMIT 1),0) AS latest_reply_sequence,
+ COALESCE((SELECT status FROM history_runs WHERE session_id=? ORDER BY created_at DESC,id DESC LIMIT 1),'') AS latest_run_status,
  (SELECT COUNT(*) FROM queued_inputs WHERE session_id=? AND status IN ('queued','paused')) AS pending_input_count,
  EXISTS(SELECT 1 FROM runs WHERE session_id=? AND status='running') AS executing,
  (EXISTS(SELECT 1 FROM jobs WHERE session_id=? AND status IN ('starting','running')) OR
@@ -112,10 +112,10 @@ func (s *Store) ConversationSnapshot(ctx context.Context, id string) (Conversati
 		// execution from its durable start instead of reusing the previous user run.
 		// Strip the outer column affinity so SQLite can seek the JSON expression index.
 		var latest struct{ ID string }
-		if err = view.orm.Raw(`SELECT r.id FROM runs r WHERE r.session_id=? AND
-   (EXISTS(SELECT 1 FROM messages m WHERE m.session_id=r.session_id AND m.run_id=r.id AND m.role='user') OR
-    EXISTS(SELECT 1 FROM events e WHERE e.session_id=r.session_id AND e.kind='run_started' AND json_extract(e.data,'$.runId')=+r.id))
-   ORDER BY r.rowid DESC LIMIT 1`, id).Scan(&latest).Error; err != nil {
+		if err = view.orm.Raw(`SELECT r.id FROM history_runs r WHERE r.session_id=? AND
+   (EXISTS(SELECT 1 FROM history_messages m WHERE m.session_id=r.session_id AND m.run_id=r.id AND m.role='user') OR
+    EXISTS(SELECT 1 FROM history_events e WHERE e.session_id=r.session_id AND e.kind='run_started' AND json_extract(e.data,'$.runId')=+r.id))
+   ORDER BY r.run_order DESC LIMIT 1`, id).Scan(&latest).Error; err != nil {
 			return err
 		}
 		if latest.ID != "" {
@@ -129,10 +129,10 @@ func (s *Store) ConversationSnapshot(ctx context.Context, id string) (Conversati
 		if activeRun != "" {
 			var clock RunClock
 			if err = view.orm.Raw(`SELECT id,created_at AS started_at,
- COALESCE((SELECT created_at FROM events WHERE session_id=? AND json_extract(data,'$.runId')=?
+ COALESCE((SELECT created_at FROM history_events WHERE session_id=? AND json_extract(data,'$.runId')=?
  AND COALESCE(json_extract(data,'$.purpose'),'')=''
  AND kind IN ('tool','agent_task','model_request','model_retry','model_result','model_delta','model_reasoning_delta','run_finished')
- ORDER BY sequence DESC LIMIT 1),'') AS last_activity_at FROM runs WHERE session_id=? AND id=?`, id, activeRun, id, activeRun).Scan(&clock).Error; err != nil {
+ ORDER BY sequence DESC LIMIT 1),'') AS last_activity_at FROM history_runs WHERE session_id=? AND id=?`, id, activeRun, id, activeRun).Scan(&clock).Error; err != nil {
 				return err
 			}
 			if clock.ID != "" {
@@ -145,10 +145,10 @@ func (s *Store) ConversationSnapshot(ctx context.Context, id string) (Conversati
 				CreatedAt string
 			}
 			if err = view.orm.Raw(`WITH root AS NOT MATERIALIZED (
- SELECT sequence,kind FROM events WHERE session_id=? AND json_extract(data,'$.runId')=?
+ SELECT sequence,kind FROM history_events WHERE session_id=? AND json_extract(data,'$.runId')=?
  AND COALESCE(json_extract(data,'$.depth'),0)=0 AND COALESCE(json_extract(data,'$.taskId'),'main') IN ('','main')
  AND COALESCE(json_extract(data,'$.purpose'),'')=''
- ) SELECT sequence,kind,CAST(data AS BLOB) AS data,created_at FROM events WHERE session_id=? AND sequence IN (
+ ) SELECT sequence,kind,CAST(data AS BLOB) AS data,created_at FROM history_events WHERE session_id=? AND sequence IN (
   (SELECT sequence FROM root WHERE kind='model_request' ORDER BY sequence DESC LIMIT 1),
   (SELECT sequence FROM root WHERE kind IN ('model_retry','model_delta','model_reasoning_delta','model_result','tool','run_finished')
    ORDER BY sequence DESC LIMIT 1)

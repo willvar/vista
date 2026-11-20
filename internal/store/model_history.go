@@ -90,15 +90,15 @@ func (s *Store) ContextEntries(ctx context.Context, sessionID string, checkpoint
 	rows, err := s.orm.WithContext(ctx).Raw(`SELECT sequence,kind,data FROM (
  SELECT m.sequence,'message' AS kind,json_object('id',m.id,'runId',m.run_id,'role',m.role,'content',m.content,'outputTurn',m.output_turn,'outputBytes',m.output_bytes,
    'questionCallId',json_extract(input_event.data,'$.questionCallId')) AS data
- FROM messages m LEFT JOIN events input_event ON input_event.session_id=m.session_id AND input_event.sequence=m.sequence AND input_event.kind='message'
+ FROM history_messages m LEFT JOIN history_events input_event ON input_event.session_id=m.session_id AND input_event.sequence=m.sequence AND input_event.kind='message'
  WHERE m.session_id=? AND m.sequence>? AND (?=0 OR m.sequence<?)
  AND (m.role<>'assistant' OR NOT EXISTS(
-   SELECT 1 FROM events e WHERE e.session_id=m.session_id AND e.kind='model_history' AND json_extract(e.data,'$.runId')=m.run_id
+   SELECT 1 FROM history_events e WHERE e.session_id=m.session_id AND e.kind='model_history' AND json_extract(e.data,'$.runId')=m.run_id
    AND ((m.output_turn>0 AND json_extract(e.data,'$.turn')=m.output_turn AND json_extract(e.data,'$.status')='assistant')
      OR (m.output_turn=0 AND json_extract(e.data,'$.status')='question' AND e.sequence<m.sequence
-       AND NOT EXISTS(SELECT 1 FROM events f WHERE f.session_id=m.session_id AND f.sequence=m.sequence AND f.kind='run_finished' AND json_extract(f.data,'$.status')='failed')))))
+       AND NOT EXISTS(SELECT 1 FROM history_events f WHERE f.session_id=m.session_id AND f.sequence=m.sequence AND f.kind='run_finished' AND json_extract(f.data,'$.status')='failed')))))
  UNION ALL
- SELECT sequence,kind,data FROM events WHERE session_id=? AND kind='model_history' AND sequence>? AND (?=0 OR sequence<?)
+ SELECT sequence,kind,data FROM history_events WHERE session_id=? AND kind='model_history' AND sequence>? AND (?=0 OR sequence<?)
  ) ORDER BY sequence`, sessionID, throughMessage, before, before, sessionID, throughEvent, before, before).Rows()
 	if err != nil {
 		return nil, err

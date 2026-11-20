@@ -78,12 +78,23 @@ func TestRevertEndpointRetainsFileChangesAndRestoresDraftResourceBoundary(t *tes
 	if _, err := os.Stat(deleted); !os.IsNotExist(err) {
 		t.Fatal("deleted file was recreated", err)
 	}
-	messages, _ := a.store.MessagesAfter(ctx, message.SessionID, 0, 100)
-	if len(messages) != 0 {
-		t.Fatal("history retained", messages)
+	if result.Session == nil || result.Session.ID == message.SessionID {
+		t.Fatal("missing branch", result)
 	}
-	resources, err := a.store.SessionResources(ctx, message.SessionID, "", 100)
-	if err != nil || len(resources) != 0 {
-		t.Fatal("discarded attachments visible to model", resources, err)
+	messages, err := a.store.MessagesAfter(ctx, message.SessionID, 0, 100)
+	if err != nil || len(messages) != 2 || messages[0].Content != message.Content {
+		t.Fatal("source history was changed", messages, err)
+	}
+	images, err := a.store.SessionResources(ctx, message.SessionID, "", 100)
+	if err != nil || len(images) != 1 || images[0].Hash != result.Images[0].Hash {
+		t.Fatal("source attachments were lost", images, err)
+	}
+	messages, err = a.store.MessagesAfter(ctx, result.Session.ID, 0, 100)
+	if err != nil || len(messages) != 0 {
+		t.Fatal("source suffix leaked into branch", messages, err)
+	}
+	images, err = a.store.SessionResources(ctx, result.Session.ID, "", 100)
+	if err != nil || len(images) != 0 {
+		t.Fatal("source attachments leaked into branch context", images, err)
 	}
 }

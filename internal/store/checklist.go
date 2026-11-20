@@ -34,7 +34,7 @@ func ValidateChecklist(items []ChecklistItem) error {
 // A run without a checklist never inherits another run's items.
 func (s *Store) RunChecklist(ctx context.Context, sessionID, runID string) ([]ChecklistItem, error) {
 	var raw []byte
-	err := s.orm.WithContext(ctx).Raw(`SELECT CAST(data AS BLOB) FROM events
+	err := s.orm.WithContext(ctx).Raw(`SELECT CAST(data AS BLOB) FROM history_events
  WHERE session_id=? AND kind='checklist' AND json_extract(data,'$.runId')=?
  AND COALESCE(json_extract(data,'$.depth'),0)=0 AND COALESCE(json_extract(data,'$.taskId'),'main') IN ('','main')
  ORDER BY sequence DESC LIMIT 1`, sessionID, runID).Row().Scan(&raw)

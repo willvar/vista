@@ -120,7 +120,7 @@ func nullableTime(value string) any {
 }
 
 func (s *Store) Jobs(ctx context.Context, sessionID string) ([]Job, error) {
-	rows, err := s.orm.WithContext(ctx).Raw(`SELECT id,session_id,run_id,directory,command,output_path,status,bytes,exit_code,complete,error,created_at,COALESCE(finished_at,'') FROM jobs WHERE session_id=? ORDER BY status IN ('starting','running') DESC,created_at DESC,id DESC LIMIT 200`, sessionID).Rows()
+	rows, err := s.orm.WithContext(ctx).Raw(`SELECT id,session_id,run_id,directory,command,output_path,status,bytes,exit_code,complete,error,created_at,COALESCE(finished_at,'') FROM history_jobs WHERE session_id=? ORDER BY status IN ('starting','running') DESC,created_at DESC,id DESC LIMIT 200`, sessionID).Rows()
 	if err != nil {
 		return nil, err
 	}
@@ -158,7 +158,7 @@ func (s *Store) Jobs(ctx context.Context, sessionID string) ([]Job, error) {
 
 func (s *Store) GetJob(ctx context.Context, sessionID, jobID string) (Job, error) {
 	var job Job
-	err := s.orm.WithContext(ctx).Raw(`SELECT id,session_id,run_id,directory,command,output_path,status,bytes,exit_code,complete,error,created_at,COALESCE(finished_at,'') FROM jobs WHERE session_id=? AND id=?`, sessionID, jobID).Row().Scan(&job.ID, &job.SessionID, &job.RunID, &job.Directory, &job.Command, &job.OutputPath, &job.Status, &job.Bytes, &job.ExitCode, &job.Complete, &job.Error, &job.CreatedAt, &job.FinishedAt)
+	err := s.orm.WithContext(ctx).Raw(`SELECT id,session_id,run_id,directory,command,output_path,status,bytes,exit_code,complete,error,created_at,COALESCE(finished_at,'') FROM history_jobs WHERE session_id=? AND id=?`, sessionID, jobID).Row().Scan(&job.ID, &job.SessionID, &job.RunID, &job.Directory, &job.Command, &job.OutputPath, &job.Status, &job.Bytes, &job.ExitCode, &job.Complete, &job.Error, &job.CreatedAt, &job.FinishedAt)
 	if err != nil {
 		return job, err
 	}

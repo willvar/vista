@@ -174,7 +174,16 @@ type Counts struct {
 
 func (s *Store) SessionCounts(ctx context.Context) (Counts, error) {
 	var c Counts
-	err := s.orm.WithContext(ctx).Raw(`SELECT COUNT(*),COALESCE(SUM(is_open),0),COALESCE(SUM(CASE WHEN EXISTS(SELECT 1 FROM runs r WHERE r.session_id=s.id AND r.status='running') OR EXISTS(SELECT 1 FROM jobs j WHERE j.session_id=s.id AND j.status IN ('starting','running')) OR EXISTS(SELECT 1 FROM agent_tasks t WHERE t.session_id=s.id AND t.status='started') THEN 1 ELSE 0 END),0) FROM sessions s`).Row().Scan(&c.Total, &c.Open, &c.Running)
+	// Multiple physical histories are still one conversation for capacity.
+	err := s.orm.WithContext(ctx).Raw(`WITH conversations AS (
+ SELECT COALESCE(b.root_id,s.id) AS root, MAX(s.is_open) AS open,
+ MAX(EXISTS(SELECT 1 FROM runs r WHERE r.session_id=s.id AND r.status='running')
+  OR EXISTS(SELECT 1 FROM jobs j WHERE j.session_id=s.id AND j.status IN ('starting','running'))
+  OR EXISTS(SELECT 1 FROM agent_tasks t WHERE t.session_id=s.id AND t.status='started')) AS running
+ FROM sessions s LEFT JOIN conversation_branches b ON b.branch_id=s.id
+ GROUP BY COALESCE(b.root_id,s.id)
+ ) SELECT COUNT(*),COALESCE(SUM(open),0),COALESCE(SUM(running),0) FROM conversations`).
+		Row().Scan(&c.Total, &c.Open, &c.Running)
 	if err == nil {
 		err = s.orm.WithContext(ctx).Raw("SELECT COUNT(*) FROM jobs WHERE status IN ('starting','running')").Row().Scan(&c.Jobs)
 	}
@@ -274,11 +283,16 @@ func (s *Store) Rename(ctx context.Context, id, title string) error {
 // limit is applied. An omitted filter preserves the administrative API's list.
 func (s *Store) List(ctx context.Context, open ...bool) ([]Session, error) {
 	db := s.orm.WithContext(ctx)
-	query := db.Table("sessions")
+	query := db.Table("sessions").Where("NOT EXISTS(SELECT 1 FROM conversation_branches WHERE branch_id=sessions.id)")
 	if len(open) > 0 {
 		query = query.Where("sessions.is_open = ?", open[0])
 	}
 	return readSessions(db, query, 1000, 0, SessionCreatedNewest)
+}
+
+func (s *Store) RuntimeSessions(ctx context.Context) ([]Session, error) {
+	db := s.orm.WithContext(ctx)
+	return readSessions(db, db.Table("sessions").Where("is_open=1"), -1, 0, SessionCreatedNewest)
 }
 
 func readSessions(db, query *gorm.DB, limit, offset int, sort SessionSort) ([]Session, error) {
@@ -290,13 +304,13 @@ func readSessions(db, query *gorm.DB, limit, offset int, sort SessionSort) ([]Se
 		PendingInputCount   int
 	}
 	columns := `sessions.*,
-  COALESCE((SELECT MAX(sequence) FROM messages WHERE session_id=sessions.id AND role='assistant'),0) AS latest_reply_sequence,
-  COALESCE((SELECT status FROM runs WHERE session_id=sessions.id ORDER BY created_at DESC,id DESC LIMIT 1),'') AS latest_run_status,
+  COALESCE((SELECT sequence FROM history_messages WHERE session_id=sessions.id AND role='assistant' ORDER BY sequence DESC LIMIT 1),0) AS latest_reply_sequence,
+  COALESCE((SELECT status FROM history_runs WHERE session_id=sessions.id ORDER BY created_at DESC,id DESC LIMIT 1),'') AS latest_run_status,
   (SELECT COUNT(*) FROM queued_inputs WHERE session_id=sessions.id AND status IN ('queued','paused')) AS pending_input_count`
 	if sort.byUpdate() {
 		// The event primary key supports this lookup without scanning history.
 		// Read markers, pins and open/closed state do not append content events.
-		columns += `, COALESCE((SELECT created_at FROM events WHERE session_id=sessions.id ORDER BY sequence DESC LIMIT 1),sessions.created_at) AS updated_at`
+		columns += `, COALESCE((SELECT created_at FROM history_events WHERE session_id=sessions.id ORDER BY sequence DESC LIMIT 1),sessions.created_at) AS updated_at`
 	}
 	if err := query.Select(columns).
 		Order(sort.order()).Limit(limit).Offset(offset).Find(&rows).Error; err != nil {
@@ -364,6 +378,13 @@ func (s *Store) Delete(ctx context.Context, id string) error {
 }
 
 func deleteSessionRows(tx *gorm.DB, id string) error {
+	var count int64
+	if err := tx.Table("conversation_branches").Where("root_id = ? OR parent_id = ?", id, id).Count(&count).Error; err != nil {
+		return err
+	}
+	if count > 0 {
+		return ErrBranchHasChildren
+	}
 	if err := sessionRowsAffected(tx.Where("id=?", id).Delete(&sessionRow{})); err != nil {
 		return err
 	}

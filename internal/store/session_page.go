@@ -72,7 +72,7 @@ func (s *Store) SessionPage(ctx context.Context, page Pagination, search Session
 	}
 	result := SessionPage{}
 	err := s.orm.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		query := tx.Table("sessions")
+		query := tx.Table("sessions").Where("NOT EXISTS(SELECT 1 FROM conversation_branches WHERE branch_id=sessions.id)")
 		if len(open) > 0 {
 			query = query.Where("sessions.is_open = ?", open[0])
 		}

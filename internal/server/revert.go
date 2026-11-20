@@ -3,10 +3,10 @@ package server
 import (
 	"context"
 	"errors"
-	"log"
 	"net/http"
 	"sync"
-	"time"
+
+	"github.com/google/uuid"
 	"vista/internal/resources"
 	"vista/internal/store"
 )
@@ -22,7 +22,7 @@ type revertedImage = resources.Ref
 type revertedConversation struct {
 	Message store.Message   `json:"message"`
 	Images  []revertedImage `json:"images"`
-	Event   store.Event     `json:"event"`
+	Session *store.Session  `json:"session,omitempty"`
 }
 
 func (a *App) messageDraft(requestCtx context.Context, sessionID, messageID string) (revertedConversation, error) {
@@ -46,66 +46,33 @@ func (a *App) revertConversation(requestCtx context.Context, sessionID, messageI
 	if err != nil {
 		return revertedConversation{}, err
 	}
-	message := result.Message
-	// Once accepted, completing the local rollback must not depend on a tab
-	// staying open. stopWorker drains results and reaps its process tree before
-	// truncating history, then a fresh Worker has no discarded in-memory registry.
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
-	defer cancel()
-	a.stopWorker(sessionID)
-	_, err = a.store.InterruptRunning(ctx, sessionID, "Stopped for conversation rollback")
+	branch, err := a.store.Fork(requestCtx, sessionID, uuid.NewString(), messageID, retain...)
 	if err != nil {
-		return revertedConversation{}, err
+		return result, err
 	}
-	_, err = a.store.InterruptJobs(ctx, sessionID, "Stopped for conversation rollback")
+	item, err := a.store.Get(requestCtx, branch.ID)
 	if err != nil {
-		return revertedConversation{}, err
+		return result, err
 	}
-	_, err = a.store.InterruptArtifacts(ctx, sessionID, "Stopped for conversation rollback")
-	if err != nil {
-		return revertedConversation{}, err
+	result.Session = &item
+	a.notifySession(sessionID, "sessions")
+	if branch.RootID != sessionID {
+		a.notifySession(branch.RootID)
 	}
-	previousPaths, err := a.store.ArtifactPaths(ctx, sessionID)
-	if err != nil {
-		return revertedConversation{}, err
+	if item.Open {
+		_ = a.startWorker(branch.ID)
 	}
-	result.Event, err = a.store.Revert(ctx, sessionID, messageID, message.Sequence, retain...)
-	if err == nil {
-		if paths, readErr := a.store.ArtifactPaths(ctx, sessionID); readErr == nil {
-			retained := map[string]bool{}
-			for _, path := range paths {
-				retained[path] = true
-			}
-			for _, path := range previousPaths {
-				if !retained[path] {
-					if removeErr := a.removeOutput(path); removeErr != nil {
-						log.Printf("remove reverted output: %v", removeErr)
-					}
-				}
-			}
-		}
-	}
-	a.notifySession(sessionID)
-	item, getErr := a.store.Get(ctx, sessionID)
-	if getErr == nil && item.Open {
-		startErr := a.startWorker(sessionID)
-		// The rollback is already committed. Worker availability is conveyed by
-		// the usual status endpoint, not a misleading rollback failure.
-		if err != nil {
-			err = errors.Join(err, startErr)
-		}
-	}
-	return result, err
+	return result, nil
 }
 
 func revertHTTPError(w http.ResponseWriter, err error) {
 	switch {
-	case errors.Is(err, store.ErrBusy):
+	case errors.Is(err, store.ErrBusy), errors.Is(err, store.ErrBranchRunning):
 		http.Error(w, err.Error(), http.StatusConflict)
-	case errors.Is(err, store.ErrNotFound), errors.Is(err, store.ErrNotFound):
+	case errors.Is(err, store.ErrNotFound):
 		http.Error(w, "message no longer exists", http.StatusNotFound)
 	default:
-		http.Error(w, "Could not roll back conversation: "+err.Error(), http.StatusInternalServerError)
+		http.Error(w, "Could not create conversation branch: "+err.Error(), http.StatusInternalServerError)
 	}
 }
 

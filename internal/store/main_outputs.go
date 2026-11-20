@@ -36,17 +36,17 @@ func (s *Store) MainOutputs(ctx context.Context, sessionID, runID string, before
 	}
 	defer tx.Rollback()
 	var status string
-	if err := tx.WithContext(ctx).Raw("SELECT status FROM runs WHERE session_id=? AND id=?", sessionID, runID).Row().Scan(&status); err != nil {
+	if err := tx.WithContext(ctx).Raw("SELECT status FROM history_runs WHERE session_id=? AND id=?", sessionID, runID).Row().Scan(&status); err != nil {
 		if err == ErrNotFound {
 			err = ErrNotFound
 		}
 		return nil, err
 	}
 	rows, err := tx.WithContext(ctx).Raw(`WITH run_chunks AS (
- SELECT * FROM model_output_chunks WHERE session_id=? AND run_id=?
+ SELECT * FROM history_output_chunks WHERE session_id=? AND run_id=?
 ), visible AS (
  SELECT sequence, ROW_NUMBER() OVER (ORDER BY sequence) AS position
- FROM events WHERE session_id=?
+ FROM history_events WHERE session_id=?
  AND sequence BETWEEN (SELECT MIN(event_sequence) FROM run_chunks) AND (SELECT MAX(event_sequence) FROM run_chunks)
  AND (
    (kind IN ('model_delta','model_reasoning_delta') AND json_extract(data,'$.turn')>0
@@ -71,7 +71,7 @@ func (s *Store) MainOutputs(ctx context.Context, sessionID, runID string, before
  MAX(CASE WHEN kind='model_request' THEN json_extract(data,'$.id') ELSE json_extract(data,'$.modelResult.id') END) AS model_id,
  MAX(CASE WHEN kind='model_request' THEN json_extract(data,'$.key') END) AS model_key,
  MAX(kind='model_result') AS complete
- FROM events WHERE session_id=? AND json_extract(data,'$.runId')=?
+ FROM history_events WHERE session_id=? AND json_extract(data,'$.runId')=?
  AND kind IN ('model_request','model_result')
  AND COALESCE(json_extract(data,'$.depth'),0)=0
  AND COALESCE(NULLIF(json_extract(data,'$.taskId'),''),'main')='main'
@@ -80,7 +80,7 @@ func (s *Store) MainOutputs(ctx context.Context, sessionID, runID string, before
  SELECT o.turn,o.sequence,o.last_sequence,o.offset,o.end_offset,e.created_at,
  COALESCE(c.provider,''),COALESCE(c.model_id,''),COALESCE(c.model_key,''),t.bytes,
  COALESCE(c.complete,0) OR ?!='running'
- FROM outputs o JOIN events e ON e.session_id=? AND e.sequence=o.sequence
+ FROM outputs o JOIN history_events e ON e.session_id=? AND e.sequence=o.sequence
  JOIN totals t ON t.turn=o.turn
  LEFT JOIN calls c ON c.turn=o.turn
  WHERE COALESCE(json_extract(e.data,'$.depth'),0)=0

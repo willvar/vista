@@ -16,9 +16,9 @@ func (s *Store) MessageResultBoundaries(ctx context.Context, sessionID string, m
 		ID           string
 		ResultsAfter int64
 	}
-	previous := s.orm.Table("messages AS previous").Select("MAX(previous.sequence)").
+	previous := s.orm.Table("history_messages AS previous").Select("MAX(previous.sequence)").
 		Where("previous.session_id = reply.session_id AND previous.run_id = reply.run_id AND previous.role = ? AND previous.sequence < reply.sequence", "assistant")
-	err := s.orm.WithContext(ctx).Table("messages AS reply").
+	err := s.orm.WithContext(ctx).Table("history_messages AS reply").
 		Select("reply.id, COALESCE((?), 0) AS results_after", previous).
 		Where("reply.session_id = ? AND reply.id IN ? AND reply.role = ?", sessionID, messageIDs, "assistant").Scan(&rows).Error
 	for _, row := range rows {
@@ -84,8 +84,8 @@ func (s *Store) modelResultEvents(ctx context.Context, sessionID string, ranges 
 	// A summary can overlap a formal reply's range. Deduplicate only sequences
 	// and fetch each stored body once, in the original timeline order.
 	query := `WITH bounds(run_id,after,through) AS (VALUES ` + strings.TrimSuffix(strings.Repeat("(?,?,?),", len(ranges)), ",") + `)
- SELECT sequence,kind,CAST(data AS BLOB) AS data,created_at FROM events WHERE session_id=? AND sequence IN (
-  SELECT DISTINCT e.sequence FROM bounds CROSS JOIN events e
+ SELECT sequence,kind,CAST(data AS BLOB) AS data,created_at FROM history_events WHERE session_id=? AND sequence IN (
+  SELECT DISTINCT e.sequence FROM bounds CROSS JOIN history_events e
   WHERE e.session_id=? AND e.kind='model_result' AND json_extract(e.data,'$.runId')=bounds.run_id
     AND e.sequence>bounds.after AND e.sequence<=bounds.through
  ) ORDER BY sequence`

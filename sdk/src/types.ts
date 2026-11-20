@@ -118,7 +118,8 @@ export type ServerStatus = {
 }
 export type QuestionReplyInput = { runId: string; callId?: string; answers: QuestionAnswer[] }
 export type SendMessageInput = { content?: string; images?: Array<{ mediaType: string; hash: string; bytes: number; name?: string }>; questionReply?: QuestionReplyInput; modelKey?: string; reasoningEffort?: string }
-export type SendMessageResult = { runId?: string; message?: Message; input?: QueuedInput; event: StreamEvent }
+export type ConversationBranch = { id: string; rootId: string; parentId?: string; forkMessageId?: string; createdAt: string; open: boolean }
+export type SendMessageResult = { session?: Session | null; runId?: string; message?: Message; input?: QueuedInput; event: StreamEvent }
 export type ModelSpeedStats = { count: number; failures: number; medianMs: number | null; p90Ms: number | null; lowConfidence: boolean }
 
 export type ProxyProfile = {

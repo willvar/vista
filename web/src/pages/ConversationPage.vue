@@ -14,6 +14,7 @@ import ConversationExecution from '../ConversationExecution.vue'
 import ConversationRecentMessage from '../ConversationRecentMessage.vue'
 import VistaMark from '../VistaMark.vue'
 import InlineSessionTitle from '../InlineSessionTitle.vue'
+import ConversationBranches from '../ConversationBranches.vue'
 import { useConversationHistory } from '../composables/useConversationHistory'
 import { useConversationScroll } from '../composables/useConversationScroll'
 import RunTrace from '../RunTrace.vue'
@@ -291,6 +292,7 @@ onUnmounted(() => {
 <template>
       <section v-if="selected" class="workspace">
         <div class="conversation-header" :class="{ 'has-recent-sent': !!recentSent }"><v-button variant="text" class="icon-button mobile-sessions-trigger" :aria-label="t('sessions')" :aria-expanded="mobileSessionsOpen" @click="mobileSessionsOpen = true"><IconMenu2 /><span v-if="attentionCount" class="session-attention-dot" role="img" :aria-label="t('sessionsNeedAttention', { count: attentionCount })"></span></v-button><div class="conversation-heading"><InlineSessionTitle :key="selected.id" :session="selected" v-model:editing="renamingTitle"><div class="session-heading-title"><h2 :title="displaySessionTitle(selected)">{{ displaySessionTitle(selected) }}</h2><v-button class="icon-button" variant="text" :aria-label="t('editTitle')" @click="renamingTitle = true"><IconPencil /></v-button></div></InlineSessionTitle></div><div class="conversation-header-tools">
+          <ConversationBranches :session-id="selected.id" />
           <WorkerStatus v-if="debugMode && selected.open" :key="selected.id" :memory="selectedWorkerMemory" :available="workerAvailable(selected.id)" />
           <ContextCompaction :key="selected.id" :usage="contextUsage" :disabled="!canCompact || !workerAvailable(selected.id)" @compact="compactSession" />
           <v-button v-if="jobs.length" variant="text" class="icon-button header-status-trigger background-processes-trigger"

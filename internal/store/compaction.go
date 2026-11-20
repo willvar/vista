@@ -15,7 +15,7 @@ import (
 func (s *Store) ContextCheckpoint(ctx context.Context, sessionID string) (*workerproto.ContextCheckpoint, error) {
 	var raw []byte
 	var sequence int64
-	err := s.orm.WithContext(ctx).Raw(`SELECT sequence,json_extract(data,'$.checkpoint') FROM events WHERE session_id=? AND kind='context_notice' AND json_extract(data,'$.depth')=0 AND json_type(data,'$.checkpoint')='object' ORDER BY sequence DESC LIMIT 1`, sessionID).Row().Scan(&sequence, &raw)
+	err := s.orm.WithContext(ctx).Raw(`SELECT sequence,json_extract(data,'$.checkpoint') FROM history_events WHERE session_id=? AND kind='context_notice' AND json_extract(data,'$.depth')=0 AND json_type(data,'$.checkpoint')='object' ORDER BY sequence DESC LIMIT 1`, sessionID).Row().Scan(&sequence, &raw)
 	if errors.Is(err, ErrNotFound) {
 		return nil, nil
 	}
@@ -36,7 +36,7 @@ func (s *Store) CompactionStatus(ctx context.Context, sessionID string) (*worker
 	defer tx.Rollback()
 	var raw []byte
 	var sequence int64
-	err = tx.WithContext(ctx).Raw(`SELECT sequence, CASE WHEN kind='context_status' THEN data ELSE json_extract(data,'$.context') END FROM events WHERE session_id=? AND (kind='context_status' OR (kind='context_notice' AND json_extract(data,'$.depth')=0 AND json_type(data,'$.context')='object')) ORDER BY sequence DESC LIMIT 1`, sessionID).Row().Scan(&sequence, &raw)
+	err = tx.WithContext(ctx).Raw(`SELECT sequence, CASE WHEN kind='context_status' THEN data ELSE json_extract(data,'$.context') END FROM history_events WHERE session_id=? AND (kind='context_status' OR (kind='context_notice' AND json_extract(data,'$.depth')=0 AND json_type(data,'$.context')='object')) ORDER BY sequence DESC LIMIT 1`, sessionID).Row().Scan(&sequence, &raw)
 	if errors.Is(err, ErrNotFound) {
 		return nil, nil
 	}
@@ -50,7 +50,7 @@ func (s *Store) CompactionStatus(ctx context.Context, sessionID string) (*worker
 	status.Sequence = sequence
 	if status.Phase == "compacting" || status.Phase == "failed" || status.Manual && status.Phase == "compacted" {
 		var runStatus string
-		err := tx.WithContext(ctx).Raw(`SELECT status FROM runs WHERE id=? AND session_id=?`, status.RunID, sessionID).Row().Scan(&runStatus)
+		err := tx.WithContext(ctx).Raw(`SELECT status FROM history_runs WHERE id=? AND session_id=?`, status.RunID, sessionID).Row().Scan(&runStatus)
 		if err != nil && !errors.Is(err, ErrNotFound) {
 			return nil, err
 		}
@@ -97,7 +97,7 @@ func (s *Store) BeginCompaction(ctx context.Context, sessionID, runID string) (i
 		return 0, nil, ErrBusy
 	}
 	var through int64
-	if err := tx.WithContext(ctx).Raw("SELECT COALESCE(MAX(sequence),0) FROM messages WHERE session_id=?", sessionID).Row().Scan(&through); err != nil {
+	if err := tx.WithContext(ctx).Raw("SELECT COALESCE(MAX(sequence),0) FROM history_messages WHERE session_id=?", sessionID).Row().Scan(&through); err != nil {
 		return 0, nil, err
 	}
 	if through == 0 {
