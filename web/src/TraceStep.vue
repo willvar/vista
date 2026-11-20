@@ -18,11 +18,17 @@ const emit = defineEmits<{ expand: [keys: string[]]; retry: [node: RunTraceNode]
 const { t } = useI18n()
 const slots = useSlots()
 const ToolOutput = () => slots['tool-output']?.({ node: props.item, expanded: props.expanded })
-const collapsible = computed(() => ['tool', 'source'].includes(props.item.kind))
+const disclosureKind = computed(() => props.item.kind === 'tool' || props.item.kind === 'source')
 const markdown = computed(() => renderMarkdown(props.item.kind === 'reasoning' ? reasoningDisplayText(props.item.body) : props.item.body))
 const inputText = computed(() => props.item.kind === 'tool' ? props.item.input?.command || props.item.summary || '' : props.item.kind === 'source' ? props.item.body : '')
 const inputPreview = computed(() => compactTraceText(toolSummaryText(props.item.toolName, inputText.value)))
 const longInput = computed(() => inputPreview.value !== inputText.value.replace(/\s+/g, ' ').trim() || inputText.value.includes('\n'))
+const collapsible = computed(() => {
+  const { item } = props
+  return disclosureKind.value && (item.kind !== 'tool' || item.status !== 'loading' || !!(
+    longInput.value || item.body.trim() || item.error?.trim() || item.resultSummaryKey || item.search || item.instructions
+    || item.diff || item.diffs?.length || item.truncated || item.outputRef?.artifactId || item.artifactIds.length || item.jobIds.length))
+})
 function toggle() { if (collapsible.value) emit('expand', props.expanded ? [] : [props.item.key]) }
 </script>
 
@@ -35,7 +41,7 @@ function toggle() { if (collapsible.value) emit('expand', props.expanded ? [] : 
           <span class="trace-step-label"><span class="ui-thought-chain-node-icon" aria-hidden="true"><IconLoader2 v-if="item.status === 'loading'" class="ui-icon-spin" /><IconCircleX v-else-if="item.status === 'error'" /><IconPlayerStop v-else-if="item.status === 'abort'" /><IconCircleCheck v-else /></span><span class="ui-thought-chain-node-title"><span :id="nodeId(item.key)">{{ item.title }}<template v-if="inputText">: <span class="trace-input-preview" :class="{ 'trace-input-code': item.input?.command }">{{ inputPreview }}</span></template><span v-if="lookupHint" class="trace-input-preview"> · {{ lookupHint }}</span></span></span></span>
           <IconChevronRight v-if="collapsible" class="ui-thought-chain-node-collapse-icon" :class="{ expanded }" aria-hidden="true" />
         </component>
-        <div v-if="!collapsible || expanded" :id="`${nodeId(item.key)}-content`" class="trace-step-details">
+        <div v-if="!disclosureKind || (collapsible && expanded)" :id="`${nodeId(item.key)}-content`" class="trace-step-details">
         <div v-if="item.description" class="ui-thought-chain-node-description">{{ item.description }}</div>
         <div v-if="inputText && longInput && item.input?.command" class="trace-command-card">
           <TraceResultCard :title="t('traceOpShell')" :text="inputText"><PlainTextOutput class="trace-input-full" :content="inputText" /></TraceResultCard>
@@ -62,6 +68,7 @@ function toggle() { if (collapsible.value) emit('expand', props.expanded ? [] : 
 .ui-thought-chain-node{display:block}
 .ui-thought-chain-node-header{align-items:center;min-height:var(--control-height);padding-inline-end:4px;color:var(--text-secondary);line-height:1.5}
 .trace-step-details{min-width:0;padding-inline-start:24px}
+div.ui-thought-chain-node-header{cursor:default}
 button.ui-thought-chain-node-header:hover{color:var(--text)}
 .trace-step-label{display:flex;align-items:flex-start;gap:8px;flex:1;min-width:0;font-size:15px;line-height:1.5;overflow-wrap:anywhere}
 .ui-thought-chain-node-title{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;min-width:0;font-size:15px;font-weight:500;line-height:1.5}

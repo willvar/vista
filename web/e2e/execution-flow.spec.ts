@@ -1809,6 +1809,29 @@ test('current action, timing and internal planning survive live work and reload'
   expect(fixture.unexpected).toEqual([])
 })
 
+test('a running command exposes details only when there is something to read @responsive', async ({ page, mockOrigin }) => {
+  const events = hydrationEvents().slice(0, 2), runId = events[0].data.runId as string
+  const fixture = await mockExecution(page, mockOrigin, events)
+  const tool = { callId: 'live-command', name: 'shell', input: { command: 'make build', directory: '/synthetic/source', timeoutSeconds: 30 } }
+  fixture.append('tool', { status: 'started', tool })
+  const trace = page.locator(`.run-trace[data-run-id="${runId}"]`)
+  const title = nodeTitle(trace, runId, 'tool/main/live-command')
+  const row = stepNode(title)
+  const disclosure = row.locator('button.ui-thought-chain-node-header')
+  await expect(title).toContainText('make build')
+  await expect(row).toHaveClass(/ui-thought-chain-node-loading/)
+  await expect(disclosure).toHaveCount(0)
+  await expect(row.locator('.trace-step-details')).toHaveCount(0)
+
+  fixture.append('tool', { status: 'running', tool, content: 'Compiling frontend.' })
+  await expect(disclosure).toHaveAttribute('aria-expanded', 'false')
+  await expect(row.locator('.trace-step-details')).toHaveCount(0)
+  await disclosure.click()
+  await expect(row.locator('.trace-step-details')).toContainText('Compiling frontend.')
+  expect(fixture.outputReads).toEqual([])
+  expect(fixture.unexpected).toEqual([])
+})
+
 test('stopping a run keeps internal plans out of the UI before and after reload @responsive', async ({page,mockOrigin}) => {
  const events=agentIdentityEvents(), runId=events[0].data.runId as string
  events.push({sequence:events.at(-1)!.sequence+1,kind:'checklist',data:{runId,items:initialChecklist}})
