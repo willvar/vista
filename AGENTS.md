@@ -22,6 +22,12 @@ Background synchronization must preserve active editors and reject stale respons
 Automatically updated views have no routine refresh button. Retain a manual check only when automatic checks are infrequent and users have a clear need to force one immediately (for example, model catalog updates). Import reads, explicit cleanup, authorization and error retries remain deliberate actions.
 Verify request counts, payload contents and size as well as visible updates, including cross-client changes and recovery.
 
+### Client SDK
+
+- Keep shared HTTP/SSE transport, wire types, state reduction, and synchronization in the framework-independent `sdk/` package (`@vista/client`). WebUI consumes that package and owns presentation, navigation, and UI lifecycle. Do not duplicate shared protocol logic or work around contract drift only in WebUI.
+- When adding or changing a client-visible backend contract, check the SDK and its consumers: HTTP shapes and errors, SSE topics and events, revisions, cursors, pagination, and recovery. Update affected backend, SDK, WebUI, and tests in the same batch. Trace new shared state through initial snapshots, live updates, and reconnect recovery. Backend internals, UI-only changes, and unused compatible additions need no SDK change; use the existing generic client for view-specific endpoints.
+- Verify the changed contract with backend producer tests, SDK tests (included in `make test frontend`), and affected WebUI browser checks. When SDK exports, dependencies, or packaging change, also verify installation and use of the packed SDK in a separate project.
+
 ## SQLite Store
 
 - Use GORM for ordinary CRUD and parameterized SQL for complex queries and SQLite-specific operations, within the same GORM session or transaction. The underlying `sql.DB` owns connections and SQLite setup; business reads and writes stay on the GORM execution path.
