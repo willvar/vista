@@ -71,13 +71,13 @@ func (a *App) compactSession(w http.ResponseWriter, r *http.Request, sessionID s
 	}
 	model.Key, model.SessionID = key, sessionID
 	runID := uuid.NewString()
-	a.admissionMu.Lock()
+	a.admissionLock().Lock()
 	available, err := platform.AvailableMemory()
 	if err == nil {
 		counts, countErr := a.store.SessionCounts(r.Context())
 		err = countErr
 		if err == nil {
-			err = a.admitRun(available, counts.Running)
+			err = a.admitProfileRun(r.Context(), available, counts.Running)
 		}
 	}
 	var through int64
@@ -85,7 +85,7 @@ func (a *App) compactSession(w http.ResponseWriter, r *http.Request, sessionID s
 	if err == nil {
 		through, event, err = a.store.BeginCompaction(r.Context(), sessionID, runID)
 	}
-	a.admissionMu.Unlock()
+	a.admissionLock().Unlock()
 	if err != nil {
 		code := http.StatusBadRequest
 		if errors.Is(err, store.ErrBusy) || errors.Is(err, store.ErrClosed) {

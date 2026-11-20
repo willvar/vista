@@ -2,6 +2,14 @@ import type en from './en.ts'
 
 
 export default {
+  "profiles": "프로필",
+  "defaultProfile": "기본 프로필",
+  "profileNewTab": "새 탭에서 열기",
+  "profileArchived": "보관됨",
+  "profileRestore": "복원",
+  "profileArchive": "보관",
+  "profileName": "프로필 이름",
+  "profileNew": "새 프로필",
   "storageMethod": "Storage method",
   "storageLocal": "Local storage",
   "storageObject": "Object storage (S3 compatible)",

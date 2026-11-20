@@ -2,7 +2,7 @@ import { streamSSE } from './sse.js'
 import type { VistaClient } from './vista.js'
 import type { ServerStatus, SessionListSnapshot, ModelCatalog, ModelDiagnosticSummary, NetworkConfiguration, OMPCatalogInfo, LoginUpdate, MCPState, ResourceStorageStatus, ServerConfig } from './types.js'
 
-export const stateTopics = ['sessions', 'status', 'models', 'catalog', 'provider-login', 'mcp', 'storage', 'diagnostics', 'statistics', 'skills', 'connection-statistics', 'server-config', 'network'] as const
+export const stateTopics = ['sessions', 'status', 'models', 'catalog', 'provider-login', 'mcp', 'storage', 'diagnostics', 'statistics', 'skills', 'connection-statistics', 'server-config', 'network', 'profiles'] as const
 export type StateTopic = typeof stateTopics[number]
 export type StateConnection = { phase: 'connecting' | 'ready' | 'error' | 'stopped'; error?: string }
 export type WorkspaceSnapshots = {
@@ -19,7 +19,7 @@ type Listener = {
   active: boolean; lifetime: AbortController; seen: Partial<Record<StateTopic, number>>; epoch: string; attempt: number; pending?: Promise<void>
 }
 const snapshotKeys = { sessions: 'sessions', status: 'status', models: 'models', catalog: 'catalog',
-  'provider-login': 'providerLogins', mcp: 'mcp', storage: 'storage', diagnostics: 'diagnostics', statistics: undefined, skills: undefined, 'connection-statistics': undefined, 'server-config': 'serverConfig', network: 'network' } as const
+  'provider-login': 'providerLogins', mcp: 'mcp', storage: 'storage', diagnostics: 'diagnostics', statistics: undefined, skills: undefined, 'connection-statistics': undefined, 'server-config': 'serverConfig', network: 'network', profiles: undefined } as const
 type Options = {
   client: Pick<VistaClient, 'openWorkspaceEvents' | 'request'>
   status: (status: StateConnection) => void

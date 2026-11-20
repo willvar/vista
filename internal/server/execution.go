@@ -253,21 +253,21 @@ func (a *App) submitMessage(w http.ResponseWriter, r *http.Request, sessionID st
 		}
 	}
 	runID := uuid.NewString()
-	a.admissionMu.Lock()
+	a.admissionLock().Lock()
 	available, err := platform.AvailableMemory()
 	if err != nil {
-		a.admissionMu.Unlock()
+		a.admissionLock().Unlock()
 		http.Error(w, "memory admission unavailable", 503)
 		return
 	}
 	counts, err := a.store.SessionCounts(r.Context())
 	if err != nil {
-		a.admissionMu.Unlock()
+		a.admissionLock().Unlock()
 		http.Error(w, "could not check execution capacity", 500)
 		return
 	}
-	if err := a.admitRun(available, counts.Running); err != nil {
-		a.admissionMu.Unlock()
+	if err := a.admitProfileRun(r.Context(), available, counts.Running); err != nil {
+		a.admissionLock().Unlock()
 		http.Error(w, err.Error(), 503)
 		return
 	}
@@ -278,7 +278,7 @@ func (a *App) submitMessage(w http.ResponseWriter, r *http.Request, sessionID st
 	} else {
 		message, event, err = a.store.BeginRunWithImages(r.Context(), sessionID, runID, messageID, input.Content, images, modelKey)
 	}
-	a.admissionMu.Unlock()
+	a.admissionLock().Unlock()
 	if errors.Is(err, store.ErrNoPendingQuestion) {
 		http.Error(w, err.Error(), http.StatusConflict)
 		return
@@ -513,24 +513,24 @@ func (a *App) readWorkerOutput(id string, w *worker, scanner *bufio.Scanner) {
 func (a *App) launchQueuedInput(sessionID string) {
 	unlock := a.lockSessionMutation(sessionID)
 	defer unlock()
-	a.admissionMu.Lock()
+	a.admissionLock().Lock()
 	a.mu.Lock()
 	workerReady := workerCanReceive(a.workers[sessionID])
 	a.mu.Unlock()
 	if !workerReady {
-		a.admissionMu.Unlock()
+		a.admissionLock().Unlock()
 		return
 	}
 	if _, err := a.store.RunningRunID(a.ctx, sessionID); err == nil {
-		a.admissionMu.Unlock()
+		a.admissionLock().Unlock()
 		return
 	} else if !errors.Is(err, store.ErrNotFound) {
-		a.admissionMu.Unlock()
+		a.admissionLock().Unlock()
 		return
 	}
 	input, err := a.store.NextQueuedInput(a.ctx, sessionID)
 	if err != nil || input == nil {
-		a.admissionMu.Unlock()
+		a.admissionLock().Unlock()
 		if err != nil {
 			log.Printf("session %s queued input lookup: %v", sessionID, err)
 		}
@@ -541,20 +541,20 @@ func (a *App) launchQueuedInput(sessionID string) {
 		var counts store.Counts
 		counts, err = a.store.SessionCounts(a.ctx)
 		if err == nil {
-			err = a.admitRun(available, counts.Running)
+			err = a.admitProfileRun(a.ctx, available, counts.Running)
 		}
 	}
 	if err != nil {
 		if markErr := a.store.MarkQueuedInputs(a.ctx, sessionID, "", "capacity_rejected"); markErr != nil {
 			log.Printf("session %s queued input rejection failed: %v", sessionID, markErr)
 		}
-		a.admissionMu.Unlock()
+		a.admissionLock().Unlock()
 		a.notifySession(sessionID)
 		return
 	}
 	selection, err := a.store.Get(a.ctx, sessionID)
 	if err != nil {
-		a.admissionMu.Unlock()
+		a.admissionLock().Unlock()
 		return
 	}
 	// Pending items retain their submission metadata for display. The next
@@ -565,14 +565,14 @@ func (a *App) launchQueuedInput(sessionID string) {
 	})
 	if err != nil {
 		_ = a.store.MarkQueuedInputs(a.ctx, sessionID, "", "interrupted")
-		a.admissionMu.Unlock()
+		a.admissionLock().Unlock()
 		a.notifySession(sessionID)
 		log.Printf("session %s queued model unavailable: %v", sessionID, err)
 		return
 	}
 	runID := uuid.NewString()
 	message, err := a.store.BeginQueuedRun(a.ctx, sessionID, input.ID, runID, uuid.NewString(), model.Key)
-	a.admissionMu.Unlock()
+	a.admissionLock().Unlock()
 	if errors.Is(err, store.ErrBusy) || errors.Is(err, store.ErrClosed) {
 		return
 	}

@@ -8,8 +8,23 @@ import (
 	"path/filepath"
 )
 
+// BindWorkerConfigDir is called once by the hidden Worker command before it
+// can load settings. The serving process always keeps the default directory.
+var workerConfigDir string
+
+func BindWorkerConfigDir(dir string) error {
+	if workerConfigDir != "" || !filepath.IsAbs(dir) {
+		return errors.New("invalid Worker configuration directory")
+	}
+	workerConfigDir = filepath.Clean(dir)
+	return nil
+}
+
 // Config contains settings and user-authored instructions.
 func Config() (string, error) {
+	if workerConfigDir != "" {
+		return workerConfigDir, nil
+	}
 	root, err := os.UserConfigDir()
 	if err != nil {
 		return "", err

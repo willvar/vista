@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"errors"
 	"fmt"
 
@@ -23,7 +24,7 @@ func admitMemory(available, used uint64, config memoryConfig) error {
 
 // Caller holds App.mu.
 func (a *App) residentMemoryLocked() uint64 {
-	used := platform.RSS()
+	used := uint64(a.workerStarting) * minimumAvailableMemory
 	if a.mcpHost != nil {
 		_, metrics := a.mcpHost.Status()
 		used += metrics.RSSBytes
@@ -33,17 +34,33 @@ func (a *App) residentMemoryLocked() uint64 {
 	}
 	return used
 }
-func (a *App) admitWorkerLocked(available uint64) error {
-	return admitMemory(available, a.residentMemoryLocked(), a.memorySettings())
+func (a *App) residentMemory() uint64 {
+	list := []*App{a}
+	if a.profiles != nil {
+		list = a.profiles.scopedApps()
+	}
+	used := platform.RSS()
+	for _, profile := range list {
+		profile.mu.Lock()
+		used += profile.residentMemoryLocked()
+		profile.mu.Unlock()
+	}
+	return used
+}
+
+func (a *App) admitProfileRun(ctx context.Context, available uint64, running int) error {
+	total, err := a.activeExecutions(ctx, running)
+	if err != nil {
+		return err
+	}
+	return a.admitRun(available, total)
 }
 func (a *App) admitRun(available uint64, running int) error {
 	settings := a.memorySettings()
 	if running >= settings.ConcurrentRuns {
 		return errors.New("concurrent execution limit reached; wait or adjust memory settings in About Vista")
 	}
-	a.mu.Lock()
-	used := a.residentMemoryLocked()
-	a.mu.Unlock()
+	used := a.residentMemory()
 	return admitMemory(available, used, settings)
 }
 func (a *App) admitHeavy() error {
@@ -51,8 +68,6 @@ func (a *App) admitHeavy() error {
 	if err != nil {
 		return fmt.Errorf("memory admission unavailable: %w", err)
 	}
-	a.mu.Lock()
-	used := a.residentMemoryLocked()
-	a.mu.Unlock()
+	used := a.residentMemory()
 	return admitMemory(available, used, a.memorySettings())
 }

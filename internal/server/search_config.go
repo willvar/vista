@@ -8,13 +8,16 @@ import (
 	"vista/internal/workerproto"
 )
 
-func searchProviders() ([]workerproto.SearchProvider, error) {
+func searchProviders(withoutEnvironment ...bool) ([]workerproto.SearchProvider, error) {
 	defaults := []workerproto.SearchProvider{
 		{Name: "firecrawl", Endpoint: "https://mcp.firecrawl.dev/v2/mcp"},
 		{Name: "parallel", Endpoint: "https://search.parallel.ai/mcp"},
 		{Name: "tavily", Endpoint: "https://api.tavily.com/search"},
 		{Name: "exa", Endpoint: "https://mcp.exa.ai/mcp"},
 		{Name: "deepseek", Endpoint: "https://api.deepseek.com/v1/tools/search"},
+	}
+	if len(withoutEnvironment) > 0 && withoutEnvironment[0] {
+		return defaults, nil
 	}
 	for i := range defaults {
 		prefix := "VISTA_WEBSEARCH_" + strings.ToUpper(defaults[i].Name)

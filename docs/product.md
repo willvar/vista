@@ -24,6 +24,12 @@ Use these principles when changing the product:
 - Describe Vista through tasks and collaboration without assuming it runs on the user's own computer.
 - More advanced users retain configuration room. Technical ability and willingness to study configuration are separate; assess desktop and phone use separately.
 
+## Profiles
+
+Use **Profiles** in the sidebar to create, rename, open in another tab, archive or restore a Profile. Tabs keep the Profile in their address. Existing bookmarks and data stay in the default Profile, which cannot be archived. Archives retain their data; Vista rejects archiving a Profile with active work.
+
+Profiles have separate conversations, model connections, proxy preferences, user skills, MCP configuration and resource libraries. They share the Vista service address and device capacity. Profiles are not a security boundary for tools that access the host filesystem.
+
 ## Conversation behavior
 
 - First use connects a model provider in Settings. Built-in connections encapsulate provider setup; a custom connection explicitly selects its API format and authentication. Model availability depends on the connected service and account.

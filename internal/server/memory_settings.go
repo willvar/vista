@@ -57,6 +57,9 @@ func loadMemoryConfig(dir string) (memoryConfig, error) {
 	return config, nil
 }
 func (a *App) memorySettings() memoryConfig {
+	if a.namedProfile {
+		return a.profiles.device.memorySettings()
+	}
 	a.memoryMu.Lock()
 	defer a.memoryMu.Unlock()
 	if a.memoryConfig.BudgetMiB == 0 {
@@ -65,6 +68,10 @@ func (a *App) memorySettings() memoryConfig {
 	return a.memoryConfig
 }
 func (a *App) memorySettingsHTTP(w http.ResponseWriter, r *http.Request) {
+	if a.namedProfile {
+		a.profiles.device.memorySettingsHTTP(w, r)
+		return
+	}
 	if r.Method == http.MethodGet {
 		jsonOut(w, a.memorySettings())
 		return
@@ -96,6 +103,17 @@ func (a *App) memorySettingsHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "could not save memory settings", 500)
 		return
 	}
+	list := []*App{a}
+	if a.profiles != nil {
+		list = a.profiles.scopedApps()
+	}
+	for _, app := range list {
+		app.publishWorkerLimits(input)
+	}
+	jsonOut(w, input)
+}
+
+func (a *App) publishWorkerLimits(input memoryConfig) {
 	a.mu.Lock()
 	workers := make([]*worker, 0, len(a.workers))
 	for _, worker := range a.workers {
@@ -107,5 +125,4 @@ func (a *App) memorySettingsHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	a.updates.notify("status")
 	a.refreshMCPHost()
-	jsonOut(w, input)
 }

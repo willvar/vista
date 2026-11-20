@@ -102,17 +102,21 @@ func (a *App) startWorkerUsing(id string, launch func(context.Context, string) (
 	if err != nil {
 		return fmt.Errorf("memory admission unavailable: %w", err)
 	}
+	// Use the device admission lock only through reservation, not process start.
+	a.admissionLock().Lock()
+	if err := admitMemory(available, a.residentMemory(), a.memorySettings()); err != nil {
+		a.admissionLock().Unlock()
+		return err
+	}
 	a.mu.Lock()
 	if a.workersStopping || ctx.Err() != nil {
 		a.mu.Unlock()
+		a.admissionLock().Unlock()
 		return errors.New("server is stopping")
-	}
-	if err := a.admitWorkerLocked(available); err != nil {
-		a.mu.Unlock()
-		return err
 	}
 	a.workerStarting++
 	a.mu.Unlock()
+	a.admissionLock().Unlock()
 	w, scanner, err := launch(ctx, id)
 	a.mu.Lock()
 	a.workerStarting--
@@ -151,6 +155,9 @@ func (a *App) launchWorker(ctx context.Context, id string) (*worker, *bufio.Scan
 		return nil, nil, err
 	}
 	cmd := exec.Command(exe, "worker")
+	if a.namedProfile {
+		cmd.Args = append(cmd.Args, "--config-dir", a.configDir)
+	}
 	cmd.Env = modelcatalog.WorkerEnvironment(os.Environ(), a.modelCredentialEnvironment()...)
 	settings := a.memorySettings()
 	cmd.Env = append(cmd.Env, fmt.Sprintf("VISTA_WORKER_MEMORY_MIB=%d", settings.WorkerMiB), fmt.Sprintf("VISTA_BACKGROUND_JOBS_LIMIT=%d", settings.BackgroundJobsPerSession))

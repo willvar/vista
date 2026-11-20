@@ -1,3 +1,4 @@
+import { profileStorageKey } from '../client/profileScope.ts'
 import { computed, onScopeDispose, reactive, ref, toRefs, watch, type Ref } from 'vue'
 import { VistaAPIError, restoreConversationSnapshot, createConversationSync, appendMessage, createConversationState, messageResults, runResults, pruneConversationWindow, reduceConversationEvent, replyTraceSegments, trailingTraceSegment, conversationItems, displayBodyVersion, displayOutputKey, hydrateMainOutput, mainOutputKey, mainOutputText, mergeMainOutputs, confirmInputEvent, projectInputQueue, jobActive } from '@vista/client'
 import type { VistaClient, ConversationSyncStatus, ConversationSyncDiagnostics, Artifact, ConversationSnapshot, CompactionStatus, ContextUsage, Job, MainOutput, Message, ModelCatalog, OutputView, QuestionAnswer, QueuedInput, SendMessageResult, Session, SessionActionPreview, StreamEvent, ReplyTraceSegment, ConversationItem, MainOutputRecord } from '@vista/client'
@@ -20,8 +21,8 @@ export type ConversationOptions = {
   onSessionStarted?: (session: Session) => Promise<void>
 }
 type Scope = { id: string; generation: number; controller: AbortController; initialSelectionVersion?: number; sync?: ReturnType<typeof createConversationSync> }
-export const draftStoragePrefix = 'vista-session-draft:'
-export const welcomeDraftStorageKey = 'vista-home-draft'
+export const draftStoragePrefix = profileStorageKey('vista-session-draft:')
+export const welcomeDraftStorageKey = profileStorageKey('vista-home-draft')
 
 function readDraft(id: string) {
   try { return localStorage.getItem(draftStoragePrefix + id) || '' } catch { return '' }

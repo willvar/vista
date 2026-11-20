@@ -2,6 +2,14 @@ import type en from './en.ts'
 
 
 export default {
+  "profiles": "Profile",
+  "defaultProfile": "Standardprofil",
+  "profileNewTab": "In neuem Tab öffnen",
+  "profileArchived": "Archiviert",
+  "profileRestore": "Wiederherstellen",
+  "profileArchive": "Archivieren",
+  "profileName": "Profilname",
+  "profileNew": "Neues Profil",
   "storageMethod": "Storage method",
   "storageLocal": "Local storage",
   "storageObject": "Object storage (S3 compatible)",

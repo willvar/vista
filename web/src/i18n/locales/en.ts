@@ -1,4 +1,12 @@
 export default {
+  "profiles": "Profiles",
+  "defaultProfile": "Default Profile",
+  "profileNewTab": "Open in new tab",
+  "profileArchived": "Archived",
+  "profileRestore": "Restore",
+  "profileArchive": "Archive",
+  "profileName": "Profile name",
+  "profileNew": "New Profile",
   "storageMethod": "Storage method",
   "storageLocal": "Local storage",
   "storageObject": "Object storage (S3 compatible)",

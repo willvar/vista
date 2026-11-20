@@ -2,6 +2,14 @@ import type en from './en.ts'
 
 
 export default {
+  "profiles": "档案",
+  "defaultProfile": "默认档案",
+  "profileNewTab": "在新标签页打开",
+  "profileArchived": "已归档",
+  "profileRestore": "恢复",
+  "profileArchive": "归档",
+  "profileName": "档案名称",
+  "profileNew": "新建档案",
   "storageMethod": "存储方式",
   "storageLocal": "本地存储",
   "storageObject": "对象存储（S3 兼容）",

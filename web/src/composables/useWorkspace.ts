@@ -1,8 +1,9 @@
 import { computed, inject, nextTick, onMounted, onUnmounted, provide, ref, watch, type InjectionKey } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
-import { createVistaClient, VistaAPIError, createWorkspaceSync, compareSessionOrder, mergeSessionSnapshot, sessionNeedsAttention } from '@vista/client'
+import { VistaAPIError, createWorkspaceSync, compareSessionOrder, mergeSessionSnapshot, sessionNeedsAttention } from '@vista/client'
 import type { StateTopic, StateConnection, WorkspaceSnapshots, ModelCatalog, ServerStatus, Session, SyncCheckpoint } from '@vista/client'
+import { createProfileClient } from '../client/profileScope'
 import { useConversation } from './useConversation'
 import { usePresentation } from './usePresentation'
 import { useInteractionPreferences } from './useInteractionPreferences'
@@ -14,7 +15,7 @@ function createWorkspace() {
   const route = useRoute()
   const router = useRouter()
   const { t } = useI18n({ useScope: 'global' })
-  const client = createVistaClient({ language: () => document.documentElement.lang })
+  const client = createProfileClient(() => document.documentElement.lang)
   const error = ref('')
   const busy = ref(false)
   const debugMode = ref(false)

@@ -33,6 +33,7 @@ const Models = "models"
 const MCP = "mcp"
 const Network = "network"
 const Storage = "storage"
+const Profiles = "profiles"
 const maxDocumentBytes = 1 << 20
 
 var ErrConflict = errors.New("configuration changed; read it again before saving")
@@ -47,7 +48,7 @@ var bindings = []binding{
 	{Server, "server.json", 4 << 10}, {Capacity, "capacity.json", 4 << 10},
 	{Agent, "agent-settings.json", 4 << 10}, {Search, "search.json", 256 << 10},
 	{UserAgent, "user-agent.json", 4 << 10}, {Models, "models.json", 32 << 10}, {MCP, "mcp.json", 8 << 10},
-	{Network, "", 128 << 10}, {Storage, "", 256 << 10},
+	{Network, "", 128 << 10}, {Storage, "", 256 << 10}, {Profiles, "", 256 << 10},
 }
 
 type document struct {
@@ -61,6 +62,7 @@ type document struct {
 	MCP       json.RawMessage `json:"mcp,omitempty"`
 	Network   json.RawMessage `json:"network,omitempty"`
 	Storage   json.RawMessage `json:"storage,omitempty"`
+	Profiles  json.RawMessage `json:"profiles,omitempty"`
 }
 
 func (d *document) field(section string) *json.RawMessage {
@@ -83,6 +85,8 @@ func (d *document) field(section string) *json.RawMessage {
 		return &d.Network
 	case Storage:
 		return &d.Storage
+	case Profiles:
+		return &d.Profiles
 	}
 	return nil
 }

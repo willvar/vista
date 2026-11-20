@@ -1,3 +1,4 @@
+import { profileStorageKey } from '../client/profileScope.ts'
 import { ref, watch } from 'vue'
 import type { VistaClient } from '@vista/client'
 
@@ -23,8 +24,8 @@ function readJSON<T>(key: string, fallback: T): T {
 }
 
 export function useInteractionPreferences(client?: VistaClient, report: (error: unknown) => void = () => {}) {
-  const rememberedModel = ref<RememberedModel | null>(readJSON('vista-last-model', null))
-  const reasoningByModelId = ref<Record<string, string>>(readJSON('vista-reasoning-by-model', {}))
+  const rememberedModel = ref<RememberedModel | null>(readJSON(profileStorageKey('vista-last-model'), null))
+  const reasoningByModelId = ref<Record<string, string>>(readJSON(profileStorageKey('vista-reasoning-by-model'), {}))
   const ready = ref(!client)
   let hydrating = false
   let saving = Promise.resolve()
@@ -34,12 +35,12 @@ export function useInteractionPreferences(client?: VistaClient, report: (error: 
   }
   watch(rememberedModel, (value, previous) => {
     if (value) {
-      savePreference('vista-last-model', JSON.stringify(value))
+      savePreference(profileStorageKey('vista-last-model'), JSON.stringify(value))
       if (value.key !== previous?.key) persist({ manualModelKey: value.key })
     }
   }, { flush: 'sync' })
   watch(reasoningByModelId, value => {
-    savePreference('vista-reasoning-by-model', JSON.stringify(value)); persist({ reasoningByModelId: value })
+    savePreference(profileStorageKey('vista-reasoning-by-model'), JSON.stringify(value)); persist({ reasoningByModelId: value })
   }, { flush: 'sync' })
   async function load() {
     if (!client || ready.value) return

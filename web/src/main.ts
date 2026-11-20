@@ -3,13 +3,14 @@ import './ui/appearance'
 import { createApp } from 'vue'
 import { createRouter, createWebHistory } from 'vue-router'
 import App from './App.vue'
+import { profileBase } from './client/profileScope'
 import ConversationPage from './pages/ConversationPage.vue'
 import { i18n, initializeLanguage } from './i18n'
 import { installAssetRecovery, showBootFailure } from './asset-recovery'
 import './style.css'
 const SettingsPage = () => import('./pages/SettingsPage.vue')
 const SessionManagerPage = () => import('./pages/SessionManagerPage.vue')
-const router = createRouter({ history: createWebHistory(), routes: [
+const router = createRouter({ history: createWebHistory(profileBase || '/'), routes: [
   { path: '/', name: 'home', component: ConversationPage },
   { path: '/settings', name: 'settings-index', components: { default: ConversationPage, overlay: SettingsPage }, meta: { workspaceOverlay: 'settings' } },
   { path: '/settings/general', name: 'settings-general', components: { default: ConversationPage, overlay: SettingsPage }, meta: { workspaceOverlay: 'settings' } },

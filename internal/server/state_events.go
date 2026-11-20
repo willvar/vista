@@ -34,7 +34,7 @@ const maxStateEventStreams = maxEventStreams
 const maxStateFrameBytes = 512 << 10
 const maxStateSnapshotBytes = maxStateFrameBytes - len("event: state\ndata: \n\n")
 
-var stateTopics = []string{"sessions", "status", "models", "catalog", "provider-login", "mcp", "storage", "diagnostics", "statistics", "connection-statistics", "skills", "server-config", "network"}
+var stateTopics = []string{"sessions", "status", "models", "catalog", "provider-login", "mcp", "storage", "diagnostics", "statistics", "connection-statistics", "skills", "server-config", "network", "profiles"}
 
 type stateCheckpoint struct {
 	Network        *networkConfigView         `json:"network,omitempty"`

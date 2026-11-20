@@ -1,9 +1,11 @@
+import { profileStorageKey } from '../client/profileScope.ts'
+
 export type QuoteSource = { key: string; sequence: number; createdAt: string }
 export type QuotedText = { text: string; role: 'user' | 'assistant'; source?: QuoteSource }
 export type QuotedExcerpt = QuotedText & { id: number }
 export type QuotedReply = { items: QuotedExcerpt[]; nextId: number }
 
-export const quoteStoragePrefix = 'vista-session-quote:'
+export const quoteStoragePrefix = profileStorageKey('vista-session-quote:')
 
 function readText(value: unknown): QuotedText | null {
   if (!value || typeof value !== 'object') return null

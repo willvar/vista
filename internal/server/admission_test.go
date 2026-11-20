@@ -20,9 +20,7 @@ func TestAdmissionUsesMeasuredMemoryWithoutSessionCountLimit(t *testing.T) {
 	for i := 0; i < 100; i++ {
 		app.workers[string(rune(i))] = &worker{metrics: workerproto.Metrics{RSSBytes: 1 << 20}}
 	}
-	app.mu.Lock()
-	err := app.admitWorkerLocked(8 << 30)
-	app.mu.Unlock()
+	err := admitMemory(8<<30, app.residentMemory(), app.memorySettings())
 	if err != nil {
 		t.Fatalf("idle conversations were capped by count: %v", err)
 	}

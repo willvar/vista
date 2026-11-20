@@ -2,6 +2,8 @@
 import base from './zh-TW.ts'
 
 export default { ...base, ...{
+  "defaultProfile": "默認檔案",
+  "profileNewTab": "在新標籤頁打開",
   "storageMethod": "存儲方式",
   "storageLocal": "本地存儲",
   "storageObject": "對象存儲（S3 兼容）",

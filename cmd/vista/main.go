@@ -80,7 +80,17 @@ func newRootCommand() *cobra.Command {
 	reservedCommand := &cobra.Command{Use: "serve-reserved", Hidden: true, Args: cobra.NoArgs, RunE: func(*cobra.Command, []string) error { return serveReserved(port) }}
 	addPortFlag(reservedCommand, &port)
 	root.AddCommand(reservedCommand)
-	root.AddCommand(&cobra.Command{Use: "worker", Hidden: true, RunE: func(*cobra.Command, []string) error { return worker.Run() }})
+	var workerConfigDir string
+	workerCommand := &cobra.Command{Use: "worker", Hidden: true, Args: cobra.NoArgs, RunE: func(*cobra.Command, []string) error {
+		if workerConfigDir != "" {
+			if err := appdirs.BindWorkerConfigDir(workerConfigDir); err != nil {
+				return err
+			}
+		}
+		return worker.Run()
+	}}
+	workerCommand.Flags().StringVar(&workerConfigDir, "config-dir", "", "Worker configuration directory")
+	root.AddCommand(workerCommand)
 	root.AddCommand(&cobra.Command{Use: "mcp-host", Hidden: true, Args: cobra.NoArgs, RunE: func(*cobra.Command, []string) error { return mcphost.Run() }})
 	return root
 }

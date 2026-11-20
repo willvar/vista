@@ -2,6 +2,14 @@
 import base from './zh-CN.ts'
 
 export default { ...base, ...{
+  "profiles": "檔案",
+  "defaultProfile": "預設檔案",
+  "profileNewTab": "在新標籤頁開啟",
+  "profileArchived": "已歸檔",
+  "profileRestore": "恢復",
+  "profileArchive": "歸檔",
+  "profileName": "檔案名稱",
+  "profileNew": "新建檔案",
   "storageMethod": "儲存方式",
   "storageLocal": "本地儲存",
   "storageObject": "物件儲存（S3 相容）",

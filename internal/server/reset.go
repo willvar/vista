@@ -55,7 +55,7 @@ func (h *appHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	h.mu.Lock()
 	app, next := h.app, h.next
-	api := strings.HasPrefix(r.URL.Path, "/api/")
+	api := strings.HasPrefix(r.URL.Path, "/api/") || strings.HasPrefix(r.URL.Path, "/profiles/")
 	// Stopping remains available if a reset failed partway through deletion.
 	if r.URL.Path == "/api/stop" {
 		h.mu.Unlock()
@@ -79,6 +79,10 @@ func (h *appHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		defer stop()
 		r = r.WithContext(ctx)
 	}
+	if app.profiles != nil && !app.namedProfile && (strings.HasPrefix(r.URL.Path, "/profiles/") || r.URL.Path == "/api/profiles" || strings.HasPrefix(r.URL.Path, "/api/profiles/")) {
+		app.profiles.ServeHTTP(w, r)
+		return
+	}
 	next.ServeHTTP(w, r)
 }
 
@@ -86,15 +90,18 @@ func (h *appHandler) stopApp() error {
 	if h.appClosed {
 		return nil
 	}
-	h.app.admissionMu.Lock()
+	h.app.admissionLock().Lock()
 	prepareErr := h.app.store.PrepareRestart(context.Background())
 	h.app.closeContext()
-	h.app.admissionMu.Unlock()
+	h.app.admissionLock().Unlock()
 	if prepareErr != nil {
 		log.Printf("record restart continuations: %v", prepareErr)
 	}
 	h.app.stopAll()
 	h.requests.Wait()
+	if h.app.profiles != nil && !h.app.namedProfile {
+		h.app.profiles.close()
+	}
 	h.app.background.Wait()
 	if err := mcphost.Recover(h.app.dir); err != nil {
 		return err

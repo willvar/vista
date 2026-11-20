@@ -52,6 +52,8 @@ type worker struct {
 	overBudget      bool
 }
 type App struct {
+	profiles               *profiles
+	namedProfile           bool
 	mcpHost                *mcphost.Process
 	memoryMu               sync.Mutex
 	workerLimitsMu         sync.Mutex
@@ -186,6 +188,12 @@ func Run(portOverride int, startRestart func(port int) (wait func() error, err e
 		if err != nil {
 			return nil, err
 		}
+		app.profiles, err = openProfiles(app)
+		if err != nil {
+			app.closeContext()
+			_ = app.store.Close()
+			return nil, err
+		}
 		app.listenerPort = func() int { return listener.Addr().(*net.TCPAddr).Port }
 		app.listenerHost = listener.Addr().(*net.TCPAddr).IP.String()
 		if err := app.start(); err != nil {
@@ -258,7 +266,7 @@ func Run(portOverride int, startRestart func(port int) (wait func() error, err e
 
 // loadApp opens one generation of user data. The HTTP listener and instance lock
 // outlive it so a full reset can replace all configuration and state in place.
-func loadApp(parent context.Context, cancel context.CancelFunc, configDir, dir string, build buildinfo.Metadata) (_ *App, err error) {
+func loadApp(parent context.Context, cancel context.CancelFunc, configDir, dir string, build buildinfo.Metadata, scoped ...*profiles) (_ *App, err error) {
 	parent = network.WithConfigDir(parent, configDir)
 	st, err := store.Open(filepath.Join(dir, "vista.db"))
 	if err != nil {
@@ -310,8 +318,10 @@ func loadApp(parent context.Context, cancel context.CancelFunc, configDir, dir s
 			closeContext()
 		}
 	}()
-	if err := provider.LoadOMPCatalog(configDir); err != nil {
-		log.Printf("local OMP catalog unavailable; using bundled metadata: %v", err)
+	if len(scoped) == 0 {
+		if err := provider.LoadOMPCatalog(configDir); err != nil {
+			log.Printf("local OMP catalog unavailable; using bundled metadata: %v", err)
+		}
 	}
 	models, err := modelcatalog.Load(configDir)
 	if err != nil {
@@ -321,7 +331,7 @@ func loadApp(parent context.Context, cancel context.CancelFunc, configDir, dir s
 	if err != nil {
 		return nil, err
 	}
-	searchConfigs, err := searchProviders()
+	searchConfigs, err := searchProviders(len(scoped) > 0)
 	if err != nil {
 		return nil, err
 	}
@@ -334,6 +344,10 @@ func loadApp(parent context.Context, cancel context.CancelFunc, configDir, dir s
 		return nil, err
 	}
 	app := &App{memoryConfig: memorySettings, workers: map[string]*worker{}, workerFailures: map[string]workerFailureWindow{}, store: st, dir: dir, configDir: configDir, started: time.Now(), buildInfo: build, hostOS: platform.HostOS(), ctx: ctx, cancel: cancel, closeContext: closeContext, models: models, baseModels: models, localModels: map[string][]modelcatalog.InventoryModel{}, customInventories: map[string][]modelcatalog.InventoryModel{}, mcpServers: mcpServers, searchProviders: searchConfigs, searchConfig: searchSettings}
+	if len(scoped) > 0 {
+		app.profiles = scoped[0]
+		app.namedProfile = true
+	}
 	app.initCatalogUpdates()
 	return app, nil
 }
@@ -351,7 +365,9 @@ func (a *App) start() error {
 	a.wakeResourceMigration()
 	a.background.Go(a.watchManagedFiles)
 	a.startMCPHost()
-	a.background.Go(func() { a.pollModelCatalog(a.ctx) })
+	if !a.namedProfile {
+		a.background.Go(func() { a.pollModelCatalog(a.ctx) })
+	}
 	a.refreshLocalModels(a.ctx)
 	a.background.Go(func() { a.pollLocalModels(a.ctx) })
 	a.background.Go(func() { a.refreshCustomModels(a.ctx) })
@@ -491,7 +507,7 @@ func (a *App) statusSnapshot(ctx context.Context, host string) (map[string]any, 
 	}
 	a.mu.Lock()
 	count := len(a.workers)
-	residentBytes := a.residentMemoryLocked()
+	residentBytes := platform.RSS() + a.residentMemoryLocked()
 	workerMetrics := make([]map[string]any, 0, count)
 	for id, worker := range a.workers {
 		workerMetrics = append(workerMetrics, map[string]any{"sessionId": id, "pid": worker.cmd.Process.Pid, "memory": worker.metrics})

@@ -15,8 +15,8 @@ import (
 func (a *App) launchRuntimeContinuation(sessionID string) {
 	unlock := a.lockSessionMutation(sessionID)
 	defer unlock()
-	a.admissionMu.Lock()
-	defer a.admissionMu.Unlock()
+	a.admissionLock().Lock()
+	defer a.admissionLock().Unlock()
 	a.mu.Lock()
 	ready := workerCanReceive(a.workers[sessionID])
 	a.mu.Unlock()
@@ -46,7 +46,7 @@ func (a *App) launchRuntimeContinuation(sessionID string) {
 	if err != nil {
 		return
 	}
-	if err := a.admitRun(available, counts.Running); err != nil {
+	if err := a.admitProfileRun(a.ctx, available, counts.Running); err != nil {
 		return
 	}
 	model, _, err := a.resolveSelection(a.ctx, sessionID, selectionInput{ModelKey: selection.ManualModelKey, ReasoningEffort: selection.ManualReasoningEffort})
