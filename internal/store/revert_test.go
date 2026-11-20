@@ -175,14 +175,48 @@ func TestRevertRemovesFutureContextAndPreservesSequence(t *testing.T) {
 func TestRevertInterjectionKeepsEarlierReplyAndOutput(t *testing.T) {
 	s := revertStore(t)
 	ctx := context.Background()
+	artifact := func(id, status string) {
+		t.Helper()
+		e, err := s.RecordArtifact(ctx, Artifact{ID: id, SessionID: "s", RunID: "run", OutputPath: id + ".log", Status: status})
+		if err != nil || e == nil {
+			t.Fatal("artifact event", id, status, e, err)
+		}
+	}
+	job := func(id, status string) {
+		t.Helper()
+		e, err := s.RecordJob(ctx, Job{ID: id, SessionID: "s", RunID: "run", OutputPath: id + ".log", Status: status})
+		if err != nil || e == nil {
+			t.Fatal("job event", id, status, e, err)
+		}
+	}
+	task := func(status string) {
+		t.Helper()
+		e, err := s.RecordAgentTask(ctx, "s", workerproto.Result{RunID: "run", Kind: "agent_task", TaskID: "tail-task", ParentTaskID: "main",
+			Task: &workerproto.AgentTask{ID: "tail-task", ParentID: "main", Join: "required", Status: status}})
+		if err != nil || e == nil {
+			t.Fatal("agent task event", status, e, err)
+		}
+	}
 	s.BeginRun(ctx, "s", "run", "original", "first")
 	s.AppendModelDelta(ctx, "s", "run", 1, 0, "first answer")
 	s.RecordModelHistory(ctx, "s", workerproto.Result{RunID: "run", Turn: 1, Status: "assistant", History: &workerproto.ModelHistory{Path: "first.gob"}})
+	artifact("earlier-artifact", "started")
+	job("earlier-job", "starting")
 	s.QueueInput(ctx, "s", "input", "second")
 	target, err := s.DeliverInput(ctx, "s", "run", "input", "interjection", CompletedReply{ID: "first-reply", Content: "first answer", Output: ModelOutputRef{Turn: 1, Bytes: 12}})
 	if err != nil || target == nil {
 		t.Fatal(err)
 	}
+	// An update in the discarded tail is not a new output. The run stays
+	// retained, so its cascade will not hide an incorrect membership check.
+	artifact("earlier-artifact", "succeeded")
+	job("earlier-job", "succeeded")
+	artifact("tail-artifact", "started")
+	artifact("tail-artifact", "succeeded")
+	job("tail-job", "starting")
+	job("tail-job", "succeeded")
+	task("started")
+	task("succeeded")
 	s.AppendModelDelta(ctx, "s", "run", 2, 0, "second answer")
 	s.RecordModelHistory(ctx, "s", workerproto.Result{RunID: "run", Turn: 2, Status: "assistant", History: &workerproto.ModelHistory{Path: "second.gob"}})
 	s.FinishRun(ctx, "s", "run", "second-reply", "succeeded", "second answer", ModelOutputRef{Turn: 2, Bytes: 13})
@@ -203,6 +237,18 @@ func TestRevertInterjectionKeepsEarlierReplyAndOutput(t *testing.T) {
 	entries, err := s.ContextEntries(ctx, "s", nil, 0)
 	if err != nil || len(entries) != 2 || entries[1].History.History.Path != "first.gob" {
 		t.Fatal("wrong retained tool/model history", entries, err)
+	}
+	artifacts, err := s.Artifacts(ctx, "s")
+	if err != nil || len(artifacts) != 1 || artifacts[0].ID != "earlier-artifact" {
+		t.Fatal("wrong retained artifacts", artifacts, err)
+	}
+	jobs, err := s.Jobs(ctx, "s")
+	if err != nil || len(jobs) != 1 || jobs[0].ID != "earlier-job" {
+		t.Fatal("wrong retained jobs", jobs, err)
+	}
+	var tasks int
+	if err := s.orm.WithContext(ctx).Raw(`SELECT count(*) FROM agent_tasks WHERE session_id=? AND run_id=? AND task_id=?`, "s", "run", "tail-task").Row().Scan(&tasks); err != nil || tasks != 0 {
+		t.Fatal("tail-only task survived in retained run", tasks, err)
 	}
 }
 func TestRevertRequiresStoppedWorkAndUserMessage(t *testing.T) {

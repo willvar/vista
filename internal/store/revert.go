@@ -74,16 +74,33 @@ func (s *Store) Revert(ctx context.Context, sessionID, messageID string, sequenc
 	if err != nil {
 		return Event{}, err
 	}
+	if _, err := execSQL(ctx, tx, `DELETE FROM model_output_chunks WHERE session_id=? AND event_sequence>=?`, sessionID, sequence); err != nil {
+		return Event{}, err
+	}
+	// Group the session's history once per output kind. Filter on the first
+	// occurrence, not on the sequence of an individual update to an older output.
 	for _, q := range []string{
-		`DELETE FROM model_output_chunks WHERE session_id=? AND event_sequence>=?`,
-		`DELETE FROM jobs WHERE session_id=? AND id IN (SELECT json_extract(data,'$.id') FROM events WHERE session_id=jobs.session_id AND kind='job' GROUP BY json_extract(data,'$.id') HAVING MIN(sequence)>=?)`,
-		`DELETE FROM artifacts WHERE session_id=? AND id IN (SELECT json_extract(data,'$.id') FROM events WHERE session_id=artifacts.session_id AND kind='artifact' GROUP BY json_extract(data,'$.id') HAVING MIN(sequence)>=?)`,
-		`DELETE FROM agent_tasks WHERE session_id=? AND NOT EXISTS(SELECT 1 FROM events e WHERE e.session_id=agent_tasks.session_id AND e.kind='agent_task' AND json_extract(e.data,'$.runId')=agent_tasks.run_id AND json_extract(e.data,'$.task.id')=agent_tasks.task_id AND e.sequence<?)`,
-		`DELETE FROM messages WHERE session_id=? AND sequence>=?`,
+		`DELETE FROM jobs WHERE session_id=? AND id IN (SELECT json_extract(data,'$.id') FROM events WHERE session_id=? AND kind='job' GROUP BY json_extract(data,'$.id') HAVING MIN(sequence)>=?)`,
+		`DELETE FROM artifacts WHERE session_id=? AND id IN (SELECT json_extract(data,'$.id') FROM events WHERE session_id=? AND kind='artifact' GROUP BY json_extract(data,'$.id') HAVING MIN(sequence)>=?)`,
 	} {
-		if _, err := execSQL(ctx, tx, q, sessionID, sequence); err != nil {
+		if _, err := execSQL(ctx, tx, q, sessionID, sessionID, sequence); err != nil {
 			return Event{}, err
 		}
+	}
+	const retainedTasks = `SELECT CAST(json_extract(data,'$.runId') AS TEXT) AS run_id,
+ CAST(json_extract(data,'$.task.id') AS TEXT) AS task_id, MAX(sequence) AS sequence
+ FROM events WHERE session_id=? AND kind='agent_task' AND sequence<?
+ GROUP BY run_id, task_id`
+	// A missing key in an event cannot match a task and must not make the
+	// NOT IN predicate unknown for unrelated tasks.
+	if _, err := execSQL(ctx, tx, `WITH retained AS (`+retainedTasks+`)
+ DELETE FROM agent_tasks WHERE session_id=? AND (run_id,task_id) NOT IN (
+ SELECT run_id,task_id FROM retained WHERE run_id IS NOT NULL AND task_id IS NOT NULL
+ )`, sessionID, sequence, sessionID); err != nil {
+		return Event{}, err
+	}
+	if _, err := execSQL(ctx, tx, `DELETE FROM messages WHERE session_id=? AND sequence>=?`, sessionID, sequence); err != nil {
+		return Event{}, err
 	}
 	// Pending inputs are tied to the discarded future; do not resume them after
 	// a rewind, including inputs attached to a partially retained execution.
@@ -117,7 +134,11 @@ func (s *Store) Revert(ctx context.Context, sessionID, messageID string, sequenc
 	}
 	// Earlier tasks may have completed during the discarded tail. Rebuild their
 	// report projection from the retained event instead of keeping future data.
-	if _, err := execSQL(ctx, tx, `UPDATE agent_tasks SET data=(SELECT data FROM events e WHERE e.session_id=agent_tasks.session_id AND e.kind='agent_task' AND json_extract(e.data,'$.runId')=agent_tasks.run_id AND json_extract(e.data,'$.task.id')=agent_tasks.task_id ORDER BY e.sequence DESC LIMIT 1) WHERE session_id=?`, sessionID); err != nil {
+	if _, err := execSQL(ctx, tx, `WITH retained AS (`+retainedTasks+`)
+ UPDATE agent_tasks AS task SET data=e.data
+ FROM retained JOIN events AS e ON e.session_id=? AND e.sequence=retained.sequence
+ WHERE task.session_id=? AND task.run_id=retained.run_id AND task.task_id=retained.task_id`,
+		sessionID, sequence, sessionID, sessionID); err != nil {
 		return Event{}, err
 	}
 	rows, err := tx.WithContext(ctx).Raw(`SELECT CAST(data AS BLOB) FROM agent_tasks WHERE session_id=? AND json_extract(data,'$.task.status')='started'`, sessionID).Rows()
