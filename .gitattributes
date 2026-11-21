@@ -1,0 +1,2 @@
+# These patches apply to LF source in Go module archives, not Git checkouts.
+/desktop/wails-*-windows.patch text eol=lf
