@@ -21,7 +21,8 @@ export function useConversationScroll(options: {
   const atEnd = ref(true)
   const presented = ref(false)
   const jumpPhase = ref<'preparing' | 'scrolling' | null>(null)
-  const location = shallowRef<{ controller: AbortController; followedEnd: boolean; key?: string; lost?: () => void }>()
+  const location = shallowRef<{ controller: AbortController; followedEnd: boolean; keepEndWhileReading: boolean; key?: string; lost?: () => void }>()
+  const readingFromEnd = computed(() => !!location.value?.keepEndWhileReading && !location.value.key)
   type Anchor = { key: string; within: number }
   const preparation = shallowRef<{ id: number; from: Anchor; target: Anchor; start: number; end: number; follow: boolean; locate?: boolean; corrections?: number } | null>(null)
   const loading = computed(() => !presented.value || !!location.value || !!preparation.value)
@@ -228,6 +229,10 @@ export function useConversationScroll(options: {
     const pending = preparation.value
     if (!pending && location.value) {
       if (target) prepareDestination(offsetFor({ key: target, within: 0 }), target)
+      else if (readingFromEnd.value && atEnd.value) {
+        const offset = element.value?.scrollTop || 0, range = rangeAt(offset)
+        if (ready(range.start, range.end)) lastReady = anchorAt(offset)
+      }
       return
     }
     if (pending) {
@@ -284,7 +289,7 @@ export function useConversationScroll(options: {
     }
   }
   function syncEnd() {
-    if (following.value && !loading.value && !paused.value && jumpPhase.value !== 'preparing') {
+    if (!paused.value && jumpPhase.value !== 'preparing' && (following.value && !loading.value || presented.value && readingFromEnd.value)) {
       virtualizer.value.scrollToEnd({ behavior: smoothCommand ? 'smooth' : 'auto' })
     }
   }
@@ -294,7 +299,7 @@ export function useConversationScroll(options: {
     const viewport = element.value
     // A cold body can grow in place, without an append. Only preserve an end
     // the reader actually occupied before its measured size changed.
-    if (viewport && !jumpPhase.value && previous - viewport.clientHeight - viewport.scrollTop <= 3) syncEnd()
+    if (viewport && !jumpPhase.value && (readingFromEnd.value || previous - viewport.clientHeight - viewport.scrollTop <= 3)) syncEnd()
   }, { flush: 'post' })
   // The Vue adapter updates options before the DOM commits. Finish TanStack's
   // layout lifecycle afterwards as well, so a bottom correction clamped by
@@ -379,8 +384,13 @@ export function useConversationScroll(options: {
     smoothCommand = false
     virtualizer.value.cancelScroll()
   }
-  function beginLocation() {
+  function beginLocation(opening: boolean) {
     const followedEnd = location.value?.followedEnd ?? following.value
+    updatePosition()
+    // Keep the opening/latest reply readable while the source index is held.
+    // Presentation may precede the opening layout's actual arrival at the end.
+    // Stop keeping the end as soon as there is a real destination to prepare.
+    const keepEndWhileReading = readingFromEnd.value || followedEnd && (opening || !presented.value || atEnd.value)
     inspect()
     preparation.value = null
     applying = false
@@ -388,7 +398,8 @@ export function useConversationScroll(options: {
     clearTimeout(idleTimer)
     input = false; motion.value = false
     const controller = new AbortController()
-    location.value = { controller, followedEnd }
+    location.value = { controller, followedEnd, keepEndWhileReading }
+    if (keepEndWhileReading) syncEnd()
     return controller.signal
   }
   function restoreLocation(signal: AbortSignal) {

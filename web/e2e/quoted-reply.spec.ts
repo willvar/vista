@@ -42,7 +42,9 @@ for (const scenario of ['covered missing', 'older missing', 'opening valid', 'op
     })
     const other = scenario === 'opening switch' ? await vista.api('/sessions', { method: 'POST', body: JSON.stringify({ title: 'Other conversation' }) }) : null
     let releaseIndex = () => {}
+    let releaseOverview = () => {}
     let indexStarted = false
+    let overviewStarted = false
     if (opening) {
       const held = new Promise<void>(resolve => { releaseIndex = resolve })
       await page.route(`**/api${path}*`, async route => {
@@ -50,6 +52,14 @@ for (const scenario of ['covered missing', 'older missing', 'opening valid', 'op
         await held
         if (scenario === 'opening read error') await route.fulfill({ status: 503, body: 'Fixture index unavailable' })
         else await route.continue()
+      })
+    }
+    if (scenario === 'opening valid') {
+      const held = new Promise<void>(resolve => { releaseOverview = resolve })
+      await page.route(`**/api${base}/runs/${runId}/overview*`, async route => {
+        overviewStarted = true
+        await held
+        await route.continue()
       })
     }
     if (opening) await page.addInitScript(() => {
@@ -72,7 +82,19 @@ for (const scenario of ['covered missing', 'older missing', 'opening valid', 'op
       try {
         await expect(page.locator('body')).toHaveAttribute('data-quote-opening', 'true')
         await expect.poll(() => indexStarted).toBe(true)
-        await expect(page.locator('article.assistant:not(.main-output)')).toContainText('Final progress answer.')
+        const reply = page.locator('article.assistant:not(.main-output)')
+        await expect(reply).toContainText('Final progress answer.')
+        if (scenario === 'opening valid') {
+          // The answer must stay at the end when delayed trace rows grow the
+          // timeline above it, even though the source index is still blocked.
+          await expect.poll(() => overviewStarted).toBe(true)
+          const space = list.locator('.message-space')
+          const initialRows = Number(await space.getAttribute('data-row-count'))
+          releaseOverview()
+          await expect.poll(async () => Number(await space.getAttribute('data-row-count'))).toBeGreaterThan(initialRows)
+          await expect.poll(() => list.evaluate(el => el.scrollHeight - el.clientHeight - el.scrollTop)).toBeLessThanOrEqual(3)
+          await expect(reply).toBeInViewport()
+        }
         await expect(page.locator('.quote-source-target')).not.toBeInViewport()
         if (other) {
           const drawer = page.locator('.mobile-sessions-trigger')
@@ -81,7 +103,7 @@ for (const scenario of ['covered missing', 'older missing', 'opening valid', 'op
           await expect(page).toHaveURL(`${vista.origin}/sessions/${other.id}`)
           await expect(list).toHaveAttribute('aria-busy', 'false')
         }
-      } finally { releaseIndex() }
+      } finally { releaseOverview(); releaseIndex() }
       if (other) {
         await expect(page.locator('.quote-source-target')).toHaveCount(0)
         await expect(page.locator('.history-loading')).toHaveCount(0)

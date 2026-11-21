@@ -226,8 +226,9 @@ function locateRecentSent(message: ConversationItem) {
 }
 async function locateSource(source: QuoteSource, unavailable: string) {
   if (!selected.value) return
+  const opening = openingIndexes.value
   retainHistoryWindow()
-  const signal = scrolling.beginLocation()
+  const signal = scrolling.beginLocation(opening)
   quoteSourceKey.value = ''
   let revealed = false
   try {
