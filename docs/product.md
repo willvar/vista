@@ -158,7 +158,7 @@ When **Save changes** includes a port change, a separate **Save and restart** co
 Before saving, an independent successor binds the target port on the configured IPv4 listening address and keeps that socket through startup. If reservation fails, the current instance and saved configuration remain unchanged, and the form preserves the draft and displays the error.
 A revision conflict aborts the reservation instead of overwriting another edit. Unchanged listening ports can be saved without a restart.
 After acceptance, the old tab stays open with the new address and an explicit **Open Vista in a new tab** link. Direct HTTP access keeps the browser's hostname and changes its port; HTTPS proxy access retains the public origin, and proxy upstream changes remain deployment work. Reset navigation follows the same browser-origin rule. Acceptance is not readiness; a bounded, credential-free readiness image check confirms that the entry serves HTTP. Lost responses and timeouts remain unconfirmed and never automatically repeat a lifecycle mutation.
-Port changes retain server-side data. Origin-local browser preferences and drafts remain at the old origin; Vista does not copy browser identity or login state across origins.
+Port changes retain server-side data, including saved composer drafts. Browser preferences and unacknowledged edits remain at the previous origin; Vista does not copy browser identity or login state across origins.
 Ordinary startup priority remains CLI `--port` > `VISTA_PORT` > saved port > default. The separate **Restart Vista** action keeps the actual listening port rather than applying a pending saved port.
 
 Restart Vista is a regular secondary button and always opens a confirmation dialog.

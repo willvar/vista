@@ -109,6 +109,7 @@ func TestNewInputWakesIdleParentWithoutCancelingTwoChildren(t *testing.T) {
 	var releaseOnce sync.Once
 	defer releaseOnce.Do(func() { close(release) })
 	idle, acknowledged := make(chan struct{}), make(chan struct{})
+	bothChildrenStarted := make(chan struct{})
 	var idleOnce, ackOnce sync.Once
 	var children, canceled, parents atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -119,7 +120,9 @@ func TestNewInputWakesIdleParentWithoutCancelingTwoChildren(t *testing.T) {
 		}
 		prompt := request.Messages[1].Content
 		if strings.HasPrefix(prompt, "child ") {
-			children.Add(1)
+			if children.Add(1) == 2 {
+				close(bothChildrenStarted)
+			}
 			select {
 			case <-release:
 				continuationAnswer(w, prompt+" report")
@@ -154,7 +157,7 @@ func TestNewInputWakesIdleParentWithoutCancelingTwoChildren(t *testing.T) {
 			continuationAnswer(w, "Waiting for reports")
 		}
 	}))
-	defer server.Close()
+	t.Cleanup(server.Close)
 	inputs := make(chan workerproto.Command, 1)
 	done := make(chan error, 1)
 	go func() {
@@ -173,6 +176,12 @@ func TestNewInputWakesIdleParentWithoutCancelingTwoChildren(t *testing.T) {
 	case <-idle:
 	case <-ctx.Done():
 		t.Fatal("parent never became idle")
+	}
+	// The parent can become idle before both child requests reach the server.
+	select {
+	case <-bothChildrenStarted:
+	case <-ctx.Done():
+		t.Fatalf("children before new input: started=%d", children.Load())
 	}
 	inputs <- workerproto.Command{RunID: "continuation-run", InputID: "input", Prompt: "change focus"}
 	select {

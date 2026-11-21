@@ -16,6 +16,12 @@ Startup and restart controllers are explicitly detached so they outlive the Serv
 
 Closing a Vista conversation stops its Worker. Switching pages or closing the browser does not.
 
+## Upgrading and restoring an older version
+
+Before upgrading, stop the service and make a private, consistent backup of the entire Vista configuration directory, including its database, configuration, credentials, resources, and all Profile directories. Include any attachment storage configured outside that directory in the backup procedure.
+An existing installation becomes the default Profile without moving its session database or changing its session links. New branches and server-side drafts are stored in the corresponding Profile.
+Do not use an older binary to open data already changed by a newer version: for example, Vista v0.2.4 cannot read the `profiles` setting written when a Profile is created or renamed. To return to an older build, stop the newer service and use a separate restoration of the pre-upgrade backup; do not overwrite or merge the two data directories in place. Changes made after the backup are not part of the restored data.
+
 ## Port-change restart
 
 `PUT /api/server-config` with a port different from the live socket requires `confirmRestart: true` after a dedicated WebUI confirmation.
@@ -24,7 +30,7 @@ On reservation failure, no configuration is saved and the old process keeps runn
 The successor holds the socket while waiting up to 45 seconds for the old instance lock, then performs normal startup on that same listener. It never releases and rebinds the target port. This avoids an ownership gap and uses the same mechanism on Linux, macOS and Windows.
 The accepted response supplies the new address and old process identity before the old process shuts down. Startup after acceptance can still fail; a late failure is not represented as success or automatically reverted over newer configuration.
 The old tab keeps an explicit new-tab link. Direct HTTP access retains the browser's hostname and switches to the new port; HTTPS reverse-proxy access retains its public origin, with any required upstream proxy adjustment left to the deployment. The browser never navigates to the Server's loopback control address or a wildcard bind address. A bounded cross-origin image check of `GET /api/port-ready.svg` exposes no application state and marks HTTP availability at the entry; it is not routine application polling or a claim about upstream model readiness. An unconfirmed outcome only permits checking the address again, not automatically repeating a save/restart.
-Server-side data is preserved. Browser origin-local preferences and drafts stay on the old origin, and identity/login snapshots are not transferred. The regular same-port Restart action below is unchanged.
+Server-side data, including saved composer drafts, is preserved. Browser preferences and unacknowledged edits stay at the previous origin; identity and login state are not transferred. The regular same-port Restart action below is unchanged.
 
 ## Server process restart
 

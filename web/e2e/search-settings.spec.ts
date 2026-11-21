@@ -200,11 +200,20 @@ for (const setting of [
     expect(fixture[setting.key]).toBe(0)
     await page.reload()
     await expect(input).toHaveValue('0')
+    // The number input restores its caret in an animation frame. Let the
+    // preceding edit settle before Playwright selects text for replacement.
+    const settleCaret = () => input.evaluate(() => new Promise<void>(resolve =>
+      requestAnimationFrame(() => requestAnimationFrame(() => resolve()))))
     await input.fill('')
+    await expect(input).toHaveValue('')
     await expect(save).toBeDisabled()
+    await settleCaret()
     await input.fill('1.5')
+    await expect(input).toHaveValue('1.5')
     await expect(save).toBeDisabled()
+    await settleCaret()
     await input.fill('1536')
+    await expect(input).toHaveValue('1536')
     await save.click()
     await expect(save).toBeDisabled()
     expect(fixture[setting.key]).toBe(1536)

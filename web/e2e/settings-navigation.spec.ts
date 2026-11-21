@@ -10,7 +10,7 @@ const sections = [
 test.beforeEach(async ({ vista }) => {
 })
 
-test('settings entry and category returns preserve the conversation and draft', { tag: '@smoke' }, async ({ page, vista }, testInfo) => {
+test('settings entry and category returns preserve the conversation and draft', { tag: '@smoke' }, async ({ page, vista }) => {
   const session = await vista.api('/sessions', { method: 'POST', body: '{}' })
   await page.goto(`${vista.origin}/sessions/${session.id}`)
   const draft = page.locator('.sender-card textarea')
@@ -26,7 +26,6 @@ test('settings entry and category returns preserve the conversation and draft', 
   if (mobile) {
     await expect(settings.locator('.ui-modal-title')).toHaveText('Settings')
     await expect(settings.locator('.settings-content')).toHaveCount(0)
-    await page.screenshot({ path: testInfo.outputPath('settings-directory.png'), animations: 'disabled' })
   }
   for (const [path, label] of sections) {
     const link = nav.getByRole('link', { name: label, exact: true })
@@ -58,7 +57,7 @@ test('settings entry and category returns preserve the conversation and draft', 
     }
   }
   await page.emulateMedia({ colorScheme: 'dark' })
-  await page.screenshot({ path: testInfo.outputPath('settings-navigation-dark.png'), animations: 'disabled' })
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark')
   await closeSettings(page)
   await expect(page).toHaveURL(`${vista.origin}/sessions/${session.id}`)
   await expect(draft).toHaveValue('Keep this draft while I browse settings')

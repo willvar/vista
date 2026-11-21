@@ -190,7 +190,21 @@ func TestNativeWindowsTray(t *testing.T) {
 	if user("FindWindowW", uintptr(unsafe.Pointer(taskbar)), 0) == 0 {
 		t.Skip("requires Explorer in the interactive Windows session")
 	}
-	root := t.TempDir()
+	root, err := os.MkdirTemp("", "vista-tray-test-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		// The WebView2 subprocesses can finish writing their private profile
+		// after the desktop exits. Keep the cleanup bounded and require success.
+		var err error
+		for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); time.Sleep(50 * time.Millisecond) {
+			if err = os.RemoveAll(root); err == nil {
+				return
+			}
+		}
+		t.Errorf("remove private desktop profile: %v", err)
+	})
 	t.Setenv("APPDATA", root)
 	t.Setenv("VISTA_HOST", "127.0.0.1")
 	t.Setenv("VISTA_NO_BROWSER", "1")

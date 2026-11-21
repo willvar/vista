@@ -21,7 +21,7 @@ Keep the server executable beside the desktop executable. The window invokes `vi
 ./bin/vista-desktop --server http://127.0.0.1:5186
 ```
 
-The window loads the selected service directly. External HTTP(S) links opened by the user go to the system browser. Browser-local preferences and drafts belong to each browser or WebView profile; conversations and service settings belong to the selected server. See [verification](./testing.md) for testing the shared WebUI.
+The window loads the selected service directly. External HTTP(S) links opened by the user go to the system browser. Conversations, service settings, and saved composer drafts belong to the selected Vista service and Profile. Browser and WebView preferences remain separate; unacknowledged edits stay in the tab until saved. See [verification](./testing.md) for testing the shared WebUI.
 
 About Vista lists the desktop client and its rendering engine under Runtime environment. Host OS describes the connected service, not the machine rendering the page. If this desktop window has a registered tray that can restart the connected local service, About leaves that action in the tray. A browser or a window without that control retains the Restart action.
 

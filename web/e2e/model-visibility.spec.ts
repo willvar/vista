@@ -2,6 +2,7 @@ import { createServer } from 'node:http'
 import { test, expect, type VistaFixture } from './fixtures'
 import { closeSettings } from './settings-navigation'
 import { deferClickFrames } from './deferred-frames'
+import { settleLayout } from './layout-ready'
 
 async function inventory(vista: VistaFixture, rows: object[], name = 'Metadata test') {
   const upstream = createServer((_request, response) => {
@@ -36,12 +37,17 @@ test('model choices keep connection headings before their models while searching
     const popup = page.locator('.ui-select-dropdown:visible')
     await picker.click()
     await expect(popup.locator('.ui-select-group-label')).toHaveText(['Connection A', 'Connection B', 'Layout test'])
+    await settleLayout(page)
     for (const name of ['Connection A', 'Connection B']) {
       const group = popup.getByRole('group', { name, exact: true })
       await expect(group.getByRole('option')).toHaveText(['Alpha model', 'Shared model'])
-      const heading = await group.locator('.ui-select-group-label').boundingBox()
-      const first = await group.getByRole('option').first().boundingBox()
-      expect(heading!.y + heading!.height).toBeLessThanOrEqual(first!.y + 1)
+      // Sample both edges together; popup repositioning between measurements
+      // is not spacing between the heading and its first option.
+      const { headingBottom, firstTop } = await group.evaluate(element => ({
+        headingBottom: element.querySelector('.ui-select-group-label')!.getBoundingClientRect().bottom,
+        firstTop: element.querySelector('[role="option"]')!.getBoundingClientRect().top,
+      }))
+      expect(headingBottom).toBeLessThanOrEqual(firstTop + 1)
     }
     await page.screenshot({ path: testInfo.outputPath('model-groups.png'), animations: 'disabled' })
     await picker.fill('Connection B')

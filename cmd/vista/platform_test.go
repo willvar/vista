@@ -59,6 +59,7 @@ func TestNativeApplication(t *testing.T) {
 	completionStarted, resumeCompletion := make(chan struct{}), make(chan struct{})
 	resume := sync.OnceFunc(func() { close(resumeCompletion) })
 	var holdCompletion sync.Once
+	cancelWaiting := make(chan struct{}, 1)
 	restartWaiting := make(chan string, 4)
 	var heldRestarts sync.Map
 	var restartEvidence atomic.Int32
@@ -86,8 +87,11 @@ func TestNativeApplication(t *testing.T) {
 		}
 		var request struct {
 			Model    string
-			Messages []struct{ Role, Content string }
-			Tools    []json.RawMessage
+			Messages []struct {
+				Role, Content string
+				ToolCallID    string `json:"tool_call_id"`
+			}
+			Tools []json.RawMessage
 		}
 		if r.URL.Path != "/v1/chat/completions" || json.NewDecoder(r.Body).Decode(&request) != nil || len(request.Messages) == 0 {
 			http.Error(w, "unexpected model request", 400)
@@ -125,11 +129,37 @@ func TestNativeApplication(t *testing.T) {
 			if strings.HasPrefix(message.Content, "Vista service restart.") {
 				restarted = true
 			}
-			if message.Role == "tool" && strings.Contains(message.Content, "Vista 中文") {
+			// Windows shell startup can yield the initial tool reply. Match the
+			// actual terminal output to the expected call in either delivery path.
+			output := ""
+			callID := "call_" + original
+			if message.Role == "tool" && message.ToolCallID == callID {
+				output = message.Content
+			} else if message.Role == "user" && strings.HasPrefix(message.Content, "Runtime completion event.") {
+				_, payload, ok := strings.Cut(message.Content, "\n")
+				var event workerproto.RuntimeEvent
+				if ok && json.Unmarshal([]byte(payload), &event) == nil && event.Kind == "tool" && event.SourceID == callID {
+					output = event.Content
+				}
+			}
+			if strings.Contains(output, "Vista 中文") && strings.Contains(output, `"exitCode":7`) {
 				completed = true
 			}
 		}
-		if strings.HasPrefix(original, "resume-") && last.Role == "tool" && !restarted {
+		if original == "shell-check" && completed {
+			shellEvidence.Store(true)
+		}
+		if original == "cancel-check" && last.Role == "tool" {
+			// The shell has yielded. Hold the following model turn so the
+			// queued message cannot reach another decision before cancellation.
+			select {
+			case cancelWaiting <- struct{}{}:
+			default:
+			}
+			<-r.Context().Done()
+			return
+		}
+		if strings.HasPrefix(original, "resume-") && completed && !restarted {
 			if _, held := heldRestarts.LoadOrStore(original, true); !held {
 				restartWaiting <- original
 			}
@@ -178,14 +208,15 @@ func TestNativeApplication(t *testing.T) {
 				if message.Role == "system" && strings.Contains(message.Content, "Runtime OS: "+runtime.GOOS+"; shell: "+platform.ShellName()) {
 					runtimeEvidence.Store(true)
 				}
-				if message.Role == "tool" && strings.Contains(message.Content, "Vista 中文") && strings.Contains(message.Content, `"exitCode":7`) {
-					shellEvidence.Store(true)
-				}
 				if message.Role == "tool" && strings.Contains(message.Content, "unsupported tool") {
 					childToolEvidence.Store(true)
 				}
 			}
-			if last.Role == "user" && last.Content == longTask {
+			if last.Role == "tool" && !completed && (original == "shell-check" || strings.HasPrefix(original, "resume-")) {
+				// A running receipt is not a result or a reason to issue the same
+				// command again. Let the worker deliver the terminal event.
+				delta["content"] = ""
+			} else if last.Role == "user" && last.Content == longTask {
 				delegationEvidence.Store(true)
 				// An unsupported call must return a tool error, including when
 				// the child prefix extends a maximum-length provider tool name.
@@ -502,6 +533,11 @@ func TestNativeApplication(t *testing.T) {
 	}
 	runID := submit("cancel-check")
 	child := waitPID("cancel-check")
+	select {
+	case <-cancelWaiting:
+	case <-time.After(12 * time.Second):
+		t.Fatal("cancellation fixture did not reach the held model turn")
+	}
 	var oldQueue struct{ Input store.QueuedInput }
 	api("POST", sessionPath+"/messages", map[string]any{"content": "keep this old input paused"}, &oldQueue)
 	if oldQueue.Input.ID == "" {
@@ -510,6 +546,18 @@ func TestNativeApplication(t *testing.T) {
 	api("POST", sessionPath+"/cancel", nil, nil)
 	waitRun(runID, "interrupted")
 	waitGone(child)
+	assertOldInputPaused := func() {
+		t.Helper()
+		var snapshot store.ConversationSnapshot
+		api("GET", sessionPath+"/snapshot", nil, &snapshot)
+		for _, input := range snapshot.QueuedInputs {
+			if input.ID == oldQueue.Input.ID && input.Status == "paused" && snapshot.Session.InputQueuePaused {
+				return
+			}
+		}
+		t.Fatal("original pending input did not remain paused")
+	}
+	assertOldInputPaused()
 	var discoveredKey string
 	for deadline := time.Now().Add(6 * time.Second); time.Now().Before(deadline); time.Sleep(25 * time.Millisecond) {
 		if discoveredKey = findModelKey(discoveredModel); discoveredKey != "" {
@@ -591,9 +639,7 @@ func TestNativeApplication(t *testing.T) {
 		if restartEvidence.Load() != before+1 || snapshot.Session.Executing || len(snapshot.Messages) == 0 || snapshot.Messages[len(snapshot.Messages)-1].Content != "Restart continuation verified." {
 			t.Fatalf("task did not resume exactly once: evidence=%d snapshot=%+v", restartEvidence.Load()-before, snapshot)
 		}
-		if !snapshot.Session.InputQueuePaused {
-			t.Fatal("restart resumed the old input queue")
-		}
+		assertOldInputPaused()
 		inputs := 0
 		for _, message := range snapshot.Messages {
 			if message.Role == "user" && message.Content == prompt {

@@ -230,8 +230,12 @@ func webDNSFixture(t *testing.T, respond func(*dnsmessage.Message) bool) {
 		}
 	}()
 	previous := net.DefaultResolver
+	address := resolver.LocalAddr().String()
+	// A DNS exchange may finish after the canceled lookup returns. Its dialer
+	// must not read DefaultResolver while cleanup restores it.
+	dialer := net.Dialer{Resolver: new(net.Resolver)}
 	net.DefaultResolver = &net.Resolver{PreferGo: true, Dial: func(ctx context.Context, _, _ string) (net.Conn, error) {
-		return new(net.Dialer).DialContext(ctx, "udp", resolver.LocalAddr().String())
+		return dialer.DialContext(ctx, "udp", address)
 	}}
 	t.Cleanup(func() {
 		net.DefaultResolver = previous

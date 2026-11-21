@@ -265,7 +265,7 @@ function fullOutputText(label: string) {
   return text
 }
 
-type MockOptions = { imageContents?: Record<string, Buffer>; messages?: Message[]; jobs?: Job[]; outputContents?: Record<string, string>; outputFailures?: Record<string, number>; outputDelayMs?: number; historyDelayMs?: number; indexDelayMs?: number; holdDetails?: Promise<void> }
+type MockOptions = { imageContents?: Record<string, Buffer>; messages?: Message[]; jobs?: Job[]; outputContents?: Record<string, string>; outputFailures?: Record<string, number>; outputDelayMs?: number; outputGates?: Record<string, Promise<void>>; historyDelayMs?: number; indexDelayMs?: number; holdDetails?: Promise<void> }
 async function mockExecution(page: Page, origin: string, source = replayEvents(), options: MockOptions = {}) {
   const events = source
   replaySources.set(page, events)
@@ -279,7 +279,7 @@ async function mockExecution(page: Page, origin: string, source = replayEvents()
   const jobs: Job[] = options.jobs || []
   const outputContents = new Map(Object.entries(options.outputContents || {}))
   const outputFailures = new Map(Object.entries(options.outputFailures || {}))
-  const outputGates = new Map<string, Promise<void>>()
+  const outputGates = new Map(Object.entries(options.outputGates || {}))
   function holdOutput(path: string) {
     let release!: () => void
     outputGates.set(path, new Promise<void>(resolve => { release = resolve }))
@@ -1655,9 +1655,19 @@ test('historical full text is prepared before display and virtual recycling does
   const reply: Message = { id: 'prepared-reply', sequence: events.at(-1)!.sequence + 1, runId, role: 'assistant', content: 'Short preview.', outputTurn: 3, outputBytes: Buffer.byteLength(full), createdAt: '2026-01-01T12:04:00Z' }
   events.push({ sequence: reply.sequence, kind: 'run_finished', data: { runId, status: 'succeeded', message: reply } })
   const path = `/sessions/execution-session/runs/${runId}/model-output?turn=3`
-  const fixture = await mockExecution(page, mockOrigin, events, { messages: [events[0].data, reply], imageContents, outputContents: { [path]: full }, outputDelayMs: 500, historyDelayMs: 250, indexDelayMs: 350 })
-  await expect(page.locator('.message-row.assistant .message-output-loading')).toBeVisible()
-  await expect(page.locator('article.assistant')).not.toBeVisible()
+  let releaseOutput!: () => void
+  const gate = new Promise<void>(resolve => { releaseOutput = resolve })
+  // Hold the full body from before navigation until the loading state is observed.
+  const fixture = await (async () => {
+    try {
+      const result = await mockExecution(page, mockOrigin, events, { messages: [events[0].data, reply], imageContents, outputContents: { [path]: full }, outputGates: { [path]: gate }, historyDelayMs: 250, indexDelayMs: 350 })
+      await expect(page.locator('.message-row.assistant .message-output-loading')).toBeVisible()
+      await expect(page.locator('article.assistant')).not.toBeVisible()
+      return result
+    } finally {
+      releaseOutput()
+    }
+  })()
   await expect(page.locator('.messages')).toHaveAttribute('aria-busy', 'false')
   await expect(page.getByText('Prepared historical reply ending — 完整输出 ✅.', { exact: true })).toBeVisible()
   const recent = page.locator('.conversation-recent-message')

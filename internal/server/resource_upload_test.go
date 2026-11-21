@@ -85,7 +85,9 @@ func TestImageUploadUsesRealWorkerAndBoundedReferences(t *testing.T) {
 		t.Fatal("staged upload leaked", err)
 	}
 	// Capacity rejection happens before consuming or staging the request body.
+	app.memoryMu.Lock()
 	app.memoryConfig = memoryConfig{BudgetMiB: 256, WorkerMiB: 128, ConcurrentRuns: 1}
+	app.memoryMu.Unlock()
 	app.mu.Lock()
 	app.workers[session].metrics.RSSBytes = 256 << 20
 	app.mu.Unlock()
