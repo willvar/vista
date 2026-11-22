@@ -3,6 +3,7 @@ import type en from './en.ts'
 
 export default {
   "profiles": "プロファイル",
+  "manageProfiles": "プロファイルを管理",
   "defaultProfile": "既定のプロファイル",
   "profileNewTab": "新しいタブで開く",
   "profileArchived": "アーカイブ済み",
@@ -13,10 +14,10 @@ export default {
   "conversationBranches": "会話の分岐",
   "originalBranch": "元の会話",
   "branchNumber": "分岐 {number}",
-  "draftLoading": "下書きを読み込み中…",
-  "draftSaving": "下書きを保存中…",
-  "draftSaved": "下書きを保存しました",
-  "draftUnsaved": "下書きは未保存です",
+  "previousBranch": "前の分岐",
+  "nextBranch": "次の分岐",
+  "draftLoadFailed": "保存済みの下書きを読み込めませんでした。",
+  "draftUnsaved": "下書きを保存できませんでした。変更はこのタブに残っています。",
   "draftConflict": "別のタブが保存済みの下書きを変更しました。入力内容は保持されています。",
   "storageMethod": "Storage method",
   "storageLocal": "Local storage",

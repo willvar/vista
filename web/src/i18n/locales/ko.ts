@@ -3,6 +3,7 @@ import type en from './en.ts'
 
 export default {
   "profiles": "프로필",
+  "manageProfiles": "프로필 관리",
   "defaultProfile": "기본 프로필",
   "profileNewTab": "새 탭에서 열기",
   "profileArchived": "보관됨",
@@ -13,10 +14,10 @@ export default {
   "conversationBranches": "대화 분기",
   "originalBranch": "원본",
   "branchNumber": "분기 {number}",
-  "draftLoading": "초안을 불러오는 중…",
-  "draftSaving": "초안을 저장하는 중…",
-  "draftSaved": "초안 저장됨",
-  "draftUnsaved": "초안이 저장되지 않음",
+  "previousBranch": "이전 분기",
+  "nextBranch": "다음 분기",
+  "draftLoadFailed": "저장된 초안을 불러오지 못했습니다.",
+  "draftUnsaved": "초안을 저장하지 못했습니다. 변경 사항은 이 탭에 남아 있습니다.",
   "draftConflict": "다른 탭에서 저장된 초안을 변경했습니다. 입력한 내용은 유지됩니다.",
   "storageMethod": "Storage method",
   "storageLocal": "Local storage",

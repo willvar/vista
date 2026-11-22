@@ -3,6 +3,7 @@ import type en from './en.ts'
 
 export default {
   "profiles": "Profils",
+  "manageProfiles": "Gérer les profils",
   "defaultProfile": "Profil par défaut",
   "profileNewTab": "Ouvrir dans un nouvel onglet",
   "profileArchived": "Archivé",
@@ -13,10 +14,10 @@ export default {
   "conversationBranches": "Branches de la conversation",
   "originalBranch": "Originale",
   "branchNumber": "Branche {number}",
-  "draftLoading": "Chargement du brouillon…",
-  "draftSaving": "Enregistrement du brouillon…",
-  "draftSaved": "Brouillon enregistré",
-  "draftUnsaved": "Brouillon non enregistré",
+  "previousBranch": "Branche précédente",
+  "nextBranch": "Branche suivante",
+  "draftLoadFailed": "Impossible de charger le brouillon enregistré.",
+  "draftUnsaved": "Impossible d’enregistrer le brouillon. Vos modifications restent dans cet onglet.",
   "draftConflict": "Un autre onglet a modifié le brouillon enregistré. Vos modifications sont conservées.",
   "storageMethod": "Storage method",
   "storageLocal": "Local storage",

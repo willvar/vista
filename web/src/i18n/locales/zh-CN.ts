@@ -3,6 +3,7 @@ import type en from './en.ts'
 
 export default {
   "profiles": "档案",
+  "manageProfiles": "管理档案",
   "defaultProfile": "默认档案",
   "profileNewTab": "在新标签页打开",
   "profileArchived": "已归档",
@@ -13,10 +14,10 @@ export default {
   "conversationBranches": "会话分支",
   "originalBranch": "原分支",
   "branchNumber": "分支 {number}",
-  "draftLoading": "正在加载草稿…",
-  "draftSaving": "正在保存草稿…",
-  "draftSaved": "草稿已保存",
-  "draftUnsaved": "草稿未保存",
+  "previousBranch": "上一个分支",
+  "nextBranch": "下一个分支",
+  "draftLoadFailed": "无法加载已保存的草稿。",
+  "draftUnsaved": "草稿未能同步，改动仍保留在此标签页。",
   "draftConflict": "另一标签页修改了已保存的草稿，你的输入仍然保留。",
   "storageMethod": "存储方式",
   "storageLocal": "本地存储",

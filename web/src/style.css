@@ -563,7 +563,7 @@ a {
 .messages article.user .ui-bubble-footer {
   margin-top: .2rem;
 }
-.user .message-actions {
+.user .message-actions:not(.branch-navigation) {
   opacity: 0;
   transition: opacity .15s;
 }
@@ -1171,6 +1171,7 @@ body {
   border-left: 2px solid var(--border-strong);
   color: var(--text-secondary);
 }
+.draft-branch-navigation { display: flex; justify-content: flex-end; }
 .reply-footer {
   display: flex;
   flex-wrap: wrap;
@@ -1641,6 +1642,13 @@ body {
   text-align: left;
   color: var(--text-secondary);
 }
+.sidebar-profile-row {
+  display: grid;
+  grid-template-columns: minmax(0,1fr) auto;
+  align-items: stretch;
+  gap: .2rem;
+}
+.sidebar-profile-row .settings-trigger { width: auto; justify-content: flex-end; }
 .welcome-toolbar {
   position: absolute;
   inset: 0 0 auto;

@@ -17,25 +17,29 @@ function readPending(key: string): Pending | undefined {
   } catch { /* The tab can still keep unacknowledged edits in memory. */ }
 }
 
-type Phase = 'loading' | 'saved' | 'saving' | 'unsaved' | 'conflict'
+type Phase = 'idle' | 'loadFailed' | 'saveFailed' | 'conflict'
 type Entry = { saved?: Saved; current?: DraftInput; dirty: boolean; phase: Phase; work: Promise<unknown>; timer?: ReturnType<typeof setTimeout>; legacy?: () => void; conflictBase?: number; sentThrough?: number }
 
 export function serviceDrafts(client: VistaClient, apply: (key: string, input: DraftInput) => void) {
   const currentKey = ref('home')
-  const phase = ref<Phase>('loading')
+  const phase = ref<Phase>('idle')
   const entries = new Map<string, Entry>()
   const refs = new WeakMap<File, { key: string; ref: DraftImage }>()
   const path = (key: string) => `/drafts/${encodeURIComponent(key)}`
   let disposed = false
+  // A read belongs to one visit, even when shared state triggered it. Writes
+  // keep their draft key and can finish after the user switches away.
+  let readView = new AbortController()
+  const readSignal = (caller?: AbortSignal) => caller ? AbortSignal.any([readView.signal, caller]) : readView.signal
+
   function entry(key: string) {
-    if (!entries.has(key)) entries.set(key, { dirty: false, phase: 'loading', work: Promise.resolve() })
+    if (!entries.has(key)) entries.set(key, { dirty: false, phase: 'idle', work: Promise.resolve() })
     return entries.get(key)!
   }
   function status(key: string, value: Phase) {
     entry(key).phase = value
     if (currentKey.value === key) phase.value = value
   }
-  function report(key: string, cause: unknown) { status(key, cause instanceof VistaAPIError && cause.status === 409 ? 'conflict' : 'unsaved') }
   // Only unacknowledged text, quote and already-uploaded references go into
   // tab storage. It survives reload but isn't another shared draft database.
   function remember(key: string, e: Entry) {
@@ -59,15 +63,20 @@ export function serviceDrafts(client: VistaClient, apply: (key: string, input: D
     if (!saved || !Number.isSafeInteger(saved.revision) || !Array.isArray(saved.images)) throw Error('Invalid draft response')
     return saved
   }
-  async function refresh(key: string, signal?: AbortSignal) {
+  async function refresh(key: string, caller?: AbortSignal) {
+    if (disposed || currentKey.value !== key) return
+    const signal = readSignal(caller)
     const e = entry(key)
     await serialize(e, async () => {
-      if (disposed || signal?.aborted || e.dirty || currentKey.value !== key) return
+      if (signal.aborted || e.dirty) return
       try {
         const pending = !e.current ? readPending(key) : undefined
         const candidate = await get(key, signal)
-        if (e.sentThrough !== undefined && candidate.revision <= e.sentThrough) return
-        if (e.saved?.revision === candidate.revision && e.current) return
+        if (signal.aborted || e.dirty) return
+        if ((e.sentThrough !== undefined && candidate.revision <= e.sentThrough) || (e.saved?.revision === candidate.revision && e.current)) {
+          status(key, 'idle')
+          return
+        }
         const chosen = pending?.revision === candidate.revision && Array.isArray(pending.images)
           ? pending.images.flatMap(ref => candidate.images.find(image => image.hash === ref?.hash && image.name === ref?.name) || [])
           : candidate.images
@@ -79,7 +88,7 @@ export function serviceDrafts(client: VistaClient, apply: (key: string, input: D
           refs.set(file, { key, ref: image })
           return file
         }))
-        if (disposed || signal?.aborted || e.dirty || currentKey.value !== key) return
+        if (signal.aborted || e.dirty) return
         e.saved = candidate
         const matches = pending?.text === candidate.text && JSON.stringify(pending?.quote || null) === JSON.stringify(candidate.quote || null)
           && (pending?.images === undefined || JSON.stringify(pending.images) === JSON.stringify(candidate.images))
@@ -90,16 +99,18 @@ export function serviceDrafts(client: VistaClient, apply: (key: string, input: D
             e.conflictBase = pending.revision
             status(key, 'conflict')
           } else {
-            status(key, 'unsaved')
+            status(key, 'idle')
             schedule(key)
           }
         } else {
           e.current = { text: candidate.text, quote: candidate.quote || null, files }
           if (pending) forget(key)
-          status(key, 'saved')
+          status(key, 'idle')
         }
         apply(key, e.current)
-      } catch (cause) { if (!signal?.aborted && !disposed) report(key, cause) }
+      } catch {
+        if (!signal.aborted && !e.dirty) status(key, 'loadFailed')
+      }
     })
   }
   function schedule(key: string) {
@@ -113,11 +124,14 @@ export function serviceDrafts(client: VistaClient, apply: (key: string, input: D
     const e = entry(key)
     e.current = input
     e.dirty = true
-    if (e.phase !== 'conflict') status(key, 'unsaved')
+    if (e.phase === 'loadFailed') status(key, 'idle')
     remember(key, e)
     schedule(key)
   }
   function select(key: string, legacy?: DraftInput, done?: () => void, signal?: AbortSignal) {
+    if (disposed) return
+    readView.abort()
+    readView = new AbortController()
     currentKey.value = key
     const e = entry(key)
     phase.value = e.phase
@@ -129,17 +143,21 @@ export function serviceDrafts(client: VistaClient, apply: (key: string, input: D
       return
     }
     if (legacy && (legacy.text || legacy.files.length || legacy.quote?.items.length) && !e.saved && !e.dirty) {
+      const loadSignal = readSignal(signal)
       void serialize(e, async () => {
+        if (loadSignal.aborted || e.dirty) return
         try {
-          const value = await get(key, signal)
-          if (disposed || signal?.aborted || e.dirty) return
+          const value = await get(key, loadSignal)
+          if (loadSignal.aborted || e.dirty) return
           if (value.revision === 0) {
             e.saved = value; e.legacy = done
             if (currentKey.value === key) apply(key, legacy)
             change(key, legacy)
           }
-        } catch (cause) { if (!signal?.aborted && !disposed) report(key,cause) }
-      }).then(() => refresh(key, signal))
+        } catch {
+          if (!loadSignal.aborted && !e.dirty) status(key, 'loadFailed')
+        }
+      }).then(() => { if (!loadSignal.aborted) return refresh(key, signal) })
     } else void refresh(key, signal)
   }
   async function save(key: string, input: DraftInput): Promise<{ key: string; revision: number; images: DraftImage[] }> {
@@ -148,7 +166,6 @@ export function serviceDrafts(client: VistaClient, apply: (key: string, input: D
     return serialize(e, async () => {
       if (disposed) throw Error('Draft view closed')
       if (e.conflictBase !== undefined) throw conflict()
-      status(key, 'saving')
       try {
         if (!e.saved) {
           const baseline = await get(key)
@@ -171,12 +188,12 @@ export function serviceDrafts(client: VistaClient, apply: (key: string, input: D
         if (sameInput(e.current,input) || !e.current) { e.current = input; e.dirty = false }
         if (e.dirty) remember(key, e)
         else { forget(key); e.legacy?.(); e.legacy = undefined }
-        status(key, e.dirty ? 'unsaved' : 'saved')
+        status(key, 'idle')
         return { key, revision: e.saved.revision, images }
       } catch (cause) {
         if (cause instanceof VistaAPIError && cause.status === 409) e.conflictBase = e.saved?.revision ?? 0
         if (e.dirty) remember(key, e)
-        report(key, cause)
+        status(key, e.conflictBase === undefined ? 'saveFailed' : 'conflict')
         throw cause
       }
     })
@@ -195,6 +212,7 @@ export function serviceDrafts(client: VistaClient, apply: (key: string, input: D
   }
   return { phase, change, select, refresh, save, sent, dispose: () => {
     disposed = true
+    readView.abort()
     for (const e of entries.values()) clearTimeout(e.timer)
     entries.clear()
   } }

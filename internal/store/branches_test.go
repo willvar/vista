@@ -46,6 +46,9 @@ func TestForkKeepsSourceAndUsesItsOwnCheckpoint(t *testing.T) {
 	if branch.ForkMessageID != removed.ID || branch.ParentID != root || branch.RootID != root || branch.ForkBefore != removed.Sequence {
 		t.Fatal(branch)
 	}
+	if list, err := s.Branches(ctx, child); err != nil || len(list) != 2 || list[1].FirstMessageID != "" || list[1].FirstMessageSequence != 0 {
+		t.Fatalf("an inherited message is not the branch's first message: %v, %v", list, err)
+	}
 	// The branch can only reference the old prefix, not own copies of it.
 	for _, table := range []string{"messages", "runs", "model_output_chunks"} {
 		var count int64
@@ -77,8 +80,9 @@ func TestForkKeepsSourceAndUsesItsOwnCheckpoint(t *testing.T) {
 	if _, e = s.FinishRun(ctx, root, "old-run", "old-answer", "succeeded", "original reply"); e != nil {
 		t.Fatal(e)
 	}
-	if _, _, e = s.BeginRun(ctx, child, "child-run", "child-input", "replacement"); e != nil {
-		t.Fatal(e)
+	replacement, _, err := s.BeginRun(ctx, child, "child-run", "child-input", "replacement")
+	if err != nil {
+		t.Fatal(err)
 	}
 	if _, e = s.AppendRunEvent(ctx, child, "child-run", "context_notice", map[string]any{"depth": 0, "checkpoint": workerproto.ContextCheckpoint{Path: "new-only", ThroughSequence: 10}}); e != nil {
 		t.Fatal(e)
@@ -95,7 +99,7 @@ func TestForkKeepsSourceAndUsesItsOwnCheckpoint(t *testing.T) {
 	if counts, e := s.SessionCounts(ctx); e != nil || counts.Total != 1 || counts.Open != 1 || counts.Running != 1 {
 		t.Fatal(counts, e)
 	}
-	if list, e := s.Branches(ctx, child); e != nil || len(list) != 2 || list[1].ID != child {
+	if list, e := s.Branches(ctx, child); e != nil || len(list) != 2 || list[1].ID != child || list[1].FirstMessageID != replacement.ID || list[1].FirstMessageSequence != replacement.Sequence {
 		t.Fatal(list, e)
 	}
 }

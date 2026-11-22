@@ -13,13 +13,15 @@ import (
 )
 
 type Branch struct {
-	ID            string `json:"id"`
-	RootID        string `json:"rootId"`
-	ParentID      string `json:"parentId,omitempty"`
-	ForkMessageID string `json:"forkMessageId,omitempty"`
-	ForkBefore    int64  `json:"forkBefore,omitempty"`
-	CreatedAt     string `json:"createdAt"`
-	Open          bool   `json:"open"`
+	ID                   string `json:"id"`
+	RootID               string `json:"rootId"`
+	ParentID             string `json:"parentId,omitempty"`
+	ForkMessageID        string `json:"forkMessageId,omitempty"`
+	ForkBefore           int64  `json:"forkBefore,omitempty"`
+	FirstMessageID       string `json:"firstMessageId,omitempty"`
+	FirstMessageSequence int64  `json:"firstMessageSequence,omitempty"`
+	CreatedAt            string `json:"createdAt"`
+	Open                 bool   `json:"open"`
 }
 
 func branchRoot(ctx context.Context, tx *gorm.DB, id string) (string, error) {
@@ -45,8 +47,12 @@ func (s *Store) Branches(ctx context.Context, id string) ([]Branch, error) {
 		if err != nil {
 			return err
 		}
-		return view.orm.WithContext(ctx).Raw(`SELECT s.id,? AS root_id,COALESCE(b.parent_id,'') AS parent_id,COALESCE(b.fork_message_id,'') AS fork_message_id,COALESCE(b.fork_before,0) AS fork_before,s.created_at,s.is_open AS open
- FROM sessions s LEFT JOIN conversation_branches b ON b.branch_id=s.id WHERE s.id=? OR b.root_id=? ORDER BY s.id<>?,s.created_at,s.id`, root, root, root, root).Scan(&out).Error
+		return view.orm.WithContext(ctx).Raw(`SELECT s.id,? AS root_id,COALESCE(b.parent_id,'') AS parent_id,COALESCE(b.fork_message_id,'') AS fork_message_id,COALESCE(b.fork_before,0) AS fork_before,s.created_at,s.is_open AS open,
+ COALESCE(m.id,'') AS first_message_id,COALESCE(m.sequence,0) AS first_message_sequence
+ FROM sessions s LEFT JOIN conversation_branches b ON b.branch_id=s.id
+ LEFT JOIN messages m ON m.id=(SELECT first.id FROM messages first
+ WHERE first.session_id=b.branch_id AND first.role='user' ORDER BY first.sequence LIMIT 1)
+ WHERE s.id=? OR b.root_id=? ORDER BY s.id<>?,s.created_at,s.id`, root, root, root, root).Scan(&out).Error
 	})
 	return out, err
 }

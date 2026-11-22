@@ -3,6 +3,7 @@ import type en from './en.ts'
 
 export default {
   "profiles": "Perfiles",
+  "manageProfiles": "Gestionar perfiles",
   "defaultProfile": "Perfil predeterminado",
   "profileNewTab": "Abrir en una pestaña nueva",
   "profileArchived": "Archivado",
@@ -13,10 +14,10 @@ export default {
   "conversationBranches": "Ramas de la conversación",
   "originalBranch": "Original",
   "branchNumber": "Rama {number}",
-  "draftLoading": "Cargando borrador…",
-  "draftSaving": "Guardando borrador…",
-  "draftSaved": "Borrador guardado",
-  "draftUnsaved": "Borrador sin guardar",
+  "previousBranch": "Rama anterior",
+  "nextBranch": "Rama siguiente",
+  "draftLoadFailed": "No se pudo cargar el borrador guardado.",
+  "draftUnsaved": "No se pudo guardar el borrador. Tus cambios siguen en esta pestaña.",
   "draftConflict": "Otra pestaña cambió el borrador guardado. Tus cambios siguen aquí.",
   "storageMethod": "Storage method",
   "storageLocal": "Local storage",

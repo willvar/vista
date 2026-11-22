@@ -3,6 +3,7 @@ import type en from './en.ts'
 
 export default {
   "profiles": "Профили",
+  "manageProfiles": "Управление профилями",
   "defaultProfile": "Профиль по умолчанию",
   "profileNewTab": "Открыть в новой вкладке",
   "profileArchived": "В архиве",
@@ -13,10 +14,10 @@ export default {
   "conversationBranches": "Ветки беседы",
   "originalBranch": "Исходная",
   "branchNumber": "Ветка {number}",
-  "draftLoading": "Загрузка черновика…",
-  "draftSaving": "Сохранение черновика…",
-  "draftSaved": "Черновик сохранён",
-  "draftUnsaved": "Черновик не сохранён",
+  "previousBranch": "Предыдущая ветка",
+  "nextBranch": "Следующая ветка",
+  "draftLoadFailed": "Не удалось загрузить сохранённый черновик.",
+  "draftUnsaved": "Не удалось сохранить черновик. Изменения остались в этой вкладке.",
   "draftConflict": "Другая вкладка изменила сохранённый черновик. Ваши правки остались здесь.",
   "storageMethod": "Storage method",
   "storageLocal": "Local storage",

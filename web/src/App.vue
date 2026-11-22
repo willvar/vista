@@ -97,7 +97,6 @@ function activateSession(id: string) {
         @pointerdown.capture="drawerSwipe.start" @pointermove="drawerSwipe.move" @pointerup="drawerSwipe.end"
         @pointercancel="drawerSwipe.cancel" @lostpointercapture="drawerSwipe.lostCapture" @click.capture="drawerSwipe.click">
         <div class="sidebar-brand"><button class="brand-home" aria-label="Vista" :disabled="busy" @click="create"><VistaMark /><span>Vista</span></button><v-button variant="text" class="icon-button mobile-sessions-close icon-close" :aria-label="t('closeSessionDrawer')" @click="mobileSessionsOpen = false"><IconX /></v-button></div>
-        <ProfileMenu />
         <v-button variant="text" class="sidebar-new-conversation" :disabled="busy" @click="create"><IconPlus aria-hidden="true" /><span>{{ t('newConversation') }}</span></v-button>
         <div class="sidebar-section-label"><span>{{ t('recentConversations') }}</span><small>{{ openSessions.length || '' }}</small></div>
         <v-empty v-if="!openSessions.length" class="vista-empty-state vista-empty-state-compact sidebar-empty" :description="t(totalSessions ? 'noOpenSessions' : 'createSessionHint')" />
@@ -116,7 +115,10 @@ function activateSession(id: string) {
         <footer class="sessions-panel-footer">
           <nav class="sidebar-navigation" :aria-label="t('workspaceHeading')">
             <v-button variant="text" class="manage-sessions-link" @click="openSessionManager"><IconLayoutGrid aria-hidden="true" />{{ t('manageSessions') }}</v-button>
-            <v-button variant="text" class="settings-trigger" :aria-label="t('settings')" @click="settingsOpen ? backToWorkspace() : openSettings()"><IconSettings aria-hidden="true" />{{ t('settings') }}</v-button>
+            <div class="sidebar-profile-row">
+              <ProfileMenu />
+              <v-button variant="text" class="settings-trigger" :aria-label="t('settings')" @click="settingsOpen ? backToWorkspace() : openSettings()"><IconSettings aria-hidden="true" />{{ t('settings') }}</v-button>
+            </div>
           </nav>
         </footer>
       </aside>

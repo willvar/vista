@@ -141,7 +141,10 @@ export function useConversation({ client, sessions, modelCatalog, error, busy, r
     if (loadedDraftKey !== draftKey()) { selectDraft(); return }
     await persisted?.refresh(draftKey(),signal)
   }
-  function saveDraftRetry() { void persisted?.save(draftKey(),inputs()).catch(() => {}) }
+  function retryDraft() {
+    if (persisted?.phase.value === 'loadFailed') void refreshDraft(currentScope?.controller.signal)
+    else void persisted?.save(draftKey(),inputs()).catch(() => {})
+  }
   function stageDraft() { if (!restoringDraft && !editingMessage.value) persisted?.change(draftKey(),inputs()) }
 
   function readWelcomeDraft() {
@@ -1234,7 +1237,7 @@ export function useConversation({ client, sessions, modelCatalog, error, busy, r
 
   return {
     editingMessage, beginEditMessage, cancelEditMessage, withdrawMessage, rollbackFailure, sessionAction, decideSessionAction,
-    draftPhase: persisted?.phase, refreshDraft, saveDraftRetry,
+    draftPhase: persisted?.phase, refreshDraft, retryDraft,
     ...refs, displayMessages, readOutputIndexes, readDisplayOutput, releaseDisplayOutput, olderActivity, hasOlderActivity, activityPaging, paging, selectedModel, selectedModelInfo,
     selectedReasoning, reasoningChoices, canAttachImage, attachedImages, attachedPreviewURLs,
     selectedProcessingTier, processingTiers, chooseProcessingTier,

@@ -18,7 +18,7 @@ const { selected, busy, needsProvider, senderDisabled, conversation, route, mobi
 const { draft, quotedTexts, removeQuote, agentWorking, editingMessage, cancelEditMessage, selectedModel,
   canAttachImage, attachedImages, attachedPreviewURLs, chooseImages, pasteImages, dropImages, removeImage,
   submitMessage, submitQuestion, cancelExecution, recallLastUserMessage,
-  continueAfterCompaction, fillContinueDraft, draftPhase, saveDraftRetry } = conversation
+  continueAfterCompaction, fillContinueDraft, draftPhase, retryDraft } = conversation
 const sender = ref<SenderRef | null>(null)
 const composing = ref(false)
 const inputEdited = ref(false)
@@ -227,8 +227,10 @@ onUnmounted(() => {
             </section>
           </template>
           <template #footer><div v-if="!answering" class="sender-footer">
-            <small v-if="draftPhase && !editingMessage && (draft || attachedImages.length || quotedTexts.length)" role="status" class="draft-save-status">{{ t({loading:'draftLoading',saving:'draftSaving',saved:'draftSaved',unsaved:'draftUnsaved',conflict:'draftConflict'}[draftPhase]) }}</small>
-            <v-button v-if="draftPhase === 'unsaved'" size="small" variant="text" @click="saveDraftRetry">{{ t('retry') }}</v-button>
+            <div v-if="!editingMessage && draftPhase && draftPhase !== 'idle'" class="draft-sync-notice">
+              <small role="status">{{ t({ loadFailed: 'draftLoadFailed', saveFailed: 'draftUnsaved', conflict: 'draftConflict' }[draftPhase]) }}</small>
+              <v-button v-if="draftPhase !== 'conflict'" size="small" variant="text" :disabled="busy" @click="retryDraft">{{ t('retry') }}</v-button>
+            </div>
             <div class="sender-actions">
              <div class="composer-submit">
               <v-tooltip v-if="canAttachImage" :title="t('addImagesHint')"><span class="sender-attach">
@@ -263,6 +265,7 @@ onUnmounted(() => {
 .sender-card .composer-send.ui-btn:focus-visible{outline:var(--focus-outline, 2px solid var(--accent));outline-offset:2px}
 .sender-actions{display:flex;align-items:center;gap:8px;min-width:0;max-width:100%;margin-inline-start:auto}
 .sender-card .composer-submit{width:auto;margin-left:0}
+.draft-sync-notice{display:flex;flex-wrap:wrap;align-items:center;gap:.25rem .5rem;min-width:0;color:var(--muted);overflow-wrap:anywhere}
 @media(max-height:520px){
   .sender-card :deep(.ui-sender-content){padding:4px 8px}
   .sender-card :deep(.ui-sender-footer){padding:0 8px 6px}

@@ -3,6 +3,7 @@ import base from './zh-CN.ts'
 
 export default { ...base, ...{
   "profiles": "檔案",
+  "manageProfiles": "管理檔案",
   "defaultProfile": "預設檔案",
   "profileNewTab": "在新標籤頁開啟",
   "profileArchived": "已歸檔",
@@ -11,10 +12,10 @@ export default { ...base, ...{
   "profileName": "檔案名稱",
   "profileNew": "新建檔案",
   "conversationBranches": "會話分支",
-  "draftLoading": "正在載入草稿…",
-  "draftSaving": "正在儲存草稿…",
-  "draftSaved": "草稿已儲存",
-  "draftUnsaved": "草稿未儲存",
+  "previousBranch": "上一個分支",
+  "nextBranch": "下一個分支",
+  "draftLoadFailed": "無法載入已儲存的草稿。",
+  "draftUnsaved": "草稿未能同步，改動仍保留在此標籤頁。",
   "draftConflict": "另一標籤頁修改了已儲存的草稿，你的輸入仍然保留。",
   "storageMethod": "儲存方式",
   "storageLocal": "本地儲存",

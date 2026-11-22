@@ -3,6 +3,7 @@ import type en from './en.ts'
 
 export default {
   "profiles": "Profile",
+  "manageProfiles": "Profile verwalten",
   "defaultProfile": "Standardprofil",
   "profileNewTab": "In neuem Tab öffnen",
   "profileArchived": "Archiviert",
@@ -13,10 +14,10 @@ export default {
   "conversationBranches": "Gesprächszweige",
   "originalBranch": "Original",
   "branchNumber": "Zweig {number}",
-  "draftLoading": "Entwurf wird geladen…",
-  "draftSaving": "Entwurf wird gespeichert…",
-  "draftSaved": "Entwurf gespeichert",
-  "draftUnsaved": "Entwurf nicht gespeichert",
+  "previousBranch": "Vorheriger Zweig",
+  "nextBranch": "Nächster Zweig",
+  "draftLoadFailed": "Der gespeicherte Entwurf konnte nicht geladen werden.",
+  "draftUnsaved": "Der Entwurf konnte nicht gespeichert werden. Deine Änderungen bleiben in diesem Tab.",
   "draftConflict": "Ein anderer Tab hat den Entwurf geändert. Deine Eingabe bleibt erhalten.",
   "storageMethod": "Storage method",
   "storageLocal": "Local storage",

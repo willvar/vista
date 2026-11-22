@@ -3,6 +3,7 @@ import type en from './en.ts'
 
 export default {
   "profiles": "Perfis",
+  "manageProfiles": "Gerenciar perfis",
   "defaultProfile": "Perfil padrão",
   "profileNewTab": "Abrir em nova aba",
   "profileArchived": "Arquivado",
@@ -13,10 +14,10 @@ export default {
   "conversationBranches": "Ramificações da conversa",
   "originalBranch": "Original",
   "branchNumber": "Ramificação {number}",
-  "draftLoading": "Carregando rascunho…",
-  "draftSaving": "Salvando rascunho…",
-  "draftSaved": "Rascunho salvo",
-  "draftUnsaved": "Rascunho não salvo",
+  "previousBranch": "Ramificação anterior",
+  "nextBranch": "Próxima ramificação",
+  "draftLoadFailed": "Não foi possível carregar o rascunho salvo.",
+  "draftUnsaved": "Não foi possível salvar o rascunho. Suas alterações continuam nesta aba.",
   "draftConflict": "Outra aba alterou o rascunho salvo. Suas alterações foram mantidas.",
   "storageMethod": "Storage method",
   "storageLocal": "Local storage",
