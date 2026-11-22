@@ -284,6 +284,7 @@ func (a *App) stopWorker(id string) {
 }
 
 func (a *App) stopReservedWorker(id string) {
+	defer a.scheduleSessionChanged(id)
 	a.mu.Lock()
 	w := a.workers[id]
 	if w != nil {

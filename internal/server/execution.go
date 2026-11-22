@@ -347,6 +347,7 @@ func (a *App) dispatchRun(ctx context.Context, sessionID, runID string, message 
 		}
 		if completed != nil {
 			a.notifySession(sessionID)
+			a.scheduleSessionChanged(sessionID)
 		}
 	}()
 	model.SessionID = sessionID
@@ -371,6 +372,15 @@ func (a *App) dispatchRun(ctx context.Context, sessionID, runID string, message 
 	pinMCPNetwork(policy, command.MCPServers, command.SearchProviders)
 	if message.Role == "runtime" {
 		command.Action = "resume"
+	}
+	if _, ok := a.scheduledSessions.Load(sessionID); ok {
+		deadline, err := a.store.ScheduledDeadline(ctx, runID)
+		if err != nil {
+			failureReason = "Could not read scheduled execution deadline"
+			return err
+		}
+		command.DeadlineUnixMilli = deadline
+		a.scheduleSessionChanged(sessionID)
 	}
 	command.Debug = len(debug) > 0 && debug[0]
 	if err := a.dispatchWorker(ctx, sessionID, command); err != nil {
@@ -413,6 +423,18 @@ func (a *App) dispatchWorker(ctx context.Context, id string, command workerproto
 	}
 	if err != nil {
 		return err
+	}
+	if _, ok := a.scheduledSessions.Load(id); ok {
+		deadline, err := a.store.ScheduledDeadline(ctx, command.RunID)
+		if err != nil {
+			return err
+		}
+		if deadline < 0 || deadline == 0 && command.DeadlineUnixMilli > 0 {
+			return nil
+		} // Stopped during preparation.
+		if deadline > 0 {
+			command.DeadlineUnixMilli = deadline
+		}
 	}
 	if err := w.send(command); err != nil {
 		return err
@@ -514,6 +536,7 @@ func (a *App) readWorkerOutput(id string, w *worker, scanner *bufio.Scanner) {
 		for range artifactEvents {
 			a.notifySession(id)
 		}
+		a.scheduleSessionChanged(id)
 		log.Printf("worker %s exited: %v", id, err)
 	}
 	// Keep the old instance registered until all of its terminal effects are

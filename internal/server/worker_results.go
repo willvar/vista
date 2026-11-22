@@ -68,7 +68,7 @@ func (a *App) workerResultConsumer(id string, w *worker) *workerResultConsumer {
 		},
 		metrics:      func(metrics workerproto.Metrics) { a.recordWorkerMetrics(id, w, metrics) },
 		finished:     func() { a.background.Go(func() { a.launchQueuedInput(id) }) },
-		released:     func() { a.background.Go(a.launchReadyRuntimeContinuations) },
+		released:     func() { a.scheduleSessionChanged(id); a.background.Go(a.launchReadyRuntimeContinuations) },
 		runtimeReady: func() { a.background.Go(func() { a.launchRuntimeContinuation(id) }) },
 	}
 }

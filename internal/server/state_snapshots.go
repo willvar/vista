@@ -76,6 +76,12 @@ func (a *App) addStateSnapshots(ctx context.Context, host string, point *stateCh
 			point.Network = &config
 		}
 	}
+	if changed("schedules") {
+		version := point.Epoch + ":" + strconv.FormatUint(point.Revisions["schedules"], 10)
+		if snapshot, err := a.scheduleSnapshot(ctx, version); err == nil {
+			point.Schedules = &snapshot
+		}
+	}
 	if changed("diagnostics") {
 		point.Diagnostics = a.updates.diagnosticChanges(previous.Revisions["diagnostics"], point.Revisions["diagnostics"])
 	}
@@ -94,7 +100,8 @@ func (point *stateCheckpoint) limitPayload() error {
 		return err
 	}
 	omit := map[string]func(){
-		"models": func() { point.Models = nil }, "diagnostics": func() { point.Diagnostics = nil },
+		"schedules": func() { point.Schedules = nil },
+		"models":    func() { point.Models = nil }, "diagnostics": func() { point.Diagnostics = nil },
 		"sessions": func() { point.Sessions = nil },
 		"mcp":      func() { point.MCP = nil }, "catalog": func() { point.Catalog = nil },
 		"providerLogins": func() { point.ProviderLogins = nil }, "storage": func() { point.Storage = nil },

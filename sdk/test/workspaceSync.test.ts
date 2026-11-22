@@ -270,3 +270,26 @@ test('diagnostic patches carry their revision coverage and unchanged heartbeats 
   assert.deepEqual(applied[1]!.diagnostics?.records, [record])
   assert.deepEqual(revisions, [0, 1])
 })
+
+test('scheduled task snapshots reuse the last revision and recover on a new instance', async t => {
+  const sent: string[][] = []
+  const f = fixture(async (_, topics) => { sent.push(topics) })
+  t.after(() => f.sync.stop())
+  const versions: (string | undefined)[] = []
+  const close = f.sync.subscribe(['schedules'], async (_, __, point) => { versions.push(point.schedules?.version) })
+  f.sync.start(); await until(() => f.sinks.length === 1)
+  f.point({ schedules: 1 }, 'a', 0, { subscriptionId: 'first', schedules: { items: [], version: 'a:1' } })
+  await until(() => versions.length === 1 && sent.length === 1)
+  assert.deepEqual(sent[0], ['schedules'])
+  f.point({ schedules: 1 }, 'a', 0)
+  assert.equal(f.sync.snapshot()?.schedules?.version, 'a:1')
+  f.point({ schedules: 2 }, 'a', 0)
+  await until(() => versions.length === 2)
+  assert.deepEqual(versions, ['a:1', undefined]) // Read the bounded HTTP snapshot only when omitted.
+  f.sync.reconnect(); await until(() => f.sinks.length === 2)
+  f.point({ schedules: 1 }, 'b', 1, { subscriptionId: 'second', schedules: { items: [], version: 'b:1' } })
+  await until(() => versions.length === 3 && sent.length === 2)
+  close(); await until(() => sent.length === 3)
+  assert.deepEqual(versions, ['a:1', undefined, 'b:1'])
+  assert.deepEqual(sent[2], [])
+})

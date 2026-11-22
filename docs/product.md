@@ -69,6 +69,16 @@ Changing the search, status filter, sort, page, or page size clears the selectio
 
 About Vista → Advanced settings → Memory and capacity offers Background processes per conversation, default 4, range 1–1024. Saves reach resident Workers; new Workers use the current limit. Lowering it preserves existing jobs and only restricts new starts. Excess starts fail without queuing. This is not a CPU or memory quota. Background jobs optionally specify a total runtime and an advance warning. Omitting both means no deadline; specifying only a timeout disables warnings. A warning never extends the hard deadline. Within authorization, the model can explicitly adjust it or stop the job, but cannot override a user-imposed hard deadline.
 
+## Scheduled tasks
+
+Open **Scheduled tasks** in the sidebar of the Profile you want to use. Enter a name, the message to send, and a one-time, fixed-interval, daily or weekly schedule. Check the time zone and next run before enabling. Leave the model blank to use the Profile's current default when each run starts. An unavailable selected model needs attention rather than switching models.
+
+The Vista service creates a new conversation at each trigger and sends the saved text as an ordinary user message. Creating a task does not start a conversation. Closing the browser does not stop a schedule; Vista must be running to execute. Open the conversation from run history. Execution uses the Profile's ordinary tools and confirmation rules. After the run ends Vista closes the conversation, retains its history and stops its managed work.
+
+Pause stops future triggers, Stop this run stops only the current execution, and Run now does not move the schedule. Only one execution of a task can be active at a time. Vista can start the latest missed trigger within ten minutes; it does not replay a backlog. An expired one-time trigger can still be run manually. Fixed intervals use elapsed time; calendar times use the saved zone and do not run twice when a clock time repeats.
+
+Each active execution has a 30-minute time limit. A question keeps the conversation open and pauses the schedule; answer in the same conversation and resume the plan when ready. An interrupted execution with an unconfirmed result also pauses the schedule and is not started again automatically.
+
 ## Context and resources
 
 Completed model turns and tool results survive later messages and Worker restarts. Explicit upstream context-overflow evidence triggers compaction and retry of the failed request. Click the conversation header's **Context** icon to view the retained-context estimate and compaction tradeoffs. The popover stays available during execution; only its **Compact context** action requires an available, idle session. Manual compaction uses the same checkpoint mechanism while idle and does not send or continue automatically. The estimate is neither cumulative usage nor a model-capacity percentage. See [compaction](./context-compaction.md).

@@ -1,8 +1,8 @@
 import { streamSSE } from './sse.js'
 import type { VistaClient } from './vista.js'
-import type { ServerStatus, SessionListSnapshot, ModelCatalog, ModelDiagnosticSummary, NetworkConfiguration, OMPCatalogInfo, LoginUpdate, MCPState, ResourceStorageStatus, ServerConfig } from './types.js'
+import type { ServerStatus, SessionListSnapshot, ModelCatalog, ModelDiagnosticSummary, NetworkConfiguration, OMPCatalogInfo, LoginUpdate, MCPState, ResourceStorageStatus, ScheduleSnapshot, ServerConfig } from './types.js'
 
-export const stateTopics = ['sessions', 'status', 'models', 'catalog', 'provider-login', 'mcp', 'storage', 'diagnostics', 'statistics', 'skills', 'connection-statistics', 'server-config', 'network', 'profiles', 'drafts'] as const
+export const stateTopics = ['sessions', 'status', 'models', 'catalog', 'provider-login', 'mcp', 'storage', 'diagnostics', 'statistics', 'skills', 'connection-statistics', 'server-config', 'network', 'profiles', 'drafts', 'schedules'] as const
 export type StateTopic = typeof stateTopics[number]
 export type StateConnection = { phase: 'connecting' | 'ready' | 'error' | 'stopped'; error?: string }
 export type WorkspaceSnapshots = {
@@ -10,6 +10,7 @@ export type WorkspaceSnapshots = {
   providerLogins?: LoginUpdate[]; mcp?: MCPState; storage?: ResourceStorageStatus
   network?: NetworkConfiguration
   serverConfig?: ServerConfig
+  schedules?: ScheduleSnapshot
   diagnostics?: { after: number; through: number; records: ModelDiagnosticSummary[] }
 }
 type Checkpoint = WorkspaceSnapshots & { epoch: string; revisions: Record<StateTopic, number>; subscriptionId?: string }
@@ -19,7 +20,7 @@ type Listener = {
   active: boolean; lifetime: AbortController; seen: Partial<Record<StateTopic, number>>; epoch: string; attempt: number; pending?: Promise<void>
 }
 const snapshotKeys = { sessions: 'sessions', status: 'status', models: 'models', catalog: 'catalog',
-  'provider-login': 'providerLogins', mcp: 'mcp', storage: 'storage', diagnostics: 'diagnostics', statistics: undefined, skills: undefined, 'connection-statistics': undefined, 'server-config': 'serverConfig', network: 'network', profiles: undefined, drafts: undefined } as const
+  'provider-login': 'providerLogins', mcp: 'mcp', storage: 'storage', diagnostics: 'diagnostics', statistics: undefined, skills: undefined, 'connection-statistics': undefined, 'server-config': 'serverConfig', network: 'network', profiles: undefined, drafts: undefined, schedules: 'schedules' } as const
 type Options = {
   client: Pick<VistaClient, 'openWorkspaceEvents' | 'request'>
   status: (status: StateConnection) => void
@@ -128,6 +129,10 @@ export function createWorkspaceSync(options: Options) {
         if (point.sessions !== undefined && (!point.sessions || !Array.isArray(point.sessions.items) || !point.sessions.throughSequences
           || point.sessions.items.some(session => !session || typeof session.id !== 'string' || typeof session.title !== 'string'
             || !Number.isSafeInteger(point.sessions!.throughSequences[session.id]) || point.sessions!.throughSequences[session.id]! < 0))) throw new Error('Invalid session list snapshot')
+        if (point.schedules !== undefined && (!point.schedules || point.schedules.version !== `${point.epoch}:${point.revisions.schedules}`
+          || !Array.isArray(point.schedules.items) || point.schedules.items.some(item => !item?.id || typeof item.name !== 'string'
+            || !item.rule || typeof item.rule.timezone !== 'string' || !Number.isSafeInteger(item.revision)
+            || !Number.isSafeInteger(item.nextAt)))) throw new Error('Invalid schedule snapshot')
         if (point.status !== undefined && !validStatus(point.status)) throw new Error('Invalid status snapshot')
         if (point.models !== undefined && (!point.models || typeof point.models.default !== 'string' || !Array.isArray(point.models.models))) throw new Error('Invalid models snapshot')
         if (point.catalog !== undefined && (!point.catalog || typeof point.catalog.revision !== 'string')) throw new Error('Invalid catalog snapshot')

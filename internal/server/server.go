@@ -59,6 +59,8 @@ type App struct {
 	workerLimitsMu         sync.Mutex
 	memoryConfig           memoryConfig
 	background             sync.WaitGroup
+	scheduleWake           chan struct{}
+	scheduledSessions      sync.Map // Wakeup hint; durable ownership is in the Store.
 	closeContext           context.CancelFunc
 	sessionMutations       sync.Map // Per-session HTTP/queued-dispatch serialization.
 	sessionActionMu        sync.Mutex
@@ -357,6 +359,14 @@ func (a *App) start() error {
 	if err != nil {
 		return err
 	}
+	scheduled, err := a.store.ActiveScheduledSessions(a.ctx)
+	if err != nil {
+		return err
+	}
+	a.scheduleWake = make(chan struct{}, 1)
+	for _, id := range scheduled {
+		a.scheduledSessions.Store(id, struct{}{})
+	}
 	a.background.Go(a.cleanModelDiagnostics)
 	a.storageWake = make(chan struct{}, 1)
 	a.background.Go(a.syncResourceStorage)
@@ -386,6 +396,10 @@ func (a *App) start() error {
 			}
 		}
 	}
+	a.background.Go(a.runSchedules)
+	if a.profiles != nil && !a.namedProfile {
+		a.background.Go(a.profiles.restoreScheduleProfiles)
+	}
 	return nil
 }
 
@@ -396,6 +410,8 @@ func (a *App) handler() http.Handler {
 		http.ServeContent(w, r, "THIRD_PARTY_NOTICES", time.Time{}, strings.NewReader(licenses.Text))
 	})
 	mux.HandleFunc("/api/events", a.stateEvents)
+	mux.HandleFunc("/api/schedules", a.schedulesHTTP)
+	mux.HandleFunc("/api/schedules/", a.schedulesHTTP)
 	mux.HandleFunc("/api/events/subscriptions", a.stateInterests)
 	mux.HandleFunc("/api/status", a.status)
 	mux.HandleFunc("/api/server-config", a.serverConfigHTTP)

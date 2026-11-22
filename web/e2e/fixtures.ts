@@ -18,6 +18,7 @@ export type VistaFixture = {
   modelUserAgents: string[]
   pauseModelReplies: (afterText?: boolean, summaryOnly?: boolean) => () => void
   finishDetachedTask: () => void
+  restart: () => Promise<void>
   api: (path: string, options?: RequestInit) => Promise<any>
 }
 
@@ -456,7 +457,7 @@ export const nativeFixture = {
       started = true
       const info = JSON.parse(readFileSync(join(configDirectory, 'state', 'instance.json'), 'utf8')) as { address: string }
       const origin = info.address.startsWith('http') ? info.address : 'http://' + info.address
-      await use({ origin, modelEndpoint, modelId, workspacePath, modelRequests, modelUserAgents, pauseModelReplies, finishDetachedTask, api: async (path, options = {}) => {
+      await use({ origin, modelEndpoint, modelId, workspacePath, modelRequests, modelUserAgents, pauseModelReplies, finishDetachedTask, restart: async () => { await execute(binary, ['restart'], { env, timeout: 15_000 }) }, api: async (path, options = {}) => {
         const response = await fetch(origin + '/api' + path, { ...options, headers: { 'Content-Type': 'application/json', ...options.headers } })
         if (!response.ok) throw new Error(`Fixture API ${path}: HTTP ${response.status}`)
         const body = await response.text()

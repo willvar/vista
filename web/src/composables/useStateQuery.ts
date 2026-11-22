@@ -1,5 +1,5 @@
 import { onScopeDispose, ref, shallowRef } from 'vue'
-import type { VistaClient, createWorkspaceSync, StateTopic } from '@vista/client'
+import type { VistaClient, createWorkspaceSync, StateTopic, WorkspaceSnapshots } from '@vista/client'
 
 type Versioned = { version?: string }
 const caches = new WeakMap<VistaClient, Map<string, { value: Versioned; at: number }>>()
@@ -12,7 +12,7 @@ function atLeast(value: string | undefined, target: string) {
 
 // Revision-only topics keep inventories scoped to their visible view. Reads
 // are shared, canceled on close and never overwrite a newer mutation result.
-export function useStateQuery<T extends Versioned>(client: VistaClient, sync: ReturnType<typeof createWorkspaceSync>, path: string, topics: StateTopic[], maxAgeMs = Infinity) {
+export function useStateQuery<T extends Versioned>(client: VistaClient, sync: ReturnType<typeof createWorkspaceSync>, path: string, topics: StateTopic[], maxAgeMs = Infinity, pushed?: (value: WorkspaceSnapshots) => T | undefined) {
   const cache = caches.get(client) ?? new Map<string, { value: Versioned; at: number }>()
   caches.set(client, cache)
   const data = shallowRef<T>()
@@ -49,6 +49,8 @@ export function useStateQuery<T extends Versioned>(client: VistaClient, sync: Re
   }
   const unsubscribe = sync.subscribe(topics, async (_, signal, point) => {
     target = `${point.epoch}:${topics.map(topic => point.revisions[topic]).join(':')}`
+    const snapshot = pushed?.(point)
+    if (snapshot && atLeast(snapshot.version, target)) { apply(snapshot); return }
     const saved = cache.get(path)
     if (saved && Date.now() - saved.at < maxAgeMs && atLeast(saved.value.version, target)) { data.value = saved.value as T; loading.value = false; error.value = ''; return }
     await load(signal, true)

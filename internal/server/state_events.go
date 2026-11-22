@@ -34,9 +34,10 @@ const maxStateEventStreams = maxEventStreams
 const maxStateFrameBytes = 512 << 10
 const maxStateSnapshotBytes = maxStateFrameBytes - len("event: state\ndata: \n\n")
 
-var stateTopics = []string{"sessions", "status", "models", "catalog", "provider-login", "mcp", "storage", "diagnostics", "statistics", "connection-statistics", "skills", "server-config", "network", "profiles", "drafts"}
+var stateTopics = []string{"sessions", "status", "models", "catalog", "provider-login", "mcp", "storage", "diagnostics", "statistics", "connection-statistics", "skills", "server-config", "network", "profiles", "drafts", "schedules"}
 
 type stateCheckpoint struct {
+	Schedules      *scheduleSnapshot          `json:"schedules,omitempty"`
 	Network        *networkConfigView         `json:"network,omitempty"`
 	SubscriptionID string                     `json:"subscriptionId,omitempty"`
 	Epoch          string                     `json:"epoch"`
