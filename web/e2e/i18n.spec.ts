@@ -122,7 +122,10 @@ test('regional wording and formatting choices survive manual selection and reloa
     await region.locator('input').fill(label!)
     await options.getByText(label!, { exact: true }).click()
     await expect(page.locator('html')).toHaveAttribute('lang', selected)
-    await expect(page.locator('.settings-trigger')).toHaveText(messages[selected].settings)
+    const settings = page.locator('.settings-trigger')
+    // The open settings dialog hides the sidebar from the accessibility tree.
+    await expect(settings).toHaveAttribute('aria-label', messages[selected].settings)
+    await expect(settings).toHaveAttribute('title', messages[selected].settings)
     await page.reload()
     await expect(page.locator('html')).toHaveAttribute('lang', selected)
     await expect(region).toContainText((await displayRegions(page, selected, [variant.region]))[0]!)

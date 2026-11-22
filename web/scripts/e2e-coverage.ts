@@ -50,9 +50,11 @@ const groups: Record<string, string[]> = {
   statistics: ['statistics'],
   operationProgress: ['environment-check', 'resource-storage', 'session-batch', 'settings-batch'],
   contextHeader: ['resource-storage', 'settings-navigation'],
+  sidebar: ['profiles', 'drawer-swipe', 'sidebar-width', 'settings-navigation'],
 }
 const consumers: [RegExp, string[]][] = [
   [/^web\/src\/state\/clientRuntime\.ts$/, ['about']],
+  [/^web\/src\/(?:App|ProfileMenu)\.vue$/, ['sidebar']],
   [/^internal\/server\/profiles\.go$|^web\/src\/(?:ProfileMenu\.vue|client\/profileScope\.)/, ['sessions', 'models', 'about']],
   [/^internal\/store\/(?:branches|branch_history|branch_workspace)\.go$|^internal\/server\/revert\.go$|^web\/src\/state\/conversationBranches\.ts$/, ['conversation', 'sessions']],
   [/^internal\/(?:store|server)\/drafts\.go$|^web\/src\/composables\/serviceDrafts\./, ['conversation', 'about']],

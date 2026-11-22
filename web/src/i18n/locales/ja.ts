@@ -3,12 +3,10 @@ import type en from './en.ts'
 
 export default {
   "profiles": "プロファイル",
+  "currentProfile": "現在のプロファイル",
   "manageProfiles": "プロファイルを管理",
   "defaultProfile": "既定のプロファイル",
   "profileNewTab": "新しいタブで開く",
-  "profileArchived": "アーカイブ済み",
-  "profileRestore": "復元",
-  "profileArchive": "アーカイブ",
   "profileName": "プロファイル名",
   "profileNew": "新しいプロファイル",
   "conversationBranches": "会話の分岐",

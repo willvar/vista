@@ -3,12 +3,10 @@ import type en from './en.ts'
 
 export default {
   "profiles": "Профили",
+  "currentProfile": "Текущий профиль",
   "manageProfiles": "Управление профилями",
   "defaultProfile": "Профиль по умолчанию",
   "profileNewTab": "Открыть в новой вкладке",
-  "profileArchived": "В архиве",
-  "profileRestore": "Восстановить",
-  "profileArchive": "Архивировать",
   "profileName": "Название профиля",
   "profileNew": "Новый профиль",
   "conversationBranches": "Ветки беседы",

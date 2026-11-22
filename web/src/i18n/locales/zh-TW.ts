@@ -3,12 +3,10 @@ import base from './zh-CN.ts'
 
 export default { ...base, ...{
   "profiles": "檔案",
+  "currentProfile": "當前檔案",
   "manageProfiles": "管理檔案",
   "defaultProfile": "預設檔案",
   "profileNewTab": "在新標籤頁開啟",
-  "profileArchived": "已歸檔",
-  "profileRestore": "恢復",
-  "profileArchive": "歸檔",
   "profileName": "檔案名稱",
   "profileNew": "新建檔案",
   "conversationBranches": "會話分支",

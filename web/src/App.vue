@@ -125,7 +125,7 @@ function isExecuting(item: Session) {
             <v-button variant="text" class="manage-sessions-link" @click="openSessionManager"><IconLayoutGrid aria-hidden="true" />{{ t('manageSessions') }}</v-button>
             <div class="sidebar-profile-row">
               <ProfileMenu />
-              <v-button variant="text" class="settings-trigger" :aria-label="t('settings')" @click="settingsOpen ? backToWorkspace() : openSettings()"><IconSettings aria-hidden="true" />{{ t('settings') }}</v-button>
+              <v-button variant="text" class="settings-trigger" :aria-label="t('settings')" :title="t('settings')" @click="settingsOpen ? backToWorkspace() : openSettings()"><IconSettings aria-hidden="true" /></v-button>
             </div>
           </nav>
         </footer>

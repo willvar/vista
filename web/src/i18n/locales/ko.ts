@@ -3,12 +3,10 @@ import type en from './en.ts'
 
 export default {
   "profiles": "프로필",
+  "currentProfile": "현재 프로필",
   "manageProfiles": "프로필 관리",
   "defaultProfile": "기본 프로필",
   "profileNewTab": "새 탭에서 열기",
-  "profileArchived": "보관됨",
-  "profileRestore": "복원",
-  "profileArchive": "보관",
   "profileName": "프로필 이름",
   "profileNew": "새 프로필",
   "conversationBranches": "대화 분기",

@@ -1,11 +1,9 @@
 export default {
   "profiles": "Profiles",
+  "currentProfile": "Current profile",
   "manageProfiles": "Manage profiles",
   "defaultProfile": "Default Profile",
   "profileNewTab": "Open in new tab",
-  "profileArchived": "Archived",
-  "profileRestore": "Restore",
-  "profileArchive": "Archive",
   "profileName": "Profile name",
   "profileNew": "New Profile",
   "conversationBranches": "Conversation branches",

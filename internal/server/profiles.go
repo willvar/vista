@@ -22,15 +22,13 @@ import (
 const defaultProfile = "default"
 
 type profile struct {
-	ID       string `json:"id"`
-	Name     string `json:"name"`
-	Archived bool   `json:"archived"`
+	ID   string `json:"id"`
+	Name string `json:"name"`
 }
 
 type profileRuntime struct {
 	*appHandler
-	mutations sync.RWMutex
-	unlock    func()
+	unlock func()
 }
 
 // No active profile on the server: the URL selects a runtime. The default
@@ -53,7 +51,9 @@ func openProfiles(app *App) (*profiles, error) {
 	if !exists {
 		return p, nil
 	}
-	if err = json.Unmarshal(data, &p.items); err != nil || len(p.items) == 0 || p.items[0].ID != defaultProfile || p.items[0].Archived {
+	// Ignore legacy archive markers without changing Profile IDs, data, or
+	// the stored registry on startup. Every Profile still opens on demand.
+	if err = json.Unmarshal(data, &p.items); err != nil || len(p.items) == 0 || p.items[0].ID != defaultProfile {
 		return nil, errors.New("invalid Profile registry")
 	}
 	seen := map[string]bool{}
@@ -197,14 +197,9 @@ func (p *profiles) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	p.op.Lock()
-	entry, ok := p.find(id)
-	if !ok || entry.Archived {
+	if !slices.ContainsFunc(p.items, func(entry profile) bool { return entry.ID == id }) {
 		p.op.Unlock()
-		if entry.Archived {
-			http.Error(w, "This Profile is archived. Restore it from Profiles before opening it.", http.StatusGone)
-		} else {
-			http.Error(w, "Unknown Profile", 404)
-		}
+		http.NotFound(w, r)
 		return
 	}
 	// A document request needn't open the database. The SPA uses this URL as
@@ -223,26 +218,11 @@ func (p *profiles) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Could not open this Profile: "+err.Error(), 503)
 		return
 	}
-	// Serialize potentially stateful requests with archive. Read requests and
-	// SSE do not hold the registry lock and are drained by App teardown.
-	if r.Method != http.MethodGet && r.Method != http.MethodHead {
-		runtime.mutations.RLock()
-		defer runtime.mutations.RUnlock()
-	}
 	p.op.Unlock()
 	next := r.Clone(r.Context())
 	next.URL.Path = "/" + path
 	next.URL.RawPath = ""
 	runtime.ServeHTTP(w, next)
-}
-
-func (p *profiles) find(id string) (profile, bool) {
-	for _, entry := range p.items {
-		if entry.ID == id {
-			return entry, true
-		}
-	}
-	return profile{}, false
 }
 
 func (p *profiles) manage(w http.ResponseWriter, r *http.Request) {
@@ -255,20 +235,16 @@ func (p *profiles) manage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var input struct {
-		Name     *string `json:"name"`
-		Archived *bool   `json:"archived"`
+		Name string `json:"name"`
 	}
-	if decodeSettingsRequest(http.MaxBytesReader(w, r.Body, 4096), &input) != nil || (input.Name == nil) == (input.Archived == nil) {
-		http.Error(w, "Provide a name or archive state", 400)
+	if decodeSettingsRequest(http.MaxBytesReader(w, r.Body, 4096), &input) != nil {
+		http.Error(w, "Provide a Profile name", 400)
 		return
 	}
-	if input.Name != nil {
-		v := strings.TrimSpace(*input.Name)
-		if !validProfileName(v) {
-			http.Error(w, "Enter a name of at most 200 bytes", 400)
-			return
-		}
-		input.Name = &v
+	name := strings.TrimSpace(input.Name)
+	if !validProfileName(name) {
+		http.Error(w, "Enter a name of at most 200 bytes", 400)
+		return
 	}
 	p.op.Lock()
 	defer p.op.Unlock()
@@ -280,8 +256,8 @@ func (p *profiles) manage(w http.ResponseWriter, r *http.Request) {
 	var entry profile
 	created := false
 	var createdPath string
-	if r.URL.Path == "/api/profiles" && r.Method == http.MethodPost && input.Name != nil {
-		entry = profile{ID: uuid.NewString(), Name: *input.Name}
+	if r.URL.Path == "/api/profiles" && r.Method == http.MethodPost {
+		entry = profile{ID: uuid.NewString(), Name: name}
 		createdPath = p.configDir(entry.ID)
 		if err := p.createDirectory(createdPath); err != nil {
 			http.Error(w, "Could not create Profile: "+err.Error(), 500)
@@ -297,31 +273,7 @@ func (p *profiles) manage(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		entry = items[index]
-		if input.Name != nil {
-			entry.Name = *input.Name
-		} else {
-			if entry.ID == defaultProfile && *input.Archived {
-				http.Error(w, "The default Profile cannot be archived", 409)
-				return
-			}
-			if rt := p.apps[id]; rt != nil && *input.Archived {
-				rt.mutations.Lock()
-				defer rt.mutations.Unlock()
-				p.admission.Lock()
-				counts, err := rt.app.store.SessionCounts(r.Context())
-				if err != nil || counts.Running > 0 {
-					p.admission.Unlock()
-					http.Error(w, "This Profile cannot be archived while work is running", 409)
-					return
-				}
-				// Cancel the now-idle dispatcher before freeing admission; no queued
-				// run can cross the archive decision.
-				rt.app.closeContext()
-				p.admission.Unlock()
-				p.closeRuntime(id)
-			}
-			entry.Archived = *input.Archived
-		}
+		entry.Name = name
 		items[index] = entry
 	} else {
 		http.Error(w, "invalid Profile action", 400)

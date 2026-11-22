@@ -1648,7 +1648,8 @@ body {
   align-items: stretch;
   gap: .2rem;
 }
-.sidebar-profile-row .settings-trigger { width: auto; justify-content: flex-end; }
+.sidebar-profile-row .settings-trigger { width: 44px; min-height: 44px; padding: 0; justify-content: center; }
+.sidebar-profile-row .settings-trigger svg { width: 18px; height: 18px; }
 .welcome-toolbar {
   position: absolute;
   inset: 0 0 auto;
@@ -2206,9 +2207,29 @@ body {
   .sessions-panel {
     overflow-y: auto;
   }
-  .sessions-panel ul {
-    flex: none;
-    overflow: visible;
+  .sidebar-split-panel > .sessions-panel {
+    padding-top: 8px;
+  }
+  .sessions-panel > .sidebar-brand {
+    margin-bottom: 5px;
+  }
+  .sidebar-new-conversation.ui-btn {
+    min-height: 44px;
+    margin-bottom: 4px;
+    padding-block: 6px;
+  }
+  .sidebar-section-label {
+    padding-block: 4px;
+  }
+  .sessions-panel-footer {
+    padding-top: 6px;
+  }
+  .sidebar-navigation .manage-sessions-link {
+    min-height: 44px;
+    padding-block: 7px;
+  }
+  .sessions-panel > ul {
+    margin-bottom: 8px;
   }
   .welcome {
     padding: 2.5rem 1rem .8rem;

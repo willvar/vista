@@ -3,12 +3,10 @@ import type en from './en.ts'
 
 export default {
   "profiles": "档案",
+  "currentProfile": "当前档案",
   "manageProfiles": "管理档案",
   "defaultProfile": "默认档案",
   "profileNewTab": "在新标签页打开",
-  "profileArchived": "已归档",
-  "profileRestore": "恢复",
-  "profileArchive": "归档",
   "profileName": "档案名称",
   "profileNew": "新建档案",
   "conversationBranches": "会话分支",

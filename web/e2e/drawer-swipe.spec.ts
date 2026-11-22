@@ -230,15 +230,15 @@ test('vertical touch scrolling keeps the drawer open without switching or closin
   const { active, other } = await prepareSessions(page, vista, 24)
   const panel = await openDrawer(page)
   const list = panel.locator('ul')
-  // Short windows scroll the whole panel; taller ones scroll only its list.
-  const panelScrolls = await panel.evaluate(element => ['auto', 'scroll'].includes(getComputedStyle(element).overflowY))
-  const scroller = panelScrolls ? panel : list
-  await scroller.evaluate(element => { element.scrollTop = 0 })
-  const box = (await scroller.boundingBox())!
-  const listBox = (await list.boundingBox())!
-  expect(await scroller.evaluate(element => element.scrollHeight)).toBeGreaterThan(box.height)
-  const bottom = Math.min(box.y + box.height, listBox.y + listBox.height) - 8
-  const top = Math.max(box.y, listBox.y) + 8
+  const profileTrigger = panel.getByRole('button', { name: 'Profiles', exact: true })
+  await expect(profileTrigger).toBeInViewport({ ratio: 1 })
+  const footerY = (await profileTrigger.boundingBox())!.y
+  // The list scrolls independently so footer controls remain reachable.
+  await list.evaluate(element => { element.scrollTop = 0 })
+  const box = (await list.boundingBox())!
+  expect(await list.evaluate(element => element.scrollHeight)).toBeGreaterThan(box.height)
+  const bottom = box.y + box.height - 8
+  const top = box.y + 8
   const start = { x: box.x + box.width / 2, y: bottom }
   const distance = Math.min(220, bottom - top)
   expect(distance).toBeGreaterThan(25)
@@ -249,7 +249,9 @@ test('vertical touch scrolling keeps the drawer open without switching or closin
     await touch.move(start.x - 2, start.y - distance * step / 5)
   }
   await touch.end()
-  await expect.poll(() => scroller.evaluate(element => element.scrollTop)).toBeGreaterThan(15)
+  await expect.poll(() => list.evaluate(element => element.scrollTop)).toBeGreaterThan(15)
+  await expect(profileTrigger).toBeInViewport({ ratio: 1 })
+  expect((await profileTrigger.boundingBox())!.y).toBeCloseTo(footerY, 0)
   await expect(panel).toHaveClass(/mobile-open/)
   await expect.poll(() => panel.evaluate(element => Math.round(element.getBoundingClientRect().x))).toBe(0)
   await expectCurrentSession(page, vista, active, other)

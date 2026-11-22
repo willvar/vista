@@ -26,7 +26,7 @@ Use these principles when changing the product:
 
 ## Profiles
 
-Choose the current Profile below **Manage sessions** in the sidebar to switch to another Profile or open it in a new tab. Use **Manage profiles** in the switcher to create, rename, archive or restore Profiles. Tabs keep the Profile in their address. Existing bookmarks and data stay in the default Profile, which cannot be archived. Archives retain their data; Vista rejects archiving a Profile with active work.
+Choose the current Profile below **Manage sessions** in the sidebar to switch to another Profile or open it in a new tab. Use **Manage profiles** in the switcher to create or rename Profiles. The tab’s address determines its Profile. Existing bookmarks and data stay in the default Profile.
 
 Profiles have separate conversations, model connections, proxy preferences, user skills, MCP configuration and resource libraries. They share the Vista service address and device capacity. Profiles are not a security boundary for tools that access the host filesystem.
 

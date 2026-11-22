@@ -40,6 +40,7 @@ test('Profiles isolate setup and two active conversations across tabs', { tag: '
   await dialog.getByRole('textbox', { name: 'Profile name' }).fill('Research')
   await dialog.getByRole('button', { name: 'Save changes', exact: true }).click()
   await expect(dialog.locator('.profiles-list')).toContainText('Research')
+  await expect(dialog.getByRole('button', { name: /^(Archive|Restore)$/ })).toHaveCount(0)
   await dialog.getByRole('button', { name: 'Close', exact: true }).click()
   await expect(dialog).toBeHidden()
   await trigger.click()
@@ -62,10 +63,10 @@ test('Profiles isolate setup and two active conversations across tabs', { tag: '
   try {
     await Promise.all([call('',`/sessions/${session.id}/messages`,{content:'Answer from default'}),call(prefix,`/sessions/${other.id}/messages`,{content:'Answer from Research'})])
     await expect.poll(async () => [(await call('', '/status')).sessions.running,(await call(prefix, '/status')).sessions.running]).toEqual([1,1])
-    expect((await page.request.patch(`${vista.origin}/api/profiles/${id}`, {data:{archived:true}})).status()).toBe(409)
+    expect((await page.request.patch(`${vista.origin}/api/profiles/${id}`, {data:{archived:true}})).status()).toBe(400)
+    expect((await call(prefix, '/status')).sessions.running).toBe(1)
     expect((await page.request.get(`${vista.origin}${prefix}/api/sessions/${session.id}/checkpoint`)).status()).toBe(404)
     expect((await page.request.get(`${vista.origin}/api/sessions/${other.id}/checkpoint`)).status()).toBe(404)
-    expect((await page.request.patch(`${vista.origin}/api/profiles/default`, {data:{archived:true}})).status()).toBe(409)
   } finally { release() }
   await expect(second.locator('article.assistant').filter({ hasText: 'Answer from Research' })).toHaveCount(1)
   await expect.poll(async () => (await call(prefix,'/status')).sessions.running).toBe(0)
@@ -83,13 +84,63 @@ test('Profiles isolate setup and two active conversations across tabs', { tag: '
   } finally { releaseLast() }
   await expect.poll(async () => (await call('', '/status')).sessions.running + (await call(prefix, '/status')).sessions.running).toBe(0)
   await call('',`/profiles/${id}`,{name:'Writing'},'PATCH')
-  await call('',`/profiles/${id}`,{archived:true},'PATCH')
-  expect((await page.request.get(vista.origin+prefix+'/')).status()).toBe(410)
-  await call('',`/profiles/${id}`,{archived:false},'PATCH')
   await second.reload()
   await expect(second.locator('article.assistant').filter({ hasText: 'Answer from Research' })).toHaveCount(1)
   expect(page.url()).toBe(vista.origin + `/sessions/${session.id}`)
   await trigger.click()
   await picker.getByRole('link', { name: 'Writing', exact: true }).click()
   await expect(page).toHaveURL(vista.origin + prefix + '/')
+})
+
+
+test('Profile controls stay reachable on short screens and long names have room', { tag: '@responsive' }, async ({ page, vista }, info) => {
+  const post = (path: string, data: object) => vista.api(path, { method: 'POST', body: JSON.stringify(data) })
+  const longName = 'Research and long-term planning workspace'
+  const current = await post('/profiles', { name: longName })
+  for (let index = 1; index <= 8; index++) await post('/profiles', { name: `Workspace ${index}` })
+  const base = `/profiles/${current.id}`
+  if (info.project.name === 'desktop') {
+    await page.context().addCookies([{ url: vista.origin, name: 'vista-sidebar-width', value: '220' }])
+  }
+  // The old short-height override let these rows push the footer below the viewport.
+  for (let index = 1; index <= 5; index++) {
+    const response = await page.request.post(`${vista.origin}${base}/api/sessions`, { data: { title: `Fixture conversation ${index}` } })
+    expect(response.ok()).toBe(true)
+  }
+  await page.goto(vista.origin + base + '/')
+  if (info.project.name !== 'desktop') await page.getByRole('button', { name: 'Open sessions', exact: true }).click()
+  const sidebar = page.locator('#sessions-panel')
+  const trigger = sidebar.getByRole('button', { name: 'Profiles', exact: true })
+  await expect(trigger.locator('.profile-name')).toHaveText(longName)
+  await expect(sidebar.locator('.session-card')).toHaveCount(5)
+  await expect(trigger).toBeInViewport({ ratio: 1 })
+  await expect(sidebar.getByRole('button', { name: 'Settings', exact: true })).toBeInViewport({ ratio: 1 })
+  expect((await trigger.locator('.profile-name').boundingBox())!.width).toBeGreaterThanOrEqual(90)
+  if (info.project.name === 'mobile-landscape') {
+    const list = sidebar.locator('ul').first()
+    const before = (await trigger.boundingBox())!.y
+    expect(await list.evaluate(node => node.scrollHeight > node.clientHeight)).toBe(true)
+    await list.hover()
+    await page.mouse.wheel(0, 400)
+    await expect.poll(() => list.evaluate(node => node.scrollTop)).toBeGreaterThan(0)
+    expect((await trigger.boundingBox())!.y).toBeCloseTo(before, 0)
+  }
+  if (info.project.name === 'desktop') await trigger.click()
+  else await trigger.tap()
+  const picker = page.getByRole('dialog', { name: 'Profiles', exact: true })
+  await expect(picker.locator('.profile-current')).toContainText(longName)
+  await expect.poll(async () => {
+    const [popup, anchor] = await Promise.all([picker.boundingBox(), trigger.boundingBox()])
+    return !!popup && !!anchor && popup.y >= 0 && popup.y + popup.height <= anchor.y - 2
+  }, { message: 'The picker stays above its trigger without covering it' }).toBe(true)
+  await expect(picker.getByRole('button', { name: 'Manage profiles', exact: true })).toBeInViewport({ ratio: 1 })
+  const choices = picker.locator('.profile-choices')
+  const last = choices.getByRole('link', { name: 'Workspace 8', exact: true })
+  await expect(last).toBeVisible()
+  await last.scrollIntoViewIfNeeded()
+  await expect(last).toBeInViewport({ ratio: 1 })
+  await expect(picker.locator('.profile-current')).toBeInViewport({ ratio: 1 })
+  await expect(picker.getByRole('button', { name: 'Manage profiles', exact: true })).toBeInViewport({ ratio: 1 })
+  await page.keyboard.press('Escape')
+  await expect(picker).toBeHidden()
 })
