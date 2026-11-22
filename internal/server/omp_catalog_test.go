@@ -163,8 +163,75 @@ func TestOMPCatalogAPIUpdatesLiveModelsAndPersistsWithoutChangingConnections(t *
 	}
 }
 
+func TestOMPCatalogRetiresModelWithoutRetiringConnection(t *testing.T) {
+	for _, tc := range []struct{ provider, retired string }{
+		{"openrouter", "ai21/jamba-large-1.7"},
+		{"openai", "gpt-6-luna"},
+	} {
+		t.Run(tc.provider, func(t *testing.T) {
+			app := catalogUpdateTestApp(t)
+			original := provider.CurrentOMPCatalog()
+			source := strings.ReplaceAll(updatedCatalogSource, `"openai"`, `"`+tc.provider+`"`)
+			metadata := strings.ReplaceAll(updatedModelsDevSource, `"openai"`, `"`+tc.provider+`"`)
+			source = strings.ReplaceAll(source, "gpt-6-luna", tc.retired)
+			metadata = strings.ReplaceAll(metadata, "gpt-6-luna", tc.retired)
+			initial, err := provider.FetchModelCatalog(context.Background(), catalogTestClientWithModelsDev(source, metadata))
+			if err != nil {
+				t.Fatal(err)
+			}
+			initial.Activate()
+			raw := []byte(fmt.Sprintf(`{"default":"saved","models":[{"key":"saved","connectionId":"saved-connection","provider":"catalog","providerId":%q,"id":%q,"apiKey":"retained-test-key"}]}`, tc.provider, tc.retired))
+			if err := configstore.Write(app.configDir, configstore.Models, raw); err != nil {
+				t.Fatal(err)
+			}
+			app.ompCatalogClient = catalogTestClientWithModelsDev(strings.ReplaceAll(source, tc.retired, "replacement"), strings.ReplaceAll(metadata, tc.retired, "replacement"))
+			response := httptest.NewRecorder()
+			app.ompCatalog(response, httptest.NewRequest(http.MethodPost, "/api/model-catalog", nil))
+			if response.Code != 200 {
+				t.Fatalf("valid directory update rejected: %d %s", response.Code, response.Body)
+			}
+			original.Activate()
+			if err := provider.LoadOMPCatalog(app.configDir); err != nil {
+				t.Fatal(err)
+			}
+			reloaded, err := modelcatalog.Load(app.configDir)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, catalog := range []modelCatalog{app.modelsSnapshot(), reloaded} {
+				if _, _, err := catalog.ResolveEnabled("saved"); err == nil || catalog.Default != "saved" {
+					t.Fatal("retired choice remained executable or was silently changed")
+				}
+				found := false
+				for _, row := range catalog.Public() {
+					if row.ID == tc.retired {
+						t.Fatal("retired choice is still in the picker")
+					}
+					if row.ID == "vista-new-model" && row.ConnectionID == "saved-connection" {
+						model, _, err := catalog.ResolveEnabled(row.Key)
+						found = err == nil && model.APIKey == "retained-test-key"
+					}
+				}
+				if !found {
+					t.Fatal("remaining model lost its saved connection")
+				}
+			}
+			if err := app.changeProviderSettings(context.Background(), http.MethodPut, providerSettingsInput{Key: "saved", Name: "Renamed", Provider: "catalog", ProviderID: tc.provider}); err != nil {
+				t.Fatalf("old connection is no longer editable: %v", err)
+			}
+			if err := app.changeProviderSettings(context.Background(), http.MethodPost, providerSettingsInput{Provider: "catalog", ProviderID: "anthropic", APIKey: "separate-test-key"}); err != nil {
+				t.Fatalf("could not save a provider absent from the current inventory: %v", err)
+			}
+			saved, _, err := modelcatalog.Read(app.configDir)
+			if err != nil || saved.Default != "saved" || len(saved.Models) != 2 || saved.Models[0].ConnectionID != "saved-connection" || saved.Models[0].Name != "Renamed" || saved.Models[0].APIKey != "retained-test-key" || !saved.Models[1].ConnectionOnly() {
+				t.Fatalf("retained connection, retired selection or empty-inventory account was lost: %v", err)
+			}
+		})
+	}
+}
+
 func TestOMPCatalogFailurePreservesActiveDirectoryAndCache(t *testing.T) {
-	for _, failure := range []string{"download", "models-dev-download", "models-dev-compression", "models-dev-metadata", "invalid-metadata", "unsupported-omp-format", "legacy-omp-format", "missing-configured-model", "save"} {
+	for _, failure := range []string{"download", "models-dev-download", "models-dev-compression", "models-dev-metadata", "invalid-metadata", "unsupported-omp-format", "legacy-omp-format", "save"} {
 		t.Run(failure, func(t *testing.T) {
 			app := catalogUpdateTestApp(t)
 			original := provider.CurrentOMPCatalog()
@@ -197,8 +264,6 @@ func TestOMPCatalogFailurePreservesActiveDirectoryAndCache(t *testing.T) {
 					}
 					return &http.Response{StatusCode: status, Body: io.NopCloser(strings.NewReader("bad response"))}, nil
 				})}
-			case "missing-configured-model":
-				app.ompCatalogClient = catalogTestClientWithModelsDev(strings.ReplaceAll(updatedCatalogSource, "gpt-6-luna", "removed-model"), strings.ReplaceAll(updatedModelsDevSource, "gpt-6-luna", "removed-model"))
 			case "save":
 				if err := os.Remove(provider.OMPCatalogPath(app.configDir)); err != nil {
 					t.Fatal(err)

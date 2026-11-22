@@ -292,7 +292,9 @@ func TestCustomDiscoveryUsesSelectedFormatWithoutProbingInference(t *testing.T) 
 	}
 	saved := httptest.NewRecorder()
 	app.providerSettings(saved, httptest.NewRequest(http.MethodPost, "/api/provider-config", strings.NewReader(`{"provider":"openai-responses","providerId":"custom","credentialMode":"bearer","baseUrl":"`+base+`","apiKey":"private-key"}`)))
-	if saved.Code != http.StatusOK || app.modelsSnapshot().Models[0].Provider != "openai-responses" {
+	app.refreshCustomModels(context.Background())
+	models := app.modelsSnapshot().Public()
+	if saved.Code != http.StatusOK || len(models) != 1 || models[0].Provider != "openai-responses" {
 		t.Fatalf("selected format was not preserved: %d %s", saved.Code, saved.Body.String())
 	}
 }
@@ -682,7 +684,7 @@ func TestAnonymousCustomSettingsKeepHeadersPrivateAndDiscoverLiveModels(t *testi
 	if strings.Contains(string(public), "secret-value") || strings.Contains(string(public), "X-Access") {
 		t.Fatal("public models exposed headers")
 	}
-	input.Key = models.Default
+	input.Key = app.baseModels.Models[0].Key
 	input.Headers = map[string]string{"X-Access": ""}
 	input.Name = "Renamed"
 	if err := app.changeProviderSettings(context.Background(), http.MethodPut, input); err != nil {

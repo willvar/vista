@@ -95,6 +95,12 @@ func LookupCatalogProvider(id string) (CatalogProvider, error) {
 	return item, nil
 }
 
+// HasModel reports membership in this snapshot, without resolving a route.
+func (catalog *OMPCatalogSnapshot) HasModel(providerID, modelID string) bool {
+	_, ok := catalog.model(providerID, modelID)
+	return ok
+}
+
 func ResolveCatalogModel(providerID, modelID string) (CatalogProvider, error) {
 	return CurrentOMPCatalog().resolveModel(providerID, modelID)
 }

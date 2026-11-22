@@ -31,10 +31,14 @@ func TestModelSettingsRemotePreparationAllowsReadsAndRejectsStaleCommit(t *testi
 	var once sync.Once
 	defer once.Do(func() { close(release) })
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/health" {
+			w.WriteHeader(200)
+			return
+		}
 		if r.URL.Path == "/v1/models" {
 			close(entered)
 			<-release
-			_, _ = w.Write([]byte(`{"data":[{"id":"slow"}]}`))
+			_, _ = w.Write([]byte(`{"data":[{"id":"slow","owned_by":"vllm"}]}`))
 			return
 		}
 		w.WriteHeader(405)
@@ -43,7 +47,7 @@ func TestModelSettingsRemotePreparationAllowsReadsAndRejectsStaleCommit(t *testi
 	app := directoryTestApp(t)
 	slowDone := make(chan error, 1)
 	go func() {
-		slowDone <- app.changeProviderSettings(context.Background(), http.MethodPost, providerSettingsInput{Name: "Slow", Provider: "openai-chat", ProviderID: "custom", CredentialMode: "bearer", BaseURL: upstream.URL + "/v1", APIKey: "test-key"})
+		slowDone <- app.changeProviderSettings(context.Background(), http.MethodPost, providerSettingsInput{Name: "Slow", Provider: "catalog", ProviderID: "vllm", CredentialMode: "apiKey", BaseURL: upstream.URL + "/v1", APIKey: "test-key", IDs: []string{"slow"}})
 	}()
 	select {
 	case <-entered:
@@ -82,16 +86,16 @@ func TestModelSettingsRemotePreparationAllowsReadsAndRejectsStaleCommit(t *testi
 	}
 }
 
-func TestSettingsErrorsHaveStableRecoveryCodes(t *testing.T) {
+func TestDiscoveryErrorsHaveStableRecoveryCodes(t *testing.T) {
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(404) }))
 	defer upstream.Close()
 	app := directoryTestApp(t)
-	body, _ := json.Marshal(providerSettingsInput{Name: "Fixture", Provider: "openai-chat", ProviderID: "custom", CredentialMode: "bearer", BaseURL: upstream.URL + "/v1", APIKey: "sensitive-fixture"})
+	body, _ := json.Marshal(map[string]any{"provider": "openai-chat", "credentialMode": "bearer", "baseUrl": upstream.URL + "/v1", "apiKey": "sensitive-fixture"})
 	response := httptest.NewRecorder()
-	app.providerSettings(response, httptest.NewRequest(http.MethodPost, "/api/provider-config", strings.NewReader(string(body))))
+	app.discoverCustomModels(response, httptest.NewRequest(http.MethodPost, "/api/model-discovery", strings.NewReader(string(body))))
 	var detail modelcatalog.SettingsError
-	if err := json.Unmarshal(response.Body.Bytes(), &detail); err != nil || response.Code != 400 || detail.Code != "model_ids_required" || detail.Message == "" {
-		t.Fatalf("recovery response: %d %s", response.Code, response.Body)
+	if err := json.Unmarshal(response.Body.Bytes(), &detail); err != nil || response.Code != 502 || !strings.Contains(detail.Message, "HTTP 404") {
+		t.Fatalf("discovery response: %d %s", response.Code, response.Body)
 	}
 	if strings.Contains(response.Body.String(), "sensitive-fixture") {
 		t.Fatal("key leaked in error")

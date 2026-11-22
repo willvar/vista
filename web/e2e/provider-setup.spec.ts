@@ -317,91 +317,55 @@ test.describe('custom provider dialogs', () => {
   })
 })
 
-test('custom model entry appears only after discovery fails and retry returns to automatic discovery', async ({ page, vista }, testInfo) => {
-  let inventory: { id: string }[] | undefined
-  let holdDiscovery = false
+test('a custom connection saves before discovery and accepts explicit model IDs @responsive', async ({ page, vista }, testInfo) => {
+  let holdDiscovery = true
   let releaseDiscovery: (() => void) | undefined
   const upstream = createServer((request, response) => {
-    if (request.url === '/v1/chat/completions') { response.writeHead(405).end(); return }
-    if (request.url === '/v1/models') {
-      if (holdDiscovery) {
-        releaseDiscovery = () => { releaseDiscovery = undefined; response.writeHead(503).end() }
-        return
-      }
-      if (!inventory) { response.writeHead(503).end(); return }
-      response.writeHead(200, { 'Content-Type': 'application/json' }).end(JSON.stringify({ data: inventory }))
+    if (request.url !== '/v1/models') { response.writeHead(404).end(); return }
+    if (holdDiscovery && !releaseDiscovery) {
+      releaseDiscovery = () => { releaseDiscovery = undefined; response.writeHead(503).end() }
       return
     }
-    response.writeHead(404).end()
+    response.writeHead(503).end()
   })
   await new Promise<void>(resolve => upstream.listen(0, '127.0.0.1', resolve))
   try {
     const address = upstream.address()
     if (!address || typeof address === 'string') throw new Error('Missing custom test address')
     await page.goto(vista.origin + '/settings/models')
-    const modal = page.locator('.settings-page')
-    await modal.getByRole('button', { name: 'Connect provider', exact: true }).click()
+    const settings = page.locator('.settings-page')
+    await settings.getByRole('button', { name: 'Connect provider', exact: true }).click()
     const form = page.locator('.provider-connection-modal .model-form')
     const picker = form.locator('.provider-kind-select .ui-select')
     await picker.click()
     await picker.locator('input').fill('Custom provider')
     await page.getByRole('option', { name: 'Custom provider', exact: true }).click()
-    await form.getByLabel(/^Provider name/).fill('Discovery fallback')
+    await form.getByLabel(/^Provider name/).fill('Discovery pending')
     await form.getByLabel(/^Base URL/).fill(`http://127.0.0.1:${address.port}/v1`)
-    const apiKey = form.getByLabel(/^Provider API key/)
-    await apiKey.fill('first-test-key')
-    const fallback = form.locator('.model-discovery-fallback')
-    const connect = form.getByRole('button', { name: 'Connect provider', exact: true })
-    await expect(fallback).toHaveCount(0)
-    await connect.click()
-    await expect(form.getByRole('alert')).toHaveText('model list HTTP 503')
-    await expect(fallback).toBeVisible()
-    await expect(connect).toBeDisabled()
-    await fallback.scrollIntoViewIfNeeded()
-    await page.screenshot({ path: testInfo.outputPath('model-discovery-fallback.png'), animations: 'disabled' })
-
-    // A changed credential must get a fresh discovery attempt.
-    await apiKey.fill('second-test-key')
-    await expect(fallback).toHaveCount(0)
-    await expect(form.getByRole('alert')).toHaveCount(0)
-    holdDiscovery = true
-    await connect.click()
+    await form.getByLabel(/^Provider API key/).fill('fixture-key')
+    await form.getByRole('button', { name: 'Connect provider', exact: true }).click()
+    const connection = settings.locator('.configured-provider').filter({ hasText: 'Discovery pending' })
+    await expect(connection).toBeVisible()
+    await expect(form).toHaveCount(0)
     await expect.poll(() => !!releaseDiscovery).toBe(true)
-    await expect(apiKey).toBeDisabled()
-    await expect(form.getByRole('combobox', { name: 'Conversation API format', exact: true })).toBeDisabled()
-    await expect(form.getByRole('combobox', { name: 'Authentication', exact: true })).toBeDisabled()
-    const failedDiscovery = page.waitForResponse(response => response.request().method() === 'POST' && new URL(response.url()).pathname === '/api/provider-config')
-    releaseDiscovery!()
-    await failedDiscovery
-    await expect(form.getByRole('alert')).toHaveText('model list HTTP 503')
-    await apiKey.fill('current-test-key')
-    await form.locator('[data-field-path=apiFormat] .ui-select').click()
-    await page.locator('.ui-select-dropdown:visible .ui-select-item-option').filter({ hasText: /^OpenAI Responses$/ }).click()
-    await form.locator('[data-field-path=credentialMode] .ui-select').click()
-    await page.locator('.ui-select-dropdown:visible .ui-select-item-option').filter({ hasText: /^x-api-key$/ }).click()
-    await expect(connect).toBeEnabled()
-    await expect(fallback).toHaveCount(0)
-    await expect(form.getByRole('alert')).toHaveCount(0)
+    const stored = (await vista.api('/model-config')).models.find((model: { name: string }) => model.name === 'Discovery pending')
+    expect(stored).toMatchObject({ id: '', hasApiKey: true })
+    expect(stored.connectionId).toBeTruthy()
+    expect((await vista.api('/models')).models.some((model: { connectionId: string }) => model.connectionId === stored.connectionId)).toBe(false)
+
     holdDiscovery = false
-    inventory = []
-    await connect.click()
-    await expect(form.getByRole('alert')).toHaveText('provider returned an empty model list')
-    const modelIDs = fallback.locator('.ui-select input')
+    releaseDiscovery?.()
+    await connection.getByRole('button', { name: 'Edit', exact: true }).click()
+    await form.getByRole('button', { name: 'Enter model IDs manually', exact: true }).click()
+    const modelIDs = form.locator('.model-list-field input')
     await modelIDs.fill('manually-entered-model')
     await modelIDs.press('Enter')
     await modelIDs.press('Escape')
-
-    inventory = [{ id: 'automatically-discovered-model' }]
-    const submitted = page.waitForRequest(request => request.method() === 'POST' && new URL(request.url()).pathname === '/api/provider-config')
-    await fallback.getByRole('button', { name: 'Retry model discovery', exact: true }).click()
-    expect((await submitted).postDataJSON()).toMatchObject({ provider: 'openai-responses', providerId: 'custom', credentialMode: 'x-api-key', ids: [], apiKey: 'current-test-key' })
-    const connection = modal.locator('.configured-provider').filter({ hasText: 'Discovery fallback' })
-    await expect(connection).toBeVisible()
-    expect((await vista.api('/model-config')).models.find((model: { name: string }) => model.name === 'Discovery fallback'))
-      .toMatchObject({ id: 'automatically-discovered-model' })
-    await connection.getByRole('button', { name: 'Edit', exact: true }).click()
-    await expect(fallback).toHaveCount(0)
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(testInfo.project.use.viewport!.width + 2)
+    await form.getByRole('button', { name: 'Save changes', exact: true }).click()
+    await expect(form).toHaveCount(0)
+    const selected = (await vista.api('/model-config')).models.find((model: { connectionId: string }) => model.connectionId === stored.connectionId)
+    expect(selected).toMatchObject({ id: 'manually-entered-model', connectionId: stored.connectionId, hasApiKey: true })
   } finally {
     releaseDiscovery?.()
     await new Promise<void>((resolve, reject) => upstream.close(error => error ? reject(error) : resolve()))
@@ -511,7 +475,8 @@ test('Azure deployment and local services use their own connection fields', asyn
     await form.getByRole('button', { name: 'Connect provider', exact: true }).click()
     await expect(modal.locator('.configured-provider').filter({ hasText: 'vLLM' })).toBeVisible()
     const local = (await vista.api('/model-config')).models.find((item: { providerId: string }) => item.providerId === 'vllm')
-    expect(local).toMatchObject({ id: 'local-model', hasApiKey: false, credentialMode: 'default', editable: true })
+    expect(local).toMatchObject({ id: '', hasApiKey: false, credentialMode: 'default', editable: true })
+    await expect.poll(async () => (await vista.api('/models')).models.some((item: { connectionId: string; id: string }) => item.connectionId === local.connectionId && item.id === 'local-model')).toBe(true)
     await page.reload()
     await expect(modal.locator('.configured-provider').filter({ hasText: 'vLLM' })).toBeVisible()
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(testInfo.project.use.viewport!.width + 2)
@@ -667,8 +632,9 @@ test('custom connection supports anonymous access and advanced headers through s
     const connection = modal.locator('.configured-provider').filter({ hasText: '127.0.0.1' }).last()
     await expect(form).toHaveCount(0)
     const settings = await vista.api('/model-config')
-    const model = settings.models.find((item: { id: string }) => item.id === 'anonymous-test-model')
-    expect(model).toMatchObject({ name: '127.0.0.1', provider: 'openai-chat', providerId: 'custom', credentialMode: 'none', hasApiKey: false, headerNames: ['X-Access'] })
+    const model = settings.models.find((item: { headerNames?: string[] }) => item.headerNames?.includes('X-Access'))
+    expect(model).toMatchObject({ id: '', name: '127.0.0.1', provider: 'openai-chat', providerId: 'custom', credentialMode: 'none', hasApiKey: false, headerNames: ['X-Access'] })
+    await expect.poll(async () => (await vista.api('/models')).models.some((item: { connectionId: string; id: string }) => item.connectionId === model.connectionId && item.id === 'anonymous-test-model')).toBe(true)
     expect(JSON.stringify(settings)).not.toContain('private-header-value')
     await connection.getByRole('button', { name: 'Edit', exact: true }).click()
     await expect(auth).toContainText('No authentication')

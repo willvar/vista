@@ -87,7 +87,11 @@ func setupFor(id string) (ProviderSetup, bool) {
 }
 
 func supportedSetup(id string) bool {
-	return id == "custom" || LocalProvider(id) || len(provider.CatalogTextModelIDs(id)) > 0
+	if id == "custom" || LocalProvider(id) {
+		return true
+	}
+	_, err := provider.LookupCatalogProvider(id)
+	return err == nil
 }
 
 func LocalProvider(id string) bool {

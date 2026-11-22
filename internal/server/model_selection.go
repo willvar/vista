@@ -104,6 +104,9 @@ func configuredChatKey(catalog modelCatalog, showUnrecognized bool) string {
 }
 
 func initialVisibleModelKey(catalog modelCatalog, showUnrecognized bool) string {
+	if catalog.DefaultMissing() {
+		return ""
+	}
 	first := ""
 	for _, model := range catalog.Models {
 		if !model.Available() || !showUnrecognized && !model.Recognized() {

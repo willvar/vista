@@ -458,7 +458,7 @@ export function useProviderSettings({ client, error, stateSync, modelCatalog }: 
   function editProvider(model: ModelSetting) {
     clearCustomModels()
     modelDraft.value = { ...emptyDraft(), promptCaching: JSON.parse(JSON.stringify(model.promptCaching || {})) as PromptCaching, proxyId: model.proxyId || '', key: model.key, kind: model.kind || '', apiFormat: model.provider, headers: (model.headerNames || []).map(name => ({ name, value: '' })), copilotAuth: { enterpriseUrl: model.copilotAuth?.enterpriseUrl || '', clientId: model.copilotAuth?.clientId || '' }, name: model.name || '', providerId: model.providerId || '', baseUrl: model.baseUrl || '', credentialMode: model.credentialMode || 'apiKey', region: model.region || '', project: model.project || '', location: model.location || '', resourceName: model.resourceName || '', deploymentId: model.deploymentId || '', apiVersion: model.apiVersion || '' }
-    chosenModels.value = settings.value.models.filter(item => model.connectionId ? item.connectionId === model.connectionId : item.key === model.key).map(item => item.id)
+    chosenModels.value = settings.value.models.filter(item => model.connectionId ? item.connectionId === model.connectionId : item.key === model.key).map(item => item.id).filter(Boolean)
     settingsError.value = ''
     resetModelConfigEditor()
     showModelForm()
@@ -516,15 +516,8 @@ export function useProviderSettings({ client, error, stateSync, modelCatalog }: 
     } catch (e) {
       if (revision !== draftRevision) return
       settingsError.value = e instanceof Error ? e.message : String(e)
-      if (e instanceof VistaAPIError && e.code === 'model_ids_required') manualModelIDs.value = true
     }
     finally { if (connectionRequest === request) connectionRequest = undefined; settingsBusy.value = false }
-  }
-  async function retryModelDiscovery() {
-    if (settingsBusy.value || !modelConfigValid.value || modelDraft.value.kind !== 'custom') return
-    manualModelIDs.value = false
-    chosenModels.value = []
-    await saveProvider()
   }
   async function providerConnected() {
     cancelModelForm()
@@ -577,8 +570,8 @@ export function useProviderSettings({ client, error, stateSync, modelCatalog }: 
     selectedSetup, deploymentModelSelection, providerModelOptions, usesAPIKey, authenticationHeader,
     modelConfig, modelConfigSchema, modelConfigUISchema, modelConfigValid, modelConfigDirty, modelConfigResetKey, normalizeModelConfigDraft,
     modelCredentials, modelCredentialsSchema, modelCredentialsUISchema, modelCredentialsValid, showModelCredentials,
-    updateSelectedModels, changeProvider,
+    updateSelectedModels, changeProvider, clearCustomModels,
     startProviderConnection, cancelModelForm, loadModelSettings, editProvider, providerGroups,
-    saveProvider, retryModelDiscovery, providerConnected, setDefaultModel, setProviderEnabled, changingProvider, confirmDisconnectProvider, updateProviderDisconnect,
+    saveProvider, providerConnected, setDefaultModel, setProviderEnabled, changingProvider, confirmDisconnectProvider, updateProviderDisconnect,
   }
 }

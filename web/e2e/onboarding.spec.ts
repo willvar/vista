@@ -73,6 +73,8 @@ test('provider recovery follows error codes and keeps the draft through a settin
   await expect(format).toContainText('OpenAI Chat Completions')
   await expect(modelIDs).toHaveCount(0)
   await submit(failures[1]!.message)
+  await expect(modelIDs).toHaveCount(0)
+  await form.getByRole('button', { name: 'Enter model IDs manually', exact: true }).click()
   await expect(modelIDs).toBeVisible()
   await expect(connect).toBeDisabled()
   await modelIDs.locator('input').fill(vista.modelId)

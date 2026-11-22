@@ -130,8 +130,9 @@ const {
   modelCredentials, modelCredentialsSchema, modelCredentialsUISchema, modelCredentialsValid, showModelCredentials,
   updateSelectedModels, changeProvider,
   startProviderConnection, cancelModelForm, loadModelSettings, editProvider, providerGroups,
-  saveProvider, retryModelDiscovery, providerConnected, setDefaultModel, setProviderEnabled, changingProvider, confirmDisconnectProvider, updateProviderDisconnect,
+  saveProvider, clearCustomModels, providerConnected, setDefaultModel, setProviderEnabled, changingProvider, confirmDisconnectProvider, updateProviderDisconnect,
 } = useProviderSettings(workspace)
+const missingDefaultModel = computed(() => !!settings.value.default && !modelCatalog.value.models.some(model => model.key === settings.value.default))
 const networkConfigData = useNetworkConfig(workspace, () => route.name === 'settings')
 const usageConnection = ref<{ key: string; name: string }>()
 const usageDays = ref(30)
@@ -331,6 +332,7 @@ watch(() => route.fullPath, () => {
               <label for="generation-chat-model">{{ t('generationChat') }}</label>
               <div class="chat-model-controls">
                 <v-select id="generation-chat-model" :value="modelCatalog.conversationDefault ?? modelCatalog.default" :options="defaultModelChoices" show-search option-filter-prop="searchText" option-label-prop="fullLabel" :placeholder="t('chooseModel')" :disabled="settingsBusy || !defaultModelChoices.length" @update:value="setDefaultModel(String($event))" />
+                <p v-if="missingDefaultModel" class="provider-help" role="status">{{ t('modelUnavailable') }} · {{ t('chooseModel') }}</p>
                 <div class="model-visibility-setting general-setting">
                   <div>
                     <label for="show-unrecognized-models">{{ t('showUnrecognizedModels') }}</label>
@@ -459,9 +461,10 @@ watch(() => route.fullPath, () => {
       <SchemaForm v-if="showModelCredentials" id="model-credentials" class="provider-public-config" v-model="modelCredentials" :schema="modelCredentialsSchema" :uischema="modelCredentialsUISchema"
         :disabled="settingsBusy || loginBusy" :reset-key="`${modelConfigResetKey}:${modelDraft.credentialMode}`" @validity="modelCredentialsValid = $event" @dirty="providerCredentialDirty = $event" />
       <label v-if="deploymentModelSelection" class="catalog-model-field">{{ t('model') }}<v-select :value="chosenModels[0]" :options="providerModelOptions" show-search option-filter-prop="searchText" allow-clear :placeholder="t('chooseModel')" @update:value="updateSelectedModels($event ? [String($event)] : [])" /></label>
+      <v-button v-if="modelDraft.kind === 'custom' && !manualModelIDs" type="button" variant="link" :disabled="settingsBusy" @click="manualModelIDs = true">{{ t('manualModelIds') }}</v-button>
       <div v-if="manualModelIDs && modelDraft.kind === 'custom'" class="model-discovery-fallback">
-        <p class="provider-help">{{ t('providerModelsUnavailable') }}<v-button variant="link" :disabled="settingsBusy || !modelConfigValid" @click="retryModelDiscovery">{{ t('retryModelDiscovery') }}</v-button></p>
         <label class="model-list-field">{{ t('manualModelIds') }}<v-select :value="chosenModels" :options="chosenModels.map(id => ({ label: modelNameById(id), searchText: `${id} ${modelNameById(id)}`, value: id }))" mode="tags" show-search option-filter-prop="searchText" allow-clear :placeholder="t('selectOrTypeModel')" :disabled="settingsBusy" @update:value="updateSelectedModels(Array.isArray($event) ? $event.map(String) : [])" /><small>{{ t('manualModelIdsHint') }}</small></label>
+        <v-button type="button" variant="link" :disabled="settingsBusy" @click="clearCustomModels">{{ t('autoMode') }}</v-button>
       </div>
       <small v-if="editingProvider && modelDraft.kind === 'custom'">{{ t('changeAddressHint') }}</small>
       <div class="actions"><v-button type="button" :disabled="settingsBusy" @click="closeProviderForm">{{ t('cancel') }}</v-button><v-button v-if="modelDraft.kind && (modelDraft.credentialMode !== 'oauth' || editingProvider)" type="submit" variant="primary" :loading="settingsBusy" :disabled="settingsBusy || loginBusy || !canSaveProvider || !providerProxyValid || !networkConfigData.value.value">{{ editingProvider ? t('saveChanges') : t('connectProvider') }}</v-button></div>

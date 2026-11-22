@@ -201,18 +201,18 @@ func TestCopilotSuccessfulInventoryRemovesMissingModelsOnlyForItsAccount(t *test
 	fail.Store(false)
 	app.refreshCopilotModels(context.Background())
 	got := app.modelsSnapshot()
-	if len(got.Models) != 4 || got.Default != "available" || got.Models[0].Key != "available" || got.Models[0].Provider != "openai-responses" || got.Models[1].Key != "other-account" || got.Models[2].Key != "other-endpoint" || got.Models[3].ID != "new-model" {
+	if len(got.Models) != 4 || got.Default != "missing" || got.Models[0].Key != "available" || got.Models[0].Provider != "openai-responses" || got.Models[1].Key != "other-account" || got.Models[2].Key != "other-endpoint" || got.Models[3].ID != "new-model" {
 		t.Fatalf("successful discovery did not filter the source account: %+v", got)
 	}
 	if _, _, err := got.ResolveForRun(context.Background(), "missing"); err == nil {
 		t.Fatal("missing source-account model is still runnable")
 	}
-	if selected, key, err := got.ResolveForRun(context.Background(), ""); err != nil || key != "available" || selected.Provider != "openai-responses" {
-		t.Fatalf("default model was not switched: key=%q, model=%+v, err=%v", key, selected, err)
+	if _, _, err := got.ResolveForRun(context.Background(), ""); err == nil {
+		t.Fatal("missing default silently switched to another model")
 	}
 	fail.Store(true)
 	app.refreshCopilotModels(context.Background())
-	if after := app.modelsSnapshot(); len(after.Models) != 4 || after.Default != "available" {
+	if after := app.modelsSnapshot(); len(after.Models) != 4 || after.Default != "missing" {
 		t.Fatalf("temporary failure discarded successful inventory: %+v", after)
 	}
 }
@@ -226,7 +226,7 @@ func TestCopilotEmptySuccessfulInventoryDoesNotRestorePinnedModels(t *testing.T)
 	app := &App{models: base, baseModels: base, localModels: map[string][]modelcatalog.InventoryModel{}, workers: map[string]*worker{}, started: time.Now()}
 	app.refreshCopilotModels(context.Background())
 	got := app.modelsSnapshot()
-	if len(got.Models) != 0 || got.Default != "" || len(got.Public()) != 0 {
+	if len(got.Models) != 0 || got.Default != "copilot" || len(got.Public()) != 0 {
 		t.Fatalf("empty successful inventory restored pinned model: %+v", got)
 	}
 	if _, _, err := got.ResolveForRun(context.Background(), ""); err == nil {

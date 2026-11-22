@@ -88,9 +88,14 @@ func TestCopilotBrowserLoginLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	model, _, err := loaded.Resolve(anchor.Key)
+	if !anchor.ConnectionOnly() || len(loaded.Public()) != 0 {
+		t.Fatal("reload published a model before discovering the account inventory")
+	}
+	app.refreshCopilotModels(context.Background())
+	view := app.modelsSnapshot()
+	model, _, err := view.Resolve(view.Default)
 	if err != nil || model.APIKey != "secret-oauth" || model.Provider != "openai-responses" {
-		t.Fatal("reloaded connection is not executable")
+		t.Fatal("account inventory did not restore an executable route")
 	}
 	w := httptest.NewRecorder()
 	app.modelSettings(w, httptest.NewRequest(http.MethodGet, "/api/model-config", nil))

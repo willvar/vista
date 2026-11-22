@@ -4,7 +4,7 @@
 
 ## Connections and discovery
 
-The WebUI connection list comes from [provider setups](../internal/modelcatalog/provider_setup.go). Built-in entries require usable catalog metadata. Common API-key providers load their catalog after connection rather than asking users to select model IDs in the form. Custom, Zen, Copilot, and local connections discover their available models. A catalog entry does not establish account entitlement.
+The WebUI connection list comes from [provider setups](../internal/modelcatalog/provider_setup.go). Built-in entries require an implemented route, not a current model. Most connections can be saved and edited without a model ID, including while their inventory is empty or unreachable. Custom, Zen, Copilot, and local connections discover models from their own service. Explicit model IDs and required deployment mappings remain supported. A catalog entry does not establish account entitlement.
 
 Connections have independent IDs. Credentials, discovery, editing, defaults, and disconnection are connection-scoped, even when URLs or model IDs match. Read APIs report credential presence rather than secret values.
 
@@ -150,7 +150,7 @@ Zen, custom, Copilot, and local discovery still decide account/service availabil
 
 Ordinary additions and small corrections can be accepted from one publisher. [Risky changes](../internal/provider/models_dev_reliability.go)—removals, API changes, capability/control losses, changed existing reasoning controls, large known-limit changes, and widespread edits—need confirmation of affected provider/model fields from another publisher. models.dev and models.opencode.ai count as one publisher; Stencil counts as another. Unrelated additions need not match. Unconfirmed changes retain the active catalog and identify conflicts; a mirror serving current content does not erase a known conflict. ETags and old-digest history persist with the catalog. A parser-schema upgrade bypasses old ETags and does not count newly retained control fields as widespread upstream edits.
 
-Both sources are staged and validated before atomic save to configuration-root `omp-models.json`. A failure in either source, connection validation, or saving keeps the current installation. Changed source content updates the reported update time; unchanged checks do not. Restart reloads the saved sources and rebuilds the merge. New runs use the update without a service restart.
+Both sources are staged and validated before atomic save to configuration-root `omp-models.json`. A failure in either source, connection validation, or saving keeps the current installation. Removing a model is not a connection error: the associated account remains, the model leaves the picker, and a saved selection is not replaced with a different model. Changed source content updates the reported update time; unchanged checks do not. Restart reloads the saved sources and rebuilds the merge. New runs use the update without a service restart.
 
 [Scheduling](../internal/server/model_catalog_updates.go) saves results, next check, and seven days of history separately in `model-catalog-status.json`. Successful checks schedule 24 hours plus up to 15 minutes of jitter; failures retry after six hours. Startup checks if due. Manual and automatic checks share a lock. `GET /api/model-catalog` reads status/history; `POST` starts a check. About Vista keeps the content-update time outside the history dialog and check/schedule details inside it.
 

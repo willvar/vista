@@ -2,7 +2,6 @@ package modelcatalog
 
 import (
 	"context"
-	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -151,7 +150,7 @@ func TestCustomAnonymousConnectionHeadersSaveEditAndReload(t *testing.T) {
 	}
 }
 
-func TestCustomDiscoveryRecoveryIncludesRestrictedModelLists(t *testing.T) {
+func TestCustomConnectionRemainsSavedWithUnavailableOrEmptyInventory(t *testing.T) {
 	for _, status := range []int{401, 403, 404, 503, 200} {
 		t.Run(http.StatusText(status), func(t *testing.T) {
 			upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -159,13 +158,18 @@ func TestCustomDiscoveryRecoveryIncludesRestrictedModelLists(t *testing.T) {
 				_, _ = w.Write([]byte(`{"data":[]}`))
 			}))
 			defer upstream.Close()
-			_, err := ChangeConnection(context.Background(), Catalog{}, false, http.MethodPost, ConnectionInput{Provider: "openai-chat", ProviderID: "custom", BaseURL: upstream.URL, CredentialMode: "none"})
-			var settings *SettingsError
-			if !errors.As(err, &settings) || settings.Code != "model_ids_required" {
-				t.Fatalf("no manual recovery: %v", err)
+			raw, err := ChangeConnection(context.Background(), Catalog{}, false, http.MethodPost, ConnectionInput{Provider: "openai-chat", ProviderID: "custom", BaseURL: upstream.URL, CredentialMode: "none"})
+			if err != nil || len(raw.Models) != 1 || !raw.Models[0].ConnectionOnly() || raw.Default != "" {
+				t.Fatalf("model discovery blocked saving a connection: %v", err)
 			}
-			if status != 200 && !strings.Contains(settings.Message, "HTTP") {
-				t.Fatalf("discovery failure lost its status: %v", err)
+			dir := t.TempDir()
+			_ = os.Chmod(dir, 0700)
+			if _, err := Save(dir, raw); err != nil {
+				t.Fatal(err)
+			}
+			loaded, err := Load(dir)
+			if err != nil || len(loaded.Public()) != 0 || !loaded.Models[0].ConnectionOnly() {
+				t.Fatalf("reload invented a model or lost the connection: %v", err)
 			}
 		})
 	}

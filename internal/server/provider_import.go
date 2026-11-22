@@ -92,6 +92,18 @@ func (a *App) importProviders(w http.ResponseWriter, r *http.Request) {
 			settingsHTTPError(w, fmt.Errorf("could not import %s: %w", entry.Name, err), http.StatusBadRequest)
 			return
 		}
+		if entry.Input.ProviderID == "custom" && len(entry.Input.IDs) == 0 {
+			source := raw.Models[len(raw.Models)-1]
+			models, err := modelcatalog.DiscoverModels(r.Context(), source)
+			if err != nil || len(models) == 0 {
+				message := "provider returned an empty model list"
+				if err != nil {
+					message = err.Error()
+				}
+				settingsHTTPError(w, modelcatalog.NewSettingsError("model_ids_required", fmt.Sprintf("could not import %s: %s", entry.Name, message), nil), http.StatusBadRequest)
+				return
+			}
+		}
 		if len(raw.Models) > 16 {
 			settingsHTTPError(w, errors.New("import exceeds the saved model limit; select fewer connections or models"), http.StatusBadRequest)
 			return

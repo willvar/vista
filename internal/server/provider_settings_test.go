@@ -89,7 +89,7 @@ func TestCatalogConnectionUsesAllModelsWithoutSetupSelection(t *testing.T) {
 		t.Fatal(err)
 	}
 	loaded, err := modelcatalog.Load(dir)
-	if err != nil || loaded.Default != chosen.Key || len(loaded.Models) != len(ids)*2 {
+	if err != nil || loaded.Default != chosen.Key || len(loaded.Public()) != len(ids)*2 {
 		t.Fatalf("reload lost the default or inventory: %v", err)
 	}
 	for _, model := range loaded.Models {
@@ -178,7 +178,7 @@ func TestProviderConnectionLifecycle(t *testing.T) {
 	if len(catalog.Models) != 2 {
 		t.Fatalf("expected automatic inventory, got %d models", len(catalog.Models))
 	}
-	anchor := catalog.Models[0].Key
+	anchor := app.baseModels.Models[0].Key
 	if catalog.Models[0].ConnectionID == "" {
 		t.Fatal("connection has no independent ID")
 	}
@@ -351,7 +351,11 @@ func TestZenAccountsStayIndependent(t *testing.T) {
 		}
 	}
 	app.refreshCustomModels(context.Background())
-	if models := app.modelsSnapshot().Models; len(models) != 4 || models[0].ConnectionID == models[1].ConnectionID {
+	counts := map[string]int{}
+	for _, view := range app.modelsSnapshot().Public() {
+		counts[view.ConnectionID]++
+	}
+	if len(counts) != 2 || counts[app.baseModels.Models[0].ConnectionID] != 2 || counts[app.baseModels.Models[1].ConnectionID] != 2 {
 		t.Fatal("Zen accounts or their models were merged")
 	}
 	first := app.baseModels.Models[0]

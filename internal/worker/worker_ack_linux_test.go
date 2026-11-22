@@ -125,7 +125,7 @@ func TestDiscoveredVLLMWaitsForToolAckAndContinues(t *testing.T) {
 		}
 		close(results)
 	}()
-	catalog, err := modelcatalog.ChangeConnection(context.Background(), modelcatalog.Catalog{}, false, http.MethodPost, modelcatalog.ConnectionInput{Provider: "catalog", ProviderID: "vllm", BaseURL: model.URL + "/v1", CredentialMode: "default"})
+	catalog, err := modelcatalog.ChangeConnection(context.Background(), modelcatalog.Catalog{}, false, http.MethodPost, modelcatalog.ConnectionInput{Provider: "catalog", ProviderID: "vllm", BaseURL: model.URL + "/v1", CredentialMode: "default", IDs: []string{"local-model"}})
 	if err != nil {
 		t.Fatal(err)
 	}

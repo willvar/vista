@@ -80,7 +80,7 @@ const consumers: [RegExp, string[]][] = [
   [/^internal\/store\/(?:restart|runtime_events|jobs|output_links|checklist)|^internal\/server\/(?:runtime_events|worker_lifecycle|memory_settings|execution)/, ['conversation', 'sessions', 'about']],
   [/^internal\/store\/compaction|^internal\/server\/(?:compaction|worker_results_context)/, ['conversation']],
   [/^internal\/store\/(?:display_messages|message_results|conversation_snapshot|records)|^internal\/server\/(?:events|compaction_messages|message_results)/, ['conversation', 'sessions', 'statistics']],
-  [/^internal\/provider\/(?:prompt_cache|cache_|bedrock_cache|codex_routing|request_state)|^internal\/modelcatalog\/|^internal\/server\/(?:model_settings|custom_models|local_models|model_directory|model_selection|model_credentials|provider_settings|processing_tiers|connection_statistics)/, ['models', 'conversation']],
+  [/^internal\/provider\/(?:prompt_cache|cache_|bedrock_cache|codex_routing|request_state|catalog(?:_credentials|_resolve)?\.go$)|^internal\/modelcatalog\/|^internal\/server\/(?:model_settings|custom_models|local_models|model_directory|model_selection|model_credentials|provider_settings|provider_import|processing_tiers|connection_statistics)/, ['models', 'conversation']],
   [/^web\/src\/(?:Provider|Model|DefaultModel|Reasoning|ConversationResponseOptions|ConnectionUsage)|^web\/src\/(?:state\/model|composables\/useProvider)|^internal\/(?:model|models|selection)\//, ['models', 'conversation']],
   [/^web\/src\/(?:AgentSettings|Delegation)|^internal\/(?:agentconfig)\//, ['personalization', 'conversation']],
   [/^web\/src\/(?:Skill)|^internal\/skill/, ['skills', 'conversation']],

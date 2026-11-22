@@ -119,12 +119,12 @@ func TestCodexLoginConnectReloadReauthenticateAndDisconnect(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(loaded.Models) != len(provider.CatalogTextModelIDs("openai-codex")) || len(loaded.Models) < 2 {
+	if len(loaded.Public()) != len(provider.CatalogTextModelIDs("openai-codex")) || len(loaded.Public()) < 2 || !anchor.ConnectionOnly() {
 		t.Fatal("Codex models not restored")
 	}
-	for _, configured := range loaded.Models {
+	for _, configured := range loaded.Public() {
 		model, _, err := loaded.Resolve(configured.Key)
-		if err != nil || model.CodexCredentialPath != path || model.ResponsesRoute != "codex" || model.Provider != "openai-responses" || model.APIKey != "" || len(configured.Info().ReasoningOptions) == 0 {
+		if err != nil || model.CodexCredentialPath != path || model.ResponsesRoute != "codex" || model.Provider != "openai-responses" || model.APIKey != "" || len(configured.ReasoningOptions) == 0 {
 			t.Fatalf("incorrect executable Codex model: %s %v", configured.ID, err)
 		}
 		if configured.ID == "gpt-image-2" {

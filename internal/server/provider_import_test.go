@@ -103,7 +103,7 @@ func TestProviderImportPreviewDoesNotWriteOrContactProvider(t *testing.T) {
 		t.Fatalf("import: %d %s", w.Code, w.Body)
 	}
 	raw, exists, err := modelcatalog.Read(app.configDir)
-	if err != nil || !exists || len(raw.Models) != 1 || raw.Models[0].ID != "discovered" || raw.Models[0].Headers["X-Import"] != "header-secret" || raw.Models[0].ConnectionID == "" {
+	if err != nil || !exists || len(raw.Models) != 1 || !raw.Models[0].ConnectionOnly() || raw.Models[0].Headers["X-Import"] != "header-secret" || raw.Models[0].ConnectionID == "" {
 		t.Fatal("discovered connection was not saved")
 	}
 }

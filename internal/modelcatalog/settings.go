@@ -234,12 +234,8 @@ func SameConnection(first, second Configured) bool {
 func Save(dir string, raw Catalog) (Catalog, error) {
 	raw.Models = slices.Clone(raw.Models)
 	raw.promoteLegacyGenerationConnections()
-	resolved := raw
-	resolved.Models = append([]Configured(nil), raw.Models...)
-	if err := ResolveCatalog(&resolved); err != nil {
-		return Catalog{}, err
-	}
-	if err := Validate(resolved); err != nil {
+	resolved, err := projectSavedCatalog(dir, raw, provider.CurrentOMPCatalog())
+	if err != nil {
 		return Catalog{}, err
 	}
 	data, err := json.Marshal(raw)
@@ -249,5 +245,5 @@ func Save(dir string, raw Catalog) (Catalog, error) {
 	if err := writeFile(dir, data); err != nil {
 		return Catalog{}, errors.New("could not save model settings")
 	}
-	return bindCodexCredentials(dir, expandConnectionInventories(raw, resolved)), nil
+	return resolved, nil
 }

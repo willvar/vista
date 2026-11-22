@@ -31,7 +31,7 @@ type Configured struct {
 	Name                string                  `json:"name,omitempty"`
 	Provider            string                  `json:"provider"`
 	ProviderID          string                  `json:"providerId,omitempty"`
-	ID                  string                  `json:"id"`
+	ID                  string                  `json:"id,omitempty"`
 	ResponsesRoute      modelcfg.ResponsesRoute `json:"responsesRoute,omitempty"`
 	BaseURL             string                  `json:"baseUrl,omitempty"`
 	Route               string                  `json:"route,omitempty"`
@@ -137,7 +137,7 @@ func Load(dir string) (Catalog, error) {
 	return LoadWithOMPCatalog(dir, provider.CurrentOMPCatalog())
 }
 
-// LoadWithOMPCatalog checks saved connections against a staged catalog update.
+// LoadWithOMPCatalog projects saved connections and model choices against a staged directory.
 func LoadWithOMPCatalog(dir string, snapshot *provider.OMPCatalogSnapshot) (Catalog, error) {
 	catalog, exists, err := Read(dir)
 	if err != nil {
@@ -146,15 +146,58 @@ func LoadWithOMPCatalog(dir string, snapshot *provider.OMPCatalogSnapshot) (Cata
 	if !exists {
 		return FromEnvironment()
 	}
-	raw := catalog
-	catalog.Models = append([]Configured(nil), raw.Models...)
-	if err := resolveWithOMPCatalog(&catalog, snapshot); err != nil {
+	return projectSavedCatalog(dir, catalog, snapshot)
+}
+
+const missingModelStatus = "unavailable"
+
+// ConnectionOnly identifies a durable connection with no model selection.
+// Legacy rows with an ID still retain their old model key and connection data.
+func (m Configured) ConnectionOnly() bool {
+	return m.Generation == nil && !m.generationOnly() && m.ID == "" && m.ConnectionID != ""
+}
+
+func (m Configured) ModelUnavailable() bool { return m.status == missingModelStatus }
+
+// DefaultMissing distinguishes an unavailable saved choice from no choice.
+func (c Catalog) DefaultMissing() bool {
+	if c.Default == "" {
+		return false
+	}
+	for _, model := range c.Models {
+		if model.Key == c.Default {
+			return model.ModelUnavailable()
+		}
+	}
+	return true
+}
+
+// Construct the executable inventory separately from the durable connection
+// data. A saved model reference can have no match; it is not a connection error.
+func projectSavedCatalog(dir string, raw Catalog, snapshot *provider.OMPCatalogSnapshot) (Catalog, error) {
+	resolved := raw
+	resolved.Models = slices.Clone(raw.Models)
+	for i := range resolved.Models {
+		item := &resolved.Models[i]
+		if item.Provider == "catalog" && item.ConnectionID != "" && item.ID != "" && (item.catalogInventoryReference() || !snapshot.HasModel(item.ProviderID, item.ID)) {
+			item.status = missingModelStatus
+		}
+		if item.Provider == "catalog" && (item.ConnectionOnly() || item.ModelUnavailable()) {
+			key, env, err := provider.ResolveCatalogConnectionCredentials(item.providerConfig())
+			if err != nil {
+				return Catalog{}, fmt.Errorf("provider connection %q: %w", item.Key, err)
+			}
+			item.APIKey = key
+			resolved.credentialEnv = append(resolved.credentialEnv, env...)
+		}
+	}
+	if err := resolveWithOMPCatalog(&resolved, snapshot); err != nil {
 		return Catalog{}, err
 	}
-	if err := Validate(catalog); err != nil {
+	if err := Validate(resolved); err != nil {
 		return Catalog{}, err
 	}
-	return bindCodexCredentials(dir, expandInventoriesWithOMPCatalog(raw, catalog, snapshot)), nil
+	return bindCodexCredentials(dir, expandInventoriesWithOMPCatalog(raw, resolved, snapshot)), nil
 }
 
 // Read leaves catalog routes and credentials in their original form,
@@ -192,7 +235,7 @@ func ResolveCatalog(catalog *Catalog) error {
 func resolveWithOMPCatalog(catalog *Catalog, snapshot *provider.OMPCatalogSnapshot) error {
 	for index := range catalog.Models {
 		item := &catalog.Models[index]
-		if item.Generation != nil || item.generationOnly() {
+		if item.Generation != nil || item.generationOnly() || item.ConnectionOnly() || item.ModelUnavailable() {
 			continue
 		}
 		resolved, err := snapshot.ResolveConfig(item.providerConfig())
@@ -293,7 +336,7 @@ func Validate(catalog Catalog) error {
 		if connections > 16 {
 			return errors.New("configure at most 16 models or media service connections")
 		}
-		if !item.generationOnly() {
+		if !item.generationOnly() && !item.ConnectionOnly() {
 			chat[item.Key] = true
 		}
 		if item.CopilotAuth != nil {
@@ -310,7 +353,7 @@ func Validate(catalog Catalog) error {
 		if item.Key == "" || len(item.Key) > 64 || !ValidCustomProviderName(item.Name) || len(item.ProviderID) > 64 || len(item.ID) > 200 || len(item.BaseURL) > 2048 || len(item.InstanceURL) > 2048 || len(item.APIKey) > 4096 || len(item.AuthToken) > 4096 || item.Context < 0 || !item.ResponsesRoute.Valid() || seen[item.Key] {
 			return errors.New("model key or value exceeds limits or is duplicated")
 		}
-		if !item.generationOnly() {
+		if !item.generationOnly() && !item.ConnectionOnly() && !item.ModelUnavailable() {
 			if err := provider.ValidateCatalogOptions(item.providerConfig(), item.providerMetadata()); err != nil {
 				return err
 			}
@@ -329,6 +372,12 @@ func Validate(catalog Catalog) error {
 		if item.generationOnly() {
 			if err := validateGenerationOnlyConnection(item); err != nil {
 				return err
+			}
+			continue
+		}
+		if item.ConnectionOnly() || item.ModelUnavailable() {
+			if err := validateStandaloneConnection(item); err != nil {
+				return fmt.Errorf("provider connection %q: %w", item.Key, err)
 			}
 			continue
 		}
@@ -356,8 +405,40 @@ func Validate(catalog Catalog) error {
 		}
 
 	}
-	if !chat[catalog.Default] && (len(chat) != 0 || catalog.Default != "") {
+	if catalog.Default != "" && !chat[catalog.Default] {
 		return errors.New("default model key is not configured")
+	}
+	return nil
+}
+
+// Validate a standalone connection (or a legacy reference without metadata)
+// without leaning on any concrete model's protocol or route.
+func validateStandaloneConnection(item Configured) error {
+	switch {
+	case item.Provider == "catalog":
+		if item.ConnectionOnly() && (SetupID(item) == "" || item.ProviderID == "azure" || item.DeploymentID != "") {
+			return errors.New("provider requires an explicit model or deployment")
+		}
+		if item.BaseURL != "" && !ValidProviderBaseURL(item.BaseURL) {
+			return errors.New("invalid provider service address")
+		}
+		if item.Authentication != "" || len(item.Headers) != 0 {
+			return errors.New("explicit authentication and headers require a custom connection")
+		}
+	case item.ProviderID == "custom":
+		if !provider.IsCustomProtocol(item.Provider) || !ValidCustomProviderBaseURL(item.BaseURL) {
+			return errors.New("custom connection requires a supported API format and an HTTP or HTTPS service address")
+		}
+		if err := provider.ValidateCustomHeaders(item.Headers); err != nil {
+			return err
+		}
+		return provider.ValidateCustomAuthentication(item.Authentication, item.APIKey)
+	case LocalProvider(item.ProviderID) && item.Provider == "openai-chat":
+		if !ValidProviderBaseURL(item.BaseURL) {
+			return errors.New("local model base URL requires HTTPS or loopback HTTP")
+		}
+	default:
+		return errors.New("connection requires a supported provider")
 	}
 	return nil
 }
@@ -381,6 +462,9 @@ func (c Catalog) resolve(key string, allowDisabled bool) (modelcfg.Model, string
 	}
 	for _, item := range c.Models {
 		if item.Key == key {
+			if item.ModelUnavailable() {
+				return modelcfg.Model{}, "", fmt.Errorf("model %q is no longer available; choose another model", item.ID)
+			}
 			if !item.ChatEligible() {
 				return modelcfg.Model{}, "", errors.New("model cannot be used for conversation")
 			}
@@ -404,7 +488,7 @@ func (c Catalog) resolve(key string, allowDisabled bool) (modelcfg.Model, string
 func (c Catalog) Public() []Info {
 	result := make([]Info, 0, len(c.Models))
 	for _, item := range c.Models {
-		if item.Generation == nil && !item.generationOnly() {
+		if item.Generation == nil && !item.generationOnly() && !item.ConnectionOnly() && !item.ModelUnavailable() {
 			result = append(result, item.Info())
 		}
 	}
@@ -491,5 +575,5 @@ func (m Configured) Kind() string {
 }
 func (m Configured) ChatEligible() bool {
 	kind := m.Kind()
-	return m.Generation == nil && !m.generationOnly() && (kind == "" || kind == "chat") && (len(m.outputModalities) == 0 || slices.Contains(m.outputModalities, "text"))
+	return m.Generation == nil && !m.generationOnly() && !m.ConnectionOnly() && (kind == "" || kind == "chat") && (len(m.outputModalities) == 0 || slices.Contains(m.outputModalities, "text"))
 }

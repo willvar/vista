@@ -481,29 +481,29 @@ func TestConnectedModelInventoryReplacesSavedModelsAfterSuccessfulRefresh(t *tes
 			// Removing a saved model affects only that connection, including after restart.
 			ids["first-key"] = []string{newID}
 			app.refreshCustomModels(context.Background())
-			check(second.Key, second.Key, newKey)
+			check(first.Key, second.Key, newKey)
 			if _, _, err := app.modelsSnapshot().Resolve(first.Key); err == nil {
 				t.Fatal("removed model is still selectable")
 			}
 			app = &App{store: app.store, models: base, baseModels: base}
 			app.refreshCustomModels(context.Background())
-			check(second.Key, second.Key, newKey)
+			check(first.Key, second.Key, newKey)
 
 			// A failed source keeps its last inventory while another successfully becomes empty.
 			failed["first-key"] = true
 			ids["second-key"] = nil
 			app.refreshCustomModels(context.Background())
-			check(newKey, newKey)
+			check(first.Key, newKey)
 			failed["first-key"] = false
 			ids["first-key"] = nil
 			app.refreshCustomModels(context.Background())
-			check("")
+			check(first.Key)
 			if _, _, err := app.modelsSnapshot().Resolve(""); err == nil {
 				t.Fatal("empty inventory restored a runnable default")
 			}
 			failed["first-key"], failed["second-key"] = true, true
 			app.refreshCustomModels(context.Background())
-			check("")
+			check(first.Key)
 
 			// An unchanged saved key can be selected again if its model returns.
 			failed["first-key"] = false

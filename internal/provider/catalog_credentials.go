@@ -5,6 +5,28 @@ import (
 	"os"
 )
 
+// ResolveCatalogConnectionCredentials validates the provider's authentication
+// without requiring model metadata or choosing a model-specific endpoint.
+func ResolveCatalogConnectionCredentials(config CatalogConfig) (string, []string, error) {
+	entry, err := LookupCatalogProvider(config.ProviderID)
+	if err != nil {
+		return "", nil, err
+	}
+	state := catalogResolveState{config: config, entry: entry}
+	if err := resolveProviderCatalogCredential(&state); err != nil {
+		return "", nil, err
+	}
+	return state.config.APIKey, state.credentialEnv, nil
+}
+
+func resolveProviderCatalogCredential(state *catalogResolveState) error {
+	credential := catalogAdapterFor(state.config.ProviderID).resolveCredential
+	if credential == nil {
+		credential = resolveCatalogCredential
+	}
+	return credential(state)
+}
+
 func resolveCatalogCredential(state *catalogResolveState) error {
 	model := &state.config
 	if model.APIKey != "" {

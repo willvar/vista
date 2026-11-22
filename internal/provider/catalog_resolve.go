@@ -94,11 +94,7 @@ func (catalog *OMPCatalogSnapshot) resolveConfig(state *catalogResolveState) err
 			return err
 		}
 	}
-	credential := adapter.resolveCredential
-	if credential == nil {
-		credential = resolveCatalogCredential
-	}
-	if err := credential(state); err != nil {
+	if err := resolveProviderCatalogCredential(state); err != nil {
 		return err
 	}
 	if adapter.finishEndpoint != nil {

@@ -63,6 +63,9 @@ func (a *App) rebuildModelsLocked() bool {
 	seenKeys := make(map[string]bool, len(a.baseModels.Models))
 	seenModels := make(map[string]bool, len(a.baseModels.Models))
 	for _, model := range a.baseModels.Models {
+		if model.ConnectionOnly() {
+			continue
+		}
 		if model.ProviderID == "github-copilot" {
 			if inventory, ready := a.copilotInventories[modelcatalog.CopilotSourceID(model)]; ready {
 				if remote, ok := inventoryModel(inventory, model.ID); ok {
@@ -143,10 +146,9 @@ func (a *App) rebuildModelsLocked() bool {
 			seenModels[identity] = true
 		}
 	}
-	if !seenKeys[catalog.Default] {
-		catalog.Default = ""
+	if catalog.Default == "" {
 		for _, row := range catalog.Models {
-			if row.ChatEligible() {
+			if row.Available() {
 				catalog.Default = row.Key
 				break
 			}

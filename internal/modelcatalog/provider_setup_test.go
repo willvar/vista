@@ -12,13 +12,13 @@ import (
 	"vista/internal/provider"
 )
 
-func TestBuiltInSetupsRequireOMPModels(t *testing.T) {
+func TestBuiltInSetupsRequireImplementedRoutes(t *testing.T) {
 	for _, setup := range ProviderSetups() {
 		if setup.GenerationOnly || setup.ID == "custom" || LocalProvider(setup.ID) {
 			continue
 		}
-		if len(provider.CatalogTextModelIDs(setup.ID)) == 0 {
-			t.Fatalf("built-in provider has no OMP text models: %s", setup.ID)
+		if _, err := provider.LookupCatalogProvider(setup.ID); err != nil {
+			t.Fatalf("built-in provider has no implemented route: %s", setup.ID)
 		}
 	}
 	for _, id := range []string{"cohere", "alibaba", "alibaba-cn", "zhipuai", "siliconflow", "alibaba-coding-plan-cn"} {
@@ -72,7 +72,14 @@ func TestCatalogProviderSetupLifecycle(t *testing.T) {
 			if catalogInventorySetup(setup.ID) && (len(setup.Models) != 0 || len(resolved.Models) < 2) {
 				t.Fatal("provider still requires setup selection or did not expose its inventory")
 			}
-			model, _, err := resolved.Resolve(raw.Default)
+			key := raw.Default
+			if setup.ID != "azure" {
+				if !raw.Models[0].ConnectionOnly() || raw.Default != "" || len(resolved.Public()) == 0 {
+					t.Fatal("connection requires a concrete model or has no projected inventory")
+				}
+				key = resolved.Public()[0].Key
+			}
+			model, _, err := resolved.Resolve(key)
 			if err != nil || model.Provider == "catalog" {
 				t.Fatalf("route was not resolved: %s, %v", model.Provider, err)
 			}
@@ -92,7 +99,7 @@ func TestCatalogProviderSetupLifecycle(t *testing.T) {
 				t.Fatal(err)
 			}
 			loaded, err := Load(dir)
-			if err != nil || loaded.Default != anchor.Key || loaded.Models[0].Name != "Renamed" {
+			if err != nil || loaded.Default != raw.Default || loaded.Models[0].Name != "Renamed" {
 				t.Fatalf("reload lost the edit: %v", err)
 			}
 			if len(loaded.Models) != len(resolved.Models) {
@@ -138,19 +145,11 @@ func TestSetupCredentialsStayWithinDestinationAndMode(t *testing.T) {
 	}
 }
 
-func TestLocalSetupDiscoversWithoutAKey(t *testing.T) {
+func TestLocalSetupSavesWithoutDependingOnDiscovery(t *testing.T) {
+	var probes int
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Header.Get("Authorization") != "" {
-			t.Error("sent a credential for an unauthenticated endpoint")
-		}
-		switch r.URL.Path {
-		case "/health":
-			w.WriteHeader(http.StatusOK)
-		case "/v1/models":
-			_, _ = w.Write([]byte(`{"data":[{"id":"local-model","owned_by":"vllm","max_model_len":32768}]}`))
-		default:
-			http.NotFound(w, r)
-		}
+		probes++
+		w.WriteHeader(http.StatusServiceUnavailable)
 	}))
 	defer upstream.Close()
 	input := ConnectionInput{Provider: "catalog", ProviderID: "vllm", BaseURL: upstream.URL + "/v1", CredentialMode: "default"}
@@ -163,13 +162,9 @@ func TestLocalSetupDiscoversWithoutAKey(t *testing.T) {
 	if _, err := Save(dir, raw); err != nil {
 		t.Fatal(err)
 	}
-	model := raw.Models[0]
-	if model.ID != "local-model" || model.APIKey != "" || model.Tools != nil || !Editable(model) {
-		t.Fatalf("incorrect local connection: %+v", model)
-	}
-	input.Key, input.Name = model.Key, "Local inference"
-	if _, err := ChangeConnection(context.Background(), raw, true, http.MethodPut, input); err != nil {
-		t.Fatal(err)
+	loaded, err := Load(dir)
+	if err != nil || len(loaded.Models) != 1 || !loaded.Models[0].ConnectionOnly() || loaded.Models[0].APIKey != "" || len(loaded.Public()) != 0 || probes != 0 {
+		t.Fatalf("local connection depends on model discovery: %v", err)
 	}
 }
 
@@ -183,6 +178,7 @@ func TestCopilotSetupUsesAccountInventory(t *testing.T) {
 	}))
 	defer upstream.Close()
 	input := ConnectionInput{Provider: "catalog", ProviderID: "github-copilot", BaseURL: upstream.URL, APIKey: "copilot-token", PromptCaching: &modelcfg.PromptCaching{Format: "none"}}
+	input.IDs = []string{"new-copilot-model"}
 	raw, err := ChangeConnection(context.Background(), Catalog{}, false, http.MethodPost, input)
 	if err != nil {
 		t.Fatal(err)
@@ -256,6 +252,9 @@ func TestVertexSetupSelectsModelsCompatibleWithAuthentication(t *testing.T) {
 			}
 			protocols := map[string]bool{}
 			for _, entry := range catalog.Models {
+				if entry.ConnectionOnly() {
+					continue
+				}
 				model, _, err := catalog.Resolve(entry.Key)
 				if err != nil {
 					t.Fatal(err)
@@ -275,27 +274,38 @@ func TestVertexSetupSelectsModelsCompatibleWithAuthentication(t *testing.T) {
 	}
 }
 
-func TestVertexAuthenticationChangeReplacesIncompatibleAnchor(t *testing.T) {
-	input := ConnectionInput{Provider: "catalog", ProviderID: "google-vertex", CredentialMode: "default", Project: "project"}
-	raw, err := ChangeConnection(context.Background(), Catalog{}, false, http.MethodPost, input)
+func TestVertexAuthenticationChangeLeavesModelChoiceUnavailable(t *testing.T) {
+	ctx := context.Background()
+	input := ConnectionInput{Provider: "catalog", ProviderID: "google-vertex", Project: "test-project", Location: "us-central1", CredentialMode: "default"}
+	var claude string
+	for _, id := range provider.CatalogTextModelIDs(input.ProviderID) {
+		if strings.HasPrefix(id, "claude-") {
+			claude = id
+			break
+		}
+	}
+	if claude == "" {
+		t.Fatal("fixture lacks a Claude model")
+	}
+	input.IDs = []string{claude}
+	raw, err := ChangeConnection(ctx, Catalog{}, false, http.MethodPost, input)
 	if err != nil {
 		t.Fatal(err)
 	}
 	original := raw.Models[0]
-	if !strings.HasPrefix(original.ID, "claude-") {
-		t.Fatal("fixture should exercise a Claude anchor")
-	}
+	input.IDs = nil
 	input.Key, input.CredentialMode, input.APIKey = original.Key, "apiKey", "express-key"
-	updated, err := ChangeConnection(context.Background(), raw, true, http.MethodPut, input)
+	updated, err := ChangeConnection(ctx, raw, true, http.MethodPut, input)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(updated.Models) != 1 || !strings.HasPrefix(updated.Models[0].ID, "gemini-") || updated.Models[0].ConnectionID != original.ConnectionID || updated.Default != updated.Models[0].Key {
-		t.Fatal("auth mode change retained incompatible anchor or lost default connection")
-	}
 	dir := t.TempDir()
 	_ = os.Chmod(dir, 0700)
-	if _, err := Save(dir, updated); err != nil {
-		t.Fatal(err)
+	loaded, err := Save(dir, updated)
+	if err != nil || updated.Models[0].ConnectionID != original.ConnectionID || loaded.Default != original.Key || len(loaded.Public()) == 0 {
+		t.Fatalf("connection or saved choice lost: %v", err)
+	}
+	if _, _, err := loaded.ResolveEnabled(loaded.Default); err == nil {
+		t.Fatal("unsupported model still executable")
 	}
 }

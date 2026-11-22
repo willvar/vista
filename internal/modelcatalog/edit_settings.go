@@ -49,6 +49,16 @@ func NewSettingsError(code, message string, details map[string]any) *SettingsErr
 
 // SelectDefault also persists an anchor for models discovered after connecting.
 func SelectDefault(raw, live Catalog, key string) (Catalog, error) {
+	available := false
+	for _, model := range live.Models {
+		if model.Key == key && model.Available() {
+			available = true
+			break
+		}
+	}
+	if !available {
+		return Catalog{}, errors.New("choose an available conversation model")
+	}
 	for _, model := range raw.Models {
 		if model.Key == key {
 			if !model.ChatEligible() {
