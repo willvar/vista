@@ -8,6 +8,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/google/uuid"
 	"vista/internal/store"
 )
 
@@ -96,5 +98,43 @@ func TestRevertEndpointRetainsFileChangesAndRestoresDraftResourceBoundary(t *tes
 	images, err = a.store.SessionResources(ctx, result.Session.ID, "", 100)
 	if err != nil || len(images) != 0 {
 		t.Fatal("source attachments leaked into branch context", images, err)
+	}
+}
+
+func TestBranchPreferencePublishesWorkspaceSnapshot(t *testing.T) {
+	a, message := revertApp(t)
+	ctx := context.Background()
+	root, child := message.SessionID, uuid.NewString()
+	if err := a.store.SetOpen(ctx, root, true); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.store.Fork(ctx, root, child, message.ID); err != nil {
+		t.Fatal(err)
+	}
+	put := func(id string) int {
+		w := httptest.NewRecorder()
+		a.session(w, httptest.NewRequest(http.MethodPut, "/api/sessions/"+id+"/branch-preference", nil))
+		return w.Code
+	}
+	before := a.updates.snapshot()
+	if status := put(child); status != http.StatusNoContent {
+		t.Fatalf("save preference status: %d", status)
+	}
+	point, err := a.stateUpdateScoped(ctx, "", before, map[string]bool{"sessions": true})
+	if err != nil || point.Revisions["sessions"] != before.Revisions["sessions"]+1 || point.Sessions == nil ||
+		len(point.Sessions.Items) != 1 || point.Sessions.Items[0].BranchGroup == nil || point.Sessions.Items[0].BranchGroup.EntryID != child {
+		t.Fatalf("preference not published in list snapshot: %+v, %v", point, err)
+	}
+	if status := put(child); status != http.StatusNoContent || a.updates.snapshot().Revisions["sessions"] != point.Revisions["sessions"] {
+		t.Fatalf("identical write must be a no-op: %d", status)
+	}
+	if err := a.store.SetOpen(ctx, child, false); err != nil {
+		t.Fatal(err)
+	}
+	if status := put(child); status != http.StatusConflict {
+		t.Fatalf("closed branch write status: %d", status)
+	}
+	if status := put(uuid.NewString()); status != http.StatusNotFound {
+		t.Fatalf("unknown branch write status: %d", status)
 	}
 }

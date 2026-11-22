@@ -27,6 +27,10 @@ func (s *Store) initializeSchema() error {
    fork_message_id TEXT NOT NULL, fork_before INTEGER NOT NULL
   )`,
 		`CREATE INDEX IF NOT EXISTS branches_by_root ON conversation_branches(root_id)`,
+		`CREATE TABLE IF NOT EXISTS conversation_branch_preferences (
+ root_id TEXT PRIMARY KEY REFERENCES sessions(id) ON DELETE CASCADE,
+ branch_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE
+)`,
 		`CREATE TABLE IF NOT EXISTS runs (
    id TEXT PRIMARY KEY, session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
    provider_id TEXT NOT NULL DEFAULT '', model_id TEXT NOT NULL DEFAULT '', model_key TEXT NOT NULL DEFAULT '',

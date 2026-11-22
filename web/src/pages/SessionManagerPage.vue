@@ -15,7 +15,7 @@ import ListPagination from '../ListPagination.vue'
 import { useWorkspace } from '../composables/useWorkspace'
 import { usePagedList } from '../composables/usePagedList'
 import { formatDateTime } from '../ui/datetime.ts'
-import type { Session, SessionPage } from '@vista/client'
+import { sessionEntryId, type Session, type SessionPage } from '@vista/client'
 
 const router = useRouter()
 const { t, n, locale } = useI18n({ useScope: 'global' })
@@ -100,7 +100,7 @@ function changePage(current: number, size: number) {
 const selectedIDs = ref(new Set<string>())
 const selectedSessions = computed(() => managedSessions.value.filter(item => selectedIDs.value.has(item.id)))
 const selectedOpen = computed(() => selectedSessions.value.filter(item => item.open))
-const selectedClosed = computed(() => selectedSessions.value.filter(item => !item.open))
+const selectedClosed = computed(() => selectedSessions.value.filter(item => !sessionEntryId(item)))
 const allVisibleSelected = computed(() => managedSessions.value.length > 0 && selectedSessions.value.length === managedSessions.value.length)
 type BatchKind = 'open' | 'close' | 'delete'
 type BatchRequest = { kind: BatchKind; targets: Session[]; confirmation?: string }
@@ -145,7 +145,8 @@ function updateRenaming(id: string, editing: boolean) {
 async function enterSession(item: Session) {
   if (busy.value || selecting.value || renamingSessionID.value) return
   entryError.value = ''
-  if (item.open) return router.push(`/sessions/${item.id}`)
+  const entry = sessionEntryId(item)
+  if (entry) return router.push(`/sessions/${entry}`)
   busy.value = true
   enteringSessionID.value = item.id
   try {
@@ -328,8 +329,8 @@ function localTime(utc: string) {
               :disabled="busy || !!renamingSessionID" :loading="enteringSessionID === item.id" @click="enterSession(item)"><span class="session-name">{{ displaySessionTitle(item) }}</span></v-button>
             <strong v-else class="session-name" :title="displaySessionTitle(item)">{{ displaySessionTitle(item) }}</strong>
           </InlineSessionTitle>
-          <div class="managed-session-meta"><time :datetime="sortingByUpdate ? item.updatedAt ?? item.createdAt : item.createdAt">{{ localTime(sortingByUpdate ? item.updatedAt ?? item.createdAt : item.createdAt) }}</time><template v-if="!item.open"><span aria-hidden="true">·</span><span>{{ t('closed') }}</span></template></div>
-          <SessionIndicators :session="item" :worker-available="managedWorkerAvailable(item.id)" />
+          <div class="managed-session-meta"><time :datetime="sortingByUpdate ? item.updatedAt ?? item.createdAt : item.createdAt">{{ localTime(sortingByUpdate ? item.updatedAt ?? item.createdAt : item.createdAt) }}</time><template v-if="!sessionEntryId(item)"><span aria-hidden="true">·</span><span>{{ t('closed') }}</span></template></div>
+          <SessionIndicators :session="item" :worker-available="managedWorkerAvailable(item.id)" :links="!busy && !selecting && !renamingSessionID" @open="id => router.push(`/sessions/${id}`)" />
         </div>
         <div v-if="!selecting" class="managed-session-actions">
           <SessionPin :session="item" />

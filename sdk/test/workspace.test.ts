@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { createConversationState, reduceConversationEvent } from '../dist/state/conversation.js'
-import { compareSessionOrder, mergeSessionSnapshot, sessionHasUnread, sessionNeedsAttention, sessionSnapshotIsCurrent } from '../dist/state/workspace.js'
+import { compareSessionOrder, mergeSessionSnapshot, sessionEntryId, sessionHasUnread, sessionListActivity, sessionNeedsAttention, sessionSnapshotIsCurrent } from '../dist/state/workspace.js'
 import type { Session } from '../dist/types.js'
 
 const session: Session = { id: 'a', title: 'New session', modelKey: '', open: true, running: true, executing: false, createdAt: '' }
@@ -98,4 +98,18 @@ test('changing sessions or returning home rejects the prior refresh while new SS
   assert.equal(sessionSnapshotIsCurrent({ ...session, id: 'b' }, started), false)
   assert.equal(sessionSnapshotIsCurrent(null, started), false)
   assert.equal(sessionSnapshotIsCurrent({ ...session, executing: true, title: 'Streamed' }, started), true)
+})
+
+
+test('list activity uses the group projection without changing branch read cursors', () => {
+  const root: Session = { ...session, open: false, running: false, readSequence: 20, latestReplySequence: 20,
+    branchGroup: { entryId: 'b', executingId: 'c', runningId: 'c', awaitingId: 'b', unreadId: 'c' } }
+  assert.equal(sessionEntryId(root), 'b')
+  assert.equal(sessionEntryId({ ...root, branchGroup: undefined }), undefined)
+  assert.equal(sessionHasUnread(root), false)
+  assert.equal(sessionNeedsAttention(root), true)
+  assert.deepEqual(sessionListActivity(root), root.branchGroup)
+  const merged = mergeSessionSnapshot([root], { ...root, branchGroup: undefined, readSequence: 40 }, { sessionId: 'a', eventSequence: 30 }, 40)[0]!
+  assert.deepEqual(merged.branchGroup, root.branchGroup)
+  assert.equal(merged.readSequence, 40)
 })

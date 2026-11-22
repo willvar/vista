@@ -1,7 +1,7 @@
 import { computed, inject, nextTick, onMounted, onUnmounted, provide, ref, watch, type InjectionKey } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
-import { VistaAPIError, createWorkspaceSync, compareSessionOrder, mergeSessionSnapshot, sessionNeedsAttention } from '@vista/client'
+import { VistaAPIError, createWorkspaceSync, compareSessionOrder, mergeSessionSnapshot, sessionEntryId, sessionNeedsAttention } from '@vista/client'
 import type { StateTopic, StateConnection, WorkspaceSnapshots, ModelCatalog, ServerStatus, Session, SyncCheckpoint } from '@vista/client'
 import { createProfileClient } from '../client/profileScope'
 import { useConversation } from './useConversation'
@@ -34,7 +34,7 @@ function createWorkspace() {
   const modelCatalog = ref<ModelCatalog>({ default: '', models: [] })
   const serverStatus = ref<ServerStatus | null>(null)
   const mobileSessionsOpen = ref(false)
-  const openSessions = computed(() => sessions.value.filter(session => session.open).sort(compareSessionOrder))
+  const openSessions = computed(() => sessions.value.filter(sessionEntryId).sort(compareSessionOrder))
   const closedSessions = computed(() => serverStatus.value?.sessions.closed ?? 0)
   const totalSessions = computed(() => serverStatus.value?.sessions.total ?? sessions.value.length)
   const attentionCount = computed(() => openSessions.value.filter(session => sessionNeedsAttention(session,
@@ -98,7 +98,7 @@ function createWorkspace() {
               ?? (started?.sessionId === selected.value.id ? started.eventSequence : 0),
         } : null
         const list = mergeSessionSnapshot(snapshot, selected.value, boundary, Math.max(conversation.lastEvent.value, conversation.activeRunSequence.value))
-        sessions.value = list.filter(item => item.open)
+        sessions.value = list.filter(sessionEntryId)
         if (selected.value) {
           const current = list.find(item => item.id === selected.value?.id)
             ?? (point?.session.id === selected.value.id ? mergeSessionSnapshot([point.session], selected.value, boundary,

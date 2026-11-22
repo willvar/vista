@@ -4,7 +4,10 @@ export type QuestionAnswer = { questionId?: string; options: string[]; text?: st
 export type PendingReply = { runId: string; callId?: string; kind: 'question'; content: string; questions: QuestionPrompt[] }
 export type SessionActionPreview = { requestId: string; kind: 'close' | 'delete'; targets: { id: string; title: string }[] }
 
-export type Session = { id: string; title: string; modelKey: string; open: boolean; pinned?: boolean; running: boolean; executing: boolean; createdAt: string; updatedAt?: string; pendingReply?: PendingReply; inputQueuePaused?: boolean; readSequence?: number; latestReplySequence?: number; latestRunStatus?: string; pendingInputCount?: number; manualModelKey?: string; manualReasoningEffort?: string; processingTier?: string }
+export type SessionBranchGroup = {
+  entryId?: string; executingId?: string; runningId?: string; awaitingId?: string; unreadId?: string; pausedId?: string; failedId?: string
+}
+export type Session = { id: string; title: string; modelKey: string; open: boolean; pinned?: boolean; running: boolean; executing: boolean; createdAt: string; updatedAt?: string; pendingReply?: PendingReply; inputQueuePaused?: boolean; readSequence?: number; latestReplySequence?: number; latestRunStatus?: string; pendingInputCount?: number; manualModelKey?: string; manualReasoningEffort?: string; processingTier?: string; branchRootId?: string; branchGroup?: SessionBranchGroup }
 export type SessionListSnapshot = { items: Session[]; throughSequences: Record<string, number> }
 export type ModelInfo = { kind?: string; disabled?: boolean; proxyId?: string; key: string; connectionId?: string; name?: string; modelName?: string; recognized?: boolean; provider: string; providerId?: string; id: string; baseUrl?: string; tools?: boolean; context?: number; inputLimit?: number; outputLimit?: number; catalogReasoning?: boolean; status?: string; inputModalities?: string[]; outputModalities?: string[]; discoverySource?: string; processingTiers?: string[]; reasoningOptions?: string[]; reasoningEffort?: string }
 export type CopilotAuthOptions = { enterpriseUrl?: string; clientId?: string }

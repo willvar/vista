@@ -75,13 +75,24 @@ watch(() => selected.value?.id, (id, _, cleanup) => {
 }, { immediate: true })
 const branchNavigation = computed(() => branchNavigators(branches.value, selected.value?.id))
 const branchDestination = shallowRef<BranchTarget>()
-const branchSwitchBusy = computed(() => busy.value || !!editingMessage.value)
+const switchingBranch = ref(false)
+const branchSwitchBusy = computed(() => busy.value || !!editingMessage.value || switchingBranch.value)
 async function switchBranch(target: BranchTarget) {
-  if (branchSwitchBusy.value || selected.value?.id === target.id || !branches.value.some(branch => branch.id === target.id && branch.open)) return
-  branchDestination.value = target
-  const clear = () => { if (branchDestination.value === target) branchDestination.value = undefined }
-  try { if (await workspace.router.push(`/sessions/${target.id}`)) clear() }
-  catch { clear() }
+  const origin = selected.value?.id
+  if (!origin || branchSwitchBusy.value || origin === target.id || !branches.value.some(branch => branch.id === target.id && branch.open)) return
+  const path = route.fullPath
+  const current = () => selected.value?.id === origin && route.fullPath === path
+  switchingBranch.value = true
+  try {
+    await workspace.client.request(`/sessions/${target.id}/branch-preference`, { method: 'PUT' })
+    if (!current()) return
+    error.value = ''
+    branchDestination.value = target
+    if (await workspace.router.push(`/sessions/${target.id}`) && branchDestination.value === target) branchDestination.value = undefined
+  } catch (cause) {
+    if (branchDestination.value === target) branchDestination.value = undefined
+    if (current()) error.value = String(cause)
+  } finally { switchingBranch.value = false }
 }
 watch([() => selected.value?.id, () => route.params.id], ([id, routed]) => {
   const target = branchDestination.value

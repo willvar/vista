@@ -1,4 +1,4 @@
-import type { Session } from '../types.js'
+import type { Session, SessionBranchGroup } from '../types.js'
 
 export type SessionSnapshotBoundary = { sessionId: string; eventSequence: number }
 
@@ -10,10 +10,25 @@ export function sessionHasUnread(session: Session) {
   return (session.latestReplySequence || 0) > (session.readSequence || 0)
 }
 
+export function sessionEntryId(session: Session) {
+  return session.branchGroup?.entryId ?? (session.open ? session.id : undefined)
+}
+
+export function sessionListActivity(session: Session): SessionBranchGroup {
+  return session.branchGroup ?? {
+    entryId: sessionEntryId(session),
+    unreadId: sessionHasUnread(session) ? session.id : undefined,
+    awaitingId: session.pendingReply ? session.id : undefined,
+    pausedId: session.inputQueuePaused && (session.pendingInputCount || 0) > 0 ? session.id : undefined,
+    failedId: session.latestRunStatus === 'failed' ? session.id : undefined,
+    executingId: session.executing ? session.id : undefined,
+    runningId: session.running ? session.id : undefined,
+  }
+}
+
 export function sessionNeedsAttention(session: Session, workerAvailable?: boolean) {
-  return sessionHasUnread(session) || !!session.pendingReply
-    || !!session.inputQueuePaused && (session.pendingInputCount || 0) > 0
-    || session.open && workerAvailable === false
+  const activity = sessionListActivity(session)
+  return !!(activity.unreadId || activity.awaitingId || activity.pausedId || session.open && workerAvailable === false)
 }
 
 export function sessionSnapshotIsCurrent(selected: Session | null, started: SessionSnapshotBoundary | null) {

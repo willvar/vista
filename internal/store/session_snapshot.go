@@ -12,7 +12,7 @@ type SessionListSnapshot struct {
 func (s *Store) ListSnapshot(ctx context.Context, open ...bool) (SessionListSnapshot, error) {
 	var snapshot SessionListSnapshot
 	err := s.readView(ctx, func(view *Store) (err error) {
-		if snapshot.Items, err = view.List(ctx, open...); err != nil {
+		if snapshot.Items, err = view.list(ctx, open...); err != nil {
 			return err
 		}
 		snapshot.ThroughSequences = make(map[string]int64, len(snapshot.Items))

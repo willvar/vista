@@ -42,6 +42,9 @@ type Session struct {
 	LatestReplySequence int64  `json:"latestReplySequence"`
 	LatestRunStatus     string `json:"latestRunStatus"`
 	PendingInputCount   int    `json:"pendingInputCount"`
+
+	BranchRootID string              `json:"branchRootId,omitempty"`
+	BranchGroup  *SessionBranchGroup `json:"branchGroup,omitempty"` // List rows only.
 }
 
 type PendingReply struct {
@@ -282,12 +285,17 @@ func (s *Store) Rename(ctx context.Context, id, title string) error {
 // List optionally scopes summaries to open or closed conversations before the
 // limit is applied. An omitted filter preserves the administrative API's list.
 func (s *Store) List(ctx context.Context, open ...bool) ([]Session, error) {
+	var items []Session
+	err := s.readView(ctx, func(view *Store) (err error) {
+		items, err = view.list(ctx, open...)
+		return err
+	})
+	return items, err
+}
+
+func (s *Store) list(ctx context.Context, open ...bool) ([]Session, error) {
 	db := s.orm.WithContext(ctx)
-	query := db.Table("sessions").Where("NOT EXISTS(SELECT 1 FROM conversation_branches WHERE branch_id=sessions.id)")
-	if len(open) > 0 {
-		query = query.Where("sessions.is_open = ?", open[0])
-	}
-	return readSessions(db, query, 1000, 0, SessionCreatedNewest)
+	return readSessionGroups(db, sessionGroupQuery(db, open), 1000, 0, SessionCreatedNewest)
 }
 
 func (s *Store) RuntimeSessions(ctx context.Context) ([]Session, error) {
@@ -391,15 +399,22 @@ func deleteSessionRows(tx *gorm.DB, id string) error {
 	return nil
 }
 func (s *Store) Get(ctx context.Context, id string) (Session, error) {
-	var row sessionRow
-	err := s.orm.WithContext(ctx).Where("id = ?", id).Take(&row).Error
+	var row struct {
+		Session      sessionRow `gorm:"embedded"`
+		BranchRootID string
+	}
+	err := s.orm.WithContext(ctx).Table("sessions").Select(`sessions.*,
+ COALESCE((SELECT root_id FROM conversation_branches WHERE branch_id=sessions.id),'') AS branch_root_id`).
+		Where("sessions.id = ?", id).Take(&row).Error
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return Session{}, ErrNotFound
 		}
 		return Session{}, err
 	}
-	return sessionFromRow(row), nil
+	item := sessionFromRow(row.Session)
+	item.BranchRootID = row.BranchRootID
+	return item, nil
 }
 
 // Keep driver absence compatible while exposing a storage-level identity to

@@ -708,6 +708,23 @@ func (a *App) session(w http.ResponseWriter, r *http.Request) {
 		jsonOut(w, branches)
 		return
 	}
+	if len(bits) == 2 && bits[1] == "branch-preference" && r.Method == http.MethodPut {
+		changed, err := a.store.PreferBranch(r.Context(), item.ID)
+		switch {
+		case errors.Is(err, store.ErrClosed):
+			http.Error(w, "branch is closed", http.StatusConflict)
+		case errors.Is(err, store.ErrNotFound):
+			http.NotFound(w, r)
+		case err != nil:
+			http.Error(w, "could not save preferred branch", http.StatusInternalServerError)
+		default:
+			if changed {
+				a.updates.notify("sessions")
+			}
+			w.WriteHeader(http.StatusNoContent)
+		}
+		return
+	}
 	if len(bits) >= 3 && bits[1] == "inputs" {
 		a.inputQueue(w, r, item.ID, bits[2:])
 		return

@@ -38,7 +38,7 @@ export const responsiveGrep = new RegExp([
 
 const groups: Record<string, string[]> = {
   conversation: ['service-drafts', 'generation-tools', 'background-process', 'compaction', 'composer-sizing', 'conversation-sync', 'detached', 'empty-reply', 'execution-flow', 'failure-analysis', 'follow-up', 'images', 'interjection', 'iteration', 'layout', 'main-outputs', 'message-revert', 'model-diagnostics', 'model-retry', 'provider-output', 'question', 'quoted-reply', 'usage', 'worker-status'],
-  sessions: ['profiles', 'management-pagination', 'session-actions', 'agent-session-tools', 'session-batch', 'session-bulk', 'session-close', 'session-flow', 'session-manager', 'session-reminders', 'session-scope', 'state-sync'],
+  sessions: ['profiles', 'branch-workspace', 'management-pagination', 'session-actions', 'agent-session-tools', 'session-batch', 'session-bulk', 'session-close', 'session-flow', 'session-manager', 'session-reminders', 'session-scope', 'state-sync'],
   models: ['generation-tools', 'codex-login', 'model-catalog', 'model-names', 'model-visibility', 'onboarding', 'provider-errors', 'provider-import', 'provider-setup', 'selection-flow', 'selection-stats'],
   personalization: ['agent-settings', 'long-term-instructions', 'extension-import', 'settings-batch'],
   skills: ['skills-settings', 'extension-import', 'settings-batch'],
@@ -54,7 +54,7 @@ const groups: Record<string, string[]> = {
 const consumers: [RegExp, string[]][] = [
   [/^web\/src\/state\/clientRuntime\.ts$/, ['about']],
   [/^internal\/server\/profiles\.go$|^web\/src\/(?:ProfileMenu\.vue|client\/profileScope\.)/, ['sessions', 'models', 'about']],
-  [/^internal\/store\/(?:branches|branch_history)\.go$|^internal\/server\/revert\.go$|^web\/src\/state\/conversationBranches\.ts$/, ['conversation', 'sessions']],
+  [/^internal\/store\/(?:branches|branch_history|branch_workspace)\.go$|^internal\/server\/revert\.go$|^web\/src\/state\/conversationBranches\.ts$/, ['conversation', 'sessions']],
   [/^internal\/(?:store|server)\/drafts\.go$|^web\/src\/composables\/serviceDrafts\./, ['conversation', 'about']],
   [/^web\/src\/ContextCompaction\.vue$/, ['contextHeader']],
   [/^internal\/(?:generation\/|provider\/output_catalog|modelcatalog\/(?:generation|inventory|custom_model_metadata)|resources\/generated\.go|server\/generation_settings\.go)|^scripts\/onnx-decision\/|^web\/src\/(?:Generation|state\/generationCards)/, ['models', 'conversation']],
