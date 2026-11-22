@@ -176,6 +176,18 @@ func (s *Store) beginRun(ctx context.Context, sessionID, runID, messageID, conte
 		return Message{}, Event{}, err
 	}
 	defer tx.Rollback()
+	message, event, err := s.beginRunInTx(ctx, tx, sessionID, runID, messageID, content, images, reply, draft, modelKey...)
+	if err != nil {
+		return Message{}, Event{}, err
+	}
+	if err = tx.Commit().Error; err != nil {
+		return Message{}, Event{}, err
+	}
+	return message, event, nil
+}
+
+func (s *Store) beginRunInTx(ctx context.Context, tx *gorm.DB, sessionID, runID, messageID, content string, images []Image, reply *question.Reply, draft *DraftVersion, modelKey ...string) (Message, Event, error) {
+	var err error
 	var open int
 	var pendingKind, pendingRunID, pendingContent string
 	if err = tx.WithContext(ctx).Raw("SELECT is_open,pending_kind,pending_run_id,pending_content FROM sessions WHERE id=?", sessionID).Row().Scan(&open, &pendingKind, &pendingRunID, &pendingContent); err != nil {
@@ -252,7 +264,7 @@ func (s *Store) beginRun(ctx context.Context, sessionID, runID, messageID, conte
 	if err = consumeDraft(ctx, tx, draft); err != nil {
 		return Message{}, Event{}, err
 	}
-	if err = tx.Commit().Error; err != nil {
+	if err := rebindScheduleAnswer(tx, sessionID, pendingRunID, runID, time.Now().UnixMilli()); err != nil {
 		return Message{}, Event{}, err
 	}
 	return m, e, nil
@@ -429,6 +441,9 @@ func (s *Store) FinishRunWithPending(ctx context.Context, sessionID, runID, mess
 			return nil, err
 		}
 	}
+	if err := finishScheduledRun(ctx, tx, runID, status, pending != nil, unknown, time.Now().UnixMilli()); err != nil {
+		return nil, err
+	}
 	if err = tx.Commit().Error; err != nil {
 		return nil, err
 	}
@@ -540,6 +555,9 @@ func interruptRunning(ctx context.Context, tx *gorm.DB, sessionID string, reason
 			return nil, err
 		}
 		events = append(events, e)
+		if err := finishScheduledRun(ctx, tx, x.id, "interrupted", false, unknown, time.Now().UnixMilli()); err != nil {
+			return nil, err
+		}
 		if err := interruptRunInputs(ctx, tx, x.session, x.id, true); err != nil {
 			return nil, err
 		}

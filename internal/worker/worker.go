@@ -332,7 +332,13 @@ func Run() error {
 				return errors.New("worker received overlapping runs")
 			}
 		}
-		runCtx, cancel := context.WithCancel(sessionCtx)
+		var runCtx context.Context
+		var cancel context.CancelFunc
+		if command.DeadlineUnixMilli > 0 {
+			runCtx, cancel = context.WithDeadline(sessionCtx, time.UnixMilli(command.DeadlineUnixMilli))
+		} else {
+			runCtx, cancel = context.WithCancel(sessionCtx)
+		}
 		activeID = command.RunID
 		activeCancel = cancel
 		activeDone = make(chan struct{})
@@ -417,6 +423,9 @@ func Run() error {
 			if runCtx.Err() != nil {
 				result.Status = "interrupted"
 				result.Content = "Cancelled by user"
+				if errors.Is(runCtx.Err(), context.DeadlineExceeded) {
+					result.Content = "Execution reached its time limit"
+				}
 			}
 			if result.Status != "succeeded" {
 				result.Content = workerproto.TextPreview(result.Content, workerproto.MaxPromptBytes)

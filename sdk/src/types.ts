@@ -169,3 +169,34 @@ export type ModelDiagnosticRecord = ModelDiagnosticSummary & {
     timingsTruncated: boolean; eof: boolean; readError?: string; error?: string
   }[]
 }
+
+export type ScheduleRule = {
+  kind: 'once' | 'interval' | 'daily' | 'weekly'
+  timezone: string
+  at?: string
+  minutes?: number
+  time?: string
+  weekday?: number
+}
+export type ScheduleRun = {
+  id: string
+  sessionId?: string
+  manual: boolean
+  dueAt: number
+  startedAt?: number
+  finishedAt?: number
+  state: 'queued' | 'running' | 'waiting_reply' | 'succeeded' | 'failed' | 'interrupted' | 'cancelled' | 'missed'
+  reason?: string
+}
+export type ScheduleSummary = {
+  id: string
+  name: string
+  modelKey: string
+  rule: ScheduleRule
+  enabled: boolean
+  blocked?: string
+  revision: number
+  nextAt: number
+  latest?: ScheduleRun
+}
+export type ScheduleSnapshot = { items: ScheduleSummary[]; version: string }

@@ -10,6 +10,7 @@ import { installAssetRecovery, showBootFailure } from './asset-recovery'
 import './style.css'
 const SettingsPage = () => import('./pages/SettingsPage.vue')
 const SessionManagerPage = () => import('./pages/SessionManagerPage.vue')
+const SchedulesPage = () => import('./pages/SchedulesPage.vue')
 const router = createRouter({ history: createWebHistory(profileBase || '/'), routes: [
   { path: '/', name: 'home', component: ConversationPage },
   { path: '/settings', name: 'settings-index', components: { default: ConversationPage, overlay: SettingsPage }, meta: { workspaceOverlay: 'settings' } },
@@ -24,6 +25,7 @@ const router = createRouter({ history: createWebHistory(profileBase || '/'), rou
   { path: '/settings/mcp', name: 'settings-mcp', components: { default: ConversationPage, overlay: SettingsPage }, meta: { workspaceOverlay: 'settings' } },
   { path: '/settings/skills', name: 'settings-skills', components: { default: ConversationPage, overlay: SettingsPage }, meta: { workspaceOverlay: 'settings' } },
   { path: '/sessions', name: 'session-manager', components: { default: ConversationPage, overlay: SessionManagerPage }, meta: { workspaceOverlay: 'sessions' } },
+  { path: '/schedules', name: 'schedules', components: { default: ConversationPage, overlay: SchedulesPage }, meta: { workspaceOverlay: 'schedules' } },
   { path: '/sessions/:id', name: 'session', component: ConversationPage },
   { path: '/:pathMatch(.*)*', redirect: '/' },
 ] })

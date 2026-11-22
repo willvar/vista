@@ -429,3 +429,7 @@ Foreground `shell` returns short output in full and shares an 8 KiB source-byte 
 The omitted middle begins at `nextOffset` and ends at `tail.offset`; `read_tool_output` can retrieve it without rerunning the command.
 These source-bounded shell results bypass a second generic model preview, retaining the tail and byte-range metadata even for many short lines or JSON escapes.
 The UI separates the excerpts with an ellipsis, and exit status, cancellation, timeout and artifact retention keep their existing semantics.
+
+## Scheduled work
+
+`internal/server/schedules.go` drives Profile-scoped `schedules` and `schedule_runs`. A natural slot or manual request key is unique, and the normal message and Run are committed with the occurrence binding before Worker dispatch. The existing Run transactions record completion, interruption and a pending answer. Only started scheduled work is excluded from restart continuation; a queued occurrence retains its original grace deadline. Named Profile databases are probed read-only at startup so due work does not depend on visiting a page. `schedules` uses the shared state stream only while subscribed; prompts and paged run history are individual HTTP reads.

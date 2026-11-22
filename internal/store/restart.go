@@ -34,6 +34,7 @@ func prepareRestart(ctx context.Context, tx *gorm.DB) error {
 	}
 	rows, err := tx.WithContext(ctx).Raw(`SELECT r.id,r.session_id FROM runs r JOIN sessions s ON s.id=r.session_id
  WHERE r.status='running' AND s.is_open=1 AND s.pending_kind=''
+  AND NOT EXISTS(SELECT 1 FROM schedule_runs sr WHERE sr.run_id=r.id AND sr.state='running')
  AND NOT EXISTS(SELECT 1 FROM events e WHERE e.session_id=r.session_id AND e.kind='run_cancel_requested' AND json_extract(e.data,'$.runId')=r.id)
  AND NOT EXISTS(SELECT 1 FROM runtime_events e WHERE e.session_id=r.session_id AND e.event_id='restart/'||r.id)`).Rows()
 	if err != nil {

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onErrorCaptured, ref, watch } from 'vue'
 import { Empty as VEmpty, Button as VButton, Modal as VModal, Dropdown as VDropdown } from './ui'
-import { IconLayoutGrid, IconSettings, IconX, IconPlus, IconDots, IconLoader2 } from '@tabler/icons-vue'
+import { IconLayoutGrid, IconSettings, IconX, IconPlus, IconDots, IconLoader2, IconClock } from '@tabler/icons-vue'
 import { useI18n } from 'vue-i18n'
 import AppProvider from './AppProvider.vue'
 import AssetLoadNotice from './AssetLoadNotice.vue'
@@ -21,7 +21,7 @@ import type { Session } from '@vista/client'
 const { t } = useI18n({ useScope: 'global' })
 onErrorCaptured(error => { if (captureAssetError(error)) return false })
 const { route, conversation, router, error, busy, totalSessions, openSessions, selected, serverStatus, mobileSessionsOpen, settingsOpen,
-  stateConnection, stateSync, backToWorkspace, openSettings, openSessionManager, create, action, workerAvailable, displaySessionTitle,
+  stateConnection, stateSync, backToWorkspace, modalQuery, openSettings, openSessionManager, create, action, workerAvailable, displaySessionTitle,
   closeConfirmation, cancelSessionClose, confirmSessionClose } = provideWorkspace()
 const layout = ref<HTMLElement | null>(null)
 const { desktop, width: sidebarWidth, minimum, maximum, resize, finishResize, reset } = useSidebarWidth()
@@ -123,6 +123,10 @@ function isExecuting(item: Session) {
         <footer class="sessions-panel-footer">
           <nav class="sidebar-navigation" :aria-label="t('workspaceHeading')">
             <v-button variant="text" class="manage-sessions-link" @click="openSessionManager"><IconLayoutGrid aria-hidden="true" />{{ t('manageSessions') }}</v-button>
+            <v-button variant="text" class="schedule-link" :aria-label="t('scheduledTasks')" :title="t('scheduledTasks')"
+              @click="router.push({ path: '/schedules', query: modalQuery() })">
+              <IconClock aria-hidden="true" /><span>{{ t('scheduledTasks') }}</span>
+            </v-button>
             <div class="sidebar-profile-row">
               <ProfileMenu />
               <v-button variant="text" class="settings-trigger" :aria-label="t('settings')" :title="t('settings')" @click="settingsOpen ? backToWorkspace() : openSettings()"><IconSettings aria-hidden="true" /></v-button>
@@ -152,3 +156,12 @@ function isExecuting(item: Session) {
     @decision="conversation.decideSessionAction" />
   </AppProvider>
 </template>
+
+<style scoped>
+@media (max-width: 830px) and (max-height: 520px) {
+  .sidebar-navigation { grid-template-columns: minmax(0, 1fr) auto; }
+  .sidebar-profile-row { grid-column: 1 / -1; }
+  .sidebar-navigation .schedule-link { width: 44px; min-height: 44px; padding: 0; justify-content: center; }
+  .schedule-link span { display: none; }
+}
+</style>

@@ -31,6 +31,25 @@ func (s *Store) initializeSchema() error {
  root_id TEXT PRIMARY KEY REFERENCES sessions(id) ON DELETE CASCADE,
  branch_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE
 )`,
+		`CREATE TABLE IF NOT EXISTS schedules (
+   id TEXT PRIMARY KEY, name TEXT NOT NULL, prompt TEXT NOT NULL, model_key TEXT NOT NULL DEFAULT '',
+   rule TEXT NOT NULL, enabled INTEGER NOT NULL, blocked TEXT NOT NULL DEFAULT '',
+   revision INTEGER NOT NULL, next_at INTEGER NOT NULL, anchor_at INTEGER NOT NULL
+  )`,
+		`CREATE INDEX IF NOT EXISTS schedules_due ON schedules(next_at) WHERE enabled=1 AND next_at>0`,
+		`CREATE TABLE IF NOT EXISTS schedule_runs (
+   id TEXT PRIMARY KEY, schedule_id TEXT NOT NULL REFERENCES schedules(id) ON DELETE CASCADE,
+   session_id TEXT NOT NULL DEFAULT '', run_id TEXT NOT NULL DEFAULT '', slot TEXT NOT NULL,
+   manual INTEGER NOT NULL DEFAULT 0, due_at INTEGER NOT NULL, started_at INTEGER NOT NULL DEFAULT 0,
+   finished_at INTEGER NOT NULL DEFAULT 0, state TEXT NOT NULL, reason TEXT NOT NULL DEFAULT '',
+   stop_reason TEXT NOT NULL DEFAULT '', close_pending INTEGER NOT NULL DEFAULT 0, deadline_at INTEGER NOT NULL DEFAULT 0,
+   UNIQUE(schedule_id,slot)
+  )`,
+		`CREATE INDEX IF NOT EXISTS schedule_runs_by_plan ON schedule_runs(schedule_id)`,
+		`CREATE UNIQUE INDEX IF NOT EXISTS schedule_runs_active ON schedule_runs(schedule_id)
+   WHERE state IN ('queued','running','waiting_reply') OR close_pending=1`,
+		`CREATE INDEX IF NOT EXISTS schedule_runs_by_run ON schedule_runs(run_id)`,
+		`CREATE INDEX IF NOT EXISTS schedule_runs_by_session ON schedule_runs(session_id)`,
 		`CREATE TABLE IF NOT EXISTS runs (
    id TEXT PRIMARY KEY, session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
    provider_id TEXT NOT NULL DEFAULT '', model_id TEXT NOT NULL DEFAULT '', model_key TEXT NOT NULL DEFAULT '',

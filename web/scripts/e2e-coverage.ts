@@ -50,9 +50,11 @@ const groups: Record<string, string[]> = {
   statistics: ['statistics'],
   operationProgress: ['environment-check', 'resource-storage', 'session-batch', 'settings-batch'],
   contextHeader: ['resource-storage', 'settings-navigation'],
-  sidebar: ['profiles', 'drawer-swipe', 'sidebar-width', 'settings-navigation'],
+  schedules: ['schedules'],
+  sidebar: ['schedules', 'profiles', 'drawer-swipe', 'sidebar-width', 'settings-navigation'],
 }
 const consumers: [RegExp, string[]][] = [
+  [/^internal\/(?:schedule\/|(?:server|store)\/schedules\.go$)|^web\/src\/pages\/SchedulesPage\.vue$/, ['schedules']],
   [/^web\/src\/state\/clientRuntime\.ts$/, ['about']],
   [/^web\/src\/(?:App|ProfileMenu)\.vue$/, ['sidebar']],
   [/^internal\/server\/profiles\.go$|^web\/src\/(?:ProfileMenu\.vue|client\/profileScope\.)/, ['sessions', 'models', 'about']],

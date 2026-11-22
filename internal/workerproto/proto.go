@@ -12,6 +12,7 @@ const DefaultNetworkPreviewBytes = 50 << 10
 // Frames are newline-delimited JSON on a dedicated Worker stdin/stdout pipe.
 // Result frames have a byte limit; command fields are validated after decoding.
 type Command struct {
+	DeadlineUnixMilli   int64                       `json:"deadlineUnixMilli,omitempty"`
 	Generation          []modelcfg.GenerationTarget `json:"generation,omitempty"`
 	Network             network.Policy              `json:"network"`
 	RuntimeEvents       []RuntimeEvent              `json:"runtimeEvents,omitempty"`

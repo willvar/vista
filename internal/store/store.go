@@ -366,6 +366,9 @@ func (s *Store) SetOpen(ctx context.Context, id string, open bool) error {
 func setSessionOpen(tx *gorm.DB, id string, open bool) error {
 	value := 0
 	if open {
+		if err := checkScheduleClosing(tx, id); err != nil {
+			return err
+		}
 		value = 1
 	}
 	if err := sessionRowsAffected(tx.Model(&sessionRow{}).Where("id = ?", id).Updates(map[string]any{
@@ -374,6 +377,9 @@ func setSessionOpen(tx *gorm.DB, id string, open bool) error {
 		return err
 	}
 	if !open {
+		if err := closeScheduleQuestion(tx, id); err != nil {
+			return err
+		}
 		return tx.Exec(`UPDATE runtime_events SET status='suppressed' WHERE session_id=? AND status IN ('pending','restart')`, id).Error
 	}
 	return nil
