@@ -28,23 +28,29 @@ for (const kind of ['open', 'close', 'delete'] as const) {
       const alerts: string[] = []
       const ratios: number[] = []
       const closingButtons: string[] = []
-      let frame = 0
-      const sample = () => {
-        const track = document.querySelector('.ui-progress-bar')
-        const fill = track?.querySelector('.ui-progress-bar-fill')
-        if (track && fill && track.getBoundingClientRect().width) ratios.push(fill.getBoundingClientRect().width / track.getBoundingClientRect().width)
-        frame = requestAnimationFrame(sample)
-      }
-      frame = requestAnimationFrame(sample)
-      Object.assign(window, { batchClosingAlerts: alerts, batchProgressRatios: ratios, batchClosingButtons: closingButtons, stopBatchMotionObservation: () => cancelAnimationFrame(frame) })
-      new MutationObserver(() => {
+      const observer = new MutationObserver(mutations => {
+        if (mutations.some(mutation => mutation.attributeName === 'aria-valuenow')) {
+          const track = document.querySelector('.batch-operation-modal .ui-progress-bar')
+          const fill = track?.querySelector('.ui-progress-bar-fill')
+          const transition = fill?.getAnimations().find(animation => animation instanceof CSSTransition && animation.transitionProperty === 'width')
+          if (track && fill && transition) {
+            // Inspect a real rendered width at the midpoint; a busy runner can
+            // drop every intermediate frame of this short transition.
+            transition.pause()
+            transition.currentTime = Number(transition.effect!.getTiming().duration) / 2
+            ratios.push(fill.getBoundingClientRect().width / track.getBoundingClientRect().width)
+            transition.finish()
+          }
+        }
         for (const element of document.querySelectorAll('.batch-operation-modal .ui-alert-error')) {
           if (element.getClientRects().length) alerts.push(element.textContent || '')
         }
         for (const element of document.querySelectorAll('.batch-operation-modal .ui-modal-container[data-state="closed"]:has(.batch-operation-progress)')) {
           if (element.getClientRects().length) closingButtons.push(...[...element.querySelectorAll('button')].map(button => button.textContent || button.getAttribute('aria-label') || ''))
         }
-      }).observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['data-state'] })
+      })
+      observer.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['data-state', 'aria-valuenow'] })
+      Object.assign(window, { batchClosingAlerts: alerts, batchProgressRatios: ratios, batchClosingButtons: closingButtons, stopBatchMotionObservation: () => observer.disconnect() })
     })
     let pageReads = 0
     let streams = 0

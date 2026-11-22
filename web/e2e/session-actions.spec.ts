@@ -84,11 +84,13 @@ test('executing sessions show progress in the pin slot or before touch actions a
       await expect(trigger).toHaveCSS('opacity', '0')
       await expect(pin).toHaveCSS('opacity', '0')
     }
-    const beforeHover = await row.boundingBox()
     await page.screenshot({ path: info.outputPath('session-executing.png'), animations: 'disabled' })
     await page.emulateMedia({ reducedMotion: 'reduce' })
     await expect(loading.locator('.ui-icon-spin')).toHaveCSS('animation-name', 'none')
     await page.emulateMedia({ reducedMotion: 'no-preference' })
+    // In a short drawer, hover can scroll a clipped row into view.
+    await row.scrollIntoViewIfNeeded()
+    const beforeHover = await row.boundingBox()
     await row.hover()
     if (!isMobile) await expect(loading).toBeHidden()
     await expect(trigger).toHaveCSS('opacity', '1')
