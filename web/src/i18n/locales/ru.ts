@@ -4,7 +4,10 @@ import type en from './en.ts'
 export default {
   "profiles": "Профили",
   "currentProfile": "Текущий профиль",
-  "manageProfiles": "Управление профилями",
+  "profilePickerHint": "Беседы, подключения к моделям и настройки хранятся отдельно для каждого профиля. Для переключения не нужно входить заново.",
+  "profileLoadFailed": "Не удалось загрузить профили.",
+  "profileNameTooLong": "Имя слишком длинное. Сократите его и попробуйте снова.",
+  "profileSaveFailed": "Не удалось сохранить имя. Введённый текст остался в поле.",
   "defaultProfile": "Профиль по умолчанию",
   "profileNewTab": "Открыть в новой вкладке",
   "profileName": "Название профиля",

@@ -2,13 +2,16 @@
 import base from './zh-CN.ts'
 
 export default { ...base, ...{
-  "profiles": "檔案",
-  "currentProfile": "當前檔案",
-  "manageProfiles": "管理檔案",
-  "defaultProfile": "預設檔案",
+  "profiles": "使用者",
+  "currentProfile": "當前使用者",
+  "profilePickerHint": "不同使用者分別儲存會話、模型連線和設定，切換時無需重新登入。",
+  "profileLoadFailed": "無法載入使用者列表。",
+  "profileNameTooLong": "名稱太長，請縮短後重試。",
+  "profileSaveFailed": "儲存失敗，已保留輸入，請重試。",
+  "defaultProfile": "預設使用者",
   "profileNewTab": "在新標籤頁開啟",
-  "profileName": "檔案名稱",
-  "profileNew": "新建檔案",
+  "profileName": "使用者名稱稱",
+  "profileNew": "新建使用者",
   "conversationBranches": "會話分支",
   "previousBranch": "上一個分支",
   "nextBranch": "下一個分支",

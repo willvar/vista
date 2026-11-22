@@ -1,7 +1,10 @@
 export default {
   "profiles": "Profiles",
   "currentProfile": "Current profile",
-  "manageProfiles": "Manage profiles",
+  "profilePickerHint": "Profiles keep conversations, model connections, and settings separate. Switching does not require a separate sign-in.",
+  "profileLoadFailed": "Could not load profiles.",
+  "profileNameTooLong": "The name is too long. Shorten it and try again.",
+  "profileSaveFailed": "Could not save the name. Your input is still here.",
   "defaultProfile": "Default Profile",
   "profileNewTab": "Open in new tab",
   "profileName": "Profile name",

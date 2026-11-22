@@ -4,7 +4,10 @@ import type en from './en.ts'
 export default {
   "profiles": "プロファイル",
   "currentProfile": "現在のプロファイル",
-  "manageProfiles": "プロファイルを管理",
+  "profilePickerHint": "会話、モデル接続、設定はプロファイルごとに保存されます。切り替えに再ログインは不要です。",
+  "profileLoadFailed": "プロファイルを読み込めませんでした。",
+  "profileNameTooLong": "名前が長すぎます。短くしてからやり直してください。",
+  "profileSaveFailed": "名前を保存できませんでした。入力内容は残っています。",
   "defaultProfile": "既定のプロファイル",
   "profileNewTab": "新しいタブで開く",
   "profileName": "プロファイル名",

@@ -4,7 +4,10 @@ import { PopoverPositioner, PopoverTrigger, PopoverContent, PopoverRoot, type Po
 import type { CSSProperties } from 'vue'
 import { placement as position } from './placement'
 defineOptions({ inheritAttrs: false })
-const props = withDefaults(defineProps<{ open?: boolean; trigger?: string | string[]; placement?: string; positioning?: PopoverRootProps['positioning']; rootClass?: string; zIndex?: number; styles?: { root?: CSSProperties } }>(), { open: undefined, trigger: 'click', zIndex: 1500 })
+const props = withDefaults(defineProps<{
+  open?: boolean; trigger?: string | string[]; placement?: string; positioning?: PopoverRootProps['positioning']; rootClass?: string; zIndex?: number; styles?: { root?: CSSProperties }
+  closeOnEscape?: boolean; closeOnInteractOutside?: boolean
+}>(), { open: undefined, trigger: 'click', zIndex: 1500, closeOnEscape: true, closeOnInteractOutside: true })
 const emit = defineEmits<{ 'update:open': [open: boolean]; 'open-change': [open: boolean] }>()
 const inner = ref(false)
 const pinned = ref(false)
@@ -40,7 +43,8 @@ onBeforeUnmount(() => clearTimeout(timer))
 </script>
 
 <template>
-  <PopoverRoot :open="visible" :positioning="{ placement: position(placement), gutter: 8, overlap: true, ...positioning }" :auto-focus="false" :final-focus-el="finalFocus" lazy-mount unmount-on-exit @open-change="change($event.open)" @request-dismiss="requestDismiss">
+  <PopoverRoot :open="visible" :positioning="{ placement: position(placement), gutter: 8, overlap: true, ...positioning }"
+    :close-on-escape="closeOnEscape" :close-on-interact-outside="closeOnInteractOutside" :auto-focus="false" :final-focus-el="finalFocus" lazy-mount unmount-on-exit @open-change="change($event.open)" @request-dismiss="requestDismiss">
     <PopoverTrigger ref="triggerElement" as-child @mouseenter="enter" @mouseleave="leave" @click.capture="click"><slot /></PopoverTrigger>
     <Teleport to="body"><PopoverPositioner :style="{ zIndex }"><PopoverContent ref="contentElement" v-bind="$attrs" class="ui-popover" :class="rootClass" :style="styles?.root" @mouseenter="enter" @mouseleave="leave">
       <div class="ui-popover-inner"><slot name="content" /></div>

@@ -26,7 +26,7 @@ Use these principles when changing the product:
 
 ## Profiles
 
-Choose the current Profile below **Manage sessions** in the sidebar to switch to another Profile or open it in a new tab. Use **Manage profiles** in the switcher to create or rename Profiles. The tab’s address determines its Profile. Existing bookmarks and data stay in the default Profile.
+Choose the current Profile below **Manage sessions** in the sidebar to open the Profile switcher. Select a name to switch, or use its row actions to open in a new tab or rename it. Use **New Profile** at the bottom to add a Profile without leaving the current one. The tab’s address determines its Profile. Existing bookmarks and data stay in the default Profile.
 
 Profiles have separate conversations, model connections, proxy preferences, user skills, MCP configuration and resource libraries. They share the Vista service address and device capacity. Profiles are not a security boundary for tools that access the host filesystem.
 

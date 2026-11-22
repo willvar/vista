@@ -432,4 +432,4 @@ HTTP 默认监听所有 IPv4 网卡，应用不限制请求的 Host 或 Origin�
 
 ## 定时执行
 
-`internal/server/schedules.go` 驱动档案内的 `schedules` 和 `schedule_runs`。自然触发时刻或手动请求键去重；普通消息、Run 与触发绑定先在同一事务提交，再派发给 Worker。原有 Run 事务记录完成、中断和待答。只有已经启动的定时执行不参加重启续跑；未启动的触发沿用原宽限期限。启动时只读探查非默认档案的数据库，不依赖打开页面才能执行。`schedules` 仅在订阅时通过共享状态流推送；任务指令和分页历史使用按需 HTTP 读取。
+`internal/server/schedules.go` 驱动各 Profile 内的 `schedules` 和 `schedule_runs`。自然触发时刻或手动请求键去重；普通消息、Run 与触发绑定先在同一事务提交，再派发给 Worker。原有 Run 事务记录完成、中断和待答。只有已经启动的定时执行不参加重启续跑；未启动的触发沿用原宽限期限。启动时只读探查非默认 Profile 的数据库，不依赖打开页面才能执行。`schedules` 仅在订阅时通过共享状态流推送；任务指令和分页历史使用按需 HTTP 读取。

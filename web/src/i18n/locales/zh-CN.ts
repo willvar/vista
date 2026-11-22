@@ -2,13 +2,16 @@ import type en from './en.ts'
 
 
 export default {
-  "profiles": "档案",
-  "currentProfile": "当前档案",
-  "manageProfiles": "管理档案",
-  "defaultProfile": "默认档案",
+  "profiles": "用户",
+  "currentProfile": "当前用户",
+  "profilePickerHint": "不同用户分别保存会话、模型连接和设置，切换时无需重新登录。",
+  "profileLoadFailed": "无法加载用户列表。",
+  "profileNameTooLong": "名称太长，请缩短后重试。",
+  "profileSaveFailed": "保存失败，已保留输入，请重试。",
+  "defaultProfile": "默认用户",
   "profileNewTab": "在新标签页打开",
-  "profileName": "档案名称",
-  "profileNew": "新建档案",
+  "profileName": "用户名称",
+  "profileNew": "新建用户",
   "conversationBranches": "会话分支",
   "previousBranch": "上一个分支",
   "nextBranch": "下一个分支",

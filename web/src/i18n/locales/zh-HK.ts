@@ -2,8 +2,15 @@
 import base from './zh-TW.ts'
 
 export default { ...base, ...{
-  "defaultProfile": "默認檔案",
+  "profiles": "用户",
+  "currentProfile": "當前用户",
+  "profilePickerHint": "不同用户分別保存會話、模型連接和設置，切換時無需重新登錄。",
+  "profileLoadFailed": "無法加載用户列表。",
+  "profileSaveFailed": "保存失敗，已保留輸入，請重試。",
+  "defaultProfile": "默認用户",
   "profileNewTab": "在新標籤頁打開",
+  "profileName": "用户名稱",
+  "profileNew": "新建用户",
   "draftLoadFailed": "無法加載已保存的草稿。",
   "draftConflict": "另一標籤頁修改了已保存的草稿，你的輸入仍然保留。",
   "storageMethod": "存儲方式",
