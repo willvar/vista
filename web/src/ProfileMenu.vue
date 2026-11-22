@@ -225,6 +225,7 @@ async function save() {
   overscroll-behavior: contain;
 }
 .profile-choice { display: flex; gap: .125rem; border-radius: var(--control-radius); }
+.profile-choice + .profile-choice { margin-block-start: .375rem; }
 .profile-choice .profile-switch-link,.profile-choice .profile-tab-link {
   display: flex;
   align-items: center;

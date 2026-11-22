@@ -137,6 +137,11 @@ test('Profile controls stay reachable on short screens and long names have room'
   }, { message: 'The picker stays above its trigger without covering it' }).toBe(true)
   await expect(picker.getByRole('button', { name: 'New Profile', exact: true })).toBeInViewport({ ratio: 1 })
   const choices = picker.locator('.profile-choices')
+  const rows = choices.locator('.profile-choice')
+  await expect(rows).toHaveCount(10)
+  const smallestGap = await rows.evaluateAll(items => Math.min(...items.slice(1).map((item, i) =>
+    item.getBoundingClientRect().top - items[i]!.getBoundingClientRect().bottom)))
+  expect(smallestGap, 'Adjacent Profile rows have visible spacing').toBeGreaterThanOrEqual(4)
   const last = choices.getByRole('link', { name: 'Workspace 8', exact: true })
   await expect(last).toBeVisible()
   await last.scrollIntoViewIfNeeded()
