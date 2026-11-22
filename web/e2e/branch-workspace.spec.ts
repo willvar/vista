@@ -37,7 +37,9 @@ test('a saved branch preference follows the Profile while group activity opens i
     await expect(page).toHaveURL(url(preferred.id))
     await expect.poll(entryId).toBe(preferred.id)
 
-    const release = vista.pauseModelReplies(true)
+    // This reply begins with a question tool call, not streamed text.
+    // Hold it before output so the executing badge stays observable.
+    const release = vista.pauseModelReplies()
     try {
       await post(`/sessions/${attention.id}/messages`, { content: 'Ask me about the setup' })
       await showSidebar(other)
