@@ -161,7 +161,7 @@ test.describe('same-run interjection', () => {
 })
 
 
-test('the fork toolbar switches to a withdrawn draft and back without adding a sidebar conversation', { tag: '@responsive' }, async ({ page, vista }) => {
+test('the fork toolbar switches to a withdrawn draft and back without adding a sidebar conversation', { tag: '@responsive' }, async ({ page, vista, isMobile }) => {
   const session = await vista.api('/sessions', { method: 'POST', body: '{}' })
   const sent = await vista.api(`/sessions/${session.id}/messages`, { method: 'POST', body: JSON.stringify({ content: 'Timeline fixture' }) })
   await expect.poll(async () => (await vista.api(`/sessions/${session.id}/checkpoint`)).session.executing).toBe(false)
@@ -173,14 +173,18 @@ test('the fork toolbar switches to a withdrawn draft and back without adding a s
   const result = await vista.api(`/sessions/${session.id}/messages/${sent.message.id}/revert`, { method: 'POST' })
   const draft = page.locator('.sender-card textarea')
   await expect(forward).toBeVisible()
+  const headerPicker = page.locator('.conversation-header').getByRole('button', { name: 'Conversation branches', exact: true })
+  await expect(headerPicker).toHaveCount(0)
   await expect(original.getByRole('group', { name: 'Conversation branches' })).toContainText('1 / 2')
   await expect(original.getByRole('button', { name: 'Previous branch' })).toBeDisabled()
   await draft.fill('Draft on original')
-  await forward.click()
+  if (isMobile) await forward.tap()
+  else await forward.click()
   await expect(page).toHaveURL(`${vista.origin}/sessions/${result.session.id}`)
   await expect(page.locator('article.user')).toHaveCount(0)
   const fallback = page.locator('.draft-branch-navigation')
   await expect(fallback).toContainText('2 / 2')
+  await expect(headerPicker).toHaveCount(0)
   await draft.fill('Draft on the other branch')
   await fallback.getByRole('button', { name: 'Previous branch' }).click()
   await expect(page).toHaveURL(`${vista.origin}/sessions/${session.id}`)

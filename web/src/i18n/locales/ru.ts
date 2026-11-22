@@ -10,8 +10,6 @@ export default {
   "profileName": "Название профиля",
   "profileNew": "Новый профиль",
   "conversationBranches": "Ветки беседы",
-  "originalBranch": "Исходная",
-  "branchNumber": "Ветка {number}",
   "previousBranch": "Предыдущая ветка",
   "nextBranch": "Следующая ветка",
   "draftLoadFailed": "Не удалось загрузить сохранённый черновик.",

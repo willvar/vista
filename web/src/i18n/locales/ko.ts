@@ -10,8 +10,6 @@ export default {
   "profileName": "프로필 이름",
   "profileNew": "새 프로필",
   "conversationBranches": "대화 분기",
-  "originalBranch": "원본",
-  "branchNumber": "분기 {number}",
   "previousBranch": "이전 분기",
   "nextBranch": "다음 분기",
   "draftLoadFailed": "저장된 초안을 불러오지 못했습니다.",

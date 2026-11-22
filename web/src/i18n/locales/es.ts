@@ -10,8 +10,6 @@ export default {
   "profileName": "Nombre del perfil",
   "profileNew": "Nuevo perfil",
   "conversationBranches": "Ramas de la conversación",
-  "originalBranch": "Original",
-  "branchNumber": "Rama {number}",
   "previousBranch": "Rama anterior",
   "nextBranch": "Rama siguiente",
   "draftLoadFailed": "No se pudo cargar el borrador guardado.",

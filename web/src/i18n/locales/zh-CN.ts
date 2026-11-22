@@ -10,8 +10,6 @@ export default {
   "profileName": "档案名称",
   "profileNew": "新建档案",
   "conversationBranches": "会话分支",
-  "originalBranch": "原分支",
-  "branchNumber": "分支 {number}",
   "previousBranch": "上一个分支",
   "nextBranch": "下一个分支",
   "draftLoadFailed": "无法加载已保存的草稿。",

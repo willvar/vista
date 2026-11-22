@@ -10,8 +10,6 @@ export default {
   "profileName": "Nom du profil",
   "profileNew": "Nouveau profil",
   "conversationBranches": "Branches de la conversation",
-  "originalBranch": "Originale",
-  "branchNumber": "Branche {number}",
   "previousBranch": "Branche précédente",
   "nextBranch": "Branche suivante",
   "draftLoadFailed": "Impossible de charger le brouillon enregistré.",

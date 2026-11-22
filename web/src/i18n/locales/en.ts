@@ -7,8 +7,6 @@ export default {
   "profileName": "Profile name",
   "profileNew": "New Profile",
   "conversationBranches": "Conversation branches",
-  "originalBranch": "Original",
-  "branchNumber": "Branch {number}",
   "previousBranch": "Previous branch",
   "nextBranch": "Next branch",
   "draftLoadFailed": "Could not load the saved draft.",

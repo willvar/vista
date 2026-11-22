@@ -10,8 +10,6 @@ export default {
   "profileName": "Nome do perfil",
   "profileNew": "Novo perfil",
   "conversationBranches": "Ramificações da conversa",
-  "originalBranch": "Original",
-  "branchNumber": "Ramificação {number}",
   "previousBranch": "Ramificação anterior",
   "nextBranch": "Próxima ramificação",
   "draftLoadFailed": "Não foi possível carregar o rascunho salvo.",

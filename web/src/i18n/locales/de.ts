@@ -10,8 +10,6 @@ export default {
   "profileName": "Profilname",
   "profileNew": "Neues Profil",
   "conversationBranches": "Gesprächszweige",
-  "originalBranch": "Original",
-  "branchNumber": "Zweig {number}",
   "previousBranch": "Vorheriger Zweig",
   "nextBranch": "Nächster Zweig",
   "draftLoadFailed": "Der gespeicherte Entwurf konnte nicht geladen werden.",

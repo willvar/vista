@@ -10,8 +10,6 @@ export default {
   "profileName": "プロファイル名",
   "profileNew": "新しいプロファイル",
   "conversationBranches": "会話の分岐",
-  "originalBranch": "元の会話",
-  "branchNumber": "分岐 {number}",
   "previousBranch": "前の分岐",
   "nextBranch": "次の分岐",
   "draftLoadFailed": "保存済みの下書きを読み込めませんでした。",
