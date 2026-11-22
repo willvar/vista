@@ -218,7 +218,6 @@ func run(ctx context.Context, command workerproto.Command, emit func(workerproto
 				ctx = replylanguage.WithDefault(ctx, input.ReplyLanguage)
 			}
 			messages = append(messages, (provider.ChatMessage{Role: "user", Content: input.Prompt, Resources: input.Images}).WithVisualInput(true))
-			completion.madeProgress()
 			if nextInput == nil && input.Model.Provider != "" {
 				command.Model = provider.ForPurpose(input.Model, purpose)
 			}
@@ -262,9 +261,6 @@ func run(ctx context.Context, command workerproto.Command, emit func(workerproto
 				return 0, err
 			}
 			messages = append(messages, notice)
-			if !event.ModelOnly {
-				completion.madeProgress()
-			}
 			scope.events.acknowledge(event)
 			scope.delegations.collectedEvent(event)
 		}

@@ -2,76 +2,33 @@ package agent
 
 import (
 	"encoding/json"
-	"errors"
 	"sync"
 
 	"vista/internal/provider"
 	"vista/internal/workerproto"
 )
 
-// This bounds consecutive completion corrections, not useful model/tool work.
-const maxChecklistCorrections = 2
-
 const checklistCompletionPrefix = "Completion check: unresolved work remains in the current run checklist. "
 
 // Tool persistence can finish after its scheduling yield. Only acknowledged
 // updates replace this snapshot; the model loop never polls the database.
 type checklistCompletion struct {
-	mu          sync.Mutex
-	items       []workerproto.ChecklistItem
-	corrections int
-	bestOpen    int
-	bestPending int
-	progress    bool
-}
-
-func checklistOpenCounts(items []workerproto.ChecklistItem) (open, pending int) {
-	for _, item := range items {
-		switch item.Status {
-		case "pending":
-			pending++
-			open++
-		case "in_progress":
-			open++
-		}
-	}
-	return
+	mu    sync.Mutex
+	items []workerproto.ChecklistItem
 }
 
 func (c *checklistCompletion) replace(items []workerproto.ChecklistItem) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	oldOpen, _ := checklistOpenCounts(c.items)
-	open, pending := checklistOpenCounts(items)
-	if oldOpen == 0 {
-		c.bestOpen, c.bestPending = open, pending
-	} else if open < c.bestOpen || open == c.bestOpen && pending < c.bestPending {
-		c.progress = true
-		c.bestOpen, c.bestPending = open, pending
-	}
 	c.items = append([]workerproto.ChecklistItem(nil), items...)
-}
-
-func (c *checklistCompletion) madeProgress() {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.bestOpen, c.bestPending = checklistOpenCounts(c.items)
-	c.progress = true
 }
 
 func (c *checklistCompletion) observe(result workerproto.Result) {
 	if result.Depth != 0 || result.ParentTaskID != "" || result.TaskID != "" && result.TaskID != "main" {
 		return
 	}
-	switch result.Kind {
-	case "checklist":
-		if result.Status == "succeeded" && result.Checklist != nil {
-			c.replace(result.Checklist.Items)
-		}
-	case "tool":
-		if result.Tool != nil && result.Tool.Name != "update_checklist" && (result.Status == "succeeded" || result.Status == "failed") {
-			c.madeProgress()
-		}
+	if result.Kind == "checklist" && result.Status == "succeeded" && result.Checklist != nil {
+		c.replace(result.Checklist.Items)
 	}
 }
 
@@ -87,13 +44,6 @@ func (c *checklistCompletion) check() (provider.ChatMessage, error) {
 	if len(unresolved) == 0 {
 		return provider.ChatMessage{}, nil
 	}
-	if c.progress {
-		c.corrections, c.progress = 0, false
-	}
-	if c.corrections >= maxChecklistCorrections {
-		return provider.ChatMessage{}, errors.New("execution stopped with unfinished work after two completion corrections without progress; the task is incomplete and completed results were retained")
-	}
-	c.corrections++
 	items, err := json.Marshal(unresolved)
 	if err != nil {
 		return provider.ChatMessage{}, err

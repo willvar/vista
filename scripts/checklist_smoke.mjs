@@ -14,6 +14,7 @@ const state = mkdtempSync(join(stateParent, 'vista-checklist-'))
 const items = [{ text: 'Inspect input', status: 'done' }, { text: 'Verify output', status: 'in_progress' }]
 const completed = items.map(item => ({ ...item, status: 'done' }))
 const unfinished = [{ text: 'Private unfinished work', status: 'pending' }]
+const reconciled = unfinished.map(item => ({ ...item, status: 'done' }))
 let calls = 0
 const provider = createServer(async (request, response) => {
   try {
@@ -49,8 +50,15 @@ const provider = createServer(async (request, response) => {
     } else if (calls === 10) {
       const chunk = { choices: [{ delta: { content: 'Unfinished.', tool_calls: [{ index: 0, id: 'unfinished', type: 'function', function: { name: 'update_checklist', arguments: JSON.stringify({ items: unfinished, finish: true }) } }] }, finish_reason: 'tool_calls' }] }
       response.end(`data: ${JSON.stringify(chunk)}\n\ndata: [DONE]\n\n`)
-    } else if (calls === 11 || calls === 12) {
-      response.end('data: {"choices":[{"delta":{"content":"Premature finish."},"finish_reason":"stop"}]}\n\ndata: [DONE]\n\n')
+    } else if (calls >= 11 && calls <= 14) {
+      const last = body.messages.at(-1)
+      if (last?.role !== 'user' || !last.content?.includes(unfinished[0].text) || !last.content.includes('"status":"pending"')) throw new Error('unchanged checklist stopped triggering continuation')
+      if (calls === 14) {
+        const chunk = { choices: [{ delta: { content: 'Verified after repeated corrections.', tool_calls: [{ index: 0, id: 'late-reconcile', type: 'function', function: { name: 'update_checklist', arguments: JSON.stringify({ items: reconciled, finish: true }) } }] }, finish_reason: 'tool_calls' }] }
+        response.end(`data: ${JSON.stringify(chunk)}\n\ndata: [DONE]\n\n`)
+      } else {
+        response.end('data: {"choices":[{"delta":{"content":"Premature finish."},"finish_reason":"stop"}]}\n\ndata: [DONE]\n\n')
+      }
     } else throw new Error('unexpected model call')
   } catch (error) {
     if (response.headersSent) response.destroy(error)
@@ -74,17 +82,18 @@ try {
   }
   let api = await start()
   const session = await api('/sessions', { method: 'POST', body: JSON.stringify({ title: 'checklist' }) })
-  async function run(prompt, expected, expectedText, expectedStatus = 'succeeded') {
+  async function run(prompt, expected, expectedText) {
     const sent = await api(`/sessions/${session.id}/messages`, { method: 'POST', body: JSON.stringify({ modelKey: 'openai', content: prompt }) })
     let finished = false
     for (let i = 0; i < 250; i++) {
       const events = await api(`/sessions/${session.id}/event-page?after=${sent.event.sequence}`)
-      finished = events.some(event => event.kind === 'run_finished' && event.data.runId === sent.runId && event.data.status === expectedStatus)
+      const terminal = events.find(event => event.kind === 'run_finished' && event.data.runId === sent.runId)
+      finished = Boolean(terminal)
       if (finished) {
+        if (terminal.data.status !== 'succeeded') throw new Error(`unexpected run status: ${terminal.data.status}, ${terminal.data.message?.content}`)
         if (events.some(event => event.kind === 'checklist' || event.kind === 'tool' && event.data.tool?.name === 'update_checklist')) throw new Error('internal checklist exposed through HTTP')
         if (JSON.stringify(events).includes('Private unfinished work')) throw new Error('completion recovery exposed private checklist content')
-        if (expectedStatus === 'failed' && !events.some(event => event.kind === 'run_finished' && event.data.runId === sent.runId && event.data.message?.content?.includes('unfinished work'))) throw new Error('stalled completion was not reported as incomplete')
-        if (expectedText && !events.some(event => event.kind === 'run_finished' && event.data.runId === sent.runId && event.data.message?.role === 'assistant' && event.data.message.content === expectedText)) throw new Error('final answer was not persisted with its checklist')
+        if (expectedText && (terminal.data.message?.role !== 'assistant' || terminal.data.message.content !== expectedText)) throw new Error('final answer was not persisted with its checklist')
         break
       }
       await new Promise(resolve => setTimeout(resolve, 25))
@@ -114,9 +123,9 @@ try {
   api = await start()
   await run('recall the final state', undefined, 'Final state retained.')
   if (calls !== 9) throw new Error(`unexpected replay model call count: ${calls}`)
-  await run('unfinished work must not loop forever', unfinished, undefined, 'failed')
-  if (calls !== 12) throw new Error(`unbounded completion recovery: ${calls}`)
-  console.log('Run checklist isolation, persistence, replay, clear, completion continuation and stalled-work bounds passed')
+  await run('reconcile after repeated attempts to finish', reconciled, 'Verified after repeated corrections.')
+  if (calls !== 14) throw new Error(`unexpected model calls after repeated corrections: ${calls}`)
+  console.log('Run checklist isolation, persistence, replay, clear and repeated completion continuation passed')
 } catch (error) {
   try { console.error(readFileSync(join(state, 'vista', 'state', 'server.log'), 'utf8')) } catch {}
   throw error
