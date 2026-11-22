@@ -1046,6 +1046,7 @@ export default {
   "copiedReply": "복사됨",
   "conversationSynchronizing": "대화 내용을 동기화하는 중…",
   "stateSyncFailed": "일시적으로 상태를 동기화할 수 없습니다.",
+  "stateSyncSlow": "불러오기가 평소보다 오래 걸리고 있습니다. Vista의 응답을 기다리는 중…",
   "conversationSyncFailed": "대화 내용을 동기화하지 못했습니다.",
   "conversationResynchronize": "다시 동기화",
   "executionDetailsUnavailable": "실행 세부 정보를 표시하지 못했습니다.",

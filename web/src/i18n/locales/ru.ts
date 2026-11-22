@@ -1046,6 +1046,7 @@ export default {
   "copiedReply": "Скопировано",
   "conversationSynchronizing": "Синхронизация содержимого диалога…",
   "stateSyncFailed": "Обновления состояния временно недоступны.",
+  "stateSyncSlow": "Загрузка занимает больше времени, чем обычно. Ожидание ответа Vista…",
   "conversationSyncFailed": "Не удалось синхронизировать содержимое диалога.",
   "conversationResynchronize": "Синхронизировать снова",
   "executionDetailsUnavailable": "Не удалось отобразить сведения о выполнении.",

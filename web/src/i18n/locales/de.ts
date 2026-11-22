@@ -1046,6 +1046,7 @@ export default {
   "copiedReply": "Kopiert",
   "conversationSynchronizing": "Gesprächsinhalte werden synchronisiert…",
   "stateSyncFailed": "Statusaktualisierungen sind vorübergehend nicht verfügbar.",
+  "stateSyncSlow": "Das Laden dauert länger als üblich. Wir warten noch auf Vista…",
   "conversationSyncFailed": "Die Gesprächsinhalte konnten nicht synchronisiert werden.",
   "conversationResynchronize": "Erneut synchronisieren",
   "executionDetailsUnavailable": "Ausführungsdetails konnten nicht angezeigt werden.",

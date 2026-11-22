@@ -40,7 +40,7 @@ import type { QuotedExcerpt, QuoteSource } from '../state/quotedReply'
 
 const { t } = useI18n({ useScope: 'global' })
 const workspace = useWorkspace()
-const { selected, needsProvider, busy, error, workerAvailable, modelLabel, modelCatalog, localTime,
+const { selected, sessionsReady, modelsReady, needsProvider, busy, error, workerAvailable, modelLabel, modelCatalog, localTime,
   historicalModelLabel, modelNameById, formatModelWithReasoning,
   workerMemory, mobileSessionsOpen, attentionCount, debugMode, route, displaySessionTitle } = workspace
 const selectedWorkerMemory = computed(() => selected.value ? workerMemory(selected.value.id) : undefined)
@@ -433,10 +433,10 @@ onUnmounted(() => {
           <v-button variant="text" class="icon-button mobile-sessions-trigger" :aria-label="t('sessions')" :aria-expanded="mobileSessionsOpen" @click="mobileSessionsOpen = true"><IconMenu2 /><span v-if="attentionCount" class="session-attention-dot" role="img" :aria-label="t('sessionsNeedAttention', { count: attentionCount })"></span></v-button>
           <div class="conversation-header-tools"><ConversationResponseOptions /></div>
         </div>
-        <div class="welcome-content">
+        <div v-if="route.name !== 'session' || sessionsReady" class="welcome-content">
           <div class="welcome-intro"><div class="welcome-icon"><VistaMark /></div><h2>{{ t('welcomeHeading') }}</h2></div>
           <ConversationSender @send="prepareForSend" />
-          <p v-if="!needsProvider" class="composer-hint"><kbd>Enter</kbd> {{ t('enterToSend') }}<span>·</span><kbd>Shift + Enter</kbd> {{ t('newLine') }}</p>
+          <p v-if="modelsReady && !needsProvider" class="composer-hint"><kbd>Enter</kbd> {{ t('enterToSend') }}<span>·</span><kbd>Shift + Enter</kbd> {{ t('newLine') }}</p>
         </div>
       </section>
 

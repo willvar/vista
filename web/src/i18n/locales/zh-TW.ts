@@ -969,6 +969,7 @@ export default { ...base, ...{
   "copiedReply": "已複製",
   "conversationSynchronizing": "正在同步會話內容…",
   "stateSyncFailed": "暫時無法同步狀態。",
+  "stateSyncSlow": "載入時間比平時更長，仍在等待 Vista 響應…",
   "conversationSyncFailed": "暫時無法同步會話內容。",
   "executionDetailsUnavailable": "執行詳情暫時無法顯示。",
   "messagePlainTextFallback": "此回覆的格式顯示失敗，已改為純文本。",

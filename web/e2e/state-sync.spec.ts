@@ -58,6 +58,56 @@ test('workspace initializes each snapshot once and keeps one stream without peri
   await expect(page.locator('.state-sync-error')).toHaveCount(0)
 })
 
+test('a cold conversation link shows slow loading instead of a false empty workspace', { tag: '@responsive' }, async ({ page, vista }) => {
+  const session = await vista.api('/sessions', { method: 'POST', body: '{}' })
+  await vista.api(`/sessions/${session.id}`, { method: 'PATCH', body: JSON.stringify({ title: 'Cold link destination' }) })
+  await page.goto('about:blank')
+  await page.clock.install()
+  let release!: () => void
+  const held = new Promise<void>(resolve => { release = resolve })
+  const waiting = ['models', 'sessions'].map(topic => page.waitForRequest(request => new URL(request.url()).pathname === `/api/${topic}`))
+  await page.route(/\/api\/(models|sessions)(?:\?|$)/, async route => {
+    await held
+    await route.continue()
+  })
+  const loading = page.locator('.state-sync-loading')
+  try {
+    await page.goto(`${vista.origin}/sessions/${session.id}`)
+    await Promise.all(waiting)
+    await expect(page.locator('.sidebar-empty, .sender-setup, .session-setup-notice, .sender-card textarea')).toHaveCount(0)
+    await expect(loading).toHaveText('Loading…')
+    await page.clock.fastForward(5_100)
+    await expect(loading).toHaveText('Loading is taking longer than usual. Still waiting for Vista…')
+    await expect(loading).toBeVisible()
+  } finally { release() }
+  await expect(page.getByRole('heading', { name: 'Cold link destination' })).toBeVisible()
+  await expect(page.locator('.sender-card textarea')).toBeEnabled()
+  await expect(loading).toHaveCount(0)
+})
+
+test.describe('unconfigured workspace startup', () => {
+  test.use({ configuredProvider: false })
+
+  test('failed startup offers retry before showing confirmed empty states', async ({ page, vista }) => {
+    await page.goto('about:blank')
+    let fail = true
+    await page.route(/\/api\/events(?:\?|$)/, async route => {
+      if (fail) await route.fulfill({ status: 503, body: 'Temporarily unavailable' })
+      else await route.continue()
+    })
+    await page.goto(vista.origin + '/')
+    const notice = page.locator('.state-sync-error')
+    await expect(notice).toBeVisible()
+    await expect(page.locator('.sidebar-empty, .sender-setup')).toHaveCount(0)
+    fail = false
+    await notice.getByRole('button', { name: 'Retry', exact: true }).click()
+    await expect(page.locator('.sender-setup')).toBeVisible()
+    await expect(page.locator('.sidebar-empty')).toHaveText('Create a session to start a task.')
+    await expect(notice).toHaveCount(0)
+    await expect(page.locator('.state-sync-loading')).toHaveCount(0)
+  })
+})
+
 test('another client changes the sidebar without refreshing the model inventory', async ({ page, vista }) => {
   const session = await vista.api('/sessions', { method: 'POST', body: '{}' })
   await expect(page.locator(`.session-card[data-session-id="${session.id}"]`)).toBeAttached()

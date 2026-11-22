@@ -31,7 +31,9 @@ function createWorkspace() {
     document.cookie = `vista-debug-mode=${value}; Path=/; Max-Age=31536000; SameSite=Strict`
   }, { flush: 'sync', immediate: true })
   const sessions = ref<Session[]>([])
+  const sessionsReady = ref(false)
   const modelCatalog = ref<ModelCatalog>({ default: '', models: [] })
+  const modelsReady = ref(false)
   const serverStatus = ref<ServerStatus | null>(null)
   const mobileSessionsOpen = ref(false)
   const openSessions = computed(() => sessions.value.filter(sessionEntryId).sort(compareSessionOrder))
@@ -41,7 +43,7 @@ function createWorkspace() {
     serverStatus.value ? workerAvailable(session.id) : undefined)).length)
   const settingsOpen = computed(() => route.name === 'settings' || String(route.name).startsWith('settings-'))
   const sessionManagerOpen = computed(() => route.name === 'session-manager')
-  const needsProvider = computed(() => !modelCatalog.value.models.some(model => model.provider))
+  const needsProvider = computed(() => modelsReady.value && !modelCatalog.value.models.some(model => model.provider))
   const interactionPreferences = useInteractionPreferences(client, cause => { error.value = String(cause) })
   const revisions = { sessions: 0, models: 0, status: 0 }
   const stateConnection = ref<StateConnection>({ phase: 'connecting' })
@@ -62,7 +64,7 @@ function createWorkspace() {
   const conversation = useConversation({ client, sessions, modelCatalog, error, busy, refresh: refreshSessions, translate: t, interactionPreferences, serverDrafts: true,
     onSessionStarted: async session => { await router.push(`/sessions/${session.id}`) } })
   const { selected, manualCompacting, compactionRequestPending, agentWorking, selectedModel } = conversation
-  const senderDisabled = computed(() => manualCompacting.value || compactionRequestPending.value || !interactionPreferences.ready.value
+  const senderDisabled = computed(() => manualCompacting.value || compactionRequestPending.value || !interactionPreferences.ready.value || !modelsReady.value
     || (!agentWorking.value && !selectedModel.value)
     || !!selected.value && (!selected.value.open || !workerAvailable(selected.value.id)))
   const presentation = usePresentation(modelCatalog)
@@ -99,6 +101,7 @@ function createWorkspace() {
         } : null
         const list = mergeSessionSnapshot(snapshot, selected.value, boundary, Math.max(conversation.lastEvent.value, conversation.activeRunSequence.value))
         sessions.value = list.filter(sessionEntryId)
+        sessionsReady.value = true
         if (selected.value) {
           const current = list.find(item => item.id === selected.value?.id)
             ?? (point?.session.id === selected.value.id ? mergeSessionSnapshot([point.session], selected.value, boundary,
@@ -122,6 +125,7 @@ function createWorkspace() {
         const catalog = pushed.models ?? await client.request<ModelCatalog>('/models', { signal })
         if (disposed || signal?.aborted || revision !== revisions.models) return
         modelCatalog.value = catalog
+        modelsReady.value = true
       }
     }))
   }
@@ -277,6 +281,7 @@ function createWorkspace() {
   function mib(bytes: number) { return (bytes / 1048576).toFixed(1) }
   return {
     client, stateSync, stateConnection, router, route, error, busy, debugMode, sessions, openSessions, closedSessions, totalSessions, attentionCount, modelCatalog, serverStatus, mobileSessionsOpen,
+    sessionsReady, modelsReady,
     settingsOpen, sessionManagerOpen, needsProvider, senderDisabled, conversation, selected, modalQuery, backToWorkspace, openSessionManager,
     openSettings, create, action, renameTitle,
     closeConfirmation, requestSessionClose, cancelSessionClose, confirmSessionClose,

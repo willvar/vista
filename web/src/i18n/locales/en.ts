@@ -1043,6 +1043,7 @@ export default {
   "copiedReply": "Copied",
   "conversationSynchronizing": "Synchronizing conversation content…",
   "stateSyncFailed": "Status updates are temporarily unavailable.",
+  "stateSyncSlow": "Loading is taking longer than usual. Still waiting for Vista…",
   "conversationSyncFailed": "Conversation content could not be synchronized.",
   "conversationResynchronize": "Synchronize again",
   "executionDetailsUnavailable": "Execution details could not be displayed.",

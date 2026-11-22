@@ -1046,6 +1046,7 @@ export default {
   "copiedReply": "コピー済み",
   "conversationSynchronizing": "会話内容を同期しています…",
   "stateSyncFailed": "状態を同期できません。",
+  "stateSyncSlow": "読み込みに通常より時間がかかっています。Vista の応答を待っています…",
   "conversationSyncFailed": "会話内容を同期できませんでした。",
   "conversationResynchronize": "再同期",
   "executionDetailsUnavailable": "実行の詳細を表示できませんでした。",

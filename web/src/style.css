@@ -2436,4 +2436,6 @@ body {
 .sender-editing .ui-btn { flex: none; }
 .rollback-scope { color: var(--muted); line-height: 1.6; }
 
-.state-sync-error{display:flex;align-items:center;justify-content:center;gap:.75rem;flex-wrap:wrap}
+.state-sync-error,.state-sync-loading{display:flex;align-items:center;justify-content:center;gap:.75rem;flex-wrap:wrap}
+.state-sync-loading{color:var(--muted);margin:.5rem 1rem 0}
+.state-sync-loading svg{width:1em;height:1em}

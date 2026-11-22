@@ -1046,6 +1046,7 @@ export default {
   "copiedReply": "已复制",
   "conversationSynchronizing": "正在同步会话内容…",
   "stateSyncFailed": "暂时无法同步状态。",
+  "stateSyncSlow": "加载时间比平时更长，仍在等待 Vista 响应…",
   "conversationSyncFailed": "暂时无法同步会话内容。",
   "conversationResynchronize": "重新同步",
   "executionDetailsUnavailable": "执行详情暂时无法显示。",

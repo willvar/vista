@@ -472,6 +472,7 @@ export default { ...base, ...{
   "loadOlderMessages": "加載更早的消息",
   "loadNewerMessages": "加載更新的消息",
   "jumpToLatest": "回到最新消息",
+  "stateSyncSlow": "加載時間比平時更長，仍在等待 Vista 響應…",
   "conversationEmpty": "描述你希望 Vista 完成的任務。可以附上文件路徑、問題或預期結果。",
   "imageLoadFailed": "圖片加載失敗",
   "outputRange": " · 字節 {start}–{end} / {total}",

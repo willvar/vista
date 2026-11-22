@@ -14,7 +14,7 @@ import type { QuestionAnswer } from '@vista/client'
 const QuestionForm = defineAsyncComponent(() => import('./QuestionForm.vue'))
 const { t } = useI18n({ useScope: 'global' })
 const emit = defineEmits<{ send: []; locateQuote: [quote: QuotedExcerpt] }>()
-const { selected, busy, needsProvider, senderDisabled, conversation, route, mobileSessionsOpen, modalQuery } = useWorkspace()
+const { selected, busy, modelsReady, needsProvider, senderDisabled, conversation, route, mobileSessionsOpen, modalQuery } = useWorkspace()
 const { draft, quotedTexts, removeQuote, agentWorking, editingMessage, cancelEditMessage, selectedModel,
   canAttachImage, attachedImages, attachedPreviewURLs, chooseImages, pasteImages, dropImages, removeImage,
   submitMessage, submitQuestion, cancelExecution, recallLastUserMessage,
@@ -201,7 +201,7 @@ onUnmounted(() => {
             <span>{{ t('configureModelToStart') }}</span><IconArrowRight aria-hidden="true" />
           </router-link>
         </div>
-        <Sender v-else ref="sender" v-model:value="draft" :class="[senderClass, { 'sender-card-with-status': !!$slots.execution, 'sender-card-answering': answering }]" :content-active="answering" :data-composer-mode="answering ? 'answers' : pendingQuestion ? 'text' : 'message'" :auto-size="senderAutoSize" :disabled="senderDisabled" :loading="busy || agentWorking && !draft.trim() && !attachedImages.length" :placeholder="senderPlaceholder" :aria-label="t('sendMessage')" :enter-key-hint="touchFirst ? 'enter' : undefined" :on-key-down="senderKeyDown" @input.capture="trackInput" @compositionstart.capture="compositionStart" @compositionend.capture="compositionEnd" @paste="pasteMessageImages" @dragenter="enterImageDrag" @dragover="overImageDrag" @dragleave="leaveImageDrag" @drop="receiveImageDrop">
+        <Sender v-else-if="modelsReady" ref="sender" v-model:value="draft" :class="[senderClass, { 'sender-card-with-status': !!$slots.execution, 'sender-card-answering': answering }]" :content-active="answering" :data-composer-mode="answering ? 'answers' : pendingQuestion ? 'text' : 'message'" :auto-size="senderAutoSize" :disabled="senderDisabled" :loading="busy || agentWorking && !draft.trim() && !attachedImages.length" :placeholder="senderPlaceholder" :aria-label="t('sendMessage')" :enter-key-hint="touchFirst ? 'enter' : undefined" :on-key-down="senderKeyDown" @input.capture="trackInput" @compositionstart.capture="compositionStart" @compositionend.capture="compositionEnd" @paste="pasteMessageImages" @dragenter="enterImageDrag" @dragover="overImageDrag" @dragleave="leaveImageDrag" @drop="receiveImageDrop">
           <template #header>
           <router-link v-if="!selectedModel && !agentWorking" class="sender-setup" :to="{ path: '/settings/models', query: modalQuery() }">{{ t('configureModelToStart') }}<IconArrowRight aria-hidden="true" /></router-link>
           <div v-if="$slots.execution" class="sender-status"><slot name="execution" /></div>
