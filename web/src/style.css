@@ -2437,5 +2437,22 @@ body {
 .rollback-scope { color: var(--muted); line-height: 1.6; }
 
 .state-sync-error,.state-sync-loading{display:flex;align-items:center;justify-content:center;gap:.75rem;flex-wrap:wrap}
-.state-sync-loading{color:var(--muted);margin:.5rem 1rem 0}
-.state-sync-loading svg{width:1em;height:1em}
+.state-sync-loading {
+  position: fixed;
+  inset: max(.5rem, env(safe-area-inset-top)) 1rem auto;
+  z-index: 5;
+  inline-size: max-content;
+  max-inline-size: calc(100% - 2rem);
+  margin: 0 auto;
+  padding: .35rem .75rem;
+  border: 1px solid var(--border);
+  border-radius: var(--control-radius);
+  background: var(--surface);
+  color: var(--muted);
+  font-size: var(--font-size-small);
+  gap: .5rem;
+  flex-wrap: nowrap;
+  pointer-events: none;
+}
+.state-sync-loading span { min-width: 0; overflow-wrap: anywhere; }
+.state-sync-loading svg { flex: none; width: 1em; height: 1em; }

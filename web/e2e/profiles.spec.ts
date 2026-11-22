@@ -270,6 +270,40 @@ test('Same tab Profile switching retains the document, draft, and running work',
 })
 
 
+test('Profile loading does not shift the workspace', { tag: '@responsive' }, async ({ page, vista, isMobile }) => {
+  const profile = await vista.api('/profiles', { method: 'POST', body: JSON.stringify({ name: 'Research' }) })
+  const address = `${vista.origin}/profiles/${profile.id}`
+  const layout = page.locator('.workspace-splitter')
+  const loading = page.locator('.state-sync-loading')
+  await expect(layout).toBeVisible()
+  await expect(loading).toHaveCount(0)
+  const before = await layout.boundingBox()
+  await page.clock.install()
+
+  let release!: () => void
+  const held = new Promise<void>(resolve => { release = resolve })
+  await page.route(`${address}/api/preferences`, async route => {
+    await held
+    await route.continue()
+  })
+  try {
+    if (isMobile) await page.getByRole('button', { name: 'Open sessions', exact: true }).tap()
+    await page.locator('.sidebar-navigation').getByRole('button', { name: 'Profiles', exact: true }).click()
+    await page.getByRole('dialog', { name: 'Profiles', exact: true }).getByRole('link', { name: 'Research', exact: true }).click()
+    await expect(page).toHaveURL(`${address}/`)
+    await expect(loading).toBeVisible()
+    await expect(loading).toHaveText('Loading…')
+    expect(await layout.boundingBox(), 'Loading must not move or shrink the workspace').toEqual(before)
+    await page.clock.fastForward(5_100)
+    await expect(loading).toHaveText('Loading is taking longer than usual. Still waiting for Vista…')
+    expect(await layout.boundingBox(), 'Slow loading must not move or shrink the workspace').toEqual(before)
+    await expect(loading).toHaveCSS('pointer-events', 'none')
+  } finally { release() }
+  await expect(loading).toHaveCount(0)
+  expect(await layout.boundingBox(), 'Finishing loading must not move or shrink the workspace').toEqual(before)
+})
+
+
 test('Early return from a Profile aborts its loading preferences and keeps the original draft', async ({ page, vista }) => {
   const research = await vista.api('/profiles', { method: 'POST', body: JSON.stringify({ name: 'Research' }) })
   const prefix = `/profiles/${research.id}`
