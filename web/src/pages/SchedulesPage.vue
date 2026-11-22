@@ -9,7 +9,7 @@ import { useWorkspace } from '../composables/useWorkspace'
 import { useStateQuery } from '../composables/useStateQuery'
 
 const { t, locale } = useI18n({ useScope: 'global' })
-const { client, stateSync, modelCatalog, backToWorkspace } = useWorkspace()
+const { client, stateSync, modelCatalog, backToWorkspace, pathInProfile } = useWorkspace()
 const router = useRouter()
 const { data, loading, error } = useStateQuery<ScheduleSnapshot>(client, stateSync, '/schedules', ['schedules'], Infinity, point => point.schedules)
 const items = computed(() => data.value?.items ?? [])
@@ -197,7 +197,7 @@ function goBack() {
         <ul class="schedule-list">
           <li v-for="run in history" :key="run.id" class="schedule-row">
             <div><strong>{{ format(run.dueAt, historyItem?.rule.timezone) }}</strong><p>{{ runLabel(run) }}</p></div>
-            <Button v-if="run.sessionId" @click="router.push(`/sessions/${run.sessionId}`)">{{ t('open') }}</Button>
+            <Button v-if="run.sessionId" @click="router.push(pathInProfile(`/sessions/${run.sessionId}`))">{{ t('open') }}</Button>
           </li>
         </ul>
         <Button v-if="before" :disabled="historyLoading" @click="readHistory(true)">{{ t('scheduleOlder') }}</Button>

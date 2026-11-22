@@ -23,7 +23,7 @@ const {
   openSessions, closedSessions, totalSessions, serverStatus, busy, debugMode, stateSync,
   backToWorkspace, action, closeConfirmation, requestSessionClose,
   workerAvailable, displaySessionTitle,
-  client, route, selected, conversation,
+  client, route, selected, conversation, pathInProfile, scopeActive, forgetLocalDraft,
 } = useWorkspace()
 const sessionSearch = ref('')
 const searchQuery = ref('')
@@ -146,12 +146,12 @@ async function enterSession(item: Session) {
   if (busy.value || selecting.value || renamingSessionID.value) return
   entryError.value = ''
   const entry = sessionEntryId(item)
-  if (entry) return router.push(`/sessions/${entry}`)
+  if (entry) return router.push(pathInProfile(`/sessions/${entry}`))
   busy.value = true
   enteringSessionID.value = item.id
   try {
     await client.request(`/sessions/${item.id}/open`, { method: 'POST' })
-    await router.push(`/sessions/${item.id}`)
+    if (scopeActive()) await router.push(pathInProfile(`/sessions/${item.id}`))
   } catch (cause) {
     entryError.value = cause instanceof Error ? cause.message : String(cause)
   } finally {
@@ -222,13 +222,14 @@ async function runBatch(request = batchRequest.value) {
       try {
         await client.request(`/sessions/${item.id}${kind === 'delete' ? '' : '/' + kind}`, { method: kind === 'delete' ? 'DELETE' : 'POST' })
         succeeded.add(item.id)
-        if (kind === 'delete') try { localStorage.removeItem('vista-session-draft:' + item.id) } catch { /* Browser storage can be unavailable. */ }
+        if (kind === 'delete') forgetLocalDraft(item.id)
       } catch (cause) {
         batchFailures.value.push({ id: item.id, title: displaySessionTitle(item), message: cause instanceof Error ? cause.message : String(cause) })
       } finally {
         batchCompleted.value++
       }
     }
+    if (!scopeActive()) return
     if (succeeded.size) {
       const activeID = selected.value?.id
       if (kind !== 'open' && activeID && succeeded.has(activeID)) conversation.clearSession()
@@ -330,7 +331,7 @@ function localTime(utc: string) {
             <strong v-else class="session-name" :title="displaySessionTitle(item)">{{ displaySessionTitle(item) }}</strong>
           </InlineSessionTitle>
           <div class="managed-session-meta"><time :datetime="sortingByUpdate ? item.updatedAt ?? item.createdAt : item.createdAt">{{ localTime(sortingByUpdate ? item.updatedAt ?? item.createdAt : item.createdAt) }}</time><template v-if="!sessionEntryId(item)"><span aria-hidden="true">·</span><span>{{ t('closed') }}</span></template></div>
-          <SessionIndicators :session="item" :worker-available="managedWorkerAvailable(item.id)" :links="!busy && !selecting && !renamingSessionID" @open="id => router.push(`/sessions/${id}`)" />
+          <SessionIndicators :session="item" :worker-available="managedWorkerAvailable(item.id)" :links="!busy && !selecting && !renamingSessionID" @open="id => router.push(pathInProfile(`/sessions/${id}`))" />
         </div>
         <div v-if="!selecting" class="managed-session-actions">
           <SessionPin :session="item" />

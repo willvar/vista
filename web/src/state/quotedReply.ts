@@ -5,7 +5,7 @@ export type QuotedText = { text: string; role: 'user' | 'assistant'; source?: Qu
 export type QuotedExcerpt = QuotedText & { id: number }
 export type QuotedReply = { items: QuotedExcerpt[]; nextId: number }
 
-export const quoteStoragePrefix = profileStorageKey('vista-session-quote:')
+export const quoteStoragePrefix = 'vista-session-quote:'
 
 function readText(value: unknown): QuotedText | null {
   if (!value || typeof value !== 'object') return null
@@ -18,9 +18,9 @@ function readText(value: unknown): QuotedText | null {
       ? { source: { key: source.key, sequence: source.sequence!, createdAt: new Date(source.createdAt).toISOString() } } : {}) }
 }
 
-export function readQuotedReply(sessionId: string): QuotedReply | null {
+export function readQuotedReply(sessionId: string, profileId = 'default'): QuotedReply | null {
   try {
-    const value = JSON.parse(localStorage.getItem(quoteStoragePrefix + sessionId) || 'null')
+    const value = JSON.parse(localStorage.getItem(profileStorageKey(quoteStoragePrefix, profileId) + sessionId) || 'null')
     if (!value || typeof value !== 'object') return null
     // Earlier clients stored a single selection without numbering or a source.
     const legacy = readText(value)

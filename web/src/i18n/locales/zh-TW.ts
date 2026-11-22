@@ -4,7 +4,8 @@ import base from './zh-CN.ts'
 export default { ...base, ...{
   "profiles": "使用者",
   "currentProfile": "當前使用者",
-  "profilePickerHint": "不同使用者分別儲存會話、模型連線和設定，切換時無需重新登入。",
+  "profilePickerHint": "不同使用者分別儲存會話、模型連線和設定。",
+  "profileSwitchBusy": "請先完成當前操作或訊息編輯，再切換使用者。",
   "profileLoadFailed": "無法載入使用者列表。",
   "profileNameTooLong": "名稱太長，請縮短後重試。",
   "profileSaveFailed": "儲存失敗，已保留輸入，請重試。",

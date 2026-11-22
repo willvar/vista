@@ -197,13 +197,13 @@ onUnmounted(() => {
 <template>
         <div v-if="needsProvider" class="composer sender-card">
           <div v-if="$slots.execution" class="sender-status"><slot name="execution" /></div>
-          <router-link class="sender-setup" :to="{ path: '/settings/models', query: modalQuery() }">
+          <router-link class="sender-setup" :to="{ name: 'settings', query: modalQuery() }">
             <span>{{ t('configureModelToStart') }}</span><IconArrowRight aria-hidden="true" />
           </router-link>
         </div>
         <Sender v-else-if="modelsReady" ref="sender" v-model:value="draft" :class="[senderClass, { 'sender-card-with-status': !!$slots.execution, 'sender-card-answering': answering }]" :content-active="answering" :data-composer-mode="answering ? 'answers' : pendingQuestion ? 'text' : 'message'" :auto-size="senderAutoSize" :disabled="senderDisabled" :loading="busy || agentWorking && !draft.trim() && !attachedImages.length" :placeholder="senderPlaceholder" :aria-label="t('sendMessage')" :enter-key-hint="touchFirst ? 'enter' : undefined" :on-key-down="senderKeyDown" @input.capture="trackInput" @compositionstart.capture="compositionStart" @compositionend.capture="compositionEnd" @paste="pasteMessageImages" @dragenter="enterImageDrag" @dragover="overImageDrag" @dragleave="leaveImageDrag" @drop="receiveImageDrop">
           <template #header>
-          <router-link v-if="!selectedModel && !agentWorking" class="sender-setup" :to="{ path: '/settings/models', query: modalQuery() }">{{ t('configureModelToStart') }}<IconArrowRight aria-hidden="true" /></router-link>
+          <router-link v-if="!selectedModel && !agentWorking" class="sender-setup" :to="{ name: 'settings', query: modalQuery() }">{{ t('configureModelToStart') }}<IconArrowRight aria-hidden="true" /></router-link>
           <div v-if="$slots.execution" class="sender-status"><slot name="execution" /></div>
           <div v-if="pendingQuestion && !answering" class="sender-question-notice" role="status">
             <span>{{ t('questionPendingNotice') }}</span>

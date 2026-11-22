@@ -24,7 +24,7 @@ test('local coverage includes consumers, staged/new specs and core smoke', () =>
   assert.equal(selection.test('desktop statistics.spec.ts unrelated totals'), false)
 })
 test('shared or unknown source changes conservatively select the whole browser suite', () => {
-  for (const path of ['web/src/ui/Select.vue', 'web/src/style.css', 'internal/server/routes.go', 'Makefile', 'web/playwright.config.ts', 'web/e2e/fixtures.ts', 'web/scripts/e2e-coverage.ts']) {
+  for (const path of ['web/src/main.ts', 'web/src/ui/Select.vue', 'web/src/style.css', 'internal/server/routes.go', 'Makefile', 'web/playwright.config.ts', 'web/e2e/fixtures.ts', 'web/scripts/e2e-coverage.ts']) {
     assert.deepEqual(browserScope([path], files), { full: true, files: [...files].sort() }, path)
   }
   assert.equal(browserSelection(files, true), undefined)

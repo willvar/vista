@@ -3,7 +3,6 @@ import { computed, nextTick, onErrorCaptured, ref, watch } from 'vue'
 import { Empty as VEmpty, Button as VButton, Modal as VModal, Dropdown as VDropdown } from './ui'
 import { IconLayoutGrid, IconSettings, IconX, IconPlus, IconDots, IconLoader2, IconClock } from '@tabler/icons-vue'
 import { useI18n } from 'vue-i18n'
-import AppProvider from './AppProvider.vue'
 import AssetLoadNotice from './AssetLoadNotice.vue'
 import { captureAssetError } from './asset-recovery'
 import WorkspaceSplit from './ui/WorkspaceSplit.vue'
@@ -18,11 +17,12 @@ import SessionPin from './SessionPin.vue'
 import SessionActionDialog from './SessionActionDialog.vue'
 import { sessionEntryId, sessionListActivity } from '@vista/client'
 import type { Session } from '@vista/client'
+const props = defineProps<{ profileId: string }>()
 const { t } = useI18n({ useScope: 'global' })
 onErrorCaptured(error => { if (captureAssetError(error)) return false })
 const { route, conversation, router, error, busy, totalSessions, openSessions, selected, serverStatus, mobileSessionsOpen, settingsOpen,
   sessionsReady, modelsReady, stateConnection, stateSync, backToWorkspace, modalQuery, openSettings, openSessionManager, create, action, workerAvailable, displaySessionTitle,
-  closeConfirmation, cancelSessionClose, confirmSessionClose } = provideWorkspace()
+  closeConfirmation, cancelSessionClose, confirmSessionClose, pathInProfile } = provideWorkspace(props.profileId)
 const initialLoading = computed(() => !sessionsReady.value || !modelsReady.value || !serverStatus.value)
 const initialLoadDelayed = ref(false)
 watch(initialLoading, (loading, _, cleanup) => {
@@ -84,7 +84,7 @@ watch(() => selected.value?.id, async () => {
   if (window.innerWidth > 830 || mobileSessionsOpen.value) document.querySelector('.sessions-panel .session-card.selected')?.scrollIntoView({ block: 'nearest' })
 })
 const selectedRoot = computed(() => selected.value?.branchRootId || selected.value?.id)
-function openBranch(id: string) { void router.push(`/sessions/${id}`) }
+function openBranch(id: string) { void router.push(pathInProfile(`/sessions/${id}`)) }
 function activateSession(item: Session) {
   const id = sessionEntryId(item)
   if (!id) return
@@ -98,7 +98,6 @@ function isExecuting(item: Session) {
 </script>
 
 <template>
-  <AppProvider>
   <main class="app-shell">
     <AssetLoadNotice />
     <Transition name="mobile-sessions-mask"><div v-if="mobileSessionsOpen" ref="sessionsBackdrop" class="mobile-sessions-backdrop" @click="mobileSessionsOpen = false"></div></Transition>
@@ -134,7 +133,7 @@ function isExecuting(item: Session) {
           <nav class="sidebar-navigation" :aria-label="t('workspaceHeading')">
             <v-button variant="text" class="manage-sessions-link" @click="openSessionManager"><IconLayoutGrid aria-hidden="true" />{{ t('manageSessions') }}</v-button>
             <v-button variant="text" class="schedule-link" :aria-label="t('scheduledTasks')" :title="t('scheduledTasks')"
-              @click="router.push({ path: '/schedules', query: modalQuery() })">
+              @click="router.push({ path: pathInProfile('/schedules'), query: modalQuery() })">
               <IconClock aria-hidden="true" /><span>{{ t('scheduledTasks') }}</span>
             </v-button>
             <div class="sidebar-profile-row">
@@ -164,7 +163,6 @@ function isExecuting(item: Session) {
   </v-modal>
   <SessionActionDialog v-if="route.name === 'session' && selected?.open" :action="conversation.sessionAction.value" :busy="busy"
     @decision="conversation.decideSessionAction" />
-  </AppProvider>
 </template>
 
 <style scoped>

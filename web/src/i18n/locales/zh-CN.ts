@@ -4,7 +4,8 @@ import type en from './en.ts'
 export default {
   "profiles": "用户",
   "currentProfile": "当前用户",
-  "profilePickerHint": "不同用户分别保存会话、模型连接和设置，切换时无需重新登录。",
+  "profilePickerHint": "不同用户分别保存会话、模型连接和设置。",
+  "profileSwitchBusy": "请先完成当前操作或消息编辑，再切换用户。",
   "profileLoadFailed": "无法加载用户列表。",
   "profileNameTooLong": "名称太长，请缩短后重试。",
   "profileSaveFailed": "保存失败，已保留输入，请重试。",

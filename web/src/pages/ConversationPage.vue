@@ -87,7 +87,7 @@ async function switchBranch(target: BranchTarget) {
     if (!current()) return
     error.value = ''
     branchDestination.value = target
-    if (await workspace.router.push(`/sessions/${target.id}`) && branchDestination.value === target) branchDestination.value = undefined
+    if (await workspace.router.push(workspace.pathInProfile(`/sessions/${target.id}`)) && branchDestination.value === target) branchDestination.value = undefined
   } catch (cause) {
     if (branchDestination.value === target) branchDestination.value = undefined
     if (current()) error.value = String(cause)

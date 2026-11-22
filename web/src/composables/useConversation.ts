@@ -20,15 +20,12 @@ export type ConversationOptions = {
   translate: (key: string, params?: Record<string, unknown>) => string
   interactionPreferences?: InteractionPreferences
   serverDrafts?: boolean
+  profileId?: string
   onSessionStarted?: (session: Session) => Promise<void>
 }
 type Scope = { id: string; generation: number; controller: AbortController; initialSelectionVersion?: number; sync?: ReturnType<typeof createConversationSync> }
-export const draftStoragePrefix = profileStorageKey('vista-session-draft:')
-export const welcomeDraftStorageKey = profileStorageKey('vista-home-draft')
-
-function readDraft(id: string) {
-  try { return localStorage.getItem(draftStoragePrefix + id) || '' } catch { return '' }
-}
+export const draftStoragePrefix = 'vista-session-draft:'
+export const welcomeDraftStorageKey = 'vista-home-draft'
 
 function mergeOutputSnapshot<T extends { id: string }>(snapshot: T[], current: T[], before: Map<string, T>): T[] {
   const newer = current.filter(item => before.get(item.id) !== item)
@@ -36,8 +33,14 @@ function mergeOutputSnapshot<T extends { id: string }>(snapshot: T[], current: T
   return [...newer, ...snapshot.filter(item => !newerIDs.has(item.id))]
 }
 
-export function useConversation({ client, sessions, modelCatalog, error, busy, refresh, translate: t, interactionPreferences = useInteractionPreferences(), serverDrafts = false, onSessionStarted }: ConversationOptions) {
+export function useConversation({ client, sessions, modelCatalog, error, busy, refresh, translate: t, profileId = 'default', interactionPreferences = useInteractionPreferences(undefined, undefined, profileId), serverDrafts = false, onSessionStarted }: ConversationOptions) {
   const { rememberedModel, reasoningByModelId: reasoningByModel } = interactionPreferences
+  const draftPrefix = profileStorageKey(draftStoragePrefix, profileId)
+  const welcomeKey = profileStorageKey(welcomeDraftStorageKey, profileId)
+  const quotePrefix = profileStorageKey(quoteStoragePrefix, profileId)
+  function readDraft(id: string) {
+    try { return localStorage.getItem(draftPrefix + id) || '' } catch { return '' }
+  }
   const state = reactive(createConversationState())
   const synchronization = ref<ConversationSyncStatus>({ phase: 'ready' })
   const syncDiagnostics = ref<ConversationSyncDiagnostics | null>(null)
@@ -122,17 +125,17 @@ export function useConversation({ client, sessions, modelCatalog, error, busy, r
     restoringDraft = true
     draft.value = value.text; quotedReply.value = value.quote; attachedImages.value = value.files
     restoringDraft = false
-  }) : undefined
+  }, profileId) : undefined
   let loadedDraftKey: string | undefined
   function selectDraft() {
     if (!persisted) return
     const key = loadedDraftKey = draftKey()
-    const textKey = key === 'home' ? welcomeDraftStorageKey : draftStoragePrefix + key
+    const textKey = key === 'home' ? welcomeKey : draftPrefix + key
     const oldText = draft.value, oldQuote = quotedReply.value
     persisted.select(key, inputs(), () => {
       try {
         if (localStorage.getItem(textKey) === oldText) localStorage.removeItem(textKey)
-        if (oldQuote && JSON.stringify(readQuotedReply(key)) === JSON.stringify(oldQuote)) localStorage.removeItem(quoteStoragePrefix + key)
+        if (oldQuote && JSON.stringify(readQuotedReply(key, profileId)) === JSON.stringify(oldQuote)) localStorage.removeItem(quotePrefix + key)
       } catch { /* Imported and still intact on the server. */ }
     },currentScope?.controller.signal)
   }
@@ -148,7 +151,7 @@ export function useConversation({ client, sessions, modelCatalog, error, busy, r
   function stageDraft() { if (!restoringDraft && !editingMessage.value) persisted?.change(draftKey(),inputs()) }
 
   function readWelcomeDraft() {
-    try { return localStorage.getItem(welcomeDraftStorageKey) || '' } catch { return '' }
+    try { return localStorage.getItem(welcomeKey) || '' } catch { return '' }
   }
   function initializeWelcomeSelection() {
     if (selected.value) return
@@ -410,7 +413,7 @@ export function useConversation({ client, sessions, modelCatalog, error, busy, r
     draftRevision++
     if (restoringDraft) return
     if (persisted) { stageDraft(); return }
-    const key = selected.value ? draftStoragePrefix + selected.value.id : welcomeDraftStorageKey
+    const key = selected.value ? draftPrefix + selected.value.id : welcomeKey
     try {
       if (value) localStorage.setItem(key, value)
       else localStorage.removeItem(key)
@@ -421,7 +424,7 @@ export function useConversation({ client, sessions, modelCatalog, error, busy, r
     if (restoringDraft || !selected.value) return
     if (persisted) { stageDraft(); return }
     try {
-      const key = quoteStoragePrefix + selected.value.id
+      const key = quotePrefix + selected.value.id
       if (quote) localStorage.setItem(key, JSON.stringify(quote))
       else localStorage.removeItem(key)
     } catch { /* Keep the quote when storage is unavailable. */ }
@@ -547,7 +550,13 @@ export function useConversation({ client, sessions, modelCatalog, error, busy, r
     recentHasOlderActivity = false
     if (loadDraft) selectDraft()
   }
-  onScopeDispose(() => { persisted?.dispose(); clearSession(false); analysisImageDrafts.clear() })
+  onScopeDispose(() => {
+    persisted?.dispose()
+    clearSession(false)
+    for (const url of attachedPreviewURLs.value) URL.revokeObjectURL(url)
+    attachedPreviewURLs.value = []
+    analysisImageDrafts.clear()
+  })
 
   function restoreSelection(session: Session) {
     const saved = session.manualModelKey || session.modelKey
@@ -564,7 +573,7 @@ export function useConversation({ client, sessions, modelCatalog, error, busy, r
     attachedImages.value = analysisImageDrafts.get(session.id) || []
     analysisImageDrafts.delete(session.id)
     draft.value = readDraft(session.id)
-    quotedReply.value = readQuotedReply(session.id)
+    quotedReply.value = readQuotedReply(session.id, profileId)
     restoringDraft = false
     selectDraft()
     restoreSelection(session)
@@ -934,8 +943,8 @@ export function useConversation({ client, sessions, modelCatalog, error, busy, r
         selected.value = session
         welcomeImages = []
         if (!persisted) try {
-          localStorage.removeItem(welcomeDraftStorageKey)
-          if (draft.value) localStorage.setItem(draftStoragePrefix + session.id, draft.value)
+          localStorage.removeItem(welcomeKey)
+          if (draft.value) localStorage.setItem(draftPrefix + session.id, draft.value)
         } catch { /* The in-memory draft remains available. */ }
         await connectStream(scope)
         if (!persisted) await onSessionStarted?.(session)
@@ -1033,7 +1042,7 @@ export function useConversation({ client, sessions, modelCatalog, error, busy, r
       if (!current(scope)) return
       const created: Session = { ...response, manualModelKey: choice.modelKey, manualReasoningEffort: choice.reasoningEffort, processingTier: choice.processingTier }
       sessions.value = [...sessions.value.filter(item => item.id !== created.id), created]
-      try { localStorage.setItem(draftStoragePrefix + created.id, content) } catch { /* Keep the in-memory retry below. */ }
+      try { localStorage.setItem(draftPrefix + created.id, content) } catch { /* Keep the in-memory retry below. */ }
       let deliveryFailure: unknown
       try {
         // Send before navigating. The destination's normal snapshot/stream
@@ -1041,7 +1050,7 @@ export function useConversation({ client, sessions, modelCatalog, error, busy, r
         await request<SendMessageResult>(scope, `/sessions/${created.id}/messages`, {
           method: 'POST', body: JSON.stringify({ content, images: [], ...choice }),
         })
-        try { localStorage.removeItem(draftStoragePrefix + created.id) } catch { /* A sent message is still durable. */ }
+        try { localStorage.removeItem(draftPrefix + created.id) } catch { /* A sent message is still durable. */ }
       } catch (cause) { deliveryFailure = cause }
       if (!current(scope)) return
       endBusy(scope, owner)
@@ -1237,7 +1246,7 @@ export function useConversation({ client, sessions, modelCatalog, error, busy, r
 
   return {
     editingMessage, beginEditMessage, cancelEditMessage, withdrawMessage, rollbackFailure, sessionAction, decideSessionAction,
-    draftPhase: persisted?.phase, refreshDraft, retryDraft,
+    draftPhase: persisted?.phase, refreshDraft, retryDraft, flushDrafts: () => persisted?.flush(),
     ...refs, displayMessages, readOutputIndexes, readDisplayOutput, releaseDisplayOutput, olderActivity, hasOlderActivity, activityPaging, paging, selectedModel, selectedModelInfo,
     selectedReasoning, reasoningChoices, canAttachImage, attachedImages, attachedPreviewURLs,
     selectedProcessingTier, processingTiers, chooseProcessingTier,

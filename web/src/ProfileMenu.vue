@@ -1,14 +1,15 @@
 <script setup lang="ts">
 import { computed, nextTick, onScopeDispose, ref, useId, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { RouterLink } from 'vue-router'
 import { IconExternalLink, IconPencil, IconPlus, IconUser } from '@tabler/icons-vue'
 import { Button as VButton, Input as VInput, Popover as VPopover } from './ui'
-import { profileHome, profileID } from './client/profileScope'
+import { profileHome } from './client/profileScope'
 import { useWorkspace } from './composables/useWorkspace'
 
 type Profile = { id: string; name: string }
 const { t } = useI18n({ useScope: 'global' })
-const { client, stateSync, mobileSessionsOpen } = useWorkspace()
+const { client, stateSync, mobileSessionsOpen, profileId } = useWorkspace()
 const pickerOpen = ref(false)
 const profiles = ref<Profile[]>([])
 const list = ref<HTMLUListElement>()
@@ -32,13 +33,13 @@ const lifetime = new AbortController()
 const label = (p: Profile) => p.name || t('defaultProfile')
 const graphemes = new Intl.Segmenter(undefined, { granularity: 'grapheme' })
 const initial = (name?: string) => name ? graphemes.segment(name)[Symbol.iterator]().next().value?.segment : undefined
-const current = computed(() => profiles.value.find(p => p.id === profileID))
-const currentLabel = computed(() => current.value ? label(current.value) : t(profileID === 'default' ? 'defaultProfile' : 'profiles'))
+const current = computed(() => profiles.value.find(p => p.id === profileId))
+const currentLabel = computed(() => current.value ? label(current.value) : t(profileId === 'default' ? 'defaultProfile' : 'profiles'))
 const entries = computed(() => {
-  const rows = current.value ? [current.value, ...profiles.value.filter(p => p.id !== profileID)] : profiles.value
+  const rows = current.value ? [current.value, ...profiles.value.filter(p => p.id !== profileId)] : profiles.value
   return editor.value === '' ? [...rows, { id: '', name: '' }] : rows
 })
-const canSwitch = (p: Profile) => editor.value === null && !busy.value && p.id !== profileID
+const canSwitch = (p: Profile) => editor.value === null && !busy.value && p.id !== profileId
 
 async function load(signal = lifetime.signal) {
   const version = ++serial
@@ -60,7 +61,7 @@ watch(pickerOpen, (open, _, cleanup) => {
   })
   cleanup(() => { stop(); controller.abort() })
 })
-if (profileID !== 'default') void load()
+if (profileId !== 'default') void load()
 onScopeDispose(() => lifetime.abort())
 watch(mobileSessionsOpen, visible => { if (!visible) pickerOpen.value = false })
 watch(name, () => { saveFailed.value = false })
@@ -146,8 +147,8 @@ async function save() {
             <small role="alert">{{ t('profileLoadFailed') }}</small><v-button variant="text" @click="load()">{{ t('retry') }}</v-button>
           </li>
           <li v-else-if="!profiles.length" class="profile-picker-message" role="status">{{ t('uiLoading') }}</li>
-          <li v-for="p in entries" :key="p.id" :data-profile-id="p.id" :aria-current="p.id === profileID ? 'true' : undefined"
-            class="profile-choice" :class="{ 'profile-current': p.id === profileID }">
+          <li v-for="p in entries" :key="p.id" :data-profile-id="p.id" :aria-current="p.id === profileId ? 'true' : undefined"
+            class="profile-choice" :class="{ 'profile-current': p.id === profileId }">
             <form v-if="editor === p.id" class="profile-name-form" @submit.prevent="save">
               <label :for="nameId" :class="{ 'visually-hidden': !!p.id }">{{ t('profileName') }}</label>
               <v-input :id="nameId" v-model:value="name" :readonly="busy" :status="formError ? 'error' : undefined"
@@ -160,12 +161,12 @@ async function save() {
               </div>
             </form>
             <template v-else>
-              <component :is="canSwitch(p) ? 'a' : 'div'" class="profile-switch-link" :href="canSwitch(p) ? profileHome(p.id) : undefined">
+              <component :is="canSwitch(p) ? RouterLink : 'div'" class="profile-switch-link" :to="canSwitch(p) ? profileHome(p.id) : undefined">
                 <span class="profile-avatar" aria-hidden="true">
                   <span v-if="p.name">{{ initial(p.name) }}</span><IconUser v-else />
                 </span>
                 <span class="profile-choice-label">
-                  <span>{{ label(p) }}</span><small v-if="p.id === profileID">{{ t('currentProfile') }}</small>
+                  <span>{{ label(p) }}</span><small v-if="p.id === profileId">{{ t('currentProfile') }}</small>
                 </span>
               </component>
               <a v-if="canSwitch(p)" class="profile-tab-link" :href="profileHome(p.id)" target="_blank" rel="noopener"

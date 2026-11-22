@@ -4,7 +4,8 @@ import type en from './en.ts'
 export default {
   "profiles": "Perfiles",
   "currentProfile": "Perfil actual",
-  "profilePickerHint": "Los perfiles guardan por separado las conversaciones, las conexiones de modelos y los ajustes. No hace falta volver a iniciar sesión para cambiar de perfil.",
+  "profilePickerHint": "Los perfiles guardan por separado las conversaciones, las conexiones de modelos y los ajustes.",
+  "profileSwitchBusy": "Termina la acción o la edición del mensaje antes de cambiar de perfil.",
   "profileLoadFailed": "No se pudieron cargar los perfiles.",
   "profileNameTooLong": "El nombre es demasiado largo. Acórtalo e inténtalo de nuevo.",
   "profileSaveFailed": "No se pudo guardar el nombre. Tu entrada se conserva.",

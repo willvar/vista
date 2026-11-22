@@ -88,8 +88,10 @@ test('Profiles isolate setup and two active conversations across tabs', { tag: '
   await expect(second.locator('article.assistant').filter({ hasText: 'Answer from Research' })).toHaveCount(1)
   expect(page.url()).toBe(vista.origin + `/sessions/${session.id}`)
   await trigger.click()
+  await page.locator('html').evaluate(el => { el.dataset.profileDocument = 'original' })
   await picker.getByRole('link', { name: 'Writing', exact: true }).click()
   await expect(page).toHaveURL(vista.origin + prefix + '/')
+  await expect(page.locator('html')).toHaveAttribute('data-profile-document', 'original')
 })
 
 
@@ -205,7 +207,8 @@ test.describe('Chinese user wording', () => {
     await page.locator('.sidebar-navigation').getByRole('button', { name: '用户', exact: true }).click()
     const picker = page.getByRole('dialog', { name: '用户', exact: true })
     await expect(picker.getByText('当前用户', { exact: true })).toBeVisible()
-    await expect(picker).toContainText('切换时无需重新登录')
+    await expect(picker).toContainText('不同用户分别保存会话、模型连接和设置。')
+    await expect(picker).not.toContainText('无需重新登录')
     await picker.getByRole('button', { name: '新建用户', exact: true }).click()
     const input = picker.getByRole('textbox', { name: '用户名称' })
     await expect(input).toBeFocused()
@@ -218,5 +221,124 @@ test.describe('Chinese user wording', () => {
     await expect(picker.getByRole('link', { name: '日常写作', exact: true })).toBeVisible()
     await expect(picker.locator('[aria-current="true"]')).toContainText('默认用户')
     await expect(page.getByRole('dialog')).toHaveCount(1)
+  })
+})
+
+
+test('Same tab Profile switching retains the document, draft, and running work', { tag: '@responsive' }, async ({ page, vista }, info) => {
+  const post = (path: string, body: object) => vista.api(path, { method: 'POST', body: JSON.stringify(body) })
+  const session = await post('/sessions', { title: 'Running in default Profile' })
+  const research = await post('/profiles', { name: 'Research' })
+  const path = `/profiles/${research.id}`
+  const response = await page.request.post(`${vista.origin}${path}/api/sessions`, { data: { title: 'Only in Research' } })
+  expect(response.ok()).toBe(true)
+  await page.goto(`${vista.origin}/sessions/${session.id}`)
+  await page.locator('html').evaluate(el => { el.dataset.profileDocument = 'original' })
+  let documents = 0
+  page.on('request', request => { if (request.resourceType() === 'document') documents++ })
+  const release = vista.pauseModelReplies(true)
+  try {
+    await post(`/sessions/${session.id}/messages`, { content: 'Continue working while profiles switch' })
+    await expect.poll(async () => (await vista.api('/status')).sessions.running).toBe(1)
+    const draft = page.locator('.sender-card textarea')
+    await draft.fill('Unsent draft for the default user')
+    if (info.project.name !== 'desktop') await page.getByRole('button', { name: 'Open sessions', exact: true }).click()
+    await page.locator('.sidebar-navigation').getByRole('button', { name: 'Profiles', exact: true }).click()
+    await page.getByRole('dialog', { name: 'Profiles', exact: true }).getByRole('link', { name: 'Research', exact: true }).click()
+    await expect(page).toHaveURL(`${vista.origin}${path}/`)
+    await expect(page.locator('html')).toHaveAttribute('data-profile-document', 'original')
+    const sidebar = page.locator('#sessions-panel')
+    await expect(sidebar.locator('.session-name')).toHaveText(['Only in Research'])
+    expect((await vista.api('/status')).sessions.running).toBe(1)
+    expect((await vista.api(`/drafts/${session.id}`)).text).toBe('Unsent draft for the default user')
+
+    // A named in-app route must keep the same Profile prefix, too.
+    await page.locator('.sender-setup').click()
+    await expect(page).toHaveURL(`${vista.origin}${path}/settings/models`)
+    await page.goBack()
+    await expect(page).toHaveURL(`${vista.origin}${path}/`)
+    await expect(sidebar.locator('.session-name')).toHaveText(['Only in Research'])
+    await page.goBack()
+    await expect(page).toHaveURL(`${vista.origin}/sessions/${session.id}`)
+    await expect(sidebar.locator('.session-name')).toHaveText(['Running in default Profile'])
+    await expect(draft).toHaveValue('Unsent draft for the default user')
+    await page.goForward()
+    await expect(page).toHaveURL(`${vista.origin}${path}/`)
+    await expect(sidebar.locator('.session-name')).toHaveText(['Only in Research'])
+    expect(documents).toBe(0)
+  } finally { release() }
+})
+
+
+test('Early return from a Profile aborts its loading preferences and keeps the original draft', async ({ page, vista }) => {
+  const research = await vista.api('/profiles', { method: 'POST', body: JSON.stringify({ name: 'Research' }) })
+  const prefix = `/profiles/${research.id}`
+  const preferences = `${vista.origin}${prefix}/api/preferences`
+  let release!: () => void
+  const held = new Promise<void>(resolve => { release = resolve })
+  await page.route(preferences, async route => {
+    const response = await route.fetch()
+    await held
+    await route.fulfill({ response }).catch(() => { /* Request cancelled by the workspace. */ })
+  })
+  await page.route(`${vista.origin}/api/drafts/home`, route => route.request().method() === 'PUT'
+    ? route.fulfill({ status: 503, body: 'Draft save unavailable' }) : route.continue())
+  await page.goto(vista.origin + '/')
+  const sender = page.locator('.sender-card textarea')
+  const input = 'The unsaved text belongs to the default Profile'
+  await sender.fill(input)
+  const loading = page.waitForRequest(preferences)
+  try {
+    await page.locator('.sidebar-navigation').getByRole('button', { name: 'Profiles', exact: true }).click()
+    await page.getByRole('dialog', { name: 'Profiles', exact: true }).getByRole('link', { name: 'Research', exact: true }).click()
+    await expect(page).toHaveURL(`${vista.origin}${prefix}/`)
+    const request = await loading
+    const aborted = page.waitForEvent('requestfailed', item => item === request)
+    await page.goBack()
+    await aborted
+    await expect(page).toHaveURL(vista.origin + '/')
+    await expect(sender).toHaveValue(input)
+    expect(await vista.api('/drafts/home')).toMatchObject({ text: '', revision: 0 })
+    const draft = await page.request.get(`${vista.origin}${prefix}/api/drafts/home`)
+    expect(draft.ok()).toBe(true)
+    expect(await draft.json()).toMatchObject({ text: '', revision: 0 })
+  } finally { release() }
+})
+
+test.describe('Profile attachment drafts', () => {
+  test.use({ imageModel: true })
+  test('A Profile switch does not discard an attachment that failed to upload', async ({ page, vista }) => {
+    const research = await vista.api('/profiles', { method: 'POST', body: JSON.stringify({ name: 'Research' }) })
+    const route = /\/api\/drafts\/home\/images\?/
+    const image = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGPQDmj8DwADogH8oe96jAAAAABJRU5ErkJggg==', 'base64')
+    await page.route(route, request => request.fulfill({ status: 503, body: 'Attachment upload unavailable' }))
+    await page.goto(vista.origin + '/')
+    const sender = page.locator('.sender-card')
+    const text = 'A draft with its original attachment'
+    await sender.locator('textarea').fill(text)
+    await sender.locator('input[type=file]').setInputFiles({ name: 'fixture.png', mimeType: 'image/png', buffer: image })
+    const attachment = sender.locator('.sender-attachment img')
+    await expect(attachment).toHaveCount(1)
+    const previewURL = (await attachment.getAttribute('src'))!
+    expect(previewURL).toMatch(/^blob:/)
+    await page.locator('.sidebar-navigation').getByRole('button', { name: 'Profiles', exact: true }).click()
+    const link = page.getByRole('dialog', { name: 'Profiles', exact: true }).getByRole('link', { name: 'Research', exact: true })
+    await link.click()
+    await expect(page.locator('.app-shell > .error')).toHaveText('Could not save the draft. Your changes are still in this tab.')
+    await expect(page).toHaveURL(vista.origin + '/')
+    await expect(attachment).toHaveCount(1)
+    await expect(sender.locator('textarea')).toHaveValue(text)
+    await page.unroute(route)
+    await link.click()
+    await expect(page).toHaveURL(`${vista.origin}/profiles/${research.id}/`)
+    expect(await vista.api('/drafts/home')).toMatchObject({ text, images: [{ name: 'fixture.png' }] })
+    // The document still exists, but its old attachment preview must not leak.
+    expect(await page.evaluate(async url => {
+      try { return (await fetch(url)).ok }
+      catch { return false }
+    }, previewURL)).toBe(false)
+    await page.goBack()
+    await expect(attachment).toHaveCount(1)
+    await expect(sender.locator('textarea')).toHaveValue(text)
   })
 })

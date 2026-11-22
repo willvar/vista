@@ -3,19 +3,27 @@ import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { VistaAPIError, createWorkspaceSync, compareSessionOrder, mergeSessionSnapshot, sessionEntryId, sessionNeedsAttention } from '@vista/client'
 import type { StateTopic, StateConnection, WorkspaceSnapshots, ModelCatalog, ServerStatus, Session, SyncCheckpoint } from '@vista/client'
-import { createProfileClient } from '../client/profileScope'
-import { useConversation } from './useConversation'
+import { createProfileClient, profilePath, profileStorageKey, routeProfileId } from '../client/profileScope'
+import { draftStoragePrefix, useConversation } from './useConversation'
 import { usePresentation } from './usePresentation'
 import { useInteractionPreferences } from './useInteractionPreferences'
 import { isPlainEscape } from './useEscape'
 import { quoteStoragePrefix } from '../state/quotedReply'
 import { trackActivity } from '../client/activity'
 
-function createWorkspace() {
+function createWorkspace(profileId: string) {
   const route = useRoute()
   const router = useRouter()
   const { t } = useI18n({ useScope: 'global' })
-  const client = createProfileClient(() => document.documentElement.lang)
+  const client = createProfileClient(() => document.documentElement.lang, profileId)
+  const pathInProfile = (path: string) => profilePath(profileId, path)
+  const storageKey = (key: string) => profileStorageKey(key, profileId)
+  const forgetLocalDraft = (id: string) => {
+    try {
+      localStorage.removeItem(storageKey(draftStoragePrefix) + id)
+      localStorage.removeItem(storageKey(quoteStoragePrefix) + id)
+    } catch { /* Storage can be unavailable. */ }
+  }
   const error = ref('')
   const busy = ref(false)
   const debugMode = ref(false)
@@ -44,7 +52,7 @@ function createWorkspace() {
   const settingsOpen = computed(() => route.name === 'settings' || String(route.name).startsWith('settings-'))
   const sessionManagerOpen = computed(() => route.name === 'session-manager')
   const needsProvider = computed(() => modelsReady.value && !modelCatalog.value.models.some(model => model.provider))
-  const interactionPreferences = useInteractionPreferences(client, cause => { error.value = String(cause) })
+  const interactionPreferences = useInteractionPreferences(client, cause => { error.value = String(cause) }, profileId)
   const revisions = { sessions: 0, models: 0, status: 0 }
   const stateConnection = ref<StateConnection>({ phase: 'connecting' })
   const stateSync = createWorkspaceSync({
@@ -60,9 +68,18 @@ function createWorkspace() {
   const wantsMetrics = computed(() => debugMode.value || route.name === 'settings-about')
   watch(wantsMetrics, value => stateSync.setMetrics(value && !document.hidden))
   let disposed = false
+  const scopeActive = () => !disposed && routeProfileId(route.params) === profileId
   let stopActivity: (() => void) | undefined
-  const conversation = useConversation({ client, sessions, modelCatalog, error, busy, refresh: refreshSessions, translate: t, interactionPreferences, serverDrafts: true,
-    onSessionStarted: async session => { await router.push(`/sessions/${session.id}`) } })
+  const conversation = useConversation({ client, sessions, modelCatalog, error, busy, refresh: refreshSessions, translate: t, profileId, interactionPreferences, serverDrafts: true,
+    onSessionStarted: async session => { if (scopeActive()) await router.push(pathInProfile(`/sessions/${session.id}`)) } })
+  const stopProfileGuard = router.beforeEach(async to => {
+    if (!scopeActive() || routeProfileId(to.params) === profileId) return
+    const changingConversation = () => busy.value || conversation.editingMessage.value
+    if (changingConversation()) { error.value = t('profileSwitchBusy'); return false }
+    try { await conversation.flushDrafts() }
+    catch { error.value = t('draftUnsaved'); return false }
+    if (changingConversation()) { error.value = t('profileSwitchBusy'); return false }
+  })
   const { selected, manualCompacting, compactionRequestPending, agentWorking, selectedModel } = conversation
   const senderDisabled = computed(() => manualCompacting.value || compactionRequestPending.value || !interactionPreferences.ready.value || !modelsReady.value
     || (!agentWorking.value && !selectedModel.value)
@@ -70,13 +87,14 @@ function createWorkspace() {
   const presentation = usePresentation(modelCatalog)
 
   async function refreshTopics(topics: StateTopic[], signal?: AbortSignal, pushed: WorkspaceSnapshots = {}) {
+    if (!scopeActive()) return
     await Promise.all(topics.map(async topic => {
       if (topic !== 'sessions' && topic !== 'status' && topic !== 'models') return
       const revision = ++revisions[topic]
       const started = selected.value ? { sessionId: selected.value.id, eventSequence: conversation.lastEvent.value } : null
       if (topic === 'sessions') {
         let snapshot = pushed.sessions?.items ?? await client.request<Session[]>('/sessions?open=true', { signal })
-        if (disposed || signal?.aborted || revision !== revisions.sessions) return
+        if (!scopeActive() || signal?.aborted || revision !== revisions.sessions) return
         const activeID = selected.value?.id
         const routedID = route.name === 'session' ? String(route.params.id) : ''
         const lookupID = activeID && !snapshot.some(item => item.id === activeID) ? activeID
@@ -87,7 +105,7 @@ function createWorkspace() {
           // after this snapshot. Verify just that conversation, never archives.
           try { point = await client.request<SyncCheckpoint>(`/sessions/${lookupID}/checkpoint`, { signal }) }
           catch (cause) { if (!(cause instanceof VistaAPIError && cause.status === 404)) throw cause }
-          if (disposed || signal?.aborted || revision !== revisions.sessions) return
+          if (!scopeActive() || signal?.aborted || revision !== revisions.sessions) return
           if (selected.value?.id !== activeID) return refreshTopics(['sessions'], signal, {
             ...pushed, sessions: { items: snapshot, throughSequences: pushed.sessions?.throughSequences ?? {} },
           })
@@ -111,19 +129,19 @@ function createWorkspace() {
         }
         if (route.name === 'session') {
           const routed = list.find(item => item.id === route.params.id) ?? (point?.session.id === route.params.id ? point.session : undefined)
-          if (!routed && lookupID === route.params.id) await router.replace('/')
-          else if (routed && !routed.open && selected.value?.id !== routed.id) await router.replace('/sessions')
+          if (!routed && lookupID === route.params.id) await router.replace(pathInProfile('/'))
+          else if (routed && !routed.open && selected.value?.id !== routed.id) await router.replace(pathInProfile('/sessions'))
         }
         // A new session can receive a list push before its first send leaves
         // home. Only actual route navigation may clear that in-flight scope.
         if (route.name !== 'home') void syncRoute()
       } else if (topic === 'status') {
         const status = pushed.status ?? await client.request<ServerStatus>('/status', { signal })
-        if (!disposed && !signal?.aborted && revision === revisions.status
+        if (scopeActive() && !signal?.aborted && revision === revisions.status
           && (!serverStatus.value || Date.parse(status.sampledAt) >= Date.parse(serverStatus.value.sampledAt))) serverStatus.value = status
       } else {
         const catalog = pushed.models ?? await client.request<ModelCatalog>('/models', { signal })
-        if (disposed || signal?.aborted || revision !== revisions.models) return
+        if (!scopeActive() || signal?.aborted || revision !== revisions.models) return
         modelCatalog.value = catalog
         modelsReady.value = true
       }
@@ -133,9 +151,9 @@ function createWorkspace() {
   // Settings and the session manager can cover the composer. Keep its local
   // unsaved edits, but reconcile remote revisions only when it is in use.
   watch(() => route.name === 'home' || route.name === 'session', (visible, _, cleanup) => {
-    if (!visible) return
+    if (!visible || !scopeActive()) return
     cleanup(stateSync.subscribe(['drafts'], async (_, signal) => {
-      if (route.name === 'home' || route.name === 'session' && selected.value?.id === route.params.id) await conversation.refreshDraft(signal)
+      if (scopeActive() && (route.name === 'home' || route.name === 'session' && selected.value?.id === route.params.id)) await conversation.refreshDraft(signal)
     }))
   }, { immediate: true })
   async function refreshSessions() {
@@ -151,14 +169,14 @@ function createWorkspace() {
   function restorePage(event: PageTransitionEvent) { if (event.persisted) resumeState() }
 
   function modalQuery() { return selected.value?.open ? { session: selected.value.id } : {} }
-  function backToWorkspace() { void router.push(selected.value?.open ? `/sessions/${selected.value.id}` : '/') }
-  function openSessionManager() { void router.push({ path: '/sessions', query: modalQuery() }) }
-  function openSettings() { void router.push({ path: window.matchMedia('(max-width: 830px)').matches ? '/settings' : '/settings/general', query: modalQuery() }) }
+  function backToWorkspace() { void router.push(pathInProfile(selected.value?.open ? `/sessions/${selected.value.id}` : '/')) }
+  function openSessionManager() { void router.push({ path: pathInProfile('/sessions'), query: modalQuery() }) }
+  function openSettings() { void router.push({ path: pathInProfile(window.matchMedia('(max-width: 830px)').matches ? '/settings' : '/settings/general'), query: modalQuery() }) }
 
   async function create() {
     if (busy.value) return
     mobileSessionsOpen.value = false
-    await router.push('/')
+    await router.push(pathInProfile('/'))
     if (selected.value) conversation.clearSession()
     await nextTick()
     document.querySelector<HTMLTextAreaElement>('.sender-card textarea')?.focus()
@@ -200,31 +218,31 @@ function createWorkspace() {
     busy.value = true
     try {
       await client.request(`/sessions/${item.id}${kind === 'delete' ? '' : '/' + kind}`, { method: kind === 'delete' ? 'DELETE' : 'POST' })
-      if (kind === 'delete') try {
-        localStorage.removeItem('vista-session-draft:' + item.id)
-        localStorage.removeItem(quoteStoragePrefix + item.id)
-      } catch { /* Storage can be unavailable. */ }
+      if (kind === 'delete') forgetLocalDraft(item.id)
+      if (!scopeActive()) return
       if ((kind === 'close' || kind === 'delete') && selected.value?.id === item.id) {
         conversation.clearSession()
-        if (route.name === 'session') await router.replace('/')
+        if (route.name === 'session') await router.replace(pathInProfile('/'))
         else if (route.query.session === item.id) await router.replace({ path: route.path })
       }
-      if (kind === 'open' && sessionManagerOpen.value) await router.push(`/sessions/${item.id}`)
+      if (kind === 'open' && sessionManagerOpen.value) await router.push(pathInProfile(`/sessions/${item.id}`))
     } catch (cause) { error.value = String(cause) }
     finally { busy.value = false }
   }
 
+  const routeRequests = new AbortController()
   async function syncRoute() {
+    if (!scopeActive()) return
     const id = route.name === 'session' ? String(route.params.id || '')
       : typeof route.query.session === 'string' ? route.query.session : ''
     let item = sessions.value.find(session => session.id === id && session.open)
     if (id && !item && selected.value?.id !== id) {
       const target = route.fullPath
       try {
-        const point = await client.request<SyncCheckpoint>(`/sessions/${id}/checkpoint`)
-        if (disposed || route.fullPath !== target) return
+        const point = await client.request<SyncCheckpoint>(`/sessions/${id}/checkpoint`, { signal: routeRequests.signal })
+        if (!scopeActive() || route.fullPath !== target) return
         item = point.session
-      } catch (cause) { if (!disposed && route.fullPath === target && !(cause instanceof VistaAPIError && cause.status === 404)) error.value = String(cause) }
+      } catch (cause) { if (scopeActive() && route.fullPath === target && !(cause instanceof VistaAPIError && cause.status === 404)) error.value = String(cause) }
     }
     if (item && selected.value?.id !== item.id) await conversation.selectSession(item)
     else if (route.name === 'home') conversation.clearSession()
@@ -261,8 +279,8 @@ function createWorkspace() {
     window.addEventListener('online', resumeState)
     window.addEventListener('pageshow', restorePage)
     document.addEventListener('visibilitychange', resumeState)
-    void interactionPreferences.load().then(() => {
-      if (!disposed) stateSync.start(debugMode.value && !document.hidden)
+    void interactionPreferences.load(routeRequests.signal).then(() => {
+      if (scopeActive()) stateSync.start(debugMode.value && !document.hidden)
     })
   })
   onUnmounted(() => {
@@ -271,6 +289,8 @@ function createWorkspace() {
     window.removeEventListener('compositionend', compositionEnd, true)
     window.removeEventListener('keydown', onEscape)
     disposed = true
+    stopProfileGuard()
+    routeRequests.abort()
     stateSync.stop()
     window.removeEventListener('online', resumeState)
     window.removeEventListener('pageshow', restorePage)
@@ -281,7 +301,7 @@ function createWorkspace() {
   function mib(bytes: number) { return (bytes / 1048576).toFixed(1) }
   return {
     client, stateSync, stateConnection, router, route, error, busy, debugMode, sessions, openSessions, closedSessions, totalSessions, attentionCount, modelCatalog, serverStatus, mobileSessionsOpen,
-    sessionsReady, modelsReady,
+    sessionsReady, modelsReady, profileId, pathInProfile, scopeActive, forgetLocalDraft,
     settingsOpen, sessionManagerOpen, needsProvider, senderDisabled, conversation, selected, modalQuery, backToWorkspace, openSessionManager,
     openSettings, create, action, renameTitle,
     closeConfirmation, requestSessionClose, cancelSessionClose, confirmSessionClose,
@@ -291,8 +311,8 @@ function createWorkspace() {
 
 export type Workspace = ReturnType<typeof createWorkspace>
 const workspaceKey: InjectionKey<Workspace> = Symbol('vista-workspace')
-export function provideWorkspace() {
-  const workspace = createWorkspace()
+export function provideWorkspace(profileId: string) {
+  const workspace = createWorkspace(profileId)
   provide(workspaceKey, workspace)
   return workspace
 }

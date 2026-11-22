@@ -4,7 +4,8 @@ import base from './zh-TW.ts'
 export default { ...base, ...{
   "profiles": "用户",
   "currentProfile": "當前用户",
-  "profilePickerHint": "不同用户分別保存會話、模型連接和設置，切換時無需重新登錄。",
+  "profilePickerHint": "不同用户分別保存會話、模型連接和設置。",
+  "profileSwitchBusy": "請先完成當前操作或消息編輯，再切換用户。",
   "profileLoadFailed": "無法加載用户列表。",
   "profileSaveFailed": "保存失敗，已保留輸入，請重試。",
   "defaultProfile": "默認用户",

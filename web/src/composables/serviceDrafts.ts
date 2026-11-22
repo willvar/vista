@@ -8,11 +8,10 @@ type Saved = { revision: number; text: string; quote?: QuotedReply | null; image
 export type DraftInput = { text: string; quote: QuotedReply | null; files: File[] }
 function sameInput(a: DraftInput | undefined,b: DraftInput) { return !!a && a.text===b.text && a.quote===b.quote && a.files.length===b.files.length && a.files.every((file,i)=>file===b.files[i]) }
 
-const pendingDraftKey = (key: string) => profileStorageKey('vista-pending-draft:') + key
 type Pending = Omit<Saved, 'images'> & { images?: DraftImage[] }
-function readPending(key: string): Pending | undefined {
+function readPending(storageKey: string): Pending | undefined {
   try {
-    const pending = JSON.parse(sessionStorage.getItem(pendingDraftKey(key)) || 'null')
+    const pending = JSON.parse(sessionStorage.getItem(storageKey) || 'null')
     if (pending && typeof pending.text === 'string' && Number.isSafeInteger(pending.revision) && pending.revision >= 0) return pending
   } catch { /* The tab can still keep unacknowledged edits in memory. */ }
 }
@@ -20,15 +19,17 @@ function readPending(key: string): Pending | undefined {
 type Phase = 'idle' | 'loadFailed' | 'saveFailed' | 'conflict'
 type Entry = { saved?: Saved; current?: DraftInput; dirty: boolean; phase: Phase; work: Promise<unknown>; timer?: ReturnType<typeof setTimeout>; legacy?: () => void; conflictBase?: number; sentThrough?: number }
 
-export function serviceDrafts(client: VistaClient, apply: (key: string, input: DraftInput) => void) {
+export function serviceDrafts(client: VistaClient, apply: (key: string, input: DraftInput) => void, profileId = 'default') {
+  const pendingDraftKey = (key: string) => profileStorageKey('vista-pending-draft:', profileId) + key
   const currentKey = ref('home')
   const phase = ref<Phase>('idle')
   const entries = new Map<string, Entry>()
   const refs = new WeakMap<File, { key: string; ref: DraftImage }>()
   const path = (key: string) => `/drafts/${encodeURIComponent(key)}`
   let disposed = false
-  // A read belongs to one visit, even when shared state triggered it. Writes
-  // keep their draft key and can finish after the user switches away.
+  // A read belongs to one visit, even when shared state triggered it.
+  // Writes can outlive a conversation view, but not its Profile workspace.
+  const writeLifetime = new AbortController()
   let readView = new AbortController()
   const readSignal = (caller?: AbortSignal) => caller ? AbortSignal.any([readView.signal, caller]) : readView.signal
 
@@ -43,11 +44,14 @@ export function serviceDrafts(client: VistaClient, apply: (key: string, input: D
   // Only unacknowledged text, quote and already-uploaded references go into
   // tab storage. It survives reload but isn't another shared draft database.
   function remember(key: string, e: Entry) {
-    if (!e.current) return
+    if (!e.current) return false
     const { text, quote, files } = e.current
     const images = files.map(file => refs.get(file)).map(image => image?.key === key ? image.ref : undefined)
     const pending = { revision: e.conflictBase ?? e.saved?.revision ?? 0, text, quote, images: images.every(Boolean) ? images : undefined }
-    try { sessionStorage.setItem(pendingDraftKey(key), JSON.stringify(pending)) } catch { /* Memory still owns the current edit. */ }
+    try {
+      sessionStorage.setItem(pendingDraftKey(key), JSON.stringify(pending))
+      return true
+    } catch { return false }
   }
   function forget(key: string) {
     try { sessionStorage.removeItem(pendingDraftKey(key)) } catch { /* Storage can be disabled. */ }
@@ -70,7 +74,7 @@ export function serviceDrafts(client: VistaClient, apply: (key: string, input: D
     await serialize(e, async () => {
       if (signal.aborted || e.dirty) return
       try {
-        const pending = !e.current ? readPending(key) : undefined
+        const pending = !e.current ? readPending(pendingDraftKey(key)) : undefined
         const candidate = await get(key, signal)
         if (signal.aborted || e.dirty) return
         if ((e.sentThrough !== undefined && candidate.revision <= e.sentThrough) || (e.saved?.revision === candidate.revision && e.current)) {
@@ -136,7 +140,7 @@ export function serviceDrafts(client: VistaClient, apply: (key: string, input: D
     const e = entry(key)
     phase.value = e.phase
     if (e.current) apply(key, e.current)
-    const pending = !e.current ? readPending(key) : undefined
+    const pending = !e.current ? readPending(pendingDraftKey(key)) : undefined
     if (pending) {
       apply(key, { text: pending.text, quote: pending.quote || null, files: [] })
       void refresh(key, signal)
@@ -160,15 +164,17 @@ export function serviceDrafts(client: VistaClient, apply: (key: string, input: D
       }).then(() => { if (!loadSignal.aborted) return refresh(key, signal) })
     } else void refresh(key, signal)
   }
-  async function save(key: string, input: DraftInput): Promise<{ key: string; revision: number; images: DraftImage[] }> {
+  async function save(key: string, input: DraftInput, caller?: AbortSignal): Promise<{ key: string; revision: number; images: DraftImage[] }> {
     const e = entry(key)
+    const signal = caller ? AbortSignal.any([writeLifetime.signal, caller]) : writeLifetime.signal
     clearTimeout(e.timer)
     return serialize(e, async () => {
       if (disposed) throw Error('Draft view closed')
+      signal.throwIfAborted()
       if (e.conflictBase !== undefined) throw conflict()
       try {
         if (!e.saved) {
-          const baseline = await get(key)
+          const baseline = await get(key, signal)
           if (baseline.revision !== 0) throw conflict()
           e.saved = baseline
         }
@@ -176,24 +182,27 @@ export function serviceDrafts(client: VistaClient, apply: (key: string, input: D
         for (const file of input.files) {
           const known = refs.get(file)
           if (known?.key === key && e.saved.images.some(image => image.hash === known.ref.hash)) { images.push(known.ref); continue }
-          e.saved = await client.request<Saved>(`${path(key)}/images?revision=${e.saved.revision}&name=${encodeURIComponent(file.name)}`, { method: 'POST', headers: { 'Content-Type': file.type }, body: file })
+          e.saved = await client.request<Saved>(`${path(key)}/images?revision=${e.saved.revision}&name=${encodeURIComponent(file.name)}`, { method: 'POST', headers: { 'Content-Type': file.type }, body: file, signal })
           const ref = e.saved.images.at(-1)
           if (!ref) throw Error('Attachment upload did not return a reference')
           refs.set(file, { key, ref }); images.push(ref)
           if (e.dirty) remember(key, e)
         }
         if (input.text !== e.saved.text || JSON.stringify(input.quote || null) !== JSON.stringify(e.saved.quote || null) || JSON.stringify(images) !== JSON.stringify(e.saved.images) || e.saved.revision === 0) {
-          e.saved = await client.request<Saved>(path(key), { method: 'PUT', body: JSON.stringify({ revision: e.saved.revision, text: input.text, quote: input.quote, images }) })
+          e.saved = await client.request<Saved>(path(key), { method: 'PUT', body: JSON.stringify({ revision: e.saved.revision, text: input.text, quote: input.quote, images }), signal })
         }
+        signal.throwIfAborted()
         if (sameInput(e.current,input) || !e.current) { e.current = input; e.dirty = false }
         if (e.dirty) remember(key, e)
         else { forget(key); e.legacy?.(); e.legacy = undefined }
         status(key, 'idle')
         return { key, revision: e.saved.revision, images }
       } catch (cause) {
-        if (cause instanceof VistaAPIError && cause.status === 409) e.conflictBase = e.saved?.revision ?? 0
-        if (e.dirty) remember(key, e)
-        status(key, e.conflictBase === undefined ? 'saveFailed' : 'conflict')
+        if (!disposed) {
+          if (cause instanceof VistaAPIError && cause.status === 409) e.conflictBase = e.saved?.revision ?? 0
+          if (e.dirty) remember(key, e)
+          status(key, e.conflictBase === undefined ? 'saveFailed' : 'conflict')
+        }
         throw cause
       }
     })
@@ -210,8 +219,29 @@ export function serviceDrafts(client: VistaClient, apply: (key: string, input: D
     forget(key)
     void refresh(key)
   }
-  return { phase, change, select, refresh, save, sent, dispose: () => {
+  // A Profile switch unmounts this editor. Commit only dirty drafts, including
+  // their in-memory attachments, without waiting for an obsolete view read.
+  async function flush() {
+    const pending = [...entries].flatMap(([key, e]) => e.dirty && e.current ? [{ key, input: e.current }] : [])
+    if (!pending.length) return
+    readView.abort()
+    readView = new AbortController()
+    const controller = new AbortController()
+    const timer = setTimeout(() => controller.abort(Error('Draft save timed out')), 5000)
+    const deadline = new Promise<void>(resolve => {
+      controller.signal.addEventListener('abort', () => resolve(), { once: true })
+    })
+    try { await Promise.race([Promise.allSettled(pending.map(({ key, input }) => save(key, input, controller.signal))), deadline]) }
+    finally { clearTimeout(timer); controller.abort() }
+    // Failed or conflicting text can be recovered in this tab. Unsaved files
+    // cannot be recovered after unmount, so keep that editor open instead.
+    if ([...entries].some(([key, e]) => e.dirty && (e.current?.files.length || !remember(key, e)))) {
+      throw Error('Draft could not be retained when switching Profile')
+    }
+  }
+  return { phase, change, select, refresh, save, sent, flush, dispose: () => {
     disposed = true
+    writeLifetime.abort()
     readView.abort()
     for (const e of entries.values()) clearTimeout(e.timer)
     entries.clear()

@@ -4,7 +4,8 @@ import type en from './en.ts'
 export default {
   "profiles": "プロファイル",
   "currentProfile": "現在のプロファイル",
-  "profilePickerHint": "会話、モデル接続、設定はプロファイルごとに保存されます。切り替えに再ログインは不要です。",
+  "profilePickerHint": "会話、モデル接続、設定はプロファイルごとに保存されます。",
+  "profileSwitchBusy": "プロファイルを切り替える前に、現在の操作またはメッセージの編集を完了してください。",
   "profileLoadFailed": "プロファイルを読み込めませんでした。",
   "profileNameTooLong": "名前が長すぎます。短くしてからやり直してください。",
   "profileSaveFailed": "名前を保存できませんでした。入力内容は残っています。",

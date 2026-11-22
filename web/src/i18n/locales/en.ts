@@ -1,7 +1,8 @@
 export default {
   "profiles": "Profiles",
   "currentProfile": "Current profile",
-  "profilePickerHint": "Profiles keep conversations, model connections, and settings separate. Switching does not require a separate sign-in.",
+  "profilePickerHint": "Profiles keep conversations, model connections, and settings separate.",
+  "profileSwitchBusy": "Finish the current action or message edit before switching profiles.",
   "profileLoadFailed": "Could not load profiles.",
   "profileNameTooLong": "The name is too long. Shorten it and try again.",
   "profileSaveFailed": "Could not save the name. Your input is still here.",

@@ -80,7 +80,7 @@ function updateViewport() { mobile.value = mobileViewport.matches }
 onMounted(() => mobileViewport.addEventListener('change', updateViewport))
 onUnmounted(() => mobileViewport.removeEventListener('change', updateViewport))
 watch([settingsIndex, mobile], ([index, small]) => {
-  if (index && !small) void workspace.router.replace({ name: 'settings-general', query: route.query })
+  if (workspace.scopeActive() && index && !small) void workspace.router.replace({ name: 'settings-general', query: route.query })
 }, { immediate: true })
 watch(() => route.name, async () => {
   if (!mobile.value) return

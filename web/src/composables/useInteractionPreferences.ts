@@ -23,9 +23,9 @@ function readJSON<T>(key: string, fallback: T): T {
   try { return JSON.parse(readPreference(key) || 'null') ?? fallback } catch { return fallback }
 }
 
-export function useInteractionPreferences(client?: VistaClient, report: (error: unknown) => void = () => {}) {
-  const rememberedModel = ref<RememberedModel | null>(readJSON(profileStorageKey('vista-last-model'), null))
-  const reasoningByModelId = ref<Record<string, string>>(readJSON(profileStorageKey('vista-reasoning-by-model'), {}))
+export function useInteractionPreferences(client?: VistaClient, report: (error: unknown) => void = () => {}, profileId = 'default') {
+  const rememberedModel = ref<RememberedModel | null>(readJSON(profileStorageKey('vista-last-model', profileId), null))
+  const reasoningByModelId = ref<Record<string, string>>(readJSON(profileStorageKey('vista-reasoning-by-model', profileId), {}))
   const ready = ref(!client)
   let hydrating = false
   let saving = Promise.resolve()
@@ -35,21 +35,22 @@ export function useInteractionPreferences(client?: VistaClient, report: (error: 
   }
   watch(rememberedModel, (value, previous) => {
     if (value) {
-      savePreference(profileStorageKey('vista-last-model'), JSON.stringify(value))
+      savePreference(profileStorageKey('vista-last-model', profileId), JSON.stringify(value))
       if (value.key !== previous?.key) persist({ manualModelKey: value.key })
     }
   }, { flush: 'sync' })
   watch(reasoningByModelId, value => {
-    savePreference(profileStorageKey('vista-reasoning-by-model'), JSON.stringify(value)); persist({ reasoningByModelId: value })
+    savePreference(profileStorageKey('vista-reasoning-by-model', profileId), JSON.stringify(value)); persist({ reasoningByModelId: value })
   }, { flush: 'sync' })
-  async function load() {
+  async function load(signal?: AbortSignal) {
     if (!client || ready.value) return
     try {
-      const saved = await client.request<UserPreferences>('/preferences')
+      const saved = await client.request<UserPreferences>('/preferences', { signal })
+      if (signal?.aborted) return
       hydrating = true
       rememberedModel.value = saved.manualModelKey ? { key: saved.manualModelKey, id: '', reasoningEffort: '' } : null
       reasoningByModelId.value = saved.reasoningByModelId || {}
-    } catch (error) { report(error) }
+    } catch (error) { if (!signal?.aborted) report(error) }
     finally { hydrating = false; ready.value = true }
   }
   return { rememberedModel, reasoningByModelId, ready, load, flush: () => saving }
