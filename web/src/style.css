@@ -568,7 +568,8 @@ a {
     opacity: 0;
     transition: opacity .15s;
   }
-  .user:is(:hover, :focus-within) .message-actions:not(.branch-navigation) {
+  .user:is(:hover, :focus-within) .message-actions:not(.branch-navigation),
+  .user .reply-footer > .branch-navigation + .message-actions {
     opacity: 1;
   }
 }
