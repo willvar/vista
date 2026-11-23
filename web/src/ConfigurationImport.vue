@@ -1,9 +1,10 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, ref } from 'vue'
+import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { Empty as VEmpty, Alert as VAlert, Button as VButton, Checkbox as VCheckbox, Collapsible as VCollapsible, Input as VInput, Select as VSelect, Spin as VSpin } from './ui'
 import BatchOperationModal from './BatchOperationModal.vue'
 import { IconRefresh } from '@tabler/icons-vue'
+import { useRouteLayer } from './composables/routeLayers'
 import { useWorkspace } from './composables/useWorkspace'
 
 type ImportConnection = { id: string; name: string; providerId?: string; baseUrl?: string; reason?: string; description?: string; location?: string; warning?: string; disabled?: boolean; fileCount?: number; credentialSource?: string; credentialGroup?: string }
@@ -14,7 +15,8 @@ const endpoint = computed(() => props.kind === 'providers' ? '/provider-import' 
 const { t } = useI18n({ useScope: 'global' })
 const { client } = useWorkspace()
 const emit = defineEmits<{ 'modal-open': [open: boolean]; imported: [count: number] }>()
-const open = ref(false)
+const layer = useRouteLayer('import', to => to.name === ({ providers: 'settings', mcp: 'settings-mcp', skills: 'settings-skills' })[props.kind])
+const open = computed(() => layer.current.value !== undefined)
 const source = ref('opencode')
 const configPath = ref('')
 const credentialPath = ref('')
@@ -43,14 +45,8 @@ function toggle(id: string, checked: boolean) {
   const alternatives = new Set(group ? preview.value?.connections.filter(entry => entry.credentialGroup === group).map(entry => entry.id) : [id])
   selected.value = checked ? [...selected.value.filter(value => !alternatives.has(value)), id] : selected.value.filter(value => value !== id)
 }
-function cancel() {
-  if (importing.value) return
-  request?.abort()
-  request = undefined
-  reading.value = false
-  open.value = false
-  emit('modal-open', false)
-}
+function cancel() { layer.close() }
+layer.onLeave(() => !importing.value)
 async function read() {
   if (busy.value) return
   invalidate()
@@ -70,6 +66,7 @@ async function read() {
 }
 async function confirm() {
   if (busy.value || !preview.value || !selected.value.length) return
+  const close = layer.captureClose()
   importing.value = true
   phase.value = 'running'
   error.value = ''
@@ -81,25 +78,26 @@ async function confirm() {
       body: JSON.stringify({ ...requestBody('import'),
         fingerprint: preview.value.fingerprint, ids: selected.value }),
     })
+    if (controller.signal.aborted) return
     emit('imported', result.imported)
-    open.value = false
-    emit('modal-open', false)
+    importing.value = false
+    close()
   } catch (failure) {
     if (!controller.signal.aborted) { error.value = failure instanceof Error ? failure.message : String(failure); phase.value = 'confirm' }
   }
   finally { importing.value = false; if (request === controller) request = undefined }
 }
-function show() {
-  if (open.value) return
+function show() { void layer.open() }
+watch(open, active => {
+  emit('modal-open', active)
+  if (!active) { request?.abort(); request = undefined; reading.value = false; return }
   source.value = 'opencode'
   configPath.value = ''
   credentialPath.value = ''
   directory.value = ''
   invalidate()
   phase.value = 'confirm'
-  open.value = true
-  emit('modal-open', true)
-}
+}, { immediate: true })
 onBeforeUnmount(() => { request?.abort(); emit('modal-open', false) })
 defineExpose({ show })
 </script>

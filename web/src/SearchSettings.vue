@@ -3,6 +3,7 @@ import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { Alert as VAlert, Button as VButton, Modal as VModal } from './ui'
 import { IconPencil, IconSearch, IconFileText, IconRobot, IconWorld } from '@tabler/icons-vue'
+import { useLeaveConfirmation, useRouteLayer } from './composables/routeLayers'
 import { useWorkspace } from './composables/useWorkspace'
 import ConfirmPopover from './ConfirmPopover.vue'
 import SchemaForm from './SchemaForm.vue'
@@ -33,7 +34,10 @@ function previewDirty(key: PreviewKind) { return previews[key].value !== preview
 const orders = reactive<Record<OrderKind, string[]>>({ order: [], fetchOrder: [] })
 const savedOrders = reactive<Record<OrderKind, string[]>>({ order: [], fetchOrder: [] })
 function orderDirty(key: OrderKind) { return orders[key].join(',') !== savedOrders[key].join(',') }
-const editing = ref('')
+const layer = useRouteLayer('search-key', to => to.name === 'settings-search')
+const editing = computed(() => layer.current.value ?? '')
+const discard = useLeaveConfirmation()
+const discardOpen = discard.pending
 const keyDraft = ref('')
 const credentialChoice = ref('exa'), keyFormValid = ref(false), keyFormEpoch = ref(0)
 const keyError = ref('')
@@ -115,22 +119,13 @@ function validKeyDocument(value: Record<string, unknown>): FormIssue[] {
   if (new TextEncoder().encode(value.apiKey.trim()).length > 4096) return [{ path: '/apiKey', message: t('configByteLimit', { limit: 4096 }) }]
   return /[\s\p{Cc}]/u.test(value.apiKey.trim()) ? [{ path: '/apiKey', message: t('configKeyWhitespace') }] : []
 }
-function editKey(name: string) {
-  if (loading.value || busy.value) return
-  editing.value = name
+function editKey(name: string) { if (!loading.value && !busy.value) void layer.open(name) }
+watch(editing, name => {
+  if (name && name !== 'jina' && !Object.hasOwn(names, name)) { layer.drop(); return }
   keyDraft.value = ''; keyFormEpoch.value++
-  keyError.value = ''
-  removingKey.value = false
-  removeKeyError.value = ''
-}
-function closeKeyEditor() {
-  if (busy.value) return
-  editing.value = ''
-  keyDraft.value = ''
-  keyError.value = ''
-  removingKey.value = false
-  removeKeyError.value = ''
-}
+  keyError.value = ''; removingKey.value = false; removeKeyError.value = ''
+}, { immediate: true })
+layer.onLeave(() => !busy.value && (!keyDraft.value || discard.ask()))
 const document = computed<Record<string, unknown>>({
   get: () => ({ order: [...orders.order], fetchOrder: [...orders.fetchOrder], searchPreviewBytes: previewValue('searchPreviewBytes'), fetchPreviewBytes: previewValue('fetchPreviewBytes') }),
   set: value => {
@@ -178,6 +173,7 @@ async function updateKey(remove = false) {
   removeKeyError.value = ''
   updated.value = ''
   let saved = false
+  const close = layer.captureClose()
   try {
     await client.request('/search-config', {
       method: remove ? 'DELETE' : 'PUT', signal: controller.signal,
@@ -196,7 +192,7 @@ async function updateKey(remove = false) {
     }
   }
   finally { busy.value = '' }
-  if (saved) closeKeyEditor()
+  if (saved) close()
 }
 </script>
 
@@ -277,7 +273,7 @@ async function updateKey(remove = false) {
   </div>
   <v-modal :open="!!editing" centered :z-index="1200" width="min(480px, calc(100vw - 2rem))"
     :title="t('editSearchKey', { name: providerName(editing) })" :footer="null" :closable="!busy" :keyboard="!busy && !removingKey" :mask-closable="!busy && !removingKey" destroy-on-hidden
-    :styles="{ body: { maxHeight: 'calc(100dvh - 10rem)', overflowY: 'auto', overscrollBehavior: 'contain' } }" @cancel="closeKeyEditor">
+    :styles="{ body: { maxHeight: 'calc(100dvh - 10rem)', overflowY: 'auto', overscrollBehavior: 'contain' } }" @cancel="layer.close">
     <form v-if="editing" class="search-key-form" :aria-label="providerName(editing)" @submit.prevent="updateKey()">
       <v-alert v-if="keyError" type="error" role="alert" :message="keyError" />
       <p class="search-settings-hint">{{ keyStatus(editingSource, editing) }}</p>
@@ -289,10 +285,11 @@ async function updateKey(remove = false) {
         <ConfirmPopover v-if="editingSource === 'settings'" :show="removingKey" :message="t('removeSearchKeyConfirm', { name: removalName })" :cancel-text="t('cancel')" :confirm-text="t('delete')" :busy="!!busy" :error="removeKeyError" :z-index="1300" popover-class="search-key-remove-popover" @update:show="removingKey = $event; removeKeyError = ''" @confirm="updateKey(true)">
           <template #trigger><v-button type="button" danger :disabled="!!busy">{{ t('removeSearchKey') }}</v-button></template>
         </ConfirmPopover>
-        <div><v-button type="button" :disabled="!!busy" @click="closeKeyEditor">{{ t('cancel') }}</v-button><v-button type="submit" variant="primary" :loading="!!busy" :disabled="!!busy || !canSaveKey">{{ t('saveChanges') }}</v-button></div>
+        <div><v-button type="button" :disabled="!!busy" @click="layer.close">{{ t('cancel') }}</v-button><v-button type="submit" variant="primary" :loading="!!busy" :disabled="!!busy || !canSaveKey">{{ t('saveChanges') }}</v-button></div>
       </div>
     </form>
   </v-modal>
+  <v-modal :open="discardOpen" :title="t('networkDiscard')" :ok-text="t('networkDiscard')" :z-index="1400" destroy-on-hidden @cancel="discard.finish(false)" @ok="discard.finish(true)"><p>{{ t('configEditorDiscard') }}</p></v-modal>
 </template>
 
 <style scoped>

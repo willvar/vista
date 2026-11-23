@@ -349,7 +349,13 @@ test('key editor preserves failed saves, retries loading, and discards canceled 
   await editKey(page, 'Firecrawl')
   await expect(input).toHaveValue('')
   await input.fill('unsaved-secret')
+  const discard = page.getByRole('dialog', { name: 'Discard unsaved changes', exact: true })
   await form.getByRole('button', { name: 'Cancel', exact: true }).click()
+  await expect(discard).toBeVisible()
+  await discard.getByRole('button', { name: 'Cancel', exact: true }).click()
+  await expect(input).toHaveValue('unsaved-secret')
+  await form.getByRole('button', { name: 'Cancel', exact: true }).click()
+  await discard.getByRole('button', { name: 'Discard unsaved changes', exact: true }).click()
   await expect(form).toBeHidden()
   await openSettingsSection(page, 'general')
   await openSettingsSection(page, 'search')
@@ -366,6 +372,7 @@ test('key editor preserves failed saves, retries loading, and discards canceled 
     await draft.fill('discarded-secret')
     if (dismiss === 'escape') await draft.press('Escape')
     else await page.locator('.ui-modal-wrap').last().click({ position: { x: 5, y: 5 } })
+    await discard.getByRole('button', { name: 'Discard unsaved changes', exact: true }).click()
     await expect(dialog).toBeHidden()
     await expect(settings).toBeVisible()
     await expect(keyStatus(page)).toHaveText('Anonymous access')
@@ -497,6 +504,8 @@ test('search settings remain readable and reachable in English and Chinese', asy
       await save.click({ trial: true })
       if (name === 'Jina Reader') await page.screenshot({ path: testInfo.outputPath(`reader-key-dialog-${language}.png`), animations: 'disabled' })
       await form.getByRole('button', { name: language === 'en' ? 'Cancel' : /^取\s*消$/, exact: true }).click()
+      const discard = language === 'en' ? 'Discard unsaved changes' : '放弃未保存的更改'
+      await page.getByRole('dialog', { name: discard, exact: true }).getByRole('button', { name: discard, exact: true }).click()
       await expect(form).toBeHidden()
     }
     const overflow = await settings.evaluate(section => {

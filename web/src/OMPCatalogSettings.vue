@@ -3,6 +3,7 @@ import { computed, onUnmounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { Empty as VEmpty, Alert as VAlert, Button as VButton, Modal as VModal } from './ui'
 import { IconHistory } from '@tabler/icons-vue'
+import { useRouteLayer } from './composables/routeLayers'
 import { useWorkspace } from './composables/useWorkspace'
 import type { VistaClient, OMPCatalogInfo } from '@vista/client'
 import { formatDateTime } from './ui/datetime.ts'
@@ -13,7 +14,8 @@ const { t, locale } = useI18n({ useScope: 'global' })
 const catalog = ref<OMPCatalogInfo>()
 const loading = ref(true)
 const updating = ref(false)
-const historyOpen = ref(false)
+const history = useRouteLayer('catalog-history', to => to.name === 'settings-about')
+const historyOpen = computed(() => history.current.value !== undefined)
 const requestError = ref('')
 const checking = computed(() => updating.value || !!catalog.value?.updating)
 const error = computed(() => requestError.value || (checking.value ? '' : catalog.value?.checkError))
@@ -62,7 +64,7 @@ async function update() {
 }
 
 function updatedAt(value: string) { return formatDateTime(value, locale.value) }
-function openHistory() { historyOpen.value = true }
+function openHistory() { void history.open() }
 defineExpose({ headerAction: computed(() => ({ label: checking.value ? 'modelCatalogUpdating' : 'modelCatalogCheck', run: update, disabled: loading.value || checking.value, loading: checking.value })) })
 </script>
 
@@ -80,7 +82,7 @@ defineExpose({ headerAction: computed(() => ({ label: checking.value ? 'modelCat
     <small v-if="catalog" class="omp-catalog-updated">{{ catalog.updatedAt ? t('modelCatalogUpdatedAt', { time: updatedAt(catalog.updatedAt) }) : t('modelCatalogBundled') }}</small>
     <v-alert v-if="error" type="error" role="alert" :message="error" />
   </section>
-  <v-modal v-model:open="historyOpen" centered :z-index="1200" width="min(640px, calc(100vw - 2rem))" :title="t('modelCatalogHistory')" :footer="null" :styles="{ body: { maxHeight: '70dvh', overflowY: 'auto' } }">
+  <v-modal :open="historyOpen" @cancel="history.close" centered :z-index="1200" width="min(640px, calc(100vw - 2rem))" :title="t('modelCatalogHistory')" :footer="null" :styles="{ body: { maxHeight: '70dvh', overflowY: 'auto' } }">
     <div class="omp-catalog-history">
       <div class="omp-catalog-history-summary">
         <p>{{ t('modelCatalogHint') }}</p>

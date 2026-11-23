@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import GenerationSettings from '../GenerationSettings.vue'
 import { computed, defineAsyncComponent, h, nextTick, reactive, onMounted, onUnmounted, ref, watch } from 'vue'
-import { onBeforeRouteLeave, onBeforeRouteUpdate, useRoute } from 'vue-router'
+import { useRoute } from 'vue-router'
+import { layerTokens, returnToParent, useLeaveConfirmation, useRouteLayer, withLayers } from '../composables/routeLayers'
 import { useI18n } from 'vue-i18n'
 import { IconChevronRight, IconPalette, IconUser, IconPlugConnected, IconInfoCircle, IconSearch, IconLink, IconBook2, IconSun, IconMoon, IconDeviceDesktop, IconDatabase, IconAlertCircle, IconMaximize, IconMinimize, IconPlus, IconFileImport, IconRefresh, IconRobot, IconRobotFace, IconUsers, IconCompass, IconTool, IconMessage, IconFolderOpen, IconFolder, IconFileText, IconPencil, IconAdjustments } from '@tabler/icons-vue'
 import { Empty as VEmpty, Alert as VAlert, Button as VButton, Input as VInput, Modal as VModal, Select as VSelect, Switch as VSwitch, Tooltip as VTooltip } from '../ui'
@@ -57,7 +58,7 @@ const delegationNodes = [
   { x: 62.5, y: 86, level: 2 }, { x: 87.5, y: 86, level: 2 },
 ]
 const workspace = useWorkspace()
-const { modelCatalog, defaultModelChoices, modelNameById, backToWorkspace, debugMode, serverStatus, stateConnection } = workspace
+const { modelCatalog, defaultModelChoices, modelNameById, closeSettings, debugMode, serverStatus, stateConnection } = workspace
 const canRestartFromTray = computed(() => clientRuntime.value?.restartFromTray && stateConnection.value.phase === 'ready')
 const sections = [
   { name: 'settings-general', label: 'appearance', icon: IconPalette },
@@ -71,7 +72,28 @@ const sections = [
   { name: 'settings-storage', label: 'storageSettings', icon: IconDatabase },
   { name: 'settings-about', label: 'aboutSettings', icon: IconInfoCircle },
 ]
+const sessionQuery = computed(() => route.query.session ? { session: route.query.session } : {})
+const hasLayer = computed(() => layerTokens(route).length > 0)
 const settingsIndex = computed(() => route.name === 'settings-index')
+const settingsLayerKinds: Record<string, string[]> = {
+  'settings-about': ['advanced', 'catalog-history'],
+  settings: ['connection', 'connection-usage', 'import'],
+  'settings-personalization': ['instructions', 'delegation'],
+  'settings-skills': ['skill', 'import'],
+  'settings-mcp': ['mcp-editor', 'import'],
+  'settings-network': ['proxy-profile'],
+  'settings-search': ['search-key'],
+}
+watch([() => route.name, () => route.query.layer], ([name, raw]) => {
+  if (raw === undefined || route.meta.workspaceOverlay !== 'settings') return
+  const tokens = layerTokens(route)
+  const first = tokens[0]
+  const allowed = settingsLayerKinds[String(name)] || []
+  const valid = first && allowed.some(kind => first.startsWith(kind + ':')) ? [first] : []
+  if (valid[0]?.startsWith('skill:') && tokens[1]?.startsWith('skill-file:')) valid.push(tokens[1])
+  const count = Array.isArray(raw) ? raw.length : 1
+  if (valid.length !== count) void workspace.router.replace(withLayers(route, valid))
+}, { immediate: true })
 const settingsTitle = computed(() => t(sections.find(section => section.name === route.name)?.label || 'settings'))
 const mobileViewport = window.matchMedia('(max-width: 830px)')
 const mobile = ref(mobileViewport.matches)
@@ -80,7 +102,7 @@ function updateViewport() { mobile.value = mobileViewport.matches }
 onMounted(() => mobileViewport.addEventListener('change', updateViewport))
 onUnmounted(() => mobileViewport.removeEventListener('change', updateViewport))
 watch([settingsIndex, mobile], ([index, small]) => {
-  if (workspace.scopeActive() && index && !small) void workspace.router.replace({ name: 'settings-general', query: route.query })
+  if (workspace.scopeActive() && index && !small) void workspace.router.replace({ name: 'settings-general', query: sessionQuery.value })
 }, { immediate: true })
 watch(() => route.name, async () => {
   if (!mobile.value) return
@@ -88,10 +110,10 @@ watch(() => route.name, async () => {
   modal.value?.focusTitle()
 }, { flush: 'post' })
 function back() {
-  if (!mobile.value || settingsIndex.value) return backToWorkspace()
-  const directory = { name: 'settings-index', query: route.query }
-  if (workspace.router.options.history.state.back === workspace.router.resolve(directory).fullPath) workspace.router.back()
-  else void workspace.router.replace(directory)
+  const layers = layerTokens(route)
+  if (layers.length) return returnToParent(workspace.router, withLayers(route, layers.slice(0, -1)))
+  if (!mobile.value || settingsIndex.value) return closeSettings()
+  returnToParent(workspace.router, { name: 'settings-index', query: sessionQuery.value })
 }
 const mcpModalOpen = ref(false)
 const skillModalOpen = ref(false)
@@ -104,10 +126,13 @@ const statisticsModalOpen = ref(false)
 const providerImportOpen = ref(false)
 const providerImport = ref<InstanceType<typeof ConfigurationImport>>()
 const importedCount = ref(0)
-const instructionsEditorOpen = ref(false)
+const instructionsLayer = useRouteLayer('instructions', to => to.name === 'settings-personalization')
+const instructionsEditorOpen = computed(() => instructionsLayer.current.value !== undefined)
 const instructionsReloadOpen = ref(false)
-const delegationEditorOpen = ref(false)
-const aboutAdvancedOpen = ref(false)
+const delegationLayer = useRouteLayer('delegation', to => to.name === 'settings-personalization')
+const delegationEditorOpen = computed(() => delegationLayer.current.value !== undefined)
+const advancedLayer = useRouteLayer('advanced', to => to.name === 'settings-about')
+const aboutAdvancedOpen = computed(() => advancedLayer.current.value !== undefined)
 const environmentCheckOpen = ref(false)
 const instructionsDocument = computed<Record<string, unknown>>({ get: () => ({ instructions: agentInstructions.value }), set: value => { if (typeof value.instructions === 'string') agentInstructions.value = value.instructions } })
 const instructionsSchema = computed(() => ({ type: 'object' as const, additionalProperties: false, required: ['instructions'], properties: { instructions: { type: 'string' as const, title: t('globalInstructions') } } }))
@@ -130,52 +155,85 @@ const {
   modelCredentials, modelCredentialsSchema, modelCredentialsUISchema, modelCredentialsValid, showModelCredentials,
   updateSelectedModels, changeProvider,
   startProviderConnection, cancelModelForm, loadModelSettings, editProvider, providerGroups,
-  saveProvider, clearCustomModels, providerConnected, setDefaultModel, setProviderEnabled, changingProvider, confirmDisconnectProvider, updateProviderDisconnect,
+  saveProvider, clearCustomModels, setDefaultModel, setProviderEnabled, changingProvider, confirmDisconnectProvider, updateProviderDisconnect,
 } = useProviderSettings(workspace)
 const missingDefaultModel = computed(() => !!settings.value.default && !modelCatalog.value.models.some(model => model.key === settings.value.default))
 const networkConfigData = useNetworkConfig(workspace, () => route.name === 'settings')
-const usageConnection = ref<{ key: string; name: string }>()
+const providerLayer = useRouteLayer('connection', to => to.name === 'settings')
+const usageLayer = useRouteLayer('connection-usage', to => to.name === 'settings')
+const usageConnection = computed(() => providerGroups.value.find(group => group.models[0]?.key === usageLayer.current.value && usageLayer.current.value !== undefined))
 const usageDays = ref(30)
 const usagePeriods = computed(() => [7, 30, 90].map(value => ({ value, label: t('statisticsPeriodDays', { count: value }) })))
-function openConnectionUsage(model: ModelSetting, name: string) {
-  usageConnection.value = { key: model.key, name }
-}
+function openConnectionUsage(model: ModelSetting) { void usageLayer.open(model.key) }
 const proxyProfiles = computed(() => networkConfigData.value.value?.config.profiles || [])
 const providerProxyValid = ref(true), providerCredentialDirty = ref(false), providerBaseline = ref('')
 const providerSnapshot = computed(() => JSON.stringify({ draft: modelDraft.value, models: chosenModels.value, manual: manualModelIDs.value }))
-const providerDiscardOpen = ref(false)
+const { pending: providerDiscardOpen, ask: askProviderDiscard, finish: finishProviderDiscard } = useLeaveConfirmation()
 const proxyBindingTarget = ref<ModelSetting>(), proxyBindingValue = ref(''), proxyBindingBase = ref(''), proxyBindingRevision = ref(''), proxyBindingValid = ref(true), proxyBindingError = ref('')
 const proxyBindingDirty = computed(() => !!proxyBindingTarget.value && proxyBindingValue.value !== proxyBindingBase.value)
 const proxyBindingConflict = computed(() => !!proxyBindingTarget.value && proxyBindingRevision.value !== settings.value.settingsRevision)
 function editProxyBinding(model: ModelSetting) { proxyBindingTarget.value = model; proxyBindingValue.value = model.proxyId || ''; proxyBindingBase.value = proxyBindingValue.value; proxyBindingRevision.value = settings.value.settingsRevision || ''; proxyBindingError.value = '' }
-async function closeProxyBinding() { if (settingsBusy.value || proxyBindingDirty.value && !await askProviderDiscard()) return; proxyBindingTarget.value = undefined }
 async function saveProxyBinding() {
   const target = proxyBindingTarget.value; if (!target || !proxyBindingValid.value || proxyBindingConflict.value) return
+  const close = providerLayer.captureClose()
+  const value = proxyBindingValue.value
   settingsBusy.value = true; proxyBindingError.value = ''
-  try { await workspace.client.request('/provider-config', { method: 'PATCH', body: JSON.stringify({ key: target.key, proxyId: proxyBindingValue.value, revision: proxyBindingRevision.value }) }); proxyBindingTarget.value = undefined }
-  catch (cause) { proxyBindingError.value = cause instanceof Error ? cause.message : String(cause) }
+  try {
+    await workspace.client.request('/provider-config', { method: 'PATCH', body: JSON.stringify({ key: target.key, proxyId: value, revision: proxyBindingRevision.value }) })
+    proxyBindingBase.value = value
+  } catch (cause) { proxyBindingError.value = cause instanceof Error ? cause.message : String(cause); return }
   finally { settingsBusy.value = false }
+  close()
 }
 async function reloadProviderDraft() { if (providerDirty.value && !await askProviderDiscard()) return; const latest = settings.value.models.find(model => model.key === modelDraft.value.key); if (latest) { editProvider(latest); providerBaseline.value = providerSnapshot.value; providerCredentialDirty.value = false } }
 async function reloadProxyBinding() { if (proxyBindingDirty.value && !await askProviderDiscard()) return; const latest = settings.value.models.find(model => model.key === proxyBindingTarget.value?.key); if (latest) editProxyBinding(latest) }
 
-let providerDiscardResolve: ((value: boolean) => void) | undefined, providerDiscardPending: Promise<boolean> | undefined
 const providerDirty = computed(() => providerCredentialDirty.value || modelConfigDirty.value || providerSnapshot.value !== providerBaseline.value)
-watch(modelFormOpen, open => { providerBaseline.value = open ? providerSnapshot.value : ''; providerCredentialDirty.value = false; if (!open) finishProviderDiscard(false) }, { flush: 'sync' })
-function askProviderDiscard() { if (providerDiscardPending) return providerDiscardPending; providerDiscardOpen.value = true; return providerDiscardPending = new Promise<boolean>(resolve => { providerDiscardResolve = resolve }) }
-function finishProviderDiscard(value: boolean) { providerDiscardOpen.value = false; providerDiscardResolve?.(value); providerDiscardResolve = undefined; providerDiscardPending = undefined }
-async function leaveProvider() { if (settingsBusy.value) return false; return (!(modelFormOpen.value && providerDirty.value) && !proxyBindingDirty.value) || await askProviderDiscard() }
-onBeforeRouteLeave(leaveProvider); onBeforeRouteUpdate(leaveProvider)
-let openedConnection = ''
-watch([() => route.name, () => route.query.connection, () => settings.value.models, () => providerOptions.value.length], async () => {
-  await nextTick()
-  if (route.name !== 'settings') { openedConnection = ''; return }
-  const key = typeof route.query.connection === 'string' ? route.query.connection : ''
-  if (!key || openedConnection === key || modelFormOpen.value || !providerOptions.value.length) return
-  const model = settings.value.models.find(model => model.key === key)
-  if (model) { openedConnection = key; if (model.editable) editProvider(model); else editProxyBinding(model) }
-}, { immediate: true, flush: 'post' })
-onUnmounted(() => finishProviderDiscard(false))
+function acceptProviderDraft() {
+  providerBaseline.value = providerSnapshot.value
+  providerCredentialDirty.value = false
+  modelConfigDirty.value = false
+}
+providerLayer.onLeave(() => !settingsBusy.value && (!(modelFormOpen.value && providerDirty.value) && !proxyBindingDirty.value || askProviderDiscard()))
+
+// Normalize old connection links without adding a second history entry.
+watch([() => route.name, () => route.query.connection], ([name, key]) => {
+  if (name !== 'settings' || typeof key !== 'string' || providerLayer.current.value !== undefined) return
+  const { connection: _, ...query } = route.query
+  void workspace.router.replace(withLayers({ ...route, query }, ['connection:' + key]))
+}, { immediate: true })
+let initializedConnection: string | undefined
+watch([providerLayer.current, () => route.query.session, () => settings.value.models, () => settings.value.settingsRevision], ([key, session], previous) => {
+  if (key === initializedConnection && session === previous?.[1]) return
+  if (key) {
+    const model = settings.value.models.find(item => item.key === key)
+    if (!model) {
+      if (settings.value.settingsRevision) providerLayer.drop()
+      return
+    }
+    initializedConnection = key
+    cancelModelForm()
+    proxyBindingTarget.value = undefined
+    if (model.editable) editProvider(model)
+    else editProxyBinding(model)
+  } else {
+    initializedConnection = key
+    proxyBindingTarget.value = undefined
+    if (key === '') startProviderConnection()
+    else cancelModelForm()
+  }
+  acceptProviderDraft()
+}, { immediate: true })
+watch([usageLayer.current, () => settings.value.settingsRevision], ([key, revision]) => {
+  if (key && revision && !usageConnection.value) usageLayer.drop()
+}, { immediate: true })
+async function saveProviderAndClose() {
+  const close = providerLayer.captureClose()
+  if (!await saveProvider()) return
+  acceptProviderDraft()
+  close()
+}
+function providerConnected() { acceptProviderDraft(); providerLayer.close() }
 const agentFieldValidity = reactive({ instructions: true, delegationDepth: true, automaticTitles: true })
 const agentFieldSchemas = computed(() => Object.fromEntries(['instructions', 'delegationDepth', 'automaticTitles'].map(field => [field, {
   type: 'object', additionalProperties: false, required: [field], properties: { [field]: agentSettingsSchema.value.properties![field] },
@@ -191,11 +249,10 @@ const importTitleKey = computed(() => importKind.value === 'providers' ? 'provid
 const canImport = computed(() => ['settings', 'settings-mcp', 'settings-skills'].includes(String(route.name)))
 function onImported(count: number) {
   importedCount.value = count
-  if (importKind.value === 'providers') void providerConnected()
-  else void sectionActions.value?.imported?.()
+  if (importKind.value !== 'providers') void sectionActions.value?.imported?.()
 }
 const headerAction = computed<HeaderAction | undefined>(() => route.name === 'settings'
-  ? { label: 'connectProvider', run: startProviderConnection, disabled: settingsBusy.value, loading: false }
+  ? { label: 'connectProvider', run: () => providerLayer.open(), disabled: settingsBusy.value, loading: false }
   : ['settings-mcp', 'settings-network', 'settings-about', 'settings-statistics'].includes(String(route.name)) ? sectionActions.value?.headerAction : undefined)
 const generationWorkflowOpen = ref(false)
 const loginBusy = ref(false)
@@ -203,20 +260,14 @@ watch(() => modelDraft.value.kind, () => { loginBusy.value = false })
 function providerTypeLabel(kind: string, protocol: string) {
   return providerOptions.value.find(option => option.value === kind)?.label || protocol
 }
-async function closeProviderForm() {
-  if (settingsBusy.value || providerDirty.value && !await askProviderDiscard()) return
-  cancelModelForm()
-}
+// These full-screen views edit drafts owned by Personalization. Closing the
+// view doesn't discard the draft; leaving the owning page is different.
+instructionsLayer.onLeave(() => !agentSettingsBusy.value)
+delegationLayer.onLeave(() => !agentSettingsBusy.value)
 
-watch(() => route.fullPath, () => {
+watch([() => route.name, () => route.query.session], () => {
   importedCount.value = 0
-  instructionsEditorOpen.value = false
-  delegationEditorOpen.value = false
-  aboutAdvancedOpen.value = false
   providerDisconnectTarget.value = null
-  usageConnection.value = undefined
-  proxyBindingTarget.value = undefined
-  cancelModelForm()
   if (route.name === 'settings-personalization' || route.name === 'settings-general') void loadAgentSettings()
   else if (route.name === 'settings') void loadModelSettings()
 }, { immediate: true })
@@ -225,9 +276,9 @@ watch(() => route.fullPath, () => {
 <template>
 <WorkspaceModal ref="modal" :open="true" width="max-content" :title="settingsTitle" :page-class="settingsIndex ? 'settings-page settings-index' : 'settings-page'"
   :close-label="t('closeSettings')" :back-label="t(settingsIndex ? 'backToConversation' : 'backToSettings')"
-  :keyboard="!generationWorkflowOpen && !providerDisconnectTarget && !modelFormOpen && !providerImportOpen && !mcpModalOpen && !skillModalOpen && !searchModalOpen && !networkModalOpen && !usageConnection && !providerDiscardOpen && !proxyBindingTarget && !storageModalOpen && !resetModalOpen && !restartModalOpen && !statisticsModalOpen && !instructionsEditorOpen && !delegationEditorOpen && !aboutAdvancedOpen && !environmentCheckOpen" @cancel="backToWorkspace" @back="back">
+  :keyboard="!hasLayer && !generationWorkflowOpen && !providerDisconnectTarget && !providerImportOpen && !mcpModalOpen && !skillModalOpen && !searchModalOpen && !networkModalOpen && !providerDiscardOpen && !storageModalOpen && !resetModalOpen && !restartModalOpen && !statisticsModalOpen && !environmentCheckOpen" @cancel="back" @back="back">
         <template #header-actions>
-            <v-button v-if="route.name === 'settings-about'" variant="text" class="icon-button" :aria-label="t('advancedSettings')" :title="t('advancedSettings')" @click="aboutAdvancedOpen = true"><template #icon><IconAdjustments aria-hidden="true" /></template></v-button>
+            <v-button v-if="route.name === 'settings-about'" variant="text" class="icon-button" :aria-label="t('advancedSettings')" :title="t('advancedSettings')" @click="advancedLayer.open()"><template #icon><IconAdjustments aria-hidden="true" /></template></v-button>
             <EnvironmentCheckSettings v-if="route.name === 'settings-about'" :client="workspace.client" @modal-open="environmentCheckOpen = $event" />
             <v-button v-if="canImport" variant="text" class="icon-button" :aria-label="t(importTitleKey)" :title="t(importTitleKey)" :disabled="importKind === 'providers' ? settingsBusy : headerAction?.disabled" @click="importedCount = 0; providerImport?.show()"><template #icon><IconFileImport aria-hidden="true" /></template></v-button>
             <v-button v-if="headerAction" variant="text" class="icon-button" :aria-label="t(headerAction.label)" :title="t(headerAction.label)" :disabled="headerAction.disabled" :loading="headerAction.loading" @click="headerAction.run()">
@@ -236,7 +287,7 @@ watch(() => route.fullPath, () => {
         </template>
         <div class="settings-body">
         <nav class="settings-nav" :aria-label="t('settings')">
-          <router-link v-for="section in sections" :key="section.name" :to="{ name: section.name, query: route.query }" :class="{ active: route.name === section.name }" :aria-current="route.name === section.name ? 'page' : undefined"><component :is="section.icon" aria-hidden="true" /><span>{{ t(section.label) }}</span><IconChevronRight class="settings-nav-chevron" aria-hidden="true" /></router-link>
+          <router-link v-for="section in sections" :key="section.name" :to="{ name: section.name, query: sessionQuery }" :replace="!mobile" :class="{ active: route.name === section.name }" :aria-current="route.name === section.name ? 'page' : undefined"><component :is="section.icon" aria-hidden="true" /><span>{{ t(section.label) }}</span><IconChevronRight class="settings-nav-chevron" aria-hidden="true" /></router-link>
         </nav>
         <NetworkSettings ref="sectionActions" v-if="route.name === 'settings-network'" @modal-open="networkModalOpen = $event" />
         <SearchSettings v-if="route.name === 'settings-search'" @modal-open="searchModalOpen = $event" />
@@ -262,7 +313,7 @@ watch(() => route.fullPath, () => {
           <v-alert v-if="agentSettingsSaved" type="success" role="status" :message="t('agentSettingsSaved')" />
           <section class="agent-instructions-form" aria-labelledby="global-instructions-heading">
             <div class="general-setting">
-              <div class="agent-instructions-heading"><h3 id="global-instructions-heading">{{ t('globalInstructions') }}</h3><v-button :disabled="agentSettingsLoading || agentSettingsBusy" @click="instructionsEditorOpen = true"><IconMaximize aria-hidden="true" />{{ t('fullscreenEdit') }}</v-button></div>
+              <div class="agent-instructions-heading"><h3 id="global-instructions-heading">{{ t('globalInstructions') }}</h3><v-button :disabled="agentSettingsLoading || agentSettingsBusy" @click="instructionsLayer.open()"><IconMaximize aria-hidden="true" />{{ t('fullscreenEdit') }}</v-button></div>
               <p>{{ t('longTermInstructionsHint') }}</p>
               <figure id="global-instructions-hint" class="personalization-figure instructions-figure" :aria-label="t('instructionsFigureLabel')">
                 <div class="instructions-figure-heading"><span>{{ t('instructionsFramework') }}</span><small>{{ t('instructionsGlobalScope') }}</small></div>
@@ -293,7 +344,7 @@ watch(() => route.fullPath, () => {
             </aside>
           </section>
           <section class="delegation-depth-setting general-setting" aria-labelledby="delegation-heading">
-            <div class="agent-instructions-heading"><h3 id="delegation-heading">{{ t('delegationDepth') }}</h3><v-button :disabled="agentSettingsLoading || agentSettingsBusy" @click="delegationEditorOpen = true"><IconPencil aria-hidden="true" />{{ t('edit') }}</v-button></div>
+            <div class="agent-instructions-heading"><h3 id="delegation-heading">{{ t('delegationDepth') }}</h3><v-button :disabled="agentSettingsLoading || agentSettingsBusy" @click="delegationLayer.open()"><IconPencil aria-hidden="true" />{{ t('edit') }}</v-button></div>
             <div class="general-setting">
               <p id="delegation-depth-intro">{{ t('delegationDepthIntro') }}</p>
               <figure id="delegation-depth-hint" class="delegation-depth-figure" :aria-label="t('delegationDepthHint', { max: maxDelegationDepth })">
@@ -360,14 +411,14 @@ watch(() => route.fullPath, () => {
                   <small v-if="group.baseUrl">{{ group.baseUrl }}</small>
                 </div>
                 <div class="actions">
-                  <v-button @click="openConnectionUsage(group.models[0]!, group.name)">{{ t('connectionUsage') }}</v-button>
+                  <v-button @click="openConnectionUsage(group.models[0]!)">{{ t('connectionUsage') }}</v-button>
                   <template v-if="group.models.every(model => model.editable)">
-                    <v-button :disabled="settingsBusy" @click="editProvider(group.models[0]!)">{{ t('edit') }}</v-button>
+                    <v-button :disabled="settingsBusy" @click="providerLayer.open(group.models[0]!.key)">{{ t('edit') }}</v-button>
                     <confirm-popover :show="providerDisconnectTarget?.key === group.models[0]!.key" :message="t('disconnectProviderConfirm', { name: group.name })" :cancel-text="t('cancel')" :confirm-text="t('disconnectProvider')" :busy="settingsBusy" :error="providerDisconnectError" popover-class="provider-disconnect-popover" @update:show="updateProviderDisconnect($event, group.models[0]!.key, group.name)" @confirm="confirmDisconnectProvider">
                       <template #trigger><v-button danger :disabled="settingsBusy">{{ t('disconnectProvider') }}</v-button></template>
                     </confirm-popover>
                   </template>
-                  <v-button v-else :disabled="settingsBusy" @click="editProxyBinding(group.models[0]!)">{{ t('networkProxy') }}</v-button>
+                  <v-button v-else :disabled="settingsBusy" @click="providerLayer.open(group.models[0]!.key)">{{ t('networkProxy') }}</v-button>
                 </div>
               </div>
             </div>
@@ -401,11 +452,11 @@ watch(() => route.fullPath, () => {
         </div>
         </div>
       </WorkspaceModal>
-  <AboutAdvancedSettings :open="aboutAdvancedOpen" :client="workspace.client" :status="serverStatus" v-model:debug-mode="debugMode" @cancel="aboutAdvancedOpen = false" />
+  <AboutAdvancedSettings :open="aboutAdvancedOpen" :client="workspace.client" :status="serverStatus" v-model:debug-mode="debugMode" />
   <v-modal :open="instructionsEditorOpen" :title="t('globalInstructions')" :closable="false" :close-disabled="agentSettingsBusy" :keyboard="!agentSettingsBusy && !instructionsReloadOpen" :mask-closable="!agentSettingsBusy && !instructionsReloadOpen" :z-index="1200" width="100%"
     class="instructions-editor-modal" wrap-class-name="instructions-editor-wrap" destroy-on-hidden :initial-focus-el="instructionsFocus"
-    @cancel="instructionsEditorOpen = false">
-    <template #header-actions><v-button :disabled="agentSettingsBusy" @click="instructionsEditorOpen = false"><IconMinimize aria-hidden="true" />{{ t('exitFullscreenEdit') }}</v-button></template>
+    @cancel="instructionsLayer.close()">
+    <template #header-actions><v-button :disabled="agentSettingsBusy" @click="instructionsLayer.close()"><IconMinimize aria-hidden="true" />{{ t('exitFullscreenEdit') }}</v-button></template>
     <v-alert v-if="agentSettingsError" type="error" role="alert" :message="agentSettingsError" />
     <v-alert v-if="agentSettingsSaved" type="success" role="status" :message="t('agentSettingsSaved')" />
     <ConfirmPopover v-if="agentInstructionsConflict" popover-class="instructions-reload-popover" :z-index="1300" :show="instructionsReloadOpen" :message="t('configEditorDiscard')" :confirm-text="t('configEditorReload')" :cancel-text="t('cancel')" @update:show="instructionsReloadOpen = $event" @confirm="instructionsReloadOpen = false; loadAgentSettings(true)">
@@ -415,7 +466,7 @@ watch(() => route.fullPath, () => {
     <SchemaForm id="fullscreen-agent-instructions" v-model="instructionsDocument" :schema="instructionsSchema" :uischema="instructionsUISchema" class="instructions-editor-input"
       :disabled="agentSettingsLoading || agentSettingsBusy" :reset-key="agentSettingsResetKeys.instructions" @validity="agentFieldValidity.instructions = $event" />
   </v-modal>
-  <v-modal :open="delegationEditorOpen" :title="t('delegationDepth')" centered :z-index="1200" width="min(480px, calc(100vw - 2rem))" :footer="null" :close-disabled="agentSettingsBusy" :keyboard="!agentSettingsBusy" :mask-closable="!agentSettingsBusy" destroy-on-hidden @cancel="delegationEditorOpen = false">
+  <v-modal :open="delegationEditorOpen" :title="t('delegationDepth')" centered :z-index="1200" width="min(480px, calc(100vw - 2rem))" :footer="null" :close-disabled="agentSettingsBusy" :keyboard="!agentSettingsBusy" :mask-closable="!agentSettingsBusy" destroy-on-hidden @cancel="delegationLayer.close()">
     <form class="delegation-depth-form" :aria-label="t('delegationDepth')" @submit.prevent="agentFieldValidity.delegationDepth && saveAgentSettings('delegationDepth')">
       <v-alert v-if="agentSettingsError" type="error" role="alert" :message="agentSettingsError" />
       <v-alert v-if="agentSettingsSaved" type="success" role="status" :message="t('agentSettingsSaved')" />
@@ -427,8 +478,8 @@ watch(() => route.fullPath, () => {
     class="provider-connection-modal" :title="editingProvider ? t('editProviderConnection') : t('connectProvider')"
     :footer="null" :close-disabled="settingsBusy" :keyboard="!settingsBusy && !providerDiscardOpen" :mask-closable="!settingsBusy && !providerDiscardOpen" destroy-on-hidden
     :styles="{ body: { maxHeight: 'calc(100dvh - 10rem)', overflowY: 'auto', overscrollBehavior: 'contain' } }"
-    @cancel="closeProviderForm">
-    <form v-if="modelFormOpen" class="model-form" @submit.prevent="!loginBusy && saveProvider()">
+    @cancel="providerLayer.close">
+    <form v-if="modelFormOpen" class="model-form" @submit.prevent="!loginBusy && saveProviderAndClose()">
       <v-alert v-if="settingsError" type="error" role="alert" :message="settingsError" />
       <template v-if="providerConflict"><v-alert type="warning" role="alert" :message="t('networkConflict')" /><v-button type="button" @click="reloadProviderDraft">{{ t('networkReload') }}</v-button></template>
       <div v-if="editingProvider" class="provider-kind-field"><span>{{ t('provider') }}</span><span class="provider-kind-value">{{ providerTypeLabel(modelDraft.kind, editingProvider.provider) }}</span></div>
@@ -467,22 +518,22 @@ watch(() => route.fullPath, () => {
         <v-button type="button" variant="link" :disabled="settingsBusy" @click="clearCustomModels">{{ t('autoMode') }}</v-button>
       </div>
       <small v-if="editingProvider && modelDraft.kind === 'custom'">{{ t('changeAddressHint') }}</small>
-      <div class="actions"><v-button type="button" :disabled="settingsBusy" @click="closeProviderForm">{{ t('cancel') }}</v-button><v-button v-if="modelDraft.kind && (modelDraft.credentialMode !== 'oauth' || editingProvider)" type="submit" variant="primary" :loading="settingsBusy" :disabled="settingsBusy || loginBusy || !canSaveProvider || !providerProxyValid || !networkConfigData.value.value">{{ editingProvider ? t('saveChanges') : t('connectProvider') }}</v-button></div>
+      <div class="actions"><v-button type="button" :disabled="settingsBusy" @click="providerLayer.close">{{ t('cancel') }}</v-button><v-button v-if="modelDraft.kind && (modelDraft.credentialMode !== 'oauth' || editingProvider)" type="submit" variant="primary" :loading="settingsBusy" :disabled="settingsBusy || loginBusy || !canSaveProvider || !providerProxyValid || !networkConfigData.value.value">{{ editingProvider ? t('saveChanges') : t('connectProvider') }}</v-button></div>
     </form>
   </v-modal>
   <v-modal :open="!!usageConnection" :title="t('connectionUsageTitle', { name: usageConnection?.name || '' })" :footer="null"
-    class="connection-usage-modal" :width="860" :z-index="1200" destroy-on-hidden @cancel="usageConnection = undefined">
+    class="connection-usage-modal" :width="860" :z-index="1200" destroy-on-hidden @cancel="usageLayer.close()">
     <template #header-actions>
       <v-select v-model:value="usageDays" class="connection-usage-period" :options="usagePeriods" :aria-label="t('statisticsPeriod')" />
     </template>
-    <ConnectionUsage v-if="usageConnection" :key="`${usageConnection.key}:${usageDays}`" :model-key="usageConnection.key" :days="usageDays" :profiles="proxyProfiles" />
+    <ConnectionUsage v-if="usageConnection" :key="`${usageConnection.models[0]!.key}:${usageDays}`" :model-key="usageConnection.models[0]!.key" :days="usageDays" :profiles="proxyProfiles" />
   </v-modal>
-  <v-modal :open="!!proxyBindingTarget" :title="t('networkProxy')" :footer="null" :z-index="1200" :close-disabled="settingsBusy" :keyboard="!settingsBusy && !providerDiscardOpen" :mask-closable="!settingsBusy && !providerDiscardOpen" @cancel="closeProxyBinding">
-    <p>{{ proxyBindingTarget?.name }}</p><router-link :to="{ name: 'settings-network', query: route.query }">{{ t('networkSettings') }}</router-link>
+  <v-modal :open="!!proxyBindingTarget" :title="t('networkProxy')" :footer="null" :z-index="1200" :close-disabled="settingsBusy" :keyboard="!settingsBusy && !providerDiscardOpen" :mask-closable="!settingsBusy && !providerDiscardOpen" @cancel="providerLayer.close">
+    <p>{{ proxyBindingTarget?.name }}</p><router-link :to="{ name: 'settings-network', query: sessionQuery }">{{ t('networkSettings') }}</router-link>
     <ProxySelection id="advanced-provider-proxy" v-model="proxyBindingValue" :profiles="proxyProfiles" :disabled="settingsBusy || !networkConfigData.value.value" @validity="proxyBindingValid = $event" />
     <v-alert v-if="proxyBindingConflict" type="warning" role="alert" :message="t('networkConflict')" /><v-button v-if="proxyBindingConflict" @click="reloadProxyBinding">{{ t('networkReload') }}</v-button>
     <v-alert v-if="proxyBindingError" type="error" role="alert" :message="proxyBindingError" />
-    <div class="actions"><v-button :disabled="settingsBusy" @click="closeProxyBinding">{{ t('cancel') }}</v-button><v-button variant="primary" :loading="settingsBusy" :disabled="!proxyBindingDirty || !proxyBindingValid || proxyBindingConflict" @click="saveProxyBinding">{{ t('saveChanges') }}</v-button></div>
+    <div class="actions"><v-button :disabled="settingsBusy" @click="providerLayer.close">{{ t('cancel') }}</v-button><v-button variant="primary" :loading="settingsBusy" :disabled="!proxyBindingDirty || !proxyBindingValid || proxyBindingConflict" @click="saveProxyBinding">{{ t('saveChanges') }}</v-button></div>
   </v-modal>
   <v-modal :open="providerDiscardOpen" :title="t('networkDiscard')" :footer="null" :z-index="1400" @cancel="finishProviderDiscard(false)"><p>{{ t('configEditorDiscard') }}</p><div class="actions"><v-button @click="finishProviderDiscard(false)">{{ t('cancel') }}</v-button><v-button danger @click="finishProviderDiscard(true)">{{ t('networkDiscard') }}</v-button></div></v-modal>
 </template>

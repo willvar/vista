@@ -124,26 +124,27 @@ test('a delayed save response preserves newer shared settings and the active dra
   } finally { release() }
 })
 
-test('model-only drafts survive navigation cancellation and reload from the accepted connection', async ({ page, vista }) => {
+test('model-only drafts survive navigation cancellation and reload from the accepted connection', { tag: '@responsive' }, async ({ page, vista }) => {
   const connection = await azureConnection(page, vista)
   const { dialog, form, picker, discard, label } = connection
-  await page.goto(vista.origin + '/settings/general')
+  await page.goto(vista.origin + (page.viewportSize()!.width <= 830 ? '/settings' : '/settings/general'))
   await page.locator('.settings-nav').getByRole('link', { name: 'Service connections', exact: true }).click()
   await connection.open()
   await connection.select('gpt-4.1-mini')
+  const editorURL = page.url()
+  expect(new URL(editorURL).searchParams.has('layer')).toBe(true)
   const cancelledBack = page.goBack()
   await expect(discard).toBeVisible()
   await discard.getByRole('button', { name: 'Cancel', exact: true }).click()
   await cancelledBack
-  await expect(page).toHaveURL(url => url.pathname === '/settings/models')
+  await expect(page).toHaveURL(editorURL)
   await expect(picker.locator('.ui-select-selection-item')).toHaveText(label('gpt-4.1-mini'))
   const discardedBack = page.goBack()
   await expect(discard).toBeVisible()
   await discard.getByRole('button', { name: 'Discard unsaved changes', exact: true }).click()
   await discardedBack
-  await expect(page).toHaveURL(url => url.pathname === '/settings/general')
+  await expect(page).toHaveURL(url => url.pathname === '/settings/models' && !url.searchParams.has('layer'))
   await expect(form).toHaveCount(0)
-  await page.locator('.settings-nav').getByRole('link', { name: 'Service connections', exact: true }).click()
   await connection.open()
   await connection.select('gpt-4.1-mini')
   const settings = await vista.api('/model-config')

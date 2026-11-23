@@ -5,6 +5,7 @@ import { useI18n } from 'vue-i18n'
 import { Alert as VAlert, Button as VButton, Empty as VEmpty, Modal as VModal } from './ui'
 import ProxySelection from './ProxySelection.vue'
 import NetworkProfileEditor from './NetworkProfileEditor.vue'
+import { useLeaveConfirmation, useRouteLayer, withoutLayers } from './composables/routeLayers'
 import { useNetworkConfig } from './composables/useNetworkConfig'
 import { useWorkspace } from './composables/useWorkspace'
 import { VistaAPIError } from '@vista/client'
@@ -17,8 +18,8 @@ const globalProxy = ref(''), baseGlobal = ref(''), globalValid = ref(true), glob
 const saving = ref(false), error = ref('')
 const editor = ref<ProxyProfile | null>(), editorDirty = ref(false), editorRevision = ref(''), editorError = ref('')
 const deleteTarget = ref<ProxyProfile>(), references = ref<NetworkReference[]>([]), deleteError = ref('')
-const discardOpen = ref(false)
-let discardResult: ((value: boolean) => void) | undefined
+const layer = useRouteLayer('proxy-profile', to => to.name === 'settings-network')
+const { pending: discardOpen, ask: askDiscard, finish: finishDiscard } = useLeaveConfirmation()
 const profiles = computed(() => state.value.value?.config.profiles || [])
 const globalDirty = computed(() => globalProxy.value !== baseGlobal.value)
 const globalConflict = computed(() => globalDirty.value && state.value.value?.config.globalProxy !== baseGlobal.value)
@@ -29,10 +30,10 @@ watch(state.value, value => {
   if (!globalDirty.value) { globalProxy.value = value.config.globalProxy; baseGlobal.value = value.config.globalProxy; globalEpoch.value++ }
 }, { immediate: true })
 watch([editor, deleteTarget, discardOpen], () => emit('modal-open', editor.value !== undefined || !!deleteTarget.value || discardOpen.value))
-function askDiscard() { return new Promise<boolean>(resolve => { discardResult = resolve; discardOpen.value = true }) }
-function finishDiscard(value: boolean) { discardOpen.value = false; discardResult?.(value); discardResult = undefined }
-async function leave() { if (saving.value) return false; return !dirty.value || await askDiscard() }
-onBeforeRouteLeave(leave); onBeforeRouteUpdate(leave)
+function leavePage() { return layer.current.value !== undefined || !saving.value && (!globalDirty.value || askDiscard()) }
+onBeforeRouteLeave(leavePage)
+onBeforeRouteUpdate((to, from) => to.query.session === from.query.session || leavePage())
+layer.onLeave((to, from) => !saving.value && (!(editorDirty.value || (to.path !== from.path || to.query.session !== from.query.session) && globalDirty.value) || askDiscard()))
 async function saveGlobal() {
   const current = state.value.value; if (!current || !globalValid.value || globalConflict.value || saving.value) return
   saving.value = true; error.value = ''
@@ -43,22 +44,31 @@ async function saveGlobal() {
   catch (cause) { error.value = cause instanceof Error ? cause.message : String(cause); if (cause instanceof VistaAPIError && cause.status === 409) await state.read() }
   finally { saving.value = false }
 }
+let loadedProfile: string | undefined
+watch([layer.current, state.value], ([id, current]) => {
+  if (id === loadedProfile || id !== undefined && !current) return
+  const profile = id ? current?.config.profiles.find(item => item.id === id) : null
+  if (id && !profile) { layer.drop(); return }
+  loadedProfile = id
+  editor.value = id === undefined ? undefined : profile || null
+  editorDirty.value = false; editorRevision.value = current?.revision || ''; editorError.value = ''
+}, { immediate: true })
 function openProfile(profile?: ProxyProfile) {
-  if (saving.value || !state.value.value) return
-  editor.value = profile || null; editorDirty.value = false; editorRevision.value = state.value.value.revision; editorError.value = ''
+  if (!saving.value && state.value.value) void layer.open(profile?.id)
 }
-async function closeEditor() { if (saving.value || editorDirty.value && !await askDiscard()) return; editor.value = undefined; editorDirty.value = false; editorError.value = '' }
 async function saveProfile(profile: ProxyProfile, reuse: boolean) {
   const current = state.value.value; if (!current || editorConflict.value || saving.value) return
+  const close = layer.captureClose()
   saving.value = true; editorError.value = ''
-  try { await state.save({ ...current.config, profiles: [...current.config.profiles.filter(value => value.id !== profile.id), profile] }, editorRevision.value, reuse ? [profile.id] : []); editor.value = undefined; editorDirty.value = false }
-  catch (cause) { editorError.value = cause instanceof Error ? cause.message : String(cause); if (cause instanceof VistaAPIError && cause.status === 409) await state.read() }
+  try { await state.save({ ...current.config, profiles: [...current.config.profiles.filter(value => value.id !== profile.id), profile] }, editorRevision.value, reuse ? [profile.id] : []); editorDirty.value = false }
+  catch (cause) { editorError.value = cause instanceof Error ? cause.message : String(cause); if (cause instanceof VistaAPIError && cause.status === 409) await state.read(); return }
   finally { saving.value = false }
+  close()
 }
 async function reload() {
   if (dirty.value && !await askDiscard()) return
   const current = state.value.value; if (!current) return
-  editor.value = undefined; editorDirty.value = false; globalProxy.value = current.config.globalProxy; baseGlobal.value = current.config.globalProxy; globalEpoch.value++
+  editorDirty.value = false; layer.close(); globalProxy.value = current.config.globalProxy; baseGlobal.value = current.config.globalProxy; globalEpoch.value++
 }
 async function removeProfile() {
   const current = state.value.value, profile = deleteTarget.value; if (!current || !profile || saving.value) return
@@ -72,7 +82,7 @@ async function removeProfile() {
 function openReference(reference: NetworkReference) {
   deleteTarget.value = undefined
   if (reference.kind === 'global') document.getElementById('network-global')?.scrollIntoView({ block: 'start' })
-  else void router.push({ name: 'settings', query: { ...route.query, connection: reference.key } })
+  else void router.push({ name: 'settings', query: { ...withoutLayers(route.query), connection: reference.key } })
 }
 async function checkProfile(profile: ProxyProfile, reuse: boolean, target: string, signal: AbortSignal) {
   const current = state.value.value; if (!current) throw new Error(t('networkUnavailable'))
@@ -105,11 +115,11 @@ defineExpose({ headerAction: computed(() => ({ label: 'networkAdd', run: () => o
       <v-button v-if="globalConflict" @click="reload">{{ t('networkReload') }}</v-button>
     </template>
   </div>
-  <v-modal :open="editor !== undefined" :title="editor ? t('networkProfileEdit') : t('networkAdd')" width="min(720px, calc(100vw - 2rem))" centered :footer="null" :close-disabled="saving" :keyboard="!saving && !discardOpen" :mask-closable="!saving && !discardOpen" :z-index="1200" destroy-on-hidden :styles="{ body: { maxHeight: 'calc(100dvh - 10rem)', overflowY: 'auto' } }" @cancel="closeEditor">
+  <v-modal :open="editor !== undefined" :title="editor ? t('networkProfileEdit') : t('networkAdd')" width="min(720px, calc(100vw - 2rem))" centered :footer="null" :close-disabled="saving" :keyboard="!saving && !discardOpen" :mask-closable="!saving && !discardOpen" :z-index="1200" destroy-on-hidden :styles="{ body: { maxHeight: 'calc(100dvh - 10rem)', overflowY: 'auto' } }" @cancel="layer.close">
     <template v-if="editor !== undefined">
       <v-alert v-if="editorConflict" type="warning" role="alert" :message="t('networkConflict')" />
       <v-button v-if="editorConflict" @click="reload">{{ t('networkReload') }}</v-button>
-      <NetworkProfileEditor :key="editor?.id || 'new'" :profile="editor || undefined" :busy="saving" :stale="editorConflict" :error="editorError" :check="checkProfile" @save="saveProfile" @cancel="closeEditor" @dirty="editorDirty = $event" />
+      <NetworkProfileEditor :key="editor?.id || 'new'" :profile="editor || undefined" :busy="saving" :stale="editorConflict" :error="editorError" :check="checkProfile" @save="saveProfile" @cancel="layer.close" @dirty="editorDirty = $event" />
     </template>
   </v-modal>
   <v-modal :open="!!deleteTarget" :title="t(references.length ? 'networkUsed' : 'delete')" :footer="null" :z-index="1250" :close-disabled="saving" :keyboard="!saving" :mask-closable="!saving" @cancel="!saving && (deleteTarget = undefined)">

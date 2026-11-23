@@ -10,6 +10,7 @@ import SchemaForm from './SchemaForm.vue'
 import type { FormIssue } from './schema/validation'
 import { VistaAPIError } from '@vista/client'
 import type { MCPCheck as Check, MCPServer, MCPConfig, LoginUpdate } from '@vista/client'
+import { useLeaveConfirmation, useRouteLayer } from './composables/routeLayers'
 import { useWorkspace } from './composables/useWorkspace'
 import { formatDateTime } from './ui/datetime.ts'
 
@@ -33,7 +34,10 @@ const error = ref('')
 const saved = ref(false)
 const deleting = ref('')
 const deleteError = ref('')
+const editorLayer = useRouteLayer('mcp-editor', to => to.name === 'settings-mcp')
 const editorOpen = ref(false)
+const discard = useLeaveConfirmation()
+const discardOpen = discard.pending
 const editing = ref<MCPServer | null>(null)
 const formError = ref('')
 // This is a public connection draft, not raw config.json or an authentication snapshot.
@@ -179,8 +183,7 @@ async function load() {
   finally { loading.value = false }
 }
 
-function edit(server?: MCPServer) {
-  if (busy.value) return
+function loadEditor(server?: MCPServer) {
   editing.value = server || null
   draft.value = {
     name: server?.name || '', transport: server?.transport || 'http',
@@ -196,15 +199,30 @@ function edit(server?: MCPServer) {
   editorValid.value = false
   editorResetKey.value++
   formError.value = ''
+  accepted = false
   editorOpen.value = true
 }
-function closeEditor() {
-  if (busy.value) return
+function resetEditor() {
   editorOpen.value = false
   editorValid.value = false
   credentials.token = credentials.clientSecret = ''
   credentials.headers = []
 }
+let loadedEditor: string | undefined
+let accepted = false
+watch([editorLayer.current, servers, loading], ([id, list, pending]) => {
+  if (id === loadedEditor) return
+  if (id === undefined) { loadedEditor = undefined; resetEditor(); return }
+  if (pending) return
+  const server = id ? list.find(item => item.id === id) : undefined
+  if (id && !server) { editorLayer.drop(); return }
+  loadedEditor = id
+  loadEditor(server)
+}, { immediate: true })
+function edit(server?: MCPServer) { if (!busy.value) void editorLayer.open(server?.id) }
+const editorDirty = computed(() => !!schemaEditor.value?.dirty || !!credentials.token || !!credentials.clientSecret
+  || credentials.clearClientSecret || credentials.headers.some(header => header.value))
+editorLayer.onLeave(() => !busy.value && (accepted || !editorDirty.value || discard.ask()))
 async function save() {
   if (busy.value || !canSave.value) return
   busy.value = true
@@ -212,6 +230,7 @@ async function save() {
   error.value = ''
   saved.value = false
   const value = draft.value
+  const close = editorLayer.captureClose()
   const http = value.transport === 'http'
   // Only active, explicitly supported fields enter the existing settings API.
   // Identity and blank-preserve/explicit-clear semantics stay outside the JSON.
@@ -228,14 +247,11 @@ async function save() {
   try {
     await client.request('/mcp-config', { method: editing.value ? 'PUT' : 'POST', body: JSON.stringify(body), signal: lifetime.signal })
     if (lifetime.signal.aborted) return
-    schemaEditor.value?.reset()
-    editorOpen.value = false
-    editorValid.value = false
-    credentials.token = credentials.clientSecret = ''
-    credentials.headers = []
+    accepted = true
     saved.value = true
-  } catch (cause) { if (!lifetime.signal.aborted) formError.value = String(cause) }
+  } catch (cause) { if (!lifetime.signal.aborted) formError.value = String(cause); return }
   finally { busy.value = false }
+  close()
 }
 async function toggle(server: MCPServer, enabled: boolean) {
   if (busy.value) return
@@ -433,7 +449,7 @@ const unsubscribe = stateSync.subscribe(['mcp'], async (_, signal, snapshots) =>
   } catch (cause) { if (!lifetime.signal.aborted && !signal.aborted) error.value = String(cause); throw cause }
   finally { loading.value = false }
 })
-watch(() => editorOpen.value || !!toolsServer.value || !!loginServer.value || !!deleting.value, open => emit('modal-open', open), { flush: 'sync' })
+watch(() => editorOpen.value || !!toolsServer.value || !!loginServer.value || !!deleting.value || discardOpen.value, open => emit('modal-open', open), { flush: 'sync' })
 onUnmounted(() => {
   lifetime.abort()
   unsubscribe()
@@ -470,7 +486,7 @@ defineExpose({ imported: () => { saved.value = true }, headerAction: computed(()
     <p v-if="servers.length >= maxServers" class="mcp-hint">{{ t('mcpServerLimit', { count: maxServers }) }}</p>
   </div>
 
-  <v-modal :open="editorOpen" centered :z-index="1200" width="min(560px, calc(100vw - 2rem))" :title="t(editing ? 'mcpEdit' : 'mcpAdd')" :footer="null" :closable="!busy" :keyboard="!busy" :mask-closable="!busy" destroy-on-hidden :styles="{ body: { maxHeight: 'calc(100dvh - 10rem)', overflowY: 'auto', overscrollBehavior: 'contain' } }" @cancel="closeEditor">
+  <v-modal :open="editorOpen" centered :z-index="1200" width="min(560px, calc(100vw - 2rem))" :title="t(editing ? 'mcpEdit' : 'mcpAdd')" :footer="null" :closable="!busy" :keyboard="!busy && !discardOpen" :mask-closable="!busy && !discardOpen" destroy-on-hidden :styles="{ body: { maxHeight: 'calc(100dvh - 10rem)', overflowY: 'auto', overscrollBehavior: 'contain' } }" @cancel="editorLayer.close">
     <form v-if="editorOpen" class="mcp-form" @submit.prevent="save">
       <v-alert v-if="formError" type="error" role="alert" :message="formError" />
       <p id="mcp-public-config-hint" class="mcp-hint">{{ t('configEditorPrivateHint') }}</p>
@@ -481,9 +497,10 @@ defineExpose({ imported: () => { saved.value = true }, headerAction: computed(()
         <p v-if="draft.auth === 'oauth'" class="mcp-hint">{{ t('mcpOAuthHint') }}</p>
         <SchemaForm id="mcp-credentials" v-model="credentialDocument" :schema="credentialSchema" :uischema="credentialUISchema" :disabled="busy" :reset-key="editorResetKey" @validity="credentialValid = $event" />
       </template>
-      <div class="mcp-form-actions"><v-button :disabled="busy" @click="closeEditor">{{ t('cancel') }}</v-button><v-button type="submit" variant="primary" :loading="busy" :disabled="busy || !canSave">{{ t('saveChanges') }}</v-button></div>
+      <div class="mcp-form-actions"><v-button :disabled="busy" @click="editorLayer.close">{{ t('cancel') }}</v-button><v-button type="submit" variant="primary" :loading="busy" :disabled="busy || !canSave">{{ t('saveChanges') }}</v-button></div>
     </form>
   </v-modal>
+  <v-modal :open="discardOpen" :title="t('networkDiscard')" :ok-text="t('networkDiscard')" :z-index="1400" destroy-on-hidden @cancel="discard.finish(false)" @ok="discard.finish(true)"><p>{{ t('configEditorDiscard') }}</p></v-modal>
 
   <v-modal :open="!!toolsServer" centered :z-index="1200" width="min(640px, calc(100vw - 2rem))" :title="t('mcpToolsTitle', { name: toolsServer?.name })" :footer="null" destroy-on-hidden :styles="{ body: { maxHeight: 'calc(100dvh - 10rem)', overflowY: 'auto', overscrollBehavior: 'contain' } }" @cancel="closeTools">
     <section v-if="toolsServer" class="mcp-tools" :aria-busy="toolsLoading">

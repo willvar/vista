@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { onUnmounted, ref, watch } from 'vue'
-import { onBeforeRouteLeave } from 'vue-router'
+import { useRouter } from 'vue-router'
 import { Modal, ModalHeader, type ModalProps } from './ui'
 
 const props = withDefaults(defineProps<{
@@ -27,7 +27,11 @@ function afterClose() {
 }
 // A routed modal must stay mounted until the library finishes its leave motion.
 // Switching settings tabs reuses the same overlay and keeps the modal open.
-onBeforeRouteLeave((to, from) => {
+const router = useRouter()
+const overlay = router.currentRoute.value.meta.workspaceOverlay
+// A rejected editor guard must not start dismissing the workspace underneath it.
+const stopMotionGuard = router.beforeResolve((to, from) => {
+  if (!overlay || from.meta.workspaceOverlay !== overlay) return
   // Lazy route functions become component objects after loading; their identity
   // is not a stable way to recognize another tab of the same overlay.
   if (from.meta.workspaceOverlay && to.meta.workspaceOverlay === from.meta.workspaceOverlay) {
@@ -40,7 +44,7 @@ onBeforeRouteLeave((to, from) => {
   visible.value = false
   return closing
 })
-onUnmounted(afterClose)
+onUnmounted(() => { stopMotionGuard(); afterClose() })
 // The library's container owns the outer padding, not its body.
 const styles = {
   container: { padding: 0, overflow: 'hidden', border: 'var(--workspace-modal-border, 1px solid var(--border))', background: 'var(--surface)', boxShadow: 'var(--modal-shadow)' },

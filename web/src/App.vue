@@ -21,7 +21,7 @@ const props = defineProps<{ profileId: string }>()
 const { t } = useI18n({ useScope: 'global' })
 onErrorCaptured(error => { if (captureAssetError(error)) return false })
 const { route, conversation, router, error, busy, totalSessions, openSessions, selected, serverStatus, mobileSessionsOpen, settingsOpen,
-  sessionsReady, modelsReady, stateConnection, stateSync, backToWorkspace, modalQuery, openSettings, openSessionManager, create, action, workerAvailable, displaySessionTitle,
+  sessionsReady, modelsReady, stateConnection, stateSync, modalQuery, openSettings, closeSettings, openSessionManager, create, action, workerAvailable, displaySessionTitle,
   closeConfirmation, cancelSessionClose, confirmSessionClose, pathInProfile } = provideWorkspace(props.profileId)
 const initialLoading = computed(() => !sessionsReady.value || !modelsReady.value || !serverStatus.value)
 const initialLoadDelayed = ref(false)
@@ -138,7 +138,7 @@ function isExecuting(item: Session) {
             </v-button>
             <div class="sidebar-profile-row">
               <ProfileMenu />
-              <v-button variant="text" class="settings-trigger" :aria-label="t('settings')" :title="t('settings')" @click="settingsOpen ? backToWorkspace() : openSettings()"><IconSettings aria-hidden="true" /></v-button>
+              <v-button variant="text" class="settings-trigger" :aria-label="t('settings')" :title="t('settings')" @click="settingsOpen ? closeSettings() : openSettings()"><IconSettings aria-hidden="true" /></v-button>
             </div>
           </nav>
         </footer>

@@ -79,7 +79,11 @@ Lazy-load failures preserve the active view and editors, with an explicit reload
 
 Settings and the manager overlay the conversation through named route views; opening them keeps SSE active. Mobile settings uses a category page, then the selected settings page; Back returns through that hierarchy. Desktop retains the settings sidebar.
 
-`meta.workspaceOverlay` identifies routes sharing a modal; `WorkspaceModal.vue` uses this stable identity to preserve the frame while switching settings tabs, independent of lazy component resolution.
+`meta.workspaceOverlay` identifies routes sharing a modal; `WorkspaceModal.vue` uses this stable identity to preserve the frame while switching settings tabs, independent of lazy component resolution. Desktop settings categories share a single entry as tabs; on narrow viewports the directory and its category are separate Back steps.
+
+Use `src/composables/routeLayers.ts` for a user-entered surface that should consume one Back step. A mobile bottom sheet and a desktop dialog can present the same navigation layer; a tooltip, menu, transient confirmation or expansion of the current surface does not get another entry. Declare the owning route and any stable identifier. Render from the committed route, keep drafts and credentials out of the URL, and run destructive actions only on explicit confirmation, never on route restoration.
+
+Open with `useRouteLayer().open()`, use `close()` for a close request and capture `captureClose()` before an asynchronous action. A known adjacent parent consumes its history entry; an in-app close from a direct link replaces to the parent. The browser still follows its own Back/Forward history. Nested layers keep their parents mounted. Run leave guards for relevant query changes as well as page exits; a discard prompt is part of the pending navigation, not an entry. See `e2e/layer-navigation.spec.ts` and `e2e/settings-navigation.spec.ts` for regression contracts.
 
 `ui/Modal.vue` owns the Ark dialog lifecycle, focus, mask and footer; `ui/ModalHeader.vue` provides the shared accessible title, action area and close control. Use the `header-actions` slot for actions beside Close; keep the `title` slot limited to title content. `WorkspaceModal.vue` reuses this header inside its routed frame and owns mobile Back and route-exit motion. Pages supply titles, labels and actions rather than rebuilding modal headers. `closeDisabled` keeps the close control visible but disabled; `closable: false` hides it. Full-screen editing places its explicit exit action in the same action slot.
 

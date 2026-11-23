@@ -435,7 +435,6 @@ export function useProviderSettings({ client, error, stateSync, modelCatalog }: 
   }
   onScopeDispose(() => { settingsRevision++; setupsRevision++; unsubscribeModels?.() })
   async function loadModelSettings() {
-    cancelModelForm()
     if (unsubscribeModels) return
     unsubscribeModels = stateSync.subscribe(['models', 'catalog'], async (topics, signal, snapshots) => {
       const catalog = snapshots.catalog
@@ -509,19 +508,12 @@ export function useProviderSettings({ client, error, stateSync, modelCatalog }: 
       }) })
       if (request.signal.aborted) return
       acceptModelSettings(saved)
-      if (revision === draftRevision) {
-        resetModelDraft()
-        modelFormOpen.value = false
-      }
+      return revision === draftRevision
     } catch (e) {
       if (revision !== draftRevision) return
       settingsError.value = e instanceof Error ? e.message : String(e)
     }
     finally { if (connectionRequest === request) connectionRequest = undefined; settingsBusy.value = false }
-  }
-  async function providerConnected() {
-    cancelModelForm()
-    modelFormOpen.value = false
   }
   async function disconnectProvider(key: string) {
     settingsBusy.value = true
@@ -572,6 +564,6 @@ export function useProviderSettings({ client, error, stateSync, modelCatalog }: 
     modelCredentials, modelCredentialsSchema, modelCredentialsUISchema, modelCredentialsValid, showModelCredentials,
     updateSelectedModels, changeProvider, clearCustomModels,
     startProviderConnection, cancelModelForm, loadModelSettings, editProvider, providerGroups,
-    saveProvider, providerConnected, setDefaultModel, setProviderEnabled, changingProvider, confirmDisconnectProvider, updateProviderDisconnect,
+    saveProvider, setDefaultModel, setProviderEnabled, changingProvider, confirmDisconnectProvider, updateProviderDisconnect,
   }
 }

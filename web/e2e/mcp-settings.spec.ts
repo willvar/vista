@@ -202,6 +202,9 @@ test('stdio arguments are explicit and the inner editor dismisses without closin
     await dialog.getByLabel('Name', { exact: true }).fill('discarded')
     if (dismiss === 'escape') await dialog.getByLabel('Name', { exact: true }).press('Escape')
     else await page.locator('.ui-modal-wrap').last().click({ position: { x: 5, y: 5 } })
+    const discard = page.getByRole('dialog', { name: 'Discard unsaved changes', exact: true })
+    await expect(discard).toBeVisible()
+    await discard.getByRole('button', { name: 'Discard unsaved changes', exact: true }).click()
     await expect(dialog).toBeHidden()
     await expect(page.locator('.settings-page')).toBeVisible()
   }

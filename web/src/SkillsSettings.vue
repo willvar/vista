@@ -6,6 +6,7 @@ import { Empty as VEmpty, Alert as VAlert, Button as VButton, Input as VInput } 
 import { IconTrash, IconPencil, IconEye, IconMarkdown, IconSearch, IconChevronRight } from '@tabler/icons-vue'
 import ConfirmPopover from './ConfirmPopover.vue'
 import SkillEditor from './SkillEditor.vue'
+import { useRouteLayer } from './composables/routeLayers'
 import { useWorkspace } from './composables/useWorkspace'
 import { useStateQuery } from './composables/useStateQuery'
 
@@ -23,14 +24,19 @@ const busy = ref(false)
 const saved = ref(false)
 const visibleSkills = computed(() => skills.value.filter(skill => `${skill.name} ${skill.description} ${skill.id}`.toLowerCase().includes(query.value.trim().toLowerCase())))
 const hasUserSkills = computed(() => skills.value.some(skill => skill.source !== 'system'))
-const editorOpen = ref(false)
+const editor = useRouteLayer('skill', to => to.name === 'settings-skills')
 const editing = ref<Skill | null>(null)
+watch([editor.current, resource.data], ([id, data]) => {
+  if (id === editing.value?.id) return
+  editing.value = id ? (data?.skills.find(skill => skill.id === id) ?? null) : null
+  if (id && data && !editing.value) editor.drop()
+}, { immediate: true })
 const deleting = ref('')
 const deleteError = ref('')
 const skillURL = (id: string) => `/skills/${encodeURIComponent(id)}`
 
 
-function edit(skill: Skill) { if (!busy.value) { editing.value = skill; editorOpen.value = true } }
+function edit(skill: Skill) { if (!busy.value) void editor.open(skill.id) }
 async function remove(skill: Skill) {
   if (busy.value || skill.source === 'system') return
   busy.value = true
@@ -44,7 +50,7 @@ async function remove(skill: Skill) {
   } catch (cause) { if (!lifetime.signal.aborted) deleteError.value = String(cause) }
   finally { busy.value = false }
 }
-watch(() => editorOpen.value || !!deleting.value, open => emit('modal-open', open), { flush: 'sync' })
+watch(() => !!editing.value || !!deleting.value, open => emit('modal-open', open), { flush: 'sync' })
 onUnmounted(() => {
   lifetime.abort()
   emit('modal-open', false)
@@ -74,7 +80,7 @@ defineExpose({ imported: () => { saved.value = true } })
     </CollapsibleRoot>
   </div>
 
-  <SkillEditor v-if="editing" :key="editing.id" v-model:open="editorOpen" :skill="editing" :revision="resource.data.value?.version" @saved="saved = true" />
+  <SkillEditor v-if="editing" :key="editing.id"  :skill="editing" :revision="resource.data.value?.version" @saved="saved = true" />
 </template>
 
 <style scoped>

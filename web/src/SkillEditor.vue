@@ -4,11 +4,15 @@ import { useI18n } from 'vue-i18n'
 import { Alert, Button, Modal, TextArea, Tree } from './ui'
 import { IconArrowLeft } from '@tabler/icons-vue'
 import type { TreeNode } from './ui/types'
+import { layerTokens, useLeaveConfirmation, useRouteLayer } from './composables/routeLayers'
 import { useWorkspace } from './composables/useWorkspace'
 import { VistaAPIError } from '@vista/client'
 
-const props = defineProps<{ open: boolean; skill: { id: string; source: 'system' | 'user' }; revision?: string }>()
-const emit = defineEmits<{ 'update:open': [open: boolean]; saved: [] }>()
+const props = defineProps<{ skill: { id: string; source: 'system' | 'user' }; revision?: string }>()
+const emit = defineEmits<{ saved: [] }>()
+const editor = useRouteLayer('skill', to => to.name === 'settings-skills')
+const fileLayer = useRouteLayer('skill-file', to => to.name === 'settings-skills' && layerTokens(to).includes('skill:' + props.skill.id))
+const { pending: discardOpen, ask: askDiscard, finish: finishDiscard } = useLeaveConfirmation()
 const { t } = useI18n()
 const { client } = useWorkspace()
 type Entry = { path: string; directory?: boolean; bytes: number }
@@ -18,13 +22,13 @@ const documents = reactive<Record<string, Document>>({})
 const activePath = ref('SKILL.md')
 const document = computed(() => documents[activePath.value])
 const dirtyPaths = computed(() => Object.values(documents).filter(file => file.kind === 'text' && file.content !== file.original).map(file => file.path))
-const loading = ref(false), initialized = ref(false), saving = ref(false), error = ref(''), conflict = ref(false), discardOpen = ref(false), discardCount = ref(0), mobileFileOpen = ref(false)
+const loading = ref(false), initialized = ref(false), saving = ref(false), error = ref(''), conflict = ref(false), discardCount = ref(0)
+const mobileFileOpen = computed(() => fileLayer.current.value !== undefined)
 const canSave = computed(() => props.skill.source === 'user' && !loading.value && !saving.value && !!document.value?.sha256 && dirtyPaths.value.includes(activePath.value))
 const basePath = computed(() => `/skills/${encodeURIComponent(props.skill.id)}`)
 const filePath = (name: string) => `${basePath.value}?file=${encodeURIComponent(name)}`
 const previewPath = computed(() => client.url(filePath(activePath.value) + '&preview=1'))
 let controller = new AbortController(), fileController = new AbortController(), fileGeneration = 0, treeGeneration = 0
-let discardAction: (() => void) | undefined
 
 const nodes = computed(() => {
   const root: TreeNode = { value: '', label: '', children: [] }
@@ -52,21 +56,22 @@ async function initialize() {
   controller.abort(); controller = new AbortController(); ++fileGeneration
   const current = controller
   for (const key of Object.keys(documents)) delete documents[key]
-  entries.value = []; activePath.value = 'SKILL.md'; mobileFileOpen.value = false; initialized.value = false
-  error.value = ''; conflict.value = false; discardOpen.value = false; loading.value = true
+  entries.value = []; activePath.value = 'SKILL.md'; initialized.value = false
+  error.value = ''; conflict.value = false; loading.value = true
   try {
     const result = await client.request<{ content: string; sha256: string; files: string[]; entries?: Entry[] }>(basePath.value, { signal: current.signal })
     if (current !== controller || current.signal.aborted) return
     entries.value = result.entries ?? [{ path: 'SKILL.md', bytes: 0 }, ...result.files.map(path => ({ path, bytes: 0 }))]
     documents['SKILL.md'] = { path: 'SKILL.md', kind: 'text', bytes: new TextEncoder().encode(result.content).length, content: result.content, original: result.content, sha256: result.sha256 }
     initialized.value = true
+    showRoutedFile(fileLayer.current.value)
   } catch (cause) { if (!current.signal.aborted) error.value = String(cause) }
   finally { if (current === controller && !current.signal.aborted) loading.value = false }
 }
 async function selectFile(name: string, reload = false) {
   if (saving.value) return
   fileController.abort(); fileController = new AbortController()
-  activePath.value = name; mobileFileOpen.value = true; error.value = ''; conflict.value = false
+  activePath.value = name; error.value = ''; conflict.value = false
   const generation = ++fileGeneration, signal = AbortSignal.any([controller.signal, fileController.signal])
   if (documents[name] && !reload) { loading.value = false; return }
   loading.value = true
@@ -90,15 +95,30 @@ async function save() {
     if (!current.signal.aborted) { error.value = String(cause); conflict.value = cause instanceof VistaAPIError && cause.status === 409 }
   } finally { if (!current.signal.aborted) saving.value = false }
 }
-function guardDiscard(action: () => void, count = dirtyPaths.value.length) {
-  if (saving.value) return
-  if (count) { discardAction = action; discardCount.value = count; discardOpen.value = true } else action()
+function showRoutedFile(path: string | undefined) {
+  if (!initialized.value || path === undefined) return
+  if (documents[path] || entries.value.some(entry => entry.path === path && !entry.directory)) void selectFile(path)
+  else fileLayer.drop()
 }
-function close() { guardDiscard(() => emit('update:open', false)) }
-function discard() { discardOpen.value = false; const action = discardAction; discardAction = undefined; action?.() }
-watch(() => props.open, open => { if (open) void initialize(); else { controller.abort(); ++fileGeneration; discardOpen.value = false } }, { immediate: true })
+watch(fileLayer.current, showRoutedFile)
+function openFile(path: string) {
+  if (window.matchMedia('(max-width: 830px)').matches) void fileLayer.open(path)
+  else void selectFile(path)
+}
+function confirmDiscard(count = dirtyPaths.value.length) {
+  discardCount.value = count
+  return !count || askDiscard()
+}
+async function reloadFile() {
+  const path = activePath.value
+  if (!saving.value && await confirmDiscard(dirtyPaths.value.includes(path) ? 1 : 0)) await selectFile(path, true)
+}
+editor.onLeave(() => !saving.value && confirmDiscard())
+fileLayer.onLeave(() => !saving.value)
+function close() { (mobileFileOpen.value ? fileLayer : editor).close() }
+void initialize()
 watch(() => props.revision, async (version, previous) => {
-  if (!props.open || props.skill.source === 'system' || !previous || version === previous) return
+  if (props.skill.source === 'system' || !previous || version === previous) return
   const current = controller, generation = ++treeGeneration
   try {
     const result = await client.request<{ entries: Entry[] }>(basePath.value + '?tree=1', { signal: current.signal })
@@ -109,17 +129,17 @@ onUnmounted(() => controller.abort())
 </script>
 
 <template>
-  <Modal :open="open" :title="t(skill.source === 'system' ? 'skillView' : 'skillEdit')" :footer="null" :z-index="1200" width="min(1080px, calc(100vw - 2rem))" root-class="skill-editor-modal" :close-disabled="saving" :keyboard="!saving && !discardOpen" :mask-closable="!saving && !discardOpen" @cancel="close">
+  <Modal :open="true" :title="t(skill.source === 'system' ? 'skillView' : 'skillEdit')" :footer="null" :z-index="1200" width="min(1080px, calc(100vw - 2rem))" root-class="skill-editor-modal" :close-disabled="saving" :keyboard="!saving && !discardOpen" :mask-closable="!saving && !discardOpen" @cancel="close">
     <Alert v-if="error && !initialized" type="error" role="alert" :message="error" />
     <Button v-if="error && !initialized" @click="initialize">{{ t('retry') }}</Button>
     <p v-if="loading && !initialized" role="status">{{ t('skillsLoading') }}</p>
     <div class="skill-browser" :class="{ 'skill-file-open': mobileFileOpen }">
-      <nav class="skill-file-tree" :aria-label="t('skillFiles')"><Tree :nodes="nodes" :value="activePath" :label="t('skillFiles')" @update:value="selectFile" /></nav>
+      <nav class="skill-file-tree" :aria-label="t('skillFiles')"><Tree :nodes="nodes" :value="activePath" :label="t('skillFiles')" @update:value="openFile" /></nav>
       <section class="skill-file-content">
-        <div class="skill-file-heading"><Button class="skill-files-back" variant="text" @click="mobileFileOpen = false"><IconArrowLeft aria-hidden="true" />{{ t('skillFiles') }}</Button><strong>{{ activePath }}<span v-if="dirtyPaths.includes(activePath)" class="skill-dirty-mark"> ●</span></strong></div>
+        <div class="skill-file-heading"><Button class="skill-files-back" variant="text" @click="fileLayer.close"><IconArrowLeft aria-hidden="true" />{{ t('skillFiles') }}</Button><strong>{{ activePath }}<span v-if="dirtyPaths.includes(activePath)" class="skill-dirty-mark"> ●</span></strong></div>
         <Alert v-if="error && initialized" type="error" role="alert" :message="error" />
         <Button v-if="error && initialized && !document" @click="selectFile(activePath)">{{ t('retry') }}</Button>
-        <Button v-if="conflict" @click="guardDiscard(() => selectFile(activePath, true), dirtyPaths.includes(activePath) ? 1 : 0)">{{ t('skillReloadFile') }}</Button>
+        <Button v-if="conflict" @click="reloadFile">{{ t('skillReloadFile') }}</Button>
         <p v-if="loading && initialized" role="status">{{ t('skillsLoading') }}</p>
         <template v-else-if="document">
           <TextArea v-if="document.kind === 'text'" v-model:value="document.content" class="skill-content-input" :auto-size="false" :aria-label="activePath" :readonly="skill.source === 'system'" :disabled="saving" />
@@ -132,7 +152,7 @@ onUnmounted(() => controller.abort())
     </div>
     <div class="skill-form-footer"><small v-if="dirtyPaths.length" class="skills-hint">{{ t('skillUnsavedFiles', { count: dirtyPaths.length }) }}</small><div class="skill-form-actions"><Button :disabled="saving" @click="close">{{ t('close') }}</Button><Button v-if="skill.source !== 'system'" variant="primary" :loading="saving" :disabled="!canSave" @click="save">{{ t('saveChanges') }}</Button></div></div>
   </Modal>
-  <Modal :open="discardOpen" :title="t('skillDiscardTitle')" :z-index="1300" :ok-text="t('skillDiscard')" :cancel-text="t('cancel')" :ok-button-props="{ danger: true }" @cancel="discardOpen = false" @ok="discard"><p>{{ t('skillDiscardHint', { count: discardCount }) }}</p></Modal>
+  <Modal :open="discardOpen" :title="t('skillDiscardTitle')" :z-index="1300" :ok-text="t('skillDiscard')" :cancel-text="t('cancel')" :ok-button-props="{ danger: true }" @cancel="finishDiscard(false)" @ok="finishDiscard(true)"><p>{{ t('skillDiscardHint', { count: discardCount }) }}</p></Modal>
 </template>
 
 <style scoped>

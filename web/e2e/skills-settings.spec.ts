@@ -18,6 +18,8 @@ async function selectFile(editor: Locator, path: string) {
   await editor.locator(`[data-file-path="${path}"]`).click()
 }
 async function closeEditor(editor: Locator) {
+  const files = editor.locator('.skill-files-back:visible')
+  if (await files.count()) await files.click()
   await editor.locator('.skill-form-footer').getByRole('button', { name: 'Close', exact: true }).click()
   await expect(editor).toBeHidden()
 }
@@ -83,8 +85,7 @@ test('multiple system skills use their own metadata and can only be viewed @resp
     await expect(viewer.getByLabel('SKILL.md', { exact: true })).toHaveAttribute('readonly', '')
     await expect(viewer.getByRole('button', { name: 'Save changes', exact: true })).toHaveCount(0)
     if (skill.id === extra.id) await expect(viewer.getByLabel('SKILL.md', { exact: true })).toHaveValue('Independent embedded instructions')
-    await viewer.locator('.skill-form-footer').getByRole('button', { name: 'Close', exact: true }).click()
-    await expect(viewer).toBeHidden()
+    await closeEditor(viewer)
   }
   expect(readdirSync(catalog.directory)).toEqual([])
 })
@@ -264,7 +265,12 @@ test('file tree preserves separate drafts, edits text and previews images withou
   await selectFile(editor, 'SKILL.md')
   const mainDraft = review + 'An unsaved main instruction.\n'
   await editor.getByLabel('SKILL.md', { exact: true }).fill(mainDraft)
-  if (await editor.locator('.skill-files-back').isVisible()) await editor.locator('.skill-files-back').click()
+  if (await editor.locator('.skill-files-back').isVisible()) {
+    await page.goBack()
+    await expect(editor).toBeVisible()
+    await expect(editor.getByLabel('SKILL.md', { exact: true })).toBeHidden()
+    await expect(editor.locator('.skill-file-tree')).toBeVisible()
+  }
   await editor.locator('[data-file-path="SKILL.md"]').focus()
   await editor.locator('[data-file-path="SKILL.md"]').press('Enter')
   await expect(editor.getByLabel('SKILL.md', { exact: true })).toBeVisible()

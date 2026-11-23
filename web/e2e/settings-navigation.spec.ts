@@ -90,6 +90,75 @@ test('direct settings links, reload, browser history and viewport changes keep n
   await expect(page).toHaveURL(`${vista.origin}/sessions/${session.id}`)
 })
 
+test('advanced settings is one history entry above About', { tag: '@smoke' }, async ({ page, vista }) => {
+  const session = await vista.api('/sessions', { method: 'POST', body: '{}' })
+  const conversation = `${vista.origin}/sessions/${session.id}`
+  await page.goto(conversation)
+  const mobile = page.viewportSize()!.width <= 830
+  if (mobile) await page.locator('.mobile-sessions-trigger:visible').click()
+  await page.locator('.settings-trigger').click()
+  await page.getByRole('link', { name: 'About Vista', exact: true }).click()
+  const about = `${vista.origin}/settings/about?session=${session.id}`
+  await expect(page).toHaveURL(about)
+  const trigger = page.getByRole('button', { name: 'Advanced settings', exact: true })
+  const dialog = page.getByRole('dialog', { name: 'Advanced settings', exact: true })
+  await trigger.click()
+  await expect(dialog).toBeVisible()
+  await page.goBack()
+  await expect(dialog).toHaveCount(0)
+  await expect(page).toHaveURL(about)
+  await expect(trigger).toBeFocused()
+  await page.goForward()
+  await expect(dialog).toBeVisible()
+  await dialog.getByRole('button', { name: 'Close', exact: true }).click()
+  await expect(page).toHaveURL(about)
+  await expect(dialog).toHaveCount(0)
+  if (mobile) {
+    await page.goBack()
+    await expect(page).toHaveURL(url => url.pathname === '/settings' && url.searchParams.get('session') === session.id)
+  }
+  await page.goBack()
+  await expect(page).toHaveURL(conversation)
+})
+
+test('cancelling a guarded history jump keeps the whole workspace visible', async ({ page, vista }) => {
+  await page.goto(`${vista.origin}/`)
+  const mobile = page.viewportSize()!.width <= 830
+  if (mobile) await page.locator('.mobile-sessions-trigger:visible').click()
+  await page.locator('.settings-trigger').click()
+  await page.getByRole('link', { name: 'About Vista', exact: true }).click()
+  await page.getByRole('button', { name: 'Advanced settings', exact: true }).click()
+  const dialog = page.getByRole('dialog', { name: 'Advanced settings', exact: true })
+  await dialog.getByRole('tab', { name: 'Debug mode', exact: true }).click()
+  const debug = dialog.getByRole('switch', { name: 'Debug mode', exact: true })
+  await debug.click()
+  await expect(debug).toBeChecked()
+  const address = page.url()
+  await page.evaluate(steps => history.go(-steps), mobile ? 3 : 2)
+  const discard = page.getByRole('dialog', { name: 'Discard unsaved changes', exact: true })
+  await expect(discard).toBeVisible()
+  await discard.getByRole('button', { name: 'Cancel', exact: true }).click()
+  await expect(page).toHaveURL(address)
+  await expect(dialog).toBeVisible()
+  await expect(debug).toBeChecked()
+  await expect(page.locator('.settings-page')).toBeVisible()
+})
+
+test('a directly opened settings layer has an in-app parent after refresh', async ({ page, vista }) => {
+  const profile = await vista.api('/profiles', { method: 'POST', body: JSON.stringify({ name: 'Other workspace' }) })
+  const about = `${vista.origin}/profiles/${profile.id}/settings/about`
+  await page.goto(`${about}?layer=advanced:`)
+  await page.reload()
+  const dialog = page.getByRole('dialog', { name: 'Advanced settings', exact: true })
+  await expect(dialog).toBeVisible()
+  await page.keyboard.press('Escape')
+  await expect(dialog).toHaveCount(0)
+  await expect(page).toHaveURL(about)
+  await page.goto(`${vista.origin}/settings/general?layer=advanced:`)
+  await expect(page).toHaveURL(`${vista.origin}/settings/general`)
+  await expect(dialog).toHaveCount(0)
+})
+
 test('the header compaction icon exposes the context estimate without taking composer space', async ({ page, vista }, testInfo) => {
   const session = await vista.api('/sessions', { method: 'POST', body: '{}' })
   let tokens: number | null = 3940

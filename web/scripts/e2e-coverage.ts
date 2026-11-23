@@ -37,6 +37,7 @@ export const responsiveGrep = new RegExp([
 ].join('|'))
 
 const groups: Record<string, string[]> = {
+  navigation: ['layer-navigation', 'settings-navigation', 'modal-motion'],
   conversation: ['service-drafts', 'generation-tools', 'background-process', 'compaction', 'composer-sizing', 'conversation-sync', 'detached', 'empty-reply', 'execution-flow', 'failure-analysis', 'follow-up', 'images', 'interjection', 'iteration', 'layout', 'main-outputs', 'message-revert', 'model-diagnostics', 'model-retry', 'provider-output', 'question', 'quoted-reply', 'usage', 'worker-status'],
   sessions: ['profiles', 'branch-workspace', 'management-pagination', 'session-actions', 'agent-session-tools', 'session-batch', 'session-bulk', 'session-close', 'session-flow', 'session-manager', 'session-reminders', 'session-scope', 'state-sync'],
   models: ['generation-tools', 'codex-login', 'model-catalog', 'model-names', 'model-visibility', 'onboarding', 'provider-errors', 'provider-import', 'provider-setup', 'selection-flow', 'selection-stats'],
@@ -54,6 +55,7 @@ const groups: Record<string, string[]> = {
   sidebar: ['schedules', 'profiles', 'drawer-swipe', 'sidebar-width', 'settings-navigation'],
 }
 const consumers: [RegExp, string[]][] = [
+  [/^web\/src\/composables\/routeLayers\.ts$|^web\/e2e\/controls\/LayerNavigation\.vue$/, ['navigation', 'about', 'models', 'skills', 'network', 'search', 'mcp', 'personalization']],
   [/^internal\/(?:schedule\/|(?:server|store)\/schedules\.go$)|^web\/src\/pages\/SchedulesPage\.vue$/, ['schedules']],
   [/^web\/src\/state\/clientRuntime\.ts$/, ['about']],
   [/^web\/src\/(?:App|ProfileMenu)\.vue$/, ['sidebar']],

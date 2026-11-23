@@ -30,8 +30,10 @@ export async function closeSettings(page: Page) {
 }
 
 export async function openAboutAdvanced(page: Page, tab?: string) {
-  await page.locator('.settings-page').getByRole('button', { name: 'Advanced settings', exact: true }).click()
   const dialog = page.getByRole('dialog', { name: 'Advanced settings', exact: true })
+  if (!new URL(page.url()).searchParams.getAll('layer').includes('advanced:')) {
+    await page.locator('.settings-page').getByRole('button', { name: 'Advanced settings', exact: true }).click()
+  }
   await expect(dialog).toBeVisible()
   if (tab) {
     await dialog.getByRole('tab', { name: tab, exact: true }).click()

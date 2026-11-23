@@ -1,5 +1,6 @@
 import { computed, inject, nextTick, onMounted, onUnmounted, provide, ref, watch, type InjectionKey } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { layerTokens, returnToParent, withLayers } from './routeLayers'
 import { useI18n } from 'vue-i18n'
 import { VistaAPIError, createWorkspaceSync, compareSessionOrder, mergeSessionSnapshot, sessionEntryId, sessionListActivity, sessionNeedsAttention } from '@vista/client'
 import type { StateTopic, StateConnection, WorkspaceSnapshots, ModelCatalog, ServerStatus, Session, SyncCheckpoint } from '@vista/client'
@@ -171,6 +172,10 @@ function createWorkspace(profileId: string) {
 
   function modalQuery() { return selected.value?.open ? { session: selected.value.id } : {} }
   function backToWorkspace() { void router.push(pathInProfile(selected.value?.open ? `/sessions/${selected.value.id}` : '/')) }
+  function closeSettings() {
+    if (!settingsOpen.value || layerTokens(route).length) return
+    returnToParent(router, pathInProfile(selected.value?.open ? `/sessions/${selected.value.id}` : '/'))
+  }
   function openSessionManager() { void router.push({ path: pathInProfile('/sessions'), query: modalQuery() }) }
   function openSettings() { void router.push({ path: pathInProfile(window.matchMedia('(max-width: 830px)').matches ? '/settings' : '/settings/general'), query: modalQuery() }) }
 
@@ -281,7 +286,7 @@ function createWorkspace(profileId: string) {
     if (editingWithIME(event)) return
     // Components own Escape while a layer is open, including its closing animation.
     // Modal handlers also run on window, so stopPropagation alone is insufficient.
-    if (settingsOpen.value || sessionManagerOpen.value || [...document.querySelectorAll<HTMLElement>(
+    if (settingsOpen.value || layerTokens(route).length || sessionManagerOpen.value || [...document.querySelectorAll<HTMLElement>(
       '[role="dialog"], [role="alertdialog"], .ui-select-dropdown, .ui-popover, .ui-menu',
     )].some(element => element.getClientRects().length && getComputedStyle(element).visibility !== 'hidden')) return
     if (mobileSessionsOpen.value) { event.preventDefault(); mobileSessionsOpen.value = false; return }
@@ -289,7 +294,7 @@ function createWorkspace(profileId: string) {
     event.preventDefault()
     void conversation.cancelExecution()
   }
-  watch(() => route.fullPath, () => {
+  watch(() => router.resolve(withLayers(route, [])).fullPath, () => {
     mobileSessionsOpen.value = false
     closeConfirmation.value = null
     void syncRoute()
@@ -327,7 +332,7 @@ function createWorkspace(profileId: string) {
     sessionsReady, modelsReady, profileId, pathInProfile, scopeActive,
     changeSessionGroup, sessionGroupError, leaveChangedSessions,
     settingsOpen, sessionManagerOpen, needsProvider, senderDisabled, conversation, selected, modalQuery, backToWorkspace, openSessionManager,
-    openSettings, create, action, renameTitle,
+    openSettings, closeSettings, create, action, renameTitle,
     closeConfirmation, requestSessionClose, cancelSessionClose, confirmSessionClose,
     workerMemory, workerAvailable, mib, interactionPreferences, ...presentation,
   }

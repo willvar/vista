@@ -48,9 +48,11 @@ test('settings navigation reuses the open modal and browser Back closes with nor
   await expect(page).toHaveURL(vista.origin + '/settings/models')
   expect(await page.evaluate(() => document.querySelector('.workspace-modal .ui-modal-container') === (window as any).__workspaceModal)).toBe(true)
   expect(await page.evaluate(() => (window as any).__modalLeaveCount)).toBe(0)
-  await page.goBack()
-  await expect(page).toHaveURL(vista.origin + (page.viewportSize()!.width <= 830 ? '/settings' : '/settings/general'))
-  expect(await page.evaluate(() => (window as any).__modalLeaveCount)).toBe(0)
+  if (page.viewportSize()!.width <= 830) {
+    await page.goBack()
+    await expect(page).toHaveURL(vista.origin + '/settings')
+    expect(await page.evaluate(() => (window as any).__modalLeaveCount)).toBe(0)
+  }
   await page.goBack()
   await expect(page).toHaveURL(vista.origin + '/')
   await expect(page.locator('.workspace-modal')).toHaveCount(0)

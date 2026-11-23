@@ -1,0 +1,35 @@
+import { test, expect } from '@playwright/test'
+import { controlAssets, startFrontend } from './frontend-server'
+
+test('layers traverse independently of their presentation and ignore duplicate or stale closes', { tag: '@responsive' }, async ({ page }) => {
+  const server = await startFrontend({ directory: controlAssets })
+  try {
+    await page.goto(`${server.origin}/?layer-navigation`)
+    await page.getByRole('link', { name: 'Resources' }).click()
+    await expect(page.getByRole('heading', { name: 'Resources' })).toBeVisible()
+    const resources = page.url()
+    await page.getByRole('textbox', { name: 'Draft' }).fill('A draft below the panels')
+    await page.getByRole('button', { name: 'Choose attachments' }).click()
+    const drawer = page.getByRole('dialog', { name: 'Attachments' })
+    await expect(drawer).toBeVisible()
+    const drawerURL = page.url()
+    await drawer.getByRole('button', { name: 'Remember current drawer' }).click()
+    await drawer.getByRole('button', { name: 'Preview image' }).click()
+    const preview = page.getByRole('dialog', { name: 'Preview' })
+    await expect(preview).toBeVisible()
+    await page.goBack()
+    await expect(page).toHaveURL(drawerURL)
+    await expect(preview).toHaveCount(0)
+    await page.goForward()
+    await expect(preview).toBeVisible()
+    await preview.getByRole('button', { name: 'Double close' }).click()
+    await expect(page).toHaveURL(drawerURL)
+    await drawer.getByRole('button', { name: 'Complete old request' }).click()
+    await expect(drawer).toBeVisible()
+    await drawer.getByRole('button', { name: 'Close drawer' }).click()
+    await expect(page).toHaveURL(resources)
+    await expect(page.getByRole('textbox', { name: 'Draft' })).toHaveValue('A draft below the panels')
+    await page.goBack()
+    await expect(page.getByRole('heading', { name: 'Home' })).toBeVisible()
+  } finally { await server.close() }
+})
