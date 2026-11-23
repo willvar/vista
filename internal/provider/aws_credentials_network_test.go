@@ -219,20 +219,6 @@ func TestAWSCACredentialTLSAndProxy(t *testing.T) {
 				}
 				ctx, cancel := context.WithTimeout(network.WithConnectionPolicy(context.Background(), policy), 8*time.Second)
 				defer cancel()
-				// Check TLS failures before any credential response is accepted.
-				t.Setenv("AWS_CA_BUNDLE", "")
-				control, stopControl := context.WithTimeout(ctx, 300*time.Millisecond)
-				_, controlErr := resolveRuntimeCredentials(control, bedrockCredentialModel(policy), false)
-				stopControl()
-				if controlErr == nil {
-					t.Fatal("untrusted TLS endpoint accepted")
-				}
-				if requests.Load() != 0 {
-					t.Fatal("TLS control reached credential handler")
-				}
-				proxyCalls.Store(0)
-				directCalls.Store(0)
-				t.Setenv("AWS_CA_BUNDLE", ca)
 				if route == "proxy" && (source == "container" || source == "ec2") {
 					if _, err := resolveRuntimeCredentials(ctx, bedrockCredentialModel(policy), false); !errors.Is(err, network.ErrRuntimeIdentityProxy) || proxyCalls.Load() != 0 {
 						t.Fatalf("CA setup bypassed metadata guard: %v proxy=%d", err, proxyCalls.Load())
@@ -272,6 +258,19 @@ func TestAWSCACredentialTLSAndProxy(t *testing.T) {
 					}
 				} else if proxyCalls.Load() != 0 || directCalls.Load() != connections {
 					t.Fatalf("direct route or connection reuse lost: proxy=%d direct=%d", proxyCalls.Load(), directCalls.Load())
+				}
+
+				// Run the untrusted TLS control last: net/http may finish a dial
+				// after request cancellation, outside the connection assertions above.
+				t.Setenv("AWS_CA_BUNDLE", "")
+				control, stopControl := context.WithTimeout(ctx, 300*time.Millisecond)
+				_, controlErr := resolveRuntimeCredentials(control, bedrockCredentialModel(policy), false)
+				stopControl()
+				if controlErr == nil {
+					t.Fatal("untrusted TLS endpoint accepted")
+				}
+				if requests.Load() != before {
+					t.Fatal("TLS control reached credential handler")
 				}
 			})
 		}
