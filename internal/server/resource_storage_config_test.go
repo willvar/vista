@@ -11,6 +11,7 @@ import (
 	"strings"
 	"testing"
 
+	"vista/internal/configstore"
 	"vista/internal/resources"
 	"vista/internal/resourcetest"
 	"vista/internal/store"
@@ -56,92 +57,164 @@ func storageRequest(t *testing.T, a *App, input any) (int, resourceStorageStatus
 	}
 	return w.Code, result, w.Body.Bytes()
 }
-func TestResourceStorageConfigurationChecksDoNotSwitchAndRemainPrivate(t *testing.T) {
+func TestResourceStoragePresetsSeparateChecksSavingAndCutover(t *testing.T) {
 	app := storageAppFixture(t)
 	s3 := resourcetest.NewS3(t)
-	_, initial, _ := storageRequest(t, app, nil)
-	config := &resourceStorageInput{Kind: "s3", Endpoint: s3.Server.URL, Bucket: "resources", Region: "us-east-1", AccessKey: "fixture-access", SecretKey: "fixture-secret"}
-	code, checked, raw := storageRequest(t, app, resourceStorageRequest{Action: "check", Revision: initial.Config.Revision, Config: config})
-	if code != 200 || checked.CheckError != "" || checked.Config == nil || checked.Config.Current.Kind != "local" {
-		t.Fatalf("storage check switched or failed: %d %s", code, raw)
+	_, current, raw := storageRequest(t, app, nil)
+	if !bytes.Contains(raw, []byte(`"activePresetId":""`)) || current.Config.TargetPresetID != nil {
+		t.Fatal("local storage must have an empty configuration ID and no pending target")
 	}
-	if bytes.Contains(raw, []byte(config.AccessKey)) || bytes.Contains(raw, []byte(config.SecretKey)) || bytes.Contains(raw, []byte("masterKey")) {
-		t.Fatal("storage status leaked credentials")
+	initial := current.Config.Revision
+	request := func(action, id string, cfg *resourceStorageInput, wantCode int) resourceStorageStatus {
+		t.Helper()
+		code, result, raw := storageRequest(t, app, resourceStorageRequest{Action: action, PresetID: &id, Revision: current.Config.Revision, Config: cfg})
+		if code != wantCode {
+			t.Fatalf("%s: got %d, want %d: %s", action, code, wantCode, raw)
+		}
+		if code == 200 {
+			current = result
+			for _, secret := range []string{"fixture-access", "fixture-secret", "rotated-secret", "masterKey", "sessionToken"} {
+				if bytes.Contains(raw, []byte(secret)) {
+					t.Fatal("storage response exposes credentials")
+				}
+			}
+		}
+		return result
 	}
-	if s3.Count() != 0 {
-		t.Fatal("successful storage check left its remote payload")
-	}
-	code, _, _ = storageRequest(t, app, resourceStorageRequest{Action: "migrate", Revision: initial.Config.Revision, Config: config})
-	if code != 409 {
-		t.Fatal("stale storage editor was accepted")
-	}
-	config.AccessKey, config.SecretKey = "", ""
-	code, started, _ := storageRequest(t, app, resourceStorageRequest{Action: "migrate", Revision: checked.Config.Revision, Config: config})
-	if code != 200 || started.Config.Migration == nil || started.Config.Migration.Phase != "syncing" {
-		t.Fatal("storage migration not durably started")
-	}
-	// With no originals, cutover must still be a real task/state transaction.
-	app.runResourceMigration()
-	_, complete, _ := storageRequest(t, app, nil)
-	if complete.Config.Current.Kind != "s3" || complete.Config.Migration.Phase != "complete" {
-		t.Fatal("storage task did not commit cutover")
-	}
-	if s3.Count() != 0 {
-		t.Fatal("empty migration created an object")
-	}
-	code, blankCheck, _ := storageRequest(t, app, resourceStorageRequest{Action: "check", Revision: complete.Config.Revision, Config: config})
-	if code != 200 || blankCheck.CheckError != "" {
-		t.Fatal("saved active credentials could not be checked without re-entry")
-	}
-	complete = blankCheck
-	// Checking replacement credentials must not change the in-use credentials.
-	config.AccessKey, config.SecretKey = "replacement-access", "replacement-secret"
-	code, rechecked, _ := storageRequest(t, app, resourceStorageRequest{Action: "check", Revision: complete.Config.Revision, Config: config})
-	if code != 200 || rechecked.CheckError != "" {
-		t.Fatal("credential check failed")
-	}
+	input := &resourceStorageInput{Name: "Archive", Endpoint: s3.Server.URL, Bucket: "resources", Region: "us-east-1", AccessKey: "fixture-access", SecretKey: "fixture-secret"}
+	request("check", "", input, 200)
 	settings, err := resources.LoadSettings(app.configDir)
-	if err != nil {
-		t.Fatal(err)
+	if err != nil || len(settings.Backends) != 0 || s3.Count() != 0 || len(current.Config.Presets) != 0 || current.CheckError != "" || current.Config.Migration != nil {
+		t.Fatal("a successful unsaved probe published a preset, migration or residue", err)
 	}
-	stamp, _ := app.store.ResourceControl().Current(app.ctx)
-	active, _ := settings.Backend(stamp.BackendID)
-	if active.AccessKey != "fixture-access" {
-		t.Fatal("checking credentials changed the active backend")
+	request("save", "", input, 200)
+	first := current.Config.Presets[0].ID
+	other := *input
+	other.Name, other.Prefix = "Spare", "spare"
+	request("save", "", &other, 200)
+	second := current.Config.Presets[1].ID
+	if first == second || len(current.Config.Presets) != 2 || current.Config.ActivePresetID != "" || current.Config.Migration != nil || s3.Count() != 0 {
+		t.Fatal("preconfiguring destinations changed active storage")
 	}
-	config.AccessKey, config.SecretKey = "", ""
-	code, applied, _ := storageRequest(t, app, resourceStorageRequest{Action: "migrate", Revision: rechecked.Config.Revision, Config: config})
-	if code != 200 || applied.CheckError != "" {
-		t.Fatal("credential application failed")
+	code, _, _ := storageRequest(t, app, resourceStorageRequest{Action: "migrate", PresetID: &first, Revision: initial})
+	if code != 409 {
+		t.Fatal("stale selection could start a migration")
 	}
-	settings, _ = resources.LoadSettings(app.configDir)
-	active, _ = settings.Backend(stamp.BackendID)
-	if active.AccessKey != "replacement-access" {
-		t.Fatal("explicit application did not update credentials")
+	request("save", "", &other, 409)
+	request("migrate", "", nil, 200)
+	if current.Config.Migration != nil {
+		t.Fatal("selecting the active location started a migration")
 	}
-	current, _ := app.store.ResourceControl().Current(app.ctx)
-	if current != stamp {
-		t.Fatal("credential update incorrectly migrated an unchanged location")
-	}
-}
-func TestResourceStorageFailedCheckRetainsDraftRevisionAndCanBeCleaned(t *testing.T) {
-	app := storageAppFixture(t)
-	s3 := resourcetest.NewS3(t)
+
 	s3.SetHook(func(r *http.Request) int {
 		if r.Method == http.MethodPut {
 			return 403
 		}
 		return 0
 	})
-	_, initial, _ := storageRequest(t, app, nil)
-	config := &resourceStorageInput{Kind: "s3", Endpoint: s3.Server.URL, Bucket: "resources", Region: "us-east-1", AccessKey: "fixture-access", SecretKey: "fixture-secret"}
-	code, checked, raw := storageRequest(t, app, resourceStorageRequest{Action: "check", Revision: initial.Config.Revision, Config: config})
-	if code != 200 || checked.CheckError == "" || checked.Config.Current.Kind != "local" || checked.Config.Revision == initial.Config.Revision {
-		t.Fatalf("failed check state: %d %s", code, raw)
+	request("migrate", first, nil, 200)
+	if current.CheckError == "" || current.Config.Migration != nil {
+		t.Fatal("unverified destination started a migration")
 	}
 	s3.SetHook(nil)
 	if _, _, err := app.store.CleanResources(app.ctx, nil); err != nil {
-		t.Fatal("failed check recovery record could not be reclaimed", err)
+		t.Fatal(err)
+	}
+	request("migrate", first, nil, 200)
+	if current.Config.Migration == nil || current.Config.Migration.Phase != "syncing" || current.Config.ActivePresetID != "" || current.Config.TargetPresetID == nil || *current.Config.TargetPresetID != first {
+		t.Fatal("switch did not publish a durable target with the original still active")
+	}
+	request("remove", first, nil, 409)
+	app.runResourceMigration()
+	_, current, _ = storageRequest(t, app, nil)
+	if current.Config.ActivePresetID != first || current.Config.Current.Kind != "s3" || current.Config.Migration.Phase != "complete" {
+		t.Fatal("cutover did not select the requested preset")
+	}
+	request("remove", first, nil, 409)
+	control := app.store.ResourceControl()
+	stamp, _ := control.Current(app.ctx)
+	settings, _ = resources.LoadSettings(app.configDir)
+	active, _ := settings.Backend(stamp.BackendID)
+
+	input.AccessKey, input.SecretKey = "", ""
+	request("check", first, input, 200)
+	if current.CheckError != "" {
+		t.Fatal("saved credentials could not be checked")
+	}
+	input.AccessKey, input.SecretKey = "rotated-access", "rotated-secret"
+	request("check", first, input, 200)
+	settings, _ = resources.LoadSettings(app.configDir)
+	checked, _ := settings.Backend(stamp.BackendID)
+	if current.CheckError != "" || checked != active {
+		t.Fatal("testing replaced live credentials or namespace")
+	}
+	input.Name = "Renamed"
+	request("save", first, input, 200)
+	settings, _ = resources.LoadSettings(app.configDir)
+	revised, _ := settings.Backend(stamp.BackendID)
+	newStamp, _ := control.Current(app.ctx)
+	if revised.SecretKey != input.SecretKey || revised.MasterKey != active.MasterKey || current.Config.Presets[0].Name != input.Name || newStamp != stamp {
+		t.Fatal("editing an active connection changed its resource identity or lost the edit")
+	}
+	input.Prefix = "moved"
+	request("save", first, input, 409)
+	request("migrate", second, nil, 200)
+	app.runResourceMigration()
+	_, current, _ = storageRequest(t, app, nil)
+	if current.Config.ActivePresetID != second {
+		t.Fatal("DOFS-to-DOFS cutover failed")
+	}
+	request("remove", first, nil, 200)
+	settings, _ = resources.LoadSettings(app.configDir)
+	if _, err := settings.Backend(stamp.BackendID); err != nil || len(current.Config.Presets) != 1 {
+		t.Fatal("removing an option lost the old physical backend needed for recovery", err)
+	}
+	for _, body := range []any{
+		resourceStorageRequest{Action: "migrate", Revision: current.Config.Revision},
+		map[string]any{"action": "migrate", "revision": current.Config.Revision, "presetId": nil},
+	} {
+		if code, _, raw := storageRequest(t, app, body); code != http.StatusBadRequest {
+			t.Fatalf("omitted or null destination could select local storage: %d %s", code, raw)
+		}
+	}
+	request("migrate", "local", nil, 404) // Local storage is not a named configuration.
+	request("migrate", "", nil, 200)
+	if current.Config.ActivePresetID != second || current.Config.TargetPresetID == nil || *current.Config.TargetPresetID != "" || current.Config.Migration.Phase != "syncing" {
+		t.Fatal("a migration to local must expose an explicit empty target while keeping the original active")
+	}
+	app.runResourceMigration()
+	_, current, _ = storageRequest(t, app, nil)
+	if current.Config.ActivePresetID != "" || current.Config.Current.Kind != "local" || current.Config.TargetPresetID != nil || len(current.Config.Presets) != 1 {
+		t.Fatal("returning to local storage changed the saved configurations or retained a target")
+	}
+}
+
+func TestResourceStoragePresetProbeRecoveryAndDormantStatistics(t *testing.T) {
+	app := storageAppFixture(t)
+	s3 := resourcetest.NewS3(t)
+	_, initial, _ := storageRequest(t, app, nil)
+	input := &resourceStorageInput{Name: "Offline", Endpoint: "http://127.0.0.1:1", Bucket: "resources", Region: "us-east-1", AccessKey: "fixture-access", SecretKey: "fixture-secret"}
+	code, saved, raw := storageRequest(t, app, resourceStorageRequest{Action: "save", Revision: initial.Config.Revision, Config: input})
+	if code != 200 {
+		t.Fatalf("saving an untested preset: %s", raw)
+	}
+	if _, err := app.store.ResourceStorage(app.ctx); err != nil {
+		t.Fatal("unused preset was queried for inventory", err)
+	}
+	input.Endpoint = s3.Server.URL
+	s3.SetHook(func(r *http.Request) int {
+		if r.Method == http.MethodDelete {
+			return 403
+		}
+		return 0
+	})
+	code, checked, raw := storageRequest(t, app, resourceStorageRequest{Action: "check", Revision: saved.Config.Revision, Config: input})
+	if code != 200 || checked.CheckError == "" || len(checked.Config.Presets) != 1 || checked.Config.ActivePresetID != "" || checked.Config.Migration != nil || s3.Count() != 1 {
+		t.Fatalf("failed test altered configuration or did not exercise recovery: %d %s (objects: %d)", code, raw, s3.Count())
+	}
+	s3.SetHook(nil)
+	if n, _, err := app.store.CleanResources(app.ctx, nil); err != nil || n != 1 || s3.Count() != 0 {
+		t.Fatalf("failed check payload could not be reclaimed: %d %v", n, err)
 	}
 	for _, input := range []string{`{"action":"migrate","config":{"kind":"s3","masterKey":"not-a-user-setting"}}`, `{"action":"check"}`} {
 		w := httptest.NewRecorder()
@@ -149,5 +222,60 @@ func TestResourceStorageFailedCheckRetainsDraftRevisionAndCanBeCleaned(t *testin
 		if w.Code != 400 {
 			t.Fatal("invalid storage input accepted")
 		}
+	}
+}
+
+func TestResourceStoragePreservesLegacyActiveIdentityAndProtectedTarget(t *testing.T) {
+	app := storageAppFixture(t)
+	s3 := resourcetest.NewS3(t)
+	control := app.store.ResourceControl()
+	old, err := newStorageBackend(resources.BackendConfig{Kind: "s3", Endpoint: s3.Server.URL, Bucket: "resources", Region: "us-east-1", AccessKey: "fixture-access", SecretKey: "fixture-secret"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	old.Unused = false
+	other, err := newStorageBackend(old)
+	if err != nil {
+		t.Fatal(err)
+	}
+	other.Unused, other.Prefix = false, "other"
+	data, _ := json.Marshal(map[string]any{"backends": []resources.BackendConfig{old, other}})
+	if err := configstore.Write(app.configDir, configstore.Storage, data); err != nil {
+		t.Fatal(err)
+	}
+	before, _, _ := configstore.Read(app.configDir, configstore.Storage)
+	for _, backend := range []resources.BackendConfig{old, other} {
+		if err := resources.Prepare(app.ctx, control.Library.StateDir, backend); err != nil {
+			t.Fatal(err)
+		}
+	}
+	stamp, _ := control.Current(app.ctx)
+	if _, err := control.Start(app.ctx, old.ID, stamp); err != nil {
+		t.Fatal(err)
+	}
+	app.runResourceMigration()
+	active, _ := control.Current(app.ctx)
+	if _, err := control.Start(app.ctx, other.ID, active); err != nil {
+		t.Fatal(err)
+	}
+	_, view, _ := storageRequest(t, app, nil)
+	after, _, _ := configstore.Read(app.configDir, configstore.Storage)
+	if !bytes.Equal(before, after) || len(view.Config.Presets) != 2 || view.Config.ActivePresetID != old.ID || view.Config.TargetPresetID == nil || *view.Config.TargetPresetID != other.ID {
+		t.Fatal("legacy projection rewrote identity or lost the in-flight selection")
+	}
+	app.runResourceMigration()
+	_, view, _ = storageRequest(t, app, nil)
+	if view.Config.ActivePresetID != other.ID {
+		t.Fatal("legacy migration could not complete")
+	}
+	input := &resourceStorageInput{Name: "Saved Archive", Endpoint: other.Endpoint, Bucket: other.Bucket, Region: other.Region, Prefix: other.Prefix}
+	code, renamed, raw := storageRequest(t, app, resourceStorageRequest{Action: "save", Revision: view.Config.Revision, PresetID: &other.ID, Config: input})
+	if code != 200 || renamed.Config.ActivePresetID != other.ID || renamed.Config.Presets[0].Name != input.Name {
+		t.Fatalf("legacy preset could not be edited: %s", raw)
+	}
+	settings, _ := resources.LoadSettings(app.configDir)
+	unchanged, _ := settings.Backend(other.ID)
+	if unchanged != other {
+		t.Fatal("legacy namespace or keys were replaced")
 	}
 }

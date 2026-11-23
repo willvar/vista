@@ -58,7 +58,7 @@ func (a *App) resourceStorage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	switch input.Action {
-	case "check", "migrate":
+	case "check", "save", "remove", "migrate":
 		a.configureResourceStorage(w, r, input)
 		return
 	case "cancel", "retry":

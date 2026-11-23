@@ -2,7 +2,7 @@ import { spawn } from 'node:child_process'
 import { once } from 'node:events'
 import { createInterface } from 'node:readline'
 import { test, expect } from './fixtures'
-import type { Page } from '@playwright/test'
+import type { Locator, Page } from '@playwright/test'
 
 test.use({ imageModel: true })
 const original = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/lN8AAAAASUVORK5CYII=', 'base64')
@@ -29,27 +29,61 @@ async function storageFixture() {
   },
  }
 }
-async function selectStorage(page: Page, label: string) {
- await page.getByRole('combobox', { name: 'Storage method', exact: true }).click()
- await page.getByRole('option', { name: label, exact: true }).click()
+const addLabel = 'Add DOFS configuration'
+const editLabel = 'Edit DOFS configuration'
+const switchLabel = 'Switch storage location…'
+const saved = 'Save changes'
+const check = 'Test connection'
+const checked = 'Storage read, write and deletion checks passed.'
+const primary = 'Media archive'
+const spare = 'Spare storage'
+const credentials = { accessKey: 'fixture-access', secretKey: 'fixture-secret' }
+
+async function fillPreset(page: Page, name: string, endpoint: string, prefix = '') {
+ await page.getByRole('button', { name: addLabel, exact: true }).click()
+ return fillPresetFields(page.getByRole('dialog', { name: addLabel }), name, endpoint, prefix)
 }
-async function configure(page: Page, endpoint: string) {
- await selectStorage(page, 'Object storage (S3 compatible)')
- await page.getByLabel('Service endpoint', { exact: true }).fill(endpoint)
- await page.getByLabel('Bucket', { exact: true }).fill('resources')
- await page.getByLabel('Region (optional)', { exact: true }).fill('us-east-1')
- await page.getByLabel('Access key', { exact: true }).fill('fixture-access')
- await page.getByLabel('Secret key', { exact: true }).fill('fixture-secret')
+async function fillPresetFields(dialog: Locator, name: string, endpoint: string, prefix = '') {
+ await dialog.getByLabel('Profile name', { exact: true }).fill(name)
+ await dialog.getByLabel('Service endpoint', { exact: true }).fill(endpoint)
+ await dialog.getByLabel('Bucket', { exact: true }).fill('resources')
+ await dialog.getByLabel('Region (optional)', { exact: true }).fill('us-east-1')
+ await dialog.getByLabel('Storage prefix (optional)', { exact: true }).fill(prefix)
+ await dialog.getByLabel('Access key', { exact: true }).fill(credentials.accessKey)
+ await dialog.getByLabel('Secret key', { exact: true }).fill(credentials.secretKey)
+ return dialog
 }
-async function applyStorage(page: Page) {
- await page.locator('.storage-destination').getByRole('button', { name: 'Change storage', exact: true }).click()
- const dialog = page.getByRole('dialog', { name: 'Change storage', exact: true })
+async function savePreset(dialog: Awaited<ReturnType<typeof fillPreset>>) {
+ await dialog.getByRole('button', { name: saved, exact: true }).click()
+ await expect(dialog).toBeHidden()
+}
+async function switchStorage(page: Page, label: string, byKeyboard = false) {
+ await page.getByRole('button', { name: switchLabel, exact: true }).click()
+ const dialog = page.getByRole('dialog', { name: switchLabel })
+ const confirm = dialog.getByRole('button', { name: 'Confirm and migrate', exact: true })
+ await expect(confirm).toBeDisabled()
+ const combo = dialog.getByRole('combobox', { name: 'Destination storage', exact: true })
+ await combo.click()
+ const option = page.getByRole('option', { name: label, exact: true })
+ if (byKeyboard) {
+  const current = page.getByRole('option', { selected: true })
+  await expect(current).toBeVisible()
+  await expect(combo).toHaveAttribute('aria-activedescendant', (await current.getAttribute('id'))!)
+  await combo.press('ArrowUp')
+  await expect(combo).toHaveAttribute('aria-activedescendant', (await option.getAttribute('id'))!)
+  await combo.press('Enter')
+ } else await option.click()
  await expect(dialog).toContainText('Conversations keep reading and writing')
- await dialog.getByRole('button', { name: 'Change storage', exact: true }).click()
+ await expect(dialog.locator('strong')).toContainText(label)
+ await expect(dialog.getByLabel('Bucket', { exact: true })).toHaveCount(0)
+ const sent = page.waitForRequest(request => request.method() === 'POST' && new URL(request.url()).pathname === '/api/resource-storage' && request.postDataJSON().action === 'migrate')
+ await confirm.click()
+ if (label === 'Local storage') expect((await sent).postDataJSON().presetId).toBe('')
+ else await sent
  await expect(dialog).toBeHidden()
 }
 
-test('storage migration keeps conversations active, follows new originals and reclaims copies @responsive', async ({ page, vista }) => {
+test('storage migration keeps conversations active, follows new originals and reclaims copies @responsive', async ({ page, vista }, info) => {
  test.setTimeout(60_000)
  const service = await storageFixture()
  try {
@@ -60,13 +94,31 @@ test('storage migration keeps conversations active, follows new originals and re
   page.on('request', request => { if (new URL(request.url()).pathname === '/api/resource-storage' && request.method() === 'GET') browserReads++ })
   await page.goto(vista.origin + '/settings/storage')
   await expect(page.locator('.storage-current')).toHaveText('Current storage: Local storage')
-  await configure(page, service.endpoint)
-  await page.getByRole('button', { name: 'Check storage', exact: true }).click()
-  await expect(page.getByText('Storage read, write and deletion checks passed.', { exact: true })).toBeVisible()
-  await expect(page.getByLabel('Access key', { exact: true })).toHaveValue('')
-  await expect(page.getByLabel('Secret key', { exact: true })).toHaveValue('')
+  await expect(page.getByRole('button', { name: switchLabel, exact: true })).toBeDisabled()
+  const editor = await fillPreset(page, primary, service.endpoint)
+  await editor.getByRole('button', { name: check, exact: true }).click()
+  await expect(editor.getByText(checked, { exact: true })).toBeVisible()
+  expect((await vista.api('/resource-storage')).config.presets).toEqual([])
+  await savePreset(editor)
+  await savePreset(await fillPreset(page, spare, service.endpoint, 'spare'))
+  const row = (name: string) => page.locator('.storage-preset').filter({ hasText: name })
+  await expect(row(primary)).toContainText('DOFS')
+  await expect(row(primary)).not.toContainText('resources')
+  await expect(page.locator('.storage-current')).toHaveText('Current storage: Local storage')
+  const preconfigured = await vista.api('/resource-storage')
+  expect(preconfigured.config.presets.map((preset: { name: string }) => preset.name)).toEqual([primary, spare])
+  expect(preconfigured.config.migration).toBeUndefined()
+  expect(preconfigured.config.activePresetId).toBe('')
+  await row(primary).getByRole('button', { name: 'Edit', exact: true }).click()
+  const savedEditor = page.getByRole('dialog', { name: editLabel })
+  await expect(savedEditor.getByLabel('Secret key', { exact: true })).toHaveValue('')
+  await savedEditor.getByRole('button', { name: check, exact: true }).click()
+  await expect(savedEditor.getByText(checked, { exact: true })).toBeVisible()
+  await expect(savedEditor.getByRole('button', { name: saved, exact: true })).toBeDisabled()
+  await page.goBack()
+  await expect(savedEditor).toBeHidden()
   await service.controlRequest('/hold')
-  await applyStorage(page)
+  await switchStorage(page, primary)
   await expect.poll(async () => (await service.controlRequest('/status')).blocked).toBeGreaterThan(0)
   await expect(page.locator('.storage-current')).toHaveText('Current storage: Local storage')
   await expect(page.locator('.storage-migration')).toContainText('Synchronizing resources')
@@ -75,7 +127,8 @@ test('storage migration keeps conversations active, follows new originals and re
   const sourceRead = await page.request.get(vista.origin + `/api/sessions/${session.id}/resources/${first.hash}`)
   expect(await sourceRead.body()).toEqual(original)
   await service.controlRequest('/release')
-  await expect(page.locator('.storage-current')).toHaveText('Current storage: Object storage (S3 compatible)')
+  await expect(page.locator('.storage-current')).toHaveText(`Current storage: ${primary}`)
+  await expect(row(primary).getByRole('button', { name: 'Delete', exact: true })).toBeDisabled()
   await expect(page.locator('.storage-migration')).toHaveCount(0)
   const status = await vista.api('/resource-storage')
   expect(status.config.migration.phase).toBe('complete')
@@ -93,9 +146,16 @@ test('storage migration keeps conversations active, follows new originals and re
   // A new output after cutover uses object storage and must be included when
   // moving back to local; the retained original hashes/ownership never change.
   const produced = await upload('produced.png', Buffer.concat([original, Buffer.from('produced after cutover')]))
-  await selectStorage(page, 'Local storage')
-  await applyStorage(page)
+  await switchStorage(page, spare)
+  await expect(page.locator('.storage-current')).toHaveText(`Current storage: ${spare}`)
+  await row(primary).getByRole('button', { name: 'Delete', exact: true }).click()
+  const removal = page.getByRole('dialog', { name: 'Delete', exact: true })
+  await expect(removal).toContainText('This does not delete stored resources.')
+  await removal.getByRole('button', { name: 'Delete', exact: true }).click()
+  await expect(row(primary)).toHaveCount(0)
+  await switchStorage(page, 'Local storage', info.project.name === 'desktop')
   await expect(page.locator('.storage-current')).toHaveText('Current storage: Local storage')
+  expect((await vista.api('/resource-storage')).config.activePresetId).toBe('')
   const restored = await page.request.get(vista.origin + `/api/sessions/${session.id}/resources/${produced.hash}`)
   expect(restored.status()).toBe(200)
   expect(await restored.body()).toEqual(Buffer.concat([original, Buffer.from('produced after cutover')]))
@@ -112,9 +172,9 @@ test('storage migration failure can retry or cancel without changing the source 
   const session = await vista.api('/sessions', { method: 'POST', body: '{}' })
   const ref = await vista.api(`/sessions/${session.id}/resources?name=source.png`, { method: 'POST', headers: { 'Content-Type': 'image/png' }, body: original })
   await page.goto(vista.origin + '/settings/storage')
-  await configure(page, service.endpoint)
+  await savePreset(await fillPreset(page, primary, service.endpoint))
   await service.controlRequest('/deny')
-  await applyStorage(page)
+  await switchStorage(page, primary)
   await expect(page.locator('.storage-migration')).toContainText('Synchronization stopped')
   await expect(page.locator('.storage-current')).toHaveText('Current storage: Local storage')
   const response = await page.request.get(vista.origin + `/api/sessions/${session.id}/resources/${ref.hash}`)
@@ -135,18 +195,29 @@ test('storage migration failure can retry or cancel without changing the source 
  } finally { await service.stop() }
 })
 
-test('storage form keeps active drafts and rejects another client configuration change @responsive', async ({ page, vista }) => {
+test('storage form refreshes pristine editors but keeps drafts after another client changes a configuration @responsive', async ({ page, vista }) => {
  const service = await storageFixture()
  try {
   await page.goto(vista.origin + '/settings/storage')
-  await configure(page, service.endpoint)
-  await page.getByLabel('Bucket', { exact: true }).fill('unsaved-bucket')
+  await page.getByRole('button', { name: addLabel, exact: true }).click()
+  const pristine = page.getByRole('dialog', { name: addLabel })
+  const profileName = pristine.getByLabel('Profile name', { exact: true })
+  await expect(profileName).toBeEditable()
+  await profileName.focus()
+  const initial = await vista.api('/resource-storage')
+  await vista.api('/resource-storage', { method: 'POST', body: JSON.stringify({ action: 'save', revision: initial.config.revision, config: { name: spare, endpoint: service.endpoint, bucket: 'resources', region: 'us-east-1', ...credentials } }) })
+  await expect(page.locator('.storage-preset').filter({ hasText: spare })).toHaveCount(1)
+  await expect(profileName).toBeEditable()
+  await expect(profileName).toBeFocused()
+  const editor = await fillPresetFields(pristine, primary, service.endpoint)
+  await editor.getByLabel('Bucket', { exact: true }).fill('unsaved-bucket')
+  await expect(editor.getByRole('button', { name: saved, exact: true })).toBeEnabled()
   const status = await vista.api('/resource-storage')
-  await vista.api('/resource-storage', { method: 'POST', body: JSON.stringify({ action: 'check', revision: status.config.revision, config: { kind: 's3', endpoint: service.endpoint, bucket: 'resources', region: 'us-east-1', accessKey: 'fixture-access', secretKey: 'fixture-secret' } }) })
-  await expect(page.getByLabel('Bucket', { exact: true })).toHaveValue('unsaved-bucket')
-  await expect(page.locator('.storage-destination').getByRole('button', { name: 'Change storage', exact: true })).toBeDisabled()
-  await page.locator('.storage-destination-actions').getByRole('button', { name: 'Reload current values', exact: true }).click()
-  await page.getByRole('button', { name: 'Cancel', exact: true }).last().click()
-  await expect(page.getByLabel('Bucket', { exact: true })).toHaveValue('unsaved-bucket')
+  await vista.api('/resource-storage', { method: 'POST', body: JSON.stringify({ action: 'save', revision: status.config.revision, config: { name: 'Another configuration', endpoint: service.endpoint, bucket: 'resources', prefix: 'other', region: 'us-east-1', ...credentials } }) })
+  await expect(editor.getByLabel('Bucket', { exact: true })).toHaveValue('unsaved-bucket')
+  await expect(editor.getByRole('button', { name: saved, exact: true })).toBeDisabled()
+  await editor.getByRole('button', { name: 'Reload current values', exact: true }).click()
+  await page.getByRole('dialog', { name: 'Discard unsaved changes', exact: true }).getByRole('button', { name: 'Cancel', exact: true }).click()
+  await expect(editor.getByLabel('Bucket', { exact: true })).toHaveValue('unsaved-bucket')
  } finally { await service.stop() }
 })

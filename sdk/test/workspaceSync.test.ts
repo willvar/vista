@@ -210,7 +210,11 @@ test('all small settings payloads are delivered directly and replayed to a newly
     models: { default: '', models: [] }, catalog: { revision: 'catalog', modelCount: 1, providerCount: 1 },
     providerLogins: [{ id: 'login', status: 'connected' }],
     mcp: { servers: [], maxServers: 4, defaultDirectory: '/workspace', logins: [] },
-    storage: { phase: 'idle', deletedBytes: 2, deletedCount: 1 },
+    storage: { phase: 'idle', deletedBytes: 2, deletedCount: 1, config: {
+      current: { kind: 's3', hasCredentials: true }, activePresetId: 'archive', revision: 'storage-rev',
+      presets: [{ id: 'archive', name: 'Archive', kind: 's3', endpoint: 'https://storage.example', bucket: 'media', hasCredentials: true }],
+      targetPresetId: '', migration: { id: 'move', phase: 'syncing', copiedCount: 0, copiedBytes: 0 },
+    } },
   }
   const revisions = Object.fromEntries(['models', 'catalog', 'provider-login', 'mcp', 'storage'].map(topic => [topic, 1]))
   f.point(revisions, 'server-a', 0, snapshots)

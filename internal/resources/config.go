@@ -7,8 +7,11 @@ import (
 	"errors"
 	"io"
 	"net/url"
+	"os"
 	"path"
+	"path/filepath"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/google/uuid"
 	"vista/internal/configstore"
@@ -30,10 +33,39 @@ type BackendConfig struct {
 	SecretKey    string `json:"secretKey,omitempty"`
 	SessionToken string `json:"sessionToken,omitempty"`
 	MasterKey    string `json:"masterKey,omitempty"`
+	// Unused backends have never been selected for a migration. Only a
+	// durable check intent can require inventory before then.
+	Unused bool `json:"unused,omitempty"`
+}
+
+const MaxPresets = 16
+
+// Preset is a selectable name. Physical backends outlive the names that point
+// to them so that previous copies and interrupted checks remain recoverable.
+type Preset struct {
+	ID        string `json:"id"`
+	Name      string `json:"name"`
+	BackendID string `json:"backendId"`
 }
 
 type Settings struct {
 	Backends []BackendConfig `json:"backends"`
+	Presets  []Preset        `json:"presets"` // nil means legacy; an empty list does not re-import.
+}
+
+func ValidPresetName(name string) bool {
+	return name != "" && name == strings.TrimSpace(name) && utf8.RuneCountInString(name) <= 128 && !strings.ContainsAny(name, "\x00\r\n")
+}
+
+func (l Library) NeedsInventory(backend BackendConfig) (bool, error) {
+	if !backend.Unused {
+		return true, nil
+	}
+	entries, err := os.ReadDir(filepath.Join(l.StateDir, "resource-backends", backend.ID, "uploads"))
+	if errors.Is(err, os.ErrNotExist) {
+		return false, nil
+	}
+	return len(entries) != 0, err
 }
 
 func LoadSettings(configDir string) (Settings, error) {
@@ -42,6 +74,13 @@ func LoadSettings(configDir string) (Settings, error) {
 		return Settings{}, err
 	}
 	if !present {
+		data = nil
+	}
+	return DecodeSettings(data)
+}
+
+func DecodeSettings(data []byte) (Settings, error) {
+	if len(data) == 0 {
 		return Settings{Backends: []BackendConfig{}}, nil
 	}
 	var result Settings
@@ -58,6 +97,20 @@ func LoadSettings(configDir string) (Settings, error) {
 		seen[backend.ID] = true
 		if err := backend.Validate(); err != nil {
 			return result, err
+		}
+	}
+	if len(result.Presets) > MaxPresets {
+		return result, errors.New("too many storage configurations")
+	}
+	for i, preset := range result.Presets {
+		id, err := uuid.Parse(preset.ID)
+		if err != nil || id.String() != preset.ID || !seen[preset.BackendID] || !ValidPresetName(preset.Name) {
+			return result, errors.New("invalid storage configuration")
+		}
+		for _, earlier := range result.Presets[:i] {
+			if earlier.ID == preset.ID || earlier.BackendID == preset.BackendID || strings.EqualFold(earlier.Name, preset.Name) {
+				return result, errors.New("duplicate storage configuration")
+			}
 		}
 	}
 	return result, nil

@@ -6,6 +6,10 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"os"
+	"path/filepath"
+	"slices"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -14,258 +18,397 @@ import (
 	"vista/internal/resources"
 )
 
-type resourceStorageConfigView struct {
-	ObjectStorage *resources.PublicConfig `json:"objectStorage,omitempty"`
-	Current       resources.PublicConfig  `json:"current"`
-	Revision      string                  `json:"revision"`
-	Migration     *resources.Migration    `json:"migration,omitempty"`
-	Target        *resources.PublicConfig `json:"target,omitempty"`
+type resourceStoragePresetView struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+	resources.PublicConfig
 }
+
+type resourceStorageConfigView struct {
+	Current        resources.PublicConfig      `json:"current"`
+	ActivePresetID string                      `json:"activePresetId"`
+	Presets        []resourceStoragePresetView `json:"presets"`
+	Revision       string                      `json:"revision"`
+	Migration      *resources.Migration        `json:"migration,omitempty"`
+	TargetPresetID *string                     `json:"targetPresetId,omitempty"`
+}
+
 type resourceStorageInput struct {
-	Kind         string `json:"kind"`
-	Endpoint     string `json:"endpoint,omitempty"`
-	Bucket       string `json:"bucket,omitempty"`
+	Name         string `json:"name"`
+	Endpoint     string `json:"endpoint"`
+	Bucket       string `json:"bucket"`
 	Region       string `json:"region,omitempty"`
 	Prefix       string `json:"prefix,omitempty"`
 	AccessKey    string `json:"accessKey,omitempty"`
 	SecretKey    string `json:"secretKey,omitempty"`
 	SessionToken string `json:"sessionToken,omitempty"`
 }
+
 type resourceStorageRequest struct {
 	Action      string                `json:"action"`
 	Config      *resourceStorageInput `json:"config,omitempty"`
 	Revision    string                `json:"revision,omitempty"`
+	PresetID    *string               `json:"presetId,omitempty"`
 	MigrationID string                `json:"migrationId,omitempty"`
 }
 
-func (a *App) storageConfiguration() (resourceStorageConfigView, error) {
-	control := a.store.ResourceControl()
-	stamp, err := control.Current(a.ctxOrBackground())
-	if err != nil {
-		return resourceStorageConfigView{}, err
-	}
-	settings, err := resources.LoadSettings(control.Library.ConfigDir())
-	if err != nil {
-		return resourceStorageConfigView{}, err
-	}
-	backend, err := settings.Backend(stamp.BackendID)
-	if err != nil {
-		return resourceStorageConfigView{}, err
-	}
-	raw, present, err := configstore.Read(control.Library.ConfigDir(), configstore.Storage)
-	if err != nil {
-		return resourceStorageConfigView{}, err
-	}
+type resourceStorageState struct {
+	current   resources.Stamp
+	settings  resources.Settings
+	migration *resources.Migration
+	revision  string
+}
+
+func (a *App) storageRevision(stamp resources.Stamp, data []byte, present bool) string {
 	material, _ := json.Marshal(struct {
 		Stamp  resources.Stamp
 		Config json.RawMessage
-	}{stamp, raw})
-	view := resourceStorageConfigView{Current: backend.Public(), Revision: a.networkRevision(material, present)}
-	for _, saved := range settings.Backends {
-		if saved.Kind == "s3" {
-			value := saved.Public()
-			view.ObjectStorage = &value
-		}
+	}{stamp, data})
+	return a.networkRevision(material, present)
+}
+
+func (a *App) readStorageState(ctx context.Context) (state resourceStorageState, err error) {
+	control := a.store.ResourceControl()
+	if state.current, err = control.Current(ctx); err != nil {
+		return state, err
 	}
-	if backend.Kind == "s3" {
-		value := backend.Public()
-		view.ObjectStorage = &value
-	}
-	view.Migration, err = control.Migration(a.ctxOrBackground())
+	data, present, err := configstore.Read(control.Library.ConfigDir(), configstore.Storage)
 	if err != nil {
-		return view, err
+		return state, err
 	}
-	if backend.Kind == "local" && view.Migration != nil && view.Migration.Phase == "complete" {
-		if previous, e := settings.Backend(view.Migration.Source); e == nil && previous.Kind == "s3" {
-			value := previous.Public()
-			view.ObjectStorage = &value
+	if state.settings, err = resources.DecodeSettings(data); err != nil {
+		return state, err
+	}
+	if state.migration, err = control.Migration(ctx); err != nil {
+		return state, err
+	}
+	state.revision = a.storageRevision(state.current, data, present)
+	state.projectLegacyPresets()
+	return state, nil
+}
+
+// Preserve the previous chooser: the active or last selected remote location,
+// and any in-progress target. Shadow test namespaces are not user presets.
+// IDs/names are deterministic, and reads do not rewrite existing settings.
+func (s *resourceStorageState) projectLegacyPresets() {
+	if s.settings.Presets != nil {
+		return
+	}
+	s.settings.Presets = []resources.Preset{}
+	add := func(id string) {
+		backend, err := s.settings.Backend(id)
+		if err != nil || backend.Kind != "s3" || backend.Unused || id == resources.LocalBackend {
+			return
+		}
+		name := "DOFS"
+		if len(s.settings.Presets) > 0 {
+			name = "DOFS 2"
+		}
+		s.settings.Presets = append(s.settings.Presets, resources.Preset{ID: id, Name: name, BackendID: id})
+	}
+	add(s.current.BackendID)
+	if job := s.migration; job != nil {
+		if job.Protected() && job.Target != s.current.BackendID {
+			add(job.Target)
+		} else if job.Phase == "complete" && len(s.settings.Presets) == 0 {
+			add(job.Source)
 		}
 	}
-	if view.Migration != nil && view.Migration.Protected() {
-		target, e := settings.Backend(view.Migration.Target)
-		if e != nil {
-			return view, e
+	if len(s.settings.Presets) == 0 {
+		for i := len(s.settings.Backends) - 1; i >= 0 && len(s.settings.Presets) == 0; i-- {
+			add(s.settings.Backends[i].ID)
 		}
-		value := target.Public()
-		view.Target = &value
+	}
+}
+
+func (a *App) storageConfiguration() (resourceStorageConfigView, error) {
+	ctx := a.ctx
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	s, err := a.readStorageState(ctx)
+	if err != nil {
+		return resourceStorageConfigView{}, err
+	}
+	active, err := s.settings.Backend(s.current.BackendID)
+	if err != nil {
+		return resourceStorageConfigView{}, err
+	}
+	view := resourceStorageConfigView{Current: active.Public(), Revision: s.revision, Migration: s.migration, Presets: make([]resourceStoragePresetView, 0, len(s.settings.Presets))}
+	for _, preset := range s.settings.Presets {
+		backend, err := s.settings.Backend(preset.BackendID)
+		if err != nil {
+			return view, err
+		}
+		view.Presets = append(view.Presets, resourceStoragePresetView{ID: preset.ID, Name: preset.Name, PublicConfig: backend.Public()})
+		if preset.BackendID == s.current.BackendID {
+			view.ActivePresetID = preset.ID
+		}
+		if job := s.migration; job != nil && job.Protected() && job.Target == preset.BackendID {
+			view.TargetPresetID = &preset.ID
+		}
+	}
+	if job := s.migration; job != nil && job.Protected() && job.Target == resources.LocalBackend {
+		view.TargetPresetID = new(string)
 	}
 	return view, nil
 }
-func (a *App) ctxOrBackground() context.Context {
-	if a.ctx != nil {
-		return a.ctx
+
+// No remote requests under the publication lock. The stamp closes the race
+// between reading the active backend and editing/removing its configuration.
+func (a *App) writeStorageState(ctx context.Context, s *resourceStorageState) error {
+	control := a.store.ResourceControl()
+	release, err := control.Library.Lock(ctx)
+	if err != nil {
+		return err
 	}
-	return context.Background()
+	defer release()
+	if stamp, err := control.Current(ctx); err != nil {
+		return err
+	} else if stamp != s.current {
+		return configstore.ErrConflict
+	}
+	dir := control.Library.ConfigDir()
+	err = configstore.Update(dir, configstore.Storage, func(raw []byte, present bool) ([]byte, error) {
+		if a.storageRevision(s.current, raw, present) != s.revision {
+			return nil, configstore.ErrConflict
+		}
+		return json.Marshal(s.settings)
+	})
+	if err != nil {
+		return err
+	}
+	raw, present, err := configstore.Read(dir, configstore.Storage)
+	if err == nil {
+		s.revision = a.storageRevision(s.current, raw, present)
+	}
+	return err
+}
+
+func newStorageBackend(cfg resources.BackendConfig) (resources.BackendConfig, error) {
+	cfg.ID, cfg.Unused = uuid.NewString(), true
+	key, err := dofs.GenerateKey()
+	if err != nil {
+		return cfg, err
+	}
+	cfg.MasterKey = hex.EncodeToString(key)
+	dofs.Clear(key)
+	return cfg, nil
+}
+
+var errStorageVerification = errors.New("Object storage read/write/delete verification failed. Check the endpoint, bucket, permissions and versioning.")
+
+func (a *App) verifyStorage(ctx context.Context, cfg resources.BackendConfig) error {
+	ctx, cancel := context.WithTimeout(ctx, 45*time.Second)
+	defer cancel()
+	dir := a.store.ResourceControl().Library.StateDir
+	if resources.Prepare(ctx, dir, cfg) != nil || resources.CheckBackend(ctx, dir, cfg) != nil {
+		return errStorageVerification
+	}
+	return nil
+}
+
+// A probe with unsaved connection settings gets an isolated namespace. Persist
+// its recovery credentials before writing any object; it is never selectable.
+func (a *App) probeStorageDraft(ctx context.Context, state *resourceStorageState, cfg resources.BackendConfig) error {
+	probe, err := newStorageBackend(cfg)
+	if err != nil {
+		return err
+	}
+	state.settings.Backends = append(state.settings.Backends, probe)
+	if err := a.writeStorageState(ctx, state); err != nil {
+		return err
+	}
+	testErr := a.verifyStorage(ctx, probe)
+	library := a.store.ResourceControl().Library
+	if needed, err := library.NeedsInventory(probe); err == nil && !needed && ctx.Err() == nil {
+		state.settings.Backends = state.settings.Backends[:len(state.settings.Backends)-1]
+		if err := a.writeStorageState(ctx, state); err != nil {
+			return err
+		}
+		// The UUID belongs only to this probe and no durable intent remains.
+		_ = os.RemoveAll(filepath.Join(library.StateDir, "resource-backends", probe.ID))
+	}
+	return testErr
 }
 
 func (a *App) configureResourceStorage(w http.ResponseWriter, r *http.Request, input resourceStorageRequest) {
-	if input.Config == nil || input.Revision == "" {
-		settingsHTTPError(w, errors.New("storage configuration and revision are required"), 400)
+	formAction := input.Action == "check" || input.Action == "save"
+	if input.Revision == "" || formAction != (input.Config != nil) || !formAction && input.PresetID == nil || input.MigrationID != "" {
+		settingsHTTPError(w, errors.New("invalid storage configuration request"), 400)
 		return
+	}
+	presetID := ""
+	if input.PresetID != nil {
+		presetID = *input.PresetID
 	}
 	a.storageConfigMu.Lock()
 	defer a.storageConfigMu.Unlock()
-	control := a.store.ResourceControl()
-	view, err := a.storageConfiguration()
+	ctx := r.Context()
+	s, err := a.readStorageState(ctx)
 	if err != nil {
 		settingsHTTPError(w, errors.New("storage configuration could not be read"), 500)
 		return
 	}
-	if view.Revision != input.Revision {
+	if s.revision != input.Revision {
 		settingsHTTPError(w, configstore.ErrConflict, 409)
 		return
 	}
-	if view.Migration != nil && view.Migration.Protected() {
+	if s.migration != nil && s.migration.Protected() {
 		settingsHTTPError(w, resources.ErrMigrationBusy, 409)
 		return
 	}
-	expected, err := control.Current(r.Context())
-	if err != nil {
-		settingsHTTPError(w, err, 500)
+	index := slices.IndexFunc(s.settings.Presets, func(p resources.Preset) bool { return p.ID == presetID })
+	if index < 0 && !(presetID == "" && (formAction || input.Action == "migrate")) {
+		settingsHTTPError(w, errors.New("storage configuration not found"), 404)
 		return
 	}
-	cfg := resources.BackendConfig{ID: resources.LocalBackend, Kind: "local"}
-	if input.Config.Kind != "local" && input.Config.Kind != "s3" {
-		settingsHTTPError(w, errors.New("invalid storage kind"), 400)
-		return
+	var preset resources.Preset
+	var old resources.BackendConfig
+	if index >= 0 {
+		preset = s.settings.Presets[index]
+		old, _ = s.settings.Backend(preset.BackendID) // validated by DecodeSettings
 	}
-	if input.Config.Kind == "s3" {
-		cfg = resources.BackendConfig{Kind: "s3", Endpoint: input.Config.Endpoint, Bucket: input.Config.Bucket, Region: input.Config.Region, Prefix: input.Config.Prefix, AccessKey: input.Config.AccessKey, SecretKey: input.Config.SecretKey, SessionToken: input.Config.SessionToken}
-		err = configstore.Update(control.Library.ConfigDir(), configstore.Storage, func(data []byte, present bool) ([]byte, error) {
-			material, _ := json.Marshal(struct {
-				Stamp  resources.Stamp
-				Config json.RawMessage
-			}{expected, data})
-			if a.networkRevision(material, present) != input.Revision {
-				return nil, configstore.ErrConflict
+	control := a.store.ResourceControl()
+	switch input.Action {
+	case "remove":
+		if old.ID == s.current.BackendID {
+			settingsHTTPError(w, errors.New("switch to another storage location before removing this configuration"), 409)
+			return
+		}
+		s.settings.Presets = slices.Delete(s.settings.Presets, index, index+1)
+		// Keep old physical backends for resource accounting and cleanup.
+		err = a.writeStorageState(ctx, &s)
+	case "migrate":
+		target := old.ID
+		if presetID == "" {
+			target = resources.LocalBackend
+		}
+		if target == s.current.BackendID {
+			break
+		}
+		if target != resources.LocalBackend {
+			err = a.verifyStorage(ctx, old)
+			a.invalidateResourceStorage()
+			if err != nil {
+				break
 			}
-			var settings resources.Settings
-			if present && json.Unmarshal(data, &settings) != nil {
-				return nil, errors.New("invalid storage configuration")
-			}
-			found := -1
-			for i, old := range settings.Backends {
-				if old.ID != expected.BackendID && cfg.SameLocation(old) {
-					found = i
-					cfg.ID, cfg.MasterKey = old.ID, old.MasterKey
-					if cfg.AccessKey == "" && cfg.SecretKey == "" {
-						cfg.AccessKey, cfg.SecretKey = old.AccessKey, old.SecretKey
-						if cfg.SessionToken == "" {
-							cfg.SessionToken = old.SessionToken
-						}
+			if old.Unused {
+				for i := range s.settings.Backends {
+					if s.settings.Backends[i].ID == target {
+						s.settings.Backends[i].Unused = false
 					}
+				}
+				if err = a.writeStorageState(ctx, &s); err != nil {
 					break
 				}
 			}
-			if cfg.ID == "" && cfg.AccessKey == "" && cfg.SecretKey == "" {
-				for _, active := range settings.Backends {
-					if active.ID == expected.BackendID && cfg.SameLocation(active) {
-						cfg.AccessKey, cfg.SecretKey = active.AccessKey, active.SecretKey
-						if cfg.SessionToken == "" {
-							cfg.SessionToken = active.SessionToken
-						}
-						break
-					}
-				}
-			}
-			if cfg.ID == "" {
-				cfg.ID = uuid.NewString()
-				key, e := dofs.GenerateKey()
-				if e != nil {
-					return nil, e
-				}
-				cfg.MasterKey = hex.EncodeToString(key)
-				dofs.Clear(key)
-			}
-			if err := cfg.Validate(); err != nil {
-				return nil, err
-			}
-			if found < 0 {
-				settings.Backends = append(settings.Backends, cfg)
-			} else {
-				settings.Backends[found] = cfg
-			}
-			return json.Marshal(settings)
-		})
-		if err != nil {
-			code := 400
-			if errors.Is(err, configstore.ErrConflict) {
-				code = 409
-			}
-			settingsHTTPError(w, err, code)
-			return
 		}
-		// Persisted namespace credentials/identity precede any test or upload. Even
-		// interrupted verification objects can then be found by ordinary cleanup.
-		ctx, cancel := context.WithTimeout(r.Context(), 45*time.Second)
-		defer cancel()
-		if err = resources.Prepare(ctx, control.Library.StateDir, cfg); err == nil {
-			err = resources.CheckBackend(ctx, control.Library.StateDir, cfg)
-		}
-		if err != nil {
+		_, err = control.Start(ctx, target, s.current)
+		if err == nil {
+			a.wakeResourceMigration()
 			a.invalidateResourceStorage()
-			a.updates.notify("storage")
-			result := a.resourceStorageSnapshot()
-			result.CheckError = "Object storage read/write/delete verification failed. Check the endpoint, bucket, permissions and versioning."
-			jsonOut(w, result)
+		}
+	case "check", "save":
+		var status int
+		status, err = a.editStoragePreset(ctx, &s, index, preset, old, *input.Config, input.Action == "check")
+		if status != 0 {
+			settingsHTTPError(w, err, status)
 			return
 		}
 	}
-	if input.Action == "migrate" {
-		settings, loadErr := resources.LoadSettings(control.Library.ConfigDir())
-		if loadErr != nil {
-			settingsHTTPError(w, loadErr, 500)
-			return
-		}
-		active, loadErr := settings.Backend(expected.BackendID)
-		if loadErr != nil {
-			settingsHTTPError(w, loadErr, 500)
-			return
-		}
-		if cfg.SameLocation(active) {
-			release, lockErr := control.Library.Lock(r.Context())
-			if lockErr != nil {
-				settingsHTTPError(w, lockErr, 409)
-				return
-			}
-			current, stateErr := control.Current(r.Context())
-			if stateErr == nil && current != expected {
-				stateErr = resources.ErrStorageChanged
-			}
-			if stateErr == nil && cfg.Kind == "s3" {
-				stateErr = configstore.Update(control.Library.ConfigDir(), configstore.Storage, func(raw []byte, present bool) ([]byte, error) {
-					var latest resources.Settings
-					if json.Unmarshal(raw, &latest) != nil {
-						return nil, errors.New("invalid storage configuration")
-					}
-					for i, backend := range latest.Backends {
-						if backend.ID == active.ID {
-							backend.AccessKey, backend.SecretKey, backend.SessionToken, backend.Region = cfg.AccessKey, cfg.SecretKey, cfg.SessionToken, cfg.Region
-							latest.Backends[i] = backend
-						}
-					}
-					return json.Marshal(latest)
-				})
-			}
-			release()
-			if stateErr != nil {
-				settingsHTTPError(w, stateErr, 409)
-				return
-			}
-			a.updates.notify("storage")
-			jsonOut(w, a.resourceStorageSnapshot())
-			return
-		}
-		if _, err = control.Start(r.Context(), cfg.ID, expected); err != nil {
-			settingsHTTPError(w, err, 409)
-			return
-		}
-		a.wakeResourceMigration()
+	if errors.Is(err, errStorageVerification) {
+		result := a.resourceStorageSnapshot()
+		result.CheckError = errStorageVerification.Error()
+		jsonOut(w, result)
+		return
 	}
-	a.invalidateResourceStorage()
-	a.updates.notify("storage")
+	if err != nil {
+		status := http.StatusInternalServerError
+		if errors.Is(err, configstore.ErrConflict) || errors.Is(err, resources.ErrStorageChanged) || errors.Is(err, resources.ErrMigrationBusy) {
+			status = http.StatusConflict
+		}
+		settingsHTTPError(w, err, status)
+		return
+	}
 	jsonOut(w, a.resourceStorageSnapshot())
 }
+
+func (a *App) editStoragePreset(ctx context.Context, state *resourceStorageState, index int, preset resources.Preset, old resources.BackendConfig, input resourceStorageInput, check bool) (int, error) {
+	name := strings.TrimSpace(input.Name)
+	if !resources.ValidPresetName(name) {
+		return 400, errors.New("a storage configuration name is required (up to 128 characters)")
+	}
+	cfg := resources.BackendConfig{Kind: "s3", Endpoint: strings.TrimSpace(input.Endpoint), Bucket: strings.TrimSpace(input.Bucket), Region: strings.TrimSpace(input.Region), Prefix: strings.TrimSpace(input.Prefix), AccessKey: input.AccessKey, SecretKey: input.SecretKey, SessionToken: input.SessionToken}
+	sameLocation := old.ID != "" && cfg.SameLocation(old)
+	if old.ID == state.current.BackendID && !sameLocation {
+		return 409, errors.New("add another configuration and switch to it to change the active location")
+	}
+	if sameLocation {
+		cfg.ID, cfg.MasterKey, cfg.Unused = old.ID, old.MasterKey, old.Unused
+		if cfg.AccessKey == "" && cfg.SecretKey == "" {
+			cfg.AccessKey, cfg.SecretKey = old.AccessKey, old.SecretKey
+			if cfg.SessionToken == "" {
+				cfg.SessionToken = old.SessionToken
+			}
+		}
+	} else {
+		var err error
+		if cfg, err = newStorageBackend(cfg); err != nil {
+			return 0, err
+		}
+	}
+	if err := cfg.Validate(); err != nil {
+		return 400, err
+	}
+	if check || sameLocation && cfg != old {
+		var err error
+		if cfg == old {
+			err = a.verifyStorage(ctx, cfg)
+		} else {
+			err = a.probeStorageDraft(ctx, state, cfg)
+		}
+		a.invalidateResourceStorage()
+		if check || err != nil {
+			return 0, err
+		}
+	}
+	if index < 0 && len(state.settings.Presets) >= resources.MaxPresets {
+		return 400, errors.New("too many storage configurations")
+	}
+	for i, p := range state.settings.Presets {
+		if i == index {
+			continue
+		}
+		if strings.EqualFold(p.Name, name) {
+			return 409, errors.New("a storage configuration already has this name")
+		}
+		other, _ := state.settings.Backend(p.BackendID)
+		if cfg.SameLocation(other) {
+			return 409, errors.New("this storage location already has a configuration")
+		}
+	}
+	if sameLocation {
+		for i := range state.settings.Backends {
+			if state.settings.Backends[i].ID == old.ID {
+				state.settings.Backends[i] = cfg
+			}
+		}
+	} else {
+		state.settings.Backends = append(state.settings.Backends, cfg)
+	}
+	if index < 0 {
+		preset.ID = uuid.NewString()
+	}
+	preset.Name, preset.BackendID = name, cfg.ID
+	if index < 0 {
+		state.settings.Presets = append(state.settings.Presets, preset)
+	} else {
+		state.settings.Presets[index] = preset
+	}
+	return 0, a.writeStorageState(ctx, state)
+}
+
 func (a *App) wakeResourceMigration() {
 	if a.migrationWake == nil {
 		return

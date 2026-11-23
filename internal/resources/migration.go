@@ -306,7 +306,13 @@ func (c Control) BackendIDs(ctx context.Context) ([]string, error) {
 	}
 	ids := []string{LocalBackend}
 	for _, backend := range settings.Backends {
-		ids = append(ids, backend.ID)
+		needed, err := c.Library.NeedsInventory(backend)
+		if err != nil {
+			return nil, err
+		}
+		if needed {
+			ids = append(ids, backend.ID)
+		}
 	}
 	slices.Sort(ids)
 	return ids, nil

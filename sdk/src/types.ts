@@ -40,7 +40,18 @@ export type MCPConfig = { servers: MCPServer[]; maxServers: number; defaultDirec
 export type MCPState = MCPConfig & { logins: LoginUpdate[] }
 export type ResourceStorageStats = { totalBytes: number; totalCount: number; referencedBytes: number; referencedCount: number; cleanableBytes: number; cleanableCount: number; scannedAt: string }
 export type ResourceStorageBackend = { kind: 'local' | 's3'; endpoint?: string; bucket?: string; region?: string; prefix?: string; hasCredentials: boolean }
-export type ResourceStorageConfiguration = { objectStorage?: ResourceStorageBackend; current: ResourceStorageBackend; revision: string; migration?: { id: string; phase: string; error?: string; copiedCount: number; copiedBytes: number }; target?: ResourceStorageBackend }
+export type ResourceStoragePreset = ResourceStorageBackend & { kind: 's3'; id: string; name: string }
+export type ResourceStoragePresetInput = { name: string; endpoint: string; bucket: string; region?: string; prefix?: string; accessKey?: string; secretKey?: string; sessionToken?: string }
+export type ResourceStorageRequest =
+  | { action: 'check' | 'save'; revision: string; presetId?: string; config: ResourceStoragePresetInput }
+  // Migration uses an explicit empty preset ID to select local storage.
+  | { action: 'migrate' | 'remove'; revision: string; presetId: string }
+  | { action: 'cancel' | 'retry'; migrationId: string }
+  | { action: 'scan' | 'clean' }
+export type ResourceStorageConfiguration = {
+  current: ResourceStorageBackend; activePresetId: string; presets: ResourceStoragePreset[]; revision: string
+  migration?: { id: string; phase: string; error?: string; copiedCount: number; copiedBytes: number }; targetPresetId?: string
+}
 export type ResourceStorageStatus = { checkError?: string; config?: ResourceStorageConfiguration; phase: string; action?: string; stats?: ResourceStorageStats; deletedCount: number; deletedBytes: number; error?: string }
 export type ModelCatalog = { default: string; conversationDefault?: string; models: ModelInfo[]; showUnrecognizedModels?: boolean; settingsRevision?: string }
 export type OMPCatalogInfo = {

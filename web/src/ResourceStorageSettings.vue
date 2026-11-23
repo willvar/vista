@@ -15,7 +15,7 @@ const { client, stateSync } = useWorkspace()
 const status = ref<Status>({ phase: 'idle', deletedCount: 0, deletedBytes: 0 })
 const error = ref('')
 const cleanOpen = ref(false)
-const destinationOpen = ref(false)
+const destinationOpen = ref(false), snapshotEpoch = ref(0)
 const cleanPhase = ref<'confirm' | 'running' | 'complete'>('confirm')
 const cleanFailure = ref('')
 const cleanResult = ref('')
@@ -72,7 +72,12 @@ async function readStorage(signal = controller.signal, propagate = false) {
     if (propagate) throw failure
   }
 }
+function acceptDestination(result: Status, epoch: number) {
+  if (snapshotEpoch.value !== epoch) return
+  revision++; accept(result)
+}
 const unsubscribe = stateSync.subscribe(['storage'], async (_, signal, snapshots) => {
+  snapshotEpoch.value++
   if (snapshots.storage) { revision++; accept(snapshots.storage) }
   else await readStorage(signal, true)
 })
@@ -112,8 +117,8 @@ const cards = computed(() => [
 
 <template>
   <div class="settings-content resource-storage-settings">
+    <ResourceStorageDestination :configuration="status.config" :snapshot-epoch="snapshotEpoch" @changed="acceptDestination" @modal-open="destinationOpen = $event" />
     <div><h3>{{ t('resourceStorageTitle') }}</h3><p class="storage-description">{{ t('resourceStorageHint') }}</p></div>
-    <ResourceStorageDestination :configuration="status.config" :busy="busy" @changed="accept" @modal-open="destinationOpen = $event" />
     <div class="storage-cards">
       <div v-for="card in cards" :key="card.label" class="storage-card">
         <span>{{ t(card.label) }}</span><strong>{{ card.bytes === undefined ? '—' : size(card.bytes) }}</strong>

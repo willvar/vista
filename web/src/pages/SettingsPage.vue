@@ -82,6 +82,7 @@ const settingsLayerKinds: Record<string, string[]> = {
   'settings-skills': ['skill', 'import'],
   'settings-mcp': ['mcp-editor', 'import'],
   'settings-network': ['proxy-profile'],
+  'settings-storage': ['storage-config'],
   'settings-search': ['search-key'],
 }
 watch([() => route.name, () => route.query.layer], ([name, raw]) => {

@@ -14,8 +14,11 @@ Generated image and video originals reuse the same backends, SHA-256 IDs and Ses
 
 ## Storage location
 
-Settings → Storage selects local storage or an S3-compatible HTTP(S) endpoint, bucket, optional region and prefix.
-The choice applies to the Vista instance, not the browser or an individual conversation.
+Settings → Storage shows the active location separately from saved configurations.
+Add, edit, test or remove named DOFS configurations. The editor takes an S3-compatible HTTP(S) endpoint, bucket, optional region and prefix, and access credentials.
+Saving a new configuration or testing a connection does not change the active location. Choose **Switch storage location** and confirm migration to a saved name or to local storage. Local storage means no DOFS configuration is selected.
+Changing the active location's endpoint, bucket or prefix requires another configuration and an explicit switch. Renaming or updating its credentials does not migrate any files.
+The location applies to all conversations in the Profile, not a browser or an individual conversation.
 Local directories are not selectable; databases, settings, locks, process logs and project files do not move.
 The byte-storage layer is independent of resource origin and media policy; changing storage does not enable additional model input/output modalities.
 
@@ -23,7 +26,9 @@ Object storage uses the independent [DOFS](https://github.com/willvar/dofs) Go b
 Each registered backend has an instance-managed namespace and local DOFS SQLite metadata under `state/resource-backends/`.
 Objects are encrypted with DOFS chunked AES-GCM; this is server-managed encryption, not zero-knowledge storage.
 Access credentials and the generated master key use the `storage` section's private `key.json` bundles and are never returned to settings forms or shared state.
-Credentials can be reused for the same saved location; checks do not replace in-use credentials until changes are applied.
+Blank access fields reuse credentials for the same saved location. Tests do not save the form or replace live credentials; saving replacement connection settings first verifies them.
+The active and any protected migration target cannot be removed. Removing an inactive name does not delete any files; physical identities, keys and recovery records needed to account for old copies stay private.
+An older active or last selected DOFS location appears as a saved configuration without changing its backend identity or encryption key. Unused configurations with no interrupted test to recover are not queried for resource usage.
 Storage requests use the existing Global requests network policy and preserve SDK request contexts, retries and connection cleanup.
 
 Originals are staged with bounded buffers in private `state/resource-staging/` files when hashing, transferring or serving seekable remote downloads.
@@ -124,9 +129,11 @@ Unreachable storage is reported as unverifiable rather than empty.
 Usage includes physical copies and logical original sizes, not an exact provider billing report including encryption overhead or historical versions.
 Object-storage verification requires a bucket with versioning disabled; Vista does not change bucket policies.
 
-`GET /api/resource-storage` also returns the redacted configuration, a private-section revision and current migration state.
-`POST` supports `check` and `migrate` with `{config, revision}`, and `cancel`/`retry` with `{migrationId}`.
-Checks perform encrypted read/write/delete verification; a failed check returns a request-local `checkError` with the updated draft revision and never activates the target.
+`GET /api/resource-storage` returns redacted `config.presets`, `activePresetId`, `targetPresetId` for a protected migration, the private-section revision and current migration state.
+`POST` supports `check` and `save` with `{config, revision, presetId?}`. The form includes `name` and the DOFS connection fields.
+`remove` and `migrate` require `{presetId, revision}`. To migrate back to local storage, explicitly send `presetId: ""`; omitting the destination does not select it.
+An empty `activePresetId` or `targetPresetId` denotes local storage; an absent `targetPresetId` means no protected migration target. The active ID is unchanged until verified cutover, and selecting the current target is a no-op.
+`cancel`/`retry` use `{migrationId}`. Check and activation preflight perform encrypted read/write/delete verification; a failure returns a request-local `checkError` with the latest revision and does not start a migration.
 `scan` and `clean` retain their asynchronous 202 contract.
 Progress and final state reuse scoped storage SSE snapshots, not browser polling.
 
