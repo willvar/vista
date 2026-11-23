@@ -3,24 +3,24 @@ import { computed, onUnmounted, ref, shallowRef, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { RadioGroupRoot, RadioGroupItem, RadioGroupItemHiddenInput, RadioGroupItemText } from '@ark-ui/vue/radio-group'
-import { MenuRoot, MenuTrigger, MenuPositioner, MenuContent, MenuRadioItemGroup, MenuRadioItem, MenuItemText, MenuItemIndicator } from '@ark-ui/vue/menu'
-import { IconCheck, IconCheckbox, IconDots, IconPinFilled, IconSearch, IconSortAscending, IconSortDescending } from '@tabler/icons-vue'
+import { IconCheck, IconCheckbox, IconDots, IconPinFilled, IconSearch } from '@tabler/icons-vue'
 import { Empty as VEmpty, Alert as VAlert, Button as VButton, Checkbox as VCheckbox, Dropdown as VDropdown, Input as VInput, Modal as VModal, Tooltip as VTooltip } from '../ui'
 import WorkspaceModal from '../WorkspaceModal.vue'
 import BatchOperationModal from '../BatchOperationModal.vue'
 import InlineSessionTitle from '../InlineSessionTitle.vue'
 import SessionIndicators from '../SessionIndicators.vue'
 import SessionPin from '../SessionPin.vue'
+import SessionSortMenu from '../SessionSortMenu.vue'
 import ListPagination from '../ListPagination.vue'
 import { useWorkspace } from '../composables/useWorkspace'
 import { usePagedList } from '../composables/usePagedList'
 import { formatDateTime } from '../ui/datetime.ts'
-import { sessionEntryId, type Session, type SessionPage } from '@vista/client'
+import { sessionEntryId, sessionPagePath, type Session, type SessionPage, type SessionSort } from '@vista/client'
 
 const router = useRouter()
 const { t, n, locale } = useI18n({ useScope: 'global' })
 const {
-  openSessions, closedSessions, totalSessions, serverStatus, busy, debugMode, stateSync,
+  openTotal, closedSessions, totalSessions, serverStatus, busy, debugMode, stateSync,
   backToWorkspace, action, closeConfirmation, requestSessionClose,
   workerAvailable, displaySessionTitle,
   client, pathInProfile, scopeActive, changeSessionGroup, sessionGroupError, leaveChangedSessions,
@@ -28,14 +28,7 @@ const {
 const sessionSearch = ref('')
 const searchQuery = ref('')
 const sessionFilter = ref<'all' | 'open' | 'closed'>('all')
-const sessionSort = ref('created-desc')
-const sortOptions = computed(() => [
-  { value: 'created-desc', label: t('sessionSortCreatedNewest') },
-  { value: 'created-asc', label: t('sessionSortCreatedOldest') },
-  { value: 'updated-desc', label: t('sessionSortUpdatedNewest') },
-  { value: 'updated-asc', label: t('sessionSortUpdatedOldest') },
-])
-const sortTitle = computed(() => `${t('sortSessions')}: ${sortOptions.value.find(option => option.value === sessionSort.value)!.label}`)
+const sessionSort = ref<SessionSort>('created-desc')
 const sortingByUpdate = computed(() => sessionSort.value.startsWith('updated-'))
 const page = ref(1)
 const pageSize = ref(10)
@@ -47,13 +40,10 @@ const deleteTarget = shallowRef<Session | null>(null)
 const deleteOpen = ref(false)
 const { data: sessionPage, loading: archiveLoading, error: archiveError, ready, cancel: cancelArchiveRead, refresh: refreshArchive } = usePagedList<SessionPage>({
   client, sync: stateSync, topic: 'sessions', page,
-  path: current => {
-    const query = new URLSearchParams({ page: String(current), pageSize: String(pageSize.value) })
-    if (sessionSort.value !== 'created-desc') query.set('sort', sessionSort.value)
-    if (sessionFilter.value !== 'all') query.set('open', String(sessionFilter.value === 'open'))
-    if (searchQuery.value) { query.set('search', searchQuery.value); query.set('untitledLabel', t('untitledSession')) }
-    return `/sessions?${query}`
-  },
+  path: current => sessionPagePath(current, pageSize.value, {
+    open: sessionFilter.value === 'all' ? undefined : sessionFilter.value === 'open',
+    sort: sessionSort.value, search: searchQuery.value, untitledLabel: t('untitledSession'),
+  }),
 })
 let searchTimer: ReturnType<typeof setTimeout> | undefined
 watch(sessionSearch, value => {
@@ -70,7 +60,7 @@ onUnmounted(() => clearTimeout(searchTimer))
 const editingRows = ref<Session[] | null>(null)
 const liveStats = computed(() => ({
   total: totalSessions.value,
-  open: serverStatus.value?.sessions.open ?? openSessions.value.length,
+  open: openTotal.value,
   closed: closedSessions.value,
   workers: serverStatus.value?.sessions.workers ?? 0,
 }))
@@ -271,24 +261,7 @@ function localTime(utc: string) {
         <small v-if="debugMode" class="session-manager-workers">{{ t('workers') }} · {{ n(managedStats.workers) }}</small>
       </div>
       <div class="session-manager-actions">
-        <MenuRoot :positioning="{ placement: 'bottom-end', gutter: 6 }" lazy-mount unmount-on-exit>
-          <MenuTrigger as-child>
-            <v-button variant="text" class="icon-button session-sort-trigger" :aria-label="t('sortSessions')" :title="sortTitle"
-              :disabled="busy || !!renamingSessionID || !totalSessions">
-              <IconSortAscending v-if="sessionSort.endsWith('-asc')" aria-hidden="true" /><IconSortDescending v-else aria-hidden="true" />
-            </v-button>
-          </MenuTrigger>
-          <Teleport to="body"><MenuPositioner style="z-index: 1500">
-            <MenuContent class="ui-menu session-sort-menu" :aria-label="t('sortSessions')">
-              <MenuRadioItemGroup v-model="sessionSort">
-                <MenuRadioItem v-for="option in sortOptions" :key="option.value" :value="option.value" class="ui-menu-item">
-                  <MenuItemText>{{ option.label }}</MenuItemText>
-                  <MenuItemIndicator><IconCheck aria-hidden="true" /></MenuItemIndicator>
-                </MenuRadioItem>
-              </MenuRadioItemGroup>
-            </MenuContent>
-          </MenuPositioner></Teleport>
-        </MenuRoot>
+        <SessionSortMenu v-model="sessionSort" :disabled="busy || !!renamingSessionID || !totalSessions" />
         <v-tooltip :title="t(selecting ? 'finishSessionSelection' : 'selectSessions')">
           <v-button variant="text" class="icon-button session-selection-toggle" :aria-label="t(selecting ? 'finishSessionSelection' : 'selectSessions')" :aria-pressed="selecting"
             :disabled="busy || !!renamingSessionID || !totalSessions" @click="toggleSelection">

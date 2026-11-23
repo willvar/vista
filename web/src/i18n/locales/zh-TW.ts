@@ -761,6 +761,8 @@ export default { ...base, ...{
   "sessionSortCreatedOldest": "建立時間：由舊到新",
   "sessionSortUpdatedNewest": "最近更新：由近到遠",
   "sessionSortUpdatedOldest": "最近更新：由遠到近",
+  "sessionSortTitleAZ": "標題：A–Z",
+  "sessionPageLoadFailed": "無法載入會話。",
   "selectSessions": "多選",
   "selectSession": "選擇“{title}”",
   "openSelected": "批次開啟",

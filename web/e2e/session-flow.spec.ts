@@ -1,4 +1,4 @@
-import { coreSnapshot, installConversationStream } from './conversation-fixture'
+import { coreSnapshot, installConversationStream, patchSessionPage } from './conversation-fixture'
 import { closeSettings } from './settings-navigation'
 import type { Page } from '@playwright/test'
 import type { StreamEvent } from '@vista/client'
@@ -86,11 +86,7 @@ test('settings overlay keeps the current session stream alive and closes back to
     const path = new URL(request.url()).pathname
     if (request.method() === 'GET' && path.endsWith('/main-outputs')) return route.fulfill({ json: [] })
     if (request.method() !== 'GET') return route.continue()
-    if (path === '/api/sessions') {
-      const original = await route.fetch()
-      return route.fulfill({ response: original, json: (await original.json()).map((row: { id: string }) =>
-        row.id === session.id ? { ...row, executing } : row) })
-    }
+    if (path === '/api/sessions') return patchSessionPage(route, session.id, executing)
     if (path === `/api/sessions/${session.id}/snapshot`) return route.fulfill({ json: snapshot() })
     if (path === `/api/sessions/${session.id}/messages`) return route.fulfill({ json: executing ? [user] : [user, reply] })
     if (path === `/api/sessions/${session.id}/event-page`) return route.fulfill({ json: events })
@@ -155,11 +151,7 @@ test('cancelling execution restores Send and allows the next message', async ({ 
       return route.fulfill({ json: { message: message('after-cancel', 'next-run', 4, 'user', 'After cancellation') } })
     }
     if (request.method() !== 'GET') return route.continue()
-    if (path === '/api/sessions') {
-      const original = await route.fetch()
-      return route.fulfill({ response: original, json: (await original.json()).map((row: { id: string }) =>
-        row.id === session.id ? { ...row, executing } : row) })
-    }
+    if (path === '/api/sessions') return patchSessionPage(route, session.id, executing)
     if (path === `/api/sessions/${session.id}/snapshot`) return route.fulfill({ json: coreSnapshot({ ...session, executing }, [user], initialEvents) })
     if (path === `/api/sessions/${session.id}/messages`) return route.fulfill({ json: [user] })
     if (path === `/api/sessions/${session.id}/event-page`) return route.fulfill({ json: initialEvents })

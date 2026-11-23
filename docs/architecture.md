@@ -175,17 +175,21 @@ Visible model-selection statistics also receive hourly invalidation for their ro
 Cleanup remains explicit and confirmed; discovering a file or reference change never deletes resources.
 `internal/server/state_events.go` publishes coalesced topic revisions after committed mutations and asynchronous state transitions.
 Changed session lists, runtime status, model inventories, catalog-update status/history, resource-scan status, MCP settings/login outcomes, and provider-login outcomes travel as bounded payloads in the same frame.
-The workspace reads `GET /api/sessions?open=true`; global session payloads also contain only open summaries and their event boundaries.
+The workspace reads `GET /api/sessions?page=1&pageSize=20&open=true` and appends pages on demand. It does not request the legacy unpaginated list.
+The same store query applies group scope and search, keeps pinned conversations first, and applies the selected `created-*`, `updated-*`, or `title-asc` order before pagination.
+`title-asc` uses a case-insensitive Pinyin key in SQLite, the supplied `untitledLabel` for default titles, and IDs to break ties. The open first page carries an aggregate `attention` count for all open groups, not only those on the page.
+`GET /api/events?sessions=paged` opts out of legacy open-list snapshots. The shared subscription can request a `sessionWindow` with `size` (up to 100), `sort`, and an optional `untitledLabel`; changed session revisions may carry that bounded open prefix with its query, version and event boundaries.
+A missing or mismatched window is recovered by reading only the loaded prefix in bounded HTTP pages. Mixed versions are never appended; a replacement prefix is applied atomically and the visible row stays anchored. A prefix beyond 100 receives only revisions and is revalidated in pages.
 Closed conversations contribute aggregate counts in status, without their summaries or history.
 The session manager subscribes to session revisions only while mounted and reads `GET /api/sessions?page=1&pageSize=10` on entry and changes; optional `search` and `open` filters apply before counting and pagination across the entire archive.
 It replaces its current page as one snapshot, so concurrent close/reopen commits cannot create temporary omissions by mixing open and closed lists from different times; leaving cancels pending reads and releases its subscription without reconnecting the shared stream.
 Session management defaults to 10 entries per page, offers 20/50/100, and reads only the requested page; page totals and entries share a SQLite transaction, and out-of-range pages clamp after deletion.
 Paginated responses carry an epoch/revision `version` captured before the read; matching versions reuse the current page, while changed revisions trigger an active view's page read.
-If the selected conversation disappears from the open list, `GET /api/sessions/<id>/checkpoint` distinguishes closing from deletion without loading archives or conversation history; a closed selected conversation remains readable with its draft preserved.
-The unpaginated session endpoint retains its response shape for administrative clients; the unpaginated session list is limited to 1,000 summaries.
+A conversation not in the loaded open prefix is not necessarily closed; `GET /api/sessions/<id>/checkpoint` distinguishes closing from deletion without loading archives or conversation history; a closed selected conversation remains readable with its draft preserved.
+The legacy unpaginated session endpoint retains its response shape for administrative clients; the unpaginated session list is limited to 1,000 summaries.
 Login outcomes are matched by attempt ID; device codes and authorization URLs remain attempt-specific HTTP reads.
 Newly opened views receive the latest payload for its revision; per-subscriber cursors serialize initial reads with arriving updates and avoid duplicate initialization.
-Read receipts, titles, model choices and queue edits push the session list without resending runtime status.
+Read receipts, titles, model choices and queue edits update the session revision without resending runtime status.
 Run/compaction, task/process and Worker lifecycle transitions also push runtime status; model and tool progress stays on the conversation stream.
 Successful message and execution-control acknowledgements do not initiate a separate workspace refresh; the state stream reconciles shared views.
 Session-list entries and their per-conversation event boundaries come from one SQLite read transaction; newer conversation events and accepted sends take precedence when applying delayed lists.

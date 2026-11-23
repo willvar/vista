@@ -817,6 +817,8 @@ export default {
   "sessionSortCreatedOldest": "생성 시간: 오래된 순",
   "sessionSortUpdatedNewest": "최근 업데이트: 최신순",
   "sessionSortUpdatedOldest": "최근 업데이트: 오래된 순",
+  "sessionSortTitleAZ": "제목: A–Z",
+  "sessionPageLoadFailed": "대화를 불러올 수 없습니다.",
   "selectSessions": "선택",
   "finishSessionSelection": "완료",
   "selectSession": "{title} 선택",

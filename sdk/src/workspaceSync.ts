@@ -1,11 +1,12 @@
 import { streamSSE } from './sse.js'
 import type { VistaClient } from './vista.js'
-import type { ServerStatus, SessionListSnapshot, ModelCatalog, ModelDiagnosticSummary, NetworkConfiguration, OMPCatalogInfo, LoginUpdate, MCPState, ResourceStorageStatus, ScheduleSnapshot, ServerConfig } from './types.js'
+import type { ServerStatus, SessionListSnapshot, SessionWindowInterest, SessionWindowSnapshot, ModelCatalog, ModelDiagnosticSummary, NetworkConfiguration, OMPCatalogInfo, LoginUpdate, MCPState, ResourceStorageStatus, ScheduleSnapshot, ServerConfig } from './types.js'
 
 export const stateTopics = ['sessions', 'status', 'models', 'catalog', 'provider-login', 'mcp', 'storage', 'diagnostics', 'statistics', 'skills', 'connection-statistics', 'server-config', 'network', 'profiles', 'drafts', 'schedules'] as const
 export type StateTopic = typeof stateTopics[number]
 export type StateConnection = { phase: 'connecting' | 'ready' | 'error' | 'stopped'; error?: string }
 export type WorkspaceSnapshots = {
+  sessionWindow?: SessionWindowSnapshot
   sessions?: SessionListSnapshot; status?: ServerStatus; models?: ModelCatalog; catalog?: OMPCatalogInfo
   providerLogins?: LoginUpdate[]; mcp?: MCPState; storage?: ResourceStorageStatus
   network?: NetworkConfiguration
@@ -27,6 +28,7 @@ type Options = {
   metrics: (status: ServerStatus) => void
   reconnectDelayMs?: number
   idleTimeoutMs?: number
+  pagedSessions?: boolean
 }
 
 function validStatus(status: ServerStatus) {
@@ -38,6 +40,7 @@ export function createWorkspaceSync(options: Options) {
   const listeners = new Set<Listener>()
   let connection: AbortController | undefined
   let metrics = false
+  let sessionWindow: SessionWindowInterest | undefined
   let stopped = true
   let attempt = 0
   let latest: { point: Checkpoint; signal: AbortSignal; attempt: number } | undefined
@@ -89,12 +92,13 @@ export function createWorkspaceSync(options: Options) {
       try {
         while (current()) {
           const topics = [...new Set([...listeners].flatMap(listener => listener.topics))].sort()
-          const key = JSON.stringify(topics)
+          const window = sessionWindow
+          const key = JSON.stringify([topics, window])
           if (key === sentInterests) break
           const id = subscriptionId, signal = subscriptionSignal!
           try {
             const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'
-            await client.request('/events/subscriptions', { method: 'PUT', body: JSON.stringify({ id, topics, timezone }), signal })
+            await client.request('/events/subscriptions', { method: 'PUT', body: JSON.stringify({ id, topics, timezone, sessionWindow: window }), signal })
           } catch (error) { if (!signal.aborted) throw error }
           if (!current() || !subscriptionId || subscriptionSignal?.aborted) break
           if (id === subscriptionId) sentInterests = key
@@ -106,7 +110,7 @@ export function createWorkspaceSync(options: Options) {
     // Batch component mounts/unmounts without reconnecting the shared stream.
     interestsChanged = () => { queueMicrotask(() => { void updateInterests() }) }
     options.status({ phase: 'connecting' })
-    void streamSSE(signal => client.openWorkspaceEvents(metrics, signal), {
+    void streamSSE(signal => client.openWorkspaceEvents(metrics, signal, options.pagedSessions), {
       signal: owner.signal,
       reconnectDelayMs: options.reconnectDelayMs,
       idleTimeoutMs: options.idleTimeoutMs,
@@ -129,6 +133,13 @@ export function createWorkspaceSync(options: Options) {
         if (point.sessions !== undefined && (!point.sessions || !Array.isArray(point.sessions.items) || !point.sessions.throughSequences
           || point.sessions.items.some(session => !session || typeof session.id !== 'string' || typeof session.title !== 'string'
             || !Number.isSafeInteger(point.sessions!.throughSequences[session.id]) || point.sessions!.throughSequences[session.id]! < 0))) throw new Error('Invalid session list snapshot')
+        const window = point.sessionWindow
+        if (window !== undefined && (window?.version !== `${point.epoch}:${point.revisions.sessions}` || window.page !== 1
+          || !Number.isSafeInteger(window.pageSize) || window.pageSize < 1 || window.pageSize > 100 || window.interest?.size !== window.pageSize
+          || !Number.isSafeInteger(window.total) || !Number.isSafeInteger(window.attention) || window.attention! < 0
+          || !Array.isArray(window.items) || window.items.length !== Math.min(window.pageSize, window.total)
+          || window.items.some(row => typeof row?.id !== 'string' || typeof row.title !== 'string'
+            || !Number.isSafeInteger(window.throughSequences?.[row.id]) || window.throughSequences![row.id]! < 0))) throw new Error('Invalid session window snapshot')
         if (point.schedules !== undefined && (!point.schedules || point.schedules.version !== `${point.epoch}:${point.revisions.schedules}`
           || !Array.isArray(point.schedules.items) || point.schedules.items.some(item => !item?.id || typeof item.name !== 'string'
             || !item.rule || typeof item.rule.timezone !== 'string' || !Number.isSafeInteger(item.revision)
@@ -168,6 +179,11 @@ export function createWorkspaceSync(options: Options) {
     snapshot: (): Readonly<WorkspaceSnapshots> | undefined => latest && !latest.signal.aborted ? latest.point : undefined,
     start(value = false) { metrics = value; stopped = false; connect() },
     setMetrics(value: boolean) { if (metrics === value) return false; metrics = value; if (!stopped) { connect(); return true }; return false },
+    setSessionWindow(value: SessionWindowInterest | undefined) {
+      if (JSON.stringify(sessionWindow) === JSON.stringify(value)) return
+      sessionWindow = value
+      interestsChanged?.()
+    },
     reconnect() { if (!stopped) connect() },
     stop() { stopped = true; connection?.abort(); interestsChanged = undefined; latest = undefined; options.status({ phase: 'stopped' }) },
   }

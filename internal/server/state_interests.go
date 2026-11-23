@@ -6,6 +6,8 @@ import (
 	"net/http"
 	"slices"
 	"time"
+
+	"vista/internal/store"
 )
 
 // A subscription belongs to one live SSE connection. Closing that connection
@@ -14,17 +16,24 @@ type stateSubscriber struct {
 	id       string
 	topics   map[string]bool
 	timezone *time.Location
+	window   *sessionWindowInterest
 }
 
-func (h *stateHub) clientInterests(id string) (map[string]bool, *time.Location) {
+type sessionWindowInterest struct {
+	Size          int               `json:"size"`
+	Sort          store.SessionSort `json:"sort"`
+	UntitledLabel string            `json:"untitledLabel,omitempty"`
+}
+
+func (h *stateHub) clientInterests(id string) (map[string]bool, *time.Location, *sessionWindowInterest) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	for _, client := range h.clients {
 		if client.id == id {
-			return client.topics, client.timezone
+			return client.topics, client.timezone, client.window
 		}
 	}
-	return map[string]bool{}, nil
+	return map[string]bool{}, nil, nil
 }
 
 func (h *stateHub) interested(topic string) bool {
@@ -45,14 +54,19 @@ func (a *App) stateInterests(w http.ResponseWriter, r *http.Request) {
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, 2048)
 	var input struct {
-		ID       string   `json:"id"`
-		Topics   []string `json:"topics"`
-		Timezone string   `json:"timezone"`
+		ID            string                 `json:"id"`
+		Topics        []string               `json:"topics"`
+		Timezone      string                 `json:"timezone"`
+		SessionWindow *sessionWindowInterest `json:"sessionWindow"`
 	}
 	d := json.NewDecoder(r.Body)
 	d.DisallowUnknownFields()
 	if d.Decode(&input) != nil || d.Decode(new(any)) != io.EOF || len(input.ID) != 36 || len(input.Topics) > len(stateTopics) || len(input.Timezone) > 100 {
 		http.Error(w, "invalid state subscription", http.StatusBadRequest)
+		return
+	}
+	if window := input.SessionWindow; window != nil && (window.Size < 1 || window.Size > store.MaxPageSize || !window.Sort.Valid() || len(window.UntitledLabel) > 200) {
+		http.Error(w, "invalid session window", http.StatusBadRequest)
 		return
 	}
 	topics := map[string]bool{"sessions": true, "status": true, "models": true}
@@ -79,7 +93,7 @@ func (a *App) stateInterests(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		found, openedStorage = true, topics["storage"] && !client.topics["storage"]
-		client.topics, client.timezone = topics, zone
+		client.topics, client.timezone, client.window = topics, zone, input.SessionWindow
 		select {
 		case wake <- struct{}{}:
 		default:

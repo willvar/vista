@@ -389,6 +389,7 @@ export default { ...base, ...{
   "sessionFilterOpen": "已打開",
   "sessionSortCreatedNewest": "創建時間：由新到舊",
   "sessionSortCreatedOldest": "創建時間：由舊到新",
+  "sessionPageLoadFailed": "無法加載會話。",
   "openSelected": "批量打開",
   "closeSelected": "批量關閉",
   "deleteSelected": "批量刪除",

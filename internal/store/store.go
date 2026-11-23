@@ -295,15 +295,15 @@ func (s *Store) List(ctx context.Context, open ...bool) ([]Session, error) {
 
 func (s *Store) list(ctx context.Context, open ...bool) ([]Session, error) {
 	db := s.orm.WithContext(ctx)
-	return readSessionGroups(db, sessionGroupQuery(db, open), 1000, 0, SessionCreatedNewest)
+	return readSessionGroups(db, sessionGroupQuery(db, open), 1000, 0, SessionSearch{Sort: SessionCreatedNewest})
 }
 
 func (s *Store) RuntimeSessions(ctx context.Context) ([]Session, error) {
 	db := s.orm.WithContext(ctx)
-	return readSessions(db, db.Table("sessions").Where("is_open=1"), -1, 0, SessionCreatedNewest)
+	return readSessions(db, db.Table("sessions").Where("is_open=1"), -1, 0, SessionSearch{Sort: SessionCreatedNewest})
 }
 
-func readSessions(db, query *gorm.DB, limit, offset int, sort SessionSort) ([]Session, error) {
+func readSessions(db, query *gorm.DB, limit, offset int, search SessionSearch) ([]Session, error) {
 	var rows []struct {
 		Session             sessionRow `gorm:"embedded"`
 		UpdatedAt           string
@@ -315,13 +315,13 @@ func readSessions(db, query *gorm.DB, limit, offset int, sort SessionSort) ([]Se
   COALESCE((SELECT sequence FROM history_messages WHERE session_id=sessions.id AND role='assistant' ORDER BY sequence DESC LIMIT 1),0) AS latest_reply_sequence,
   COALESCE((SELECT status FROM history_runs WHERE session_id=sessions.id ORDER BY created_at DESC,id DESC LIMIT 1),'') AS latest_run_status,
   (SELECT COUNT(*) FROM queued_inputs WHERE session_id=sessions.id AND status IN ('queued','paused')) AS pending_input_count`
-	if sort.byUpdate() {
+	if search.Sort.byUpdate() {
 		// The event primary key supports this lookup without scanning history.
 		// Read markers, pins and open/closed state do not append content events.
 		columns += `, COALESCE((SELECT created_at FROM history_events WHERE session_id=sessions.id ORDER BY sequence DESC LIMIT 1),sessions.created_at) AS updated_at`
 	}
 	if err := query.Select(columns).
-		Order(sort.order()).Limit(limit).Offset(offset).Find(&rows).Error; err != nil {
+		Order(search.order()).Limit(limit).Offset(offset).Find(&rows).Error; err != nil {
 		return nil, err
 	}
 	result := make([]Session, 0, len(rows))

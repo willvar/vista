@@ -39,7 +39,7 @@ export const responsiveGrep = new RegExp([
 const groups: Record<string, string[]> = {
   navigation: ['layer-navigation', 'settings-navigation', 'modal-motion', 'drawer-swipe', 'images', 'follow-up'],
   conversation: ['service-drafts', 'generation-tools', 'background-process', 'compaction', 'composer-sizing', 'conversation-sync', 'detached', 'empty-reply', 'execution-flow', 'failure-analysis', 'follow-up', 'images', 'interjection', 'iteration', 'layout', 'main-outputs', 'message-revert', 'model-diagnostics', 'model-retry', 'provider-output', 'question', 'quoted-reply', 'usage', 'worker-status'],
-  sessions: ['profiles', 'branch-workspace', 'management-pagination', 'session-actions', 'agent-session-tools', 'session-batch', 'session-bulk', 'session-close', 'session-flow', 'session-manager', 'session-reminders', 'session-scope', 'state-sync'],
+  sessions: ['profiles', 'branch-workspace', 'management-pagination', 'session-actions', 'agent-session-tools', 'session-batch', 'session-bulk', 'session-close', 'session-flow', 'session-manager', 'session-sidebar', 'session-reminders', 'session-scope', 'state-sync'],
   models: ['generation-tools', 'codex-login', 'model-catalog', 'model-names', 'model-visibility', 'onboarding', 'provider-errors', 'provider-import', 'provider-setup', 'selection-flow', 'selection-stats'],
   personalization: ['agent-settings', 'long-term-instructions', 'extension-import', 'settings-batch'],
   skills: ['skills-settings', 'extension-import', 'settings-batch'],
@@ -61,6 +61,7 @@ const consumers: [RegExp, string[]][] = [
   [/^internal\/(?:schedule\/|(?:server|store)\/schedules\.go$)|^web\/src\/pages\/SchedulesPage\.vue$/, ['schedules']],
   [/^web\/src\/state\/clientRuntime\.ts$/, ['about']],
   [/^web\/src\/(?:App|ProfileMenu)\.vue$/, ['sidebar']],
+  [/^web\/src\/(?:SessionSortMenu\.vue|composables\/useSidebarSessions\.ts)$|^sdk\/src\/sessionPages\.ts$/, ['sessions', 'sidebar']],
   [/^internal\/server\/profiles\.go$|^web\/src\/(?:ProfileMenu\.vue|client\/profileScope\.)/, ['sessions', 'models', 'about']],
   [/^internal\/store\/(?:branches|branch_history|branch_workspace)\.go$|^internal\/server\/revert\.go$|^web\/src\/state\/conversationBranches\.ts$/, ['conversation', 'sessions']],
   [/^internal\/(?:store|server)\/drafts\.go$|^web\/src\/composables\/serviceDrafts\./, ['conversation', 'about', 'sessions']],

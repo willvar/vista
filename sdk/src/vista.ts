@@ -11,7 +11,7 @@ export type VistaClientOptions = {
 
 export type VistaClient = {
   url: (path: string) => string
-  openWorkspaceEvents: (metrics: boolean, signal: AbortSignal) => Promise<Response>
+  openWorkspaceEvents: (metrics: boolean, signal: AbortSignal, pagedSessions?: boolean) => Promise<Response>
   request: <T = unknown>(path: string, options?: RequestInit) => Promise<T>
   requestStream: <T = unknown>(path: string, options: RequestInit & { signal: AbortSignal }) => AsyncIterable<T>
   image: (path: string, signal?: AbortSignal) => Promise<Blob>
@@ -78,7 +78,12 @@ export function createVistaClient(options: VistaClientOptions = {}): VistaClient
   }
   return {
     url,
-    openWorkspaceEvents: (metrics, signal) => events(`/events${metrics ? '?metrics=1' : ''}`, signal),
+    openWorkspaceEvents(metrics, signal, pagedSessions) {
+      const query = new URLSearchParams()
+      if (metrics) query.set('metrics', '1')
+      if (pagedSessions) query.set('sessions', 'paged')
+      return events(`/events${query.size ? `?${query}` : ''}`, signal)
+    },
     async request<T>(path: string, options: RequestInit = {}): Promise<T> {
       const result = await response(path, options)
       const text = await result.text()

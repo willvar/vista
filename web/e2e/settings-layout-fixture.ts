@@ -16,7 +16,7 @@ export const test = base.extend<{ mockOrigin: string }, { settingsResponses: Rec
       await nativeFixture.use({}, async vista => {
         await vista.api('/resource-storage', { method: 'POST', body: JSON.stringify({ action: 'scan' }) })
         await expect.poll(async () => (await vista.api('/resource-storage')).phase).toBe('idle')
-        const paths = ['/preferences', '/agent-settings', '/models', '/status', '/sessions?open=true',
+        const paths = ['/preferences', '/agent-settings', '/models', '/status', '/sessions?page=1&pageSize=20&open=true',
           '/model-config', '/provider-config', '/model-catalog', '/generation-models', '/mcp-config', '/skills',
           '/resource-storage', '/search-config', '/server-config', '/user-agent', '/network-config']
         await Promise.all(paths.map(async path => { values[path] = await vista.api(path) }))
@@ -27,7 +27,7 @@ export const test = base.extend<{ mockOrigin: string }, { settingsResponses: Rec
   }, { scope: 'worker' }],
   settingsFrontend: [async ({ settingsResponses }, use) => {
     const unexpected: string[] = []
-    const responses = new Map(Object.entries(settingsResponses).map(([path, value]) => [path, JSON.stringify(value)]))
+    const responses = new Map(Object.entries(settingsResponses).map(([path, value]) => [path, JSON.stringify(path.startsWith('/sessions?') ? { ...(value as object), version: 'settings-layout:0' } : value)]))
     const clients = new Set<ServerResponse>()
     const frame = `event: state\ndata: ${JSON.stringify({ epoch: 'settings-layout', revisions: Object.fromEntries(stateTopics.map(topic => [topic, 0])) })}\n\n`
     // Serve immutable responses over loopback rather than serializing large

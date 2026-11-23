@@ -651,6 +651,10 @@ github.com/modelcontextprotocol/go-sdk@v1.8.0
   Use: Go dependency
   LICENSE: af679003d933f045393a6a029f43da113f9ae364eac651d9ae268392985580f5
 
+github.com/mozillazg/go-pinyin@v0.21.0
+  Use: Go dependency
+  LICENSE: 9c048697be2502a16e8bcb282d5d465a07295b2def0ffb05a269c5d39dbe1586
+
 github.com/ncruces/go-strftime@v1.0.0
   Use: Go dependency
   LICENSE: 38ae43959daf953a393a585b2988672cb65a5a541aca0d0be5e72595a0a16883
@@ -4131,6 +4135,32 @@ SHA-256: 9b6a90e9be78799534e4030d71b6817271fb99aa10e261f9f9f6dec1cff4177a
 The MIT License (MIT)
 
 Copyright (c) 2015-2021 Evgeny Poberezkin
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+========================================================================
+SHA-256: 9c048697be2502a16e8bcb282d5d465a07295b2def0ffb05a269c5d39dbe1586
+========================================================================
+
+The MIT License (MIT)
+
+Copyright (c) 2016 mozillazg
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal

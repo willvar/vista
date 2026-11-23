@@ -4,7 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"net/http"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -36,7 +38,14 @@ const maxStateSnapshotBytes = maxStateFrameBytes - len("event: state\ndata: \n\n
 
 var stateTopics = []string{"sessions", "status", "models", "catalog", "provider-login", "mcp", "storage", "diagnostics", "statistics", "connection-statistics", "skills", "server-config", "network", "profiles", "drafts", "schedules"}
 
+type stateSessionWindow struct {
+	store.SessionPage
+	Interest sessionWindowInterest `json:"interest"`
+	Version  string                `json:"version"`
+}
+
 type stateCheckpoint struct {
+	SessionWindow  *stateSessionWindow        `json:"sessionWindow,omitempty"`
 	Schedules      *scheduleSnapshot          `json:"schedules,omitempty"`
 	Network        *networkConfigView         `json:"network,omitempty"`
 	SubscriptionID string                     `json:"subscriptionId,omitempty"`
@@ -54,14 +63,20 @@ type stateCheckpoint struct {
 }
 
 func (a *App) stateUpdate(ctx context.Context, host string, previous stateCheckpoint) (stateCheckpoint, error) {
-	return a.stateUpdateScoped(ctx, host, previous, nil)
+	return a.stateUpdateScoped(ctx, host, previous, nil, nil)
 }
 
-func (a *App) stateUpdateScoped(ctx context.Context, host string, previous stateCheckpoint, topics map[string]bool) (stateCheckpoint, error) {
+func (a *App) stateUpdateScoped(ctx context.Context, host string, previous stateCheckpoint, topics map[string]bool, window *sessionWindowInterest) (stateCheckpoint, error) {
 	// Capture revisions before the reads. A commit during a read must still
 	// produce a later revision rather than tag older data with its revision.
 	point := a.updates.snapshot()
-	if point.Revisions["sessions"] != previous.Revisions["sessions"] {
+	if point.Revisions["sessions"] != previous.Revisions["sessions"] && window != nil {
+		page, err := a.sessionPage(ctx, store.Pagination{Page: 1, PageSize: window.Size}, store.SessionSearch{Sort: window.Sort, UntitledLabel: window.UntitledLabel}, true)
+		if err != nil {
+			return stateCheckpoint{}, err
+		}
+		point.SessionWindow = &stateSessionWindow{Interest: *window, SessionPage: page, Version: point.Epoch + ":" + strconv.FormatUint(point.Revisions["sessions"], 10)}
+	} else if (topics == nil || topics["sessions"]) && point.Revisions["sessions"] != previous.Revisions["sessions"] {
 		// Archives are read only by the session manager. Global state carries
 		// open summaries and aggregate counts, regardless of archive size.
 		sessions, err := a.store.ListSnapshot(ctx, true)
@@ -190,11 +205,20 @@ func (a *App) stateEvents(w http.ResponseWriter, r *http.Request) {
 	if !write("state", sent) {
 		return
 	}
+	pagedSessions := r.URL.Query().Get("sessions") == "paged"
 	update := func() bool {
 		ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 		defer cancel()
-		topics, _ := a.updates.clientInterests(client.id)
-		point, err := a.stateUpdateScoped(ctx, r.Host, sent, topics)
+		topics, _, window := a.updates.clientInterests(client.id)
+		if pagedSessions {
+			// Legacy snapshots are never sent to paged consumers. They
+			// subscribe to a bounded window or receive revisions alone.
+			topics = maps.Clone(topics)
+			delete(topics, "sessions")
+		} else {
+			window = nil
+		}
+		point, err := a.stateUpdateScoped(ctx, r.Host, sent, topics, window)
 		if err != nil || !write("state", point) {
 			return false
 		}
@@ -218,7 +242,7 @@ func (a *App) stateEvents(w http.ResponseWriter, r *http.Request) {
 	var clockZone string
 	var clockDeadline time.Time
 	for {
-		interests, timezone := a.updates.clientInterests(client.id)
+		interests, timezone, _ := a.updates.clientInterests(client.id)
 		boundary.Stop()
 		var boundaryC <-chan time.Time
 		if timezone != nil {

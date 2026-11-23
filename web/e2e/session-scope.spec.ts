@@ -1,7 +1,7 @@
 import { test, expect } from './fixtures'
-import type { Session, SessionListSnapshot } from '@vista/client'
+import type { Session, SessionListSnapshot, SessionWindowSnapshot } from '@vista/client'
 
-test('archives stay out of homepage HTTP and SSE and synchronize only while the manager is open', async ({ page, vista }, info) => {
+test('sidebar uses only bounded pages and archives synchronize only while the manager is open', async ({ page, vista }, info) => {
   test.skip(info.project.name !== 'desktop', 'Payload ownership is independent of viewport')
   await page.goto('about:blank')
   const live = await vista.api('/sessions', { method: 'POST', body: JSON.stringify({ title: 'Open summary' }) })
@@ -55,29 +55,32 @@ test('archives stay out of homepage HTTP and SSE and synchronize only while the 
       reads.push({ scope: url.search, items: Array.isArray(value) ? value : value.items, total: value.total, bytes: Buffer.byteLength(body) })
     }
   })
+  const subscribed = page.waitForResponse(response => new URL(response.url()).pathname === '/api/events/subscriptions' && response.ok())
   await page.goto(vista.origin + '/')
+  await subscribed
   await expect(page.locator('.session-card')).toHaveCount(1)
   await expect.poll(() => reads.length).toBe(1)
-  expect(reads[0]!.scope).toBe('?open=true')
+  expect(reads[0]!.scope).toBe('?page=1&pageSize=20&open=true')
   expect(reads[0]!.items.map(item => item.id)).toEqual([live.id])
   expect(reads[0]!.bytes).toBeLessThan(2000)
   page.on('request', request => {
     const path = new URL(request.url()).pathname
     if (request.method() === 'GET' && ['/api/status', '/api/models'].includes(path)) unrelated.push(path)
   })
-  await vista.api(`/sessions/${live.id}`, { method: 'PATCH', body: JSON.stringify({ title: 'Pushed open summary' }) })
-  await expect(page.locator('.session-card')).toContainText('Pushed open summary')
-  const frames = await page.evaluate(() => (window as unknown as { sessionScopeTest: { frames: { sessions?: SessionListSnapshot }[] } }).sessionScopeTest.frames)
-  const list = frames.filter(frame => frame.sessions).at(-1)!.sessions!
-  expect(list.items.map(item => item.id)).toEqual([live.id])
-  expect(Object.keys(list.throughSequences)).toEqual([live.id])
+  await vista.api(`/sessions/${live.id}`, { method: 'PATCH', body: JSON.stringify({ title: 'Revised open summary' }) })
+  await expect(page.locator('.session-card')).toContainText('Revised open summary')
+  const frames = await page.evaluate(() => (window as unknown as { sessionScopeTest: { frames: { sessions?: SessionListSnapshot; sessionWindow?: SessionWindowSnapshot }[] } }).sessionScopeTest.frames)
+  expect(frames.every(frame => frame.sessions === undefined)).toBe(true)
   expect(JSON.stringify(frames)).not.toContain('Archive only')
+  const pushed = frames.find(frame => frame.sessionWindow)?.sessionWindow
+  expect(pushed?.interest).toEqual({ size: 20, sort: 'created-desc' })
+  expect(pushed?.items.map(item => item.id)).toEqual([live.id])
   expect(reads).toHaveLength(1)
 
   await page.locator('.manage-sessions-link').click()
   const manager = page.locator('.session-manager-page')
   await expect(manager.locator('.managed-session')).toHaveCount(10)
-  const archiveReads = () => reads.filter(read => new URLSearchParams(read.scope).has('page'))
+  const archiveReads = () => reads.filter(read => !new URLSearchParams(read.scope).has('open'))
   await expect.poll(() => archiveReads().length).toBe(1)
   expect(archiveReads()[0]!.scope).toBe('?page=1&pageSize=10')
   expect(archiveReads()[0]!.items).toHaveLength(10)
@@ -99,7 +102,7 @@ test('archives stay out of homepage HTTP and SSE and synchronize only while the 
   expect(archiveReads()).toHaveLength(beforeExit)
   expect(unrelated).toEqual([])
   expect(await page.evaluate(() => (window as unknown as { sessionScopeTest: { streams: number } }).sessionScopeTest.streams)).toBe(1)
-  await info.attach('session-payloads', { body: JSON.stringify({ reads: reads.map(({ scope, bytes, items }) => ({ scope, bytes, count: items.length })), globalListBytes: Buffer.byteLength(JSON.stringify(list)) }), contentType: 'application/json' })
+  await info.attach('session-payloads', { body: JSON.stringify({ reads: reads.map(({ scope, bytes, items }) => ({ scope, bytes, count: items.length })), windowBytes: Buffer.byteLength(JSON.stringify(pushed)) }), contentType: 'application/json' })
 })
 
 test('a homepage with only closed conversations shows the retained-conversation empty state', async ({ page, vista }) => {

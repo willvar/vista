@@ -593,7 +593,7 @@ func (a *App) sessions(w http.ResponseWriter, r *http.Request) {
 		var filter []bool
 		sort := store.SessionSort(r.URL.Query().Get("sort"))
 		if len(r.URL.Query()["sort"]) > 1 || !sort.Valid() || (r.URL.Query().Has("sort") && !paginated) {
-			http.Error(w, "sort requires pagination and must be created-desc, created-asc, updated-desc or updated-asc", http.StatusBadRequest)
+			http.Error(w, "sort requires pagination and must be created-desc, created-asc, updated-desc, updated-asc or title-asc", http.StatusBadRequest)
 			return
 		}
 		if value, present := r.URL.Query()["open"]; present {
@@ -610,7 +610,8 @@ func (a *App) sessions(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			version := a.stateVersion("sessions")
-			items, err := a.store.SessionPage(r.Context(), page, store.SessionSearch{Text: query.Get("search"), UntitledLabel: query.Get("untitledLabel"), Sort: sort}, filter...)
+			search := store.SessionSearch{Text: query.Get("search"), UntitledLabel: query.Get("untitledLabel"), Sort: sort}
+			items, err := a.sessionPage(r.Context(), page, search, filter...)
 			if err != nil {
 				http.Error(w, err.Error(), http.StatusInternalServerError)
 				return

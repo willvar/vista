@@ -1,6 +1,6 @@
 import type { Page, TestInfo } from '@playwright/test'
 import { test, expect, type VistaFixture } from './fixtures'
-import type { Message, SessionListSnapshot } from '@vista/client'
+import type { Message, SessionWindowSnapshot } from '@vista/client'
 import { installMockStateStream, notifyState } from './state-stream-fixture'
 
 test.use({ modelFailure: { status: 400, body: { error: { type: 'invalid_request_error',
@@ -95,7 +95,7 @@ async function analyzeFailedCompaction(page: Page, vista: VistaFixture, orderedD
   await expect(detail).toContainText('manual context compaction')
   let submitted: Record<string, unknown> | undefined
   if (orderedDelivery) {
-    let creationSnapshot: SessionListSnapshot
+    let creationSnapshot: SessionWindowSnapshot
     let destinationID: string
     const snapshotTitle = 'Diagnostic creation snapshot'
     await page.route('**/api/sessions', async route => {
@@ -105,9 +105,8 @@ async function analyzeFailedCompaction(page: Page, vista: VistaFixture, orderedD
       // A real saved title makes application of the earlier list observable,
       // including when the sidebar is hidden on a mobile viewport.
       await vista.api(`/sessions/${destinationID}`, { method: 'PATCH', body: JSON.stringify({ title: snapshotTitle }) })
-      const items = await vista.api('/sessions?open=true')
-      const points = await Promise.all(items.map(async (item: { id: string }) => [item.id, (await vista.api(`/sessions/${item.id}/checkpoint`)).throughSequence]))
-      creationSnapshot = { items, throughSequences: Object.fromEntries(points) }
+      const page = await vista.api('/sessions?page=1&pageSize=20&open=true')
+      creationSnapshot = { ...page, interest: { size: 20, sort: 'created-desc' } }
       await route.fulfill({ response })
     })
     await page.route('**/api/sessions/*/messages', async route => {
@@ -116,7 +115,7 @@ async function analyzeFailedCompaction(page: Page, vista: VistaFixture, orderedD
       const response = await route.fetch()
       // The message commits auto/quality before the older creation list is
       // delivered. Withhold only the acknowledgement until that list applies.
-      await notifyState(page, ['sessions'], { sessions: creationSnapshot })
+      await notifyState(page, ['sessions'], { sessionWindow: creationSnapshot })
       await expect(page.locator(`.session-card[data-session-id="${destinationID}"] .session-name`)).toHaveText(snapshotTitle)
       await route.fulfill({ response })
     })

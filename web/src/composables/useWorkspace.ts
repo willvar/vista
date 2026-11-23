@@ -2,11 +2,12 @@ import { computed, inject, nextTick, onMounted, onUnmounted, provide, ref, watch
 import { useRoute, useRouter, type RouteLocationRaw } from 'vue-router'
 import { layerTokens, returnToParent, useRouteLayer, withLayers } from './routeLayers'
 import { useI18n } from 'vue-i18n'
-import { VistaAPIError, createWorkspaceSync, compareSessionOrder, mergeSessionSnapshot, sessionEntryId, sessionListActivity, sessionNeedsAttention } from '@vista/client'
-import type { StateTopic, StateConnection, WorkspaceSnapshots, ModelCatalog, ServerStatus, Session, SyncCheckpoint } from '@vista/client'
+import { VistaAPIError, createWorkspaceSync, mergeSessionSnapshot, sessionEntryId, sessionListActivity } from '@vista/client'
+import type { StateTopic, StateConnection, WorkspaceSnapshots, ModelCatalog, ServerStatus, Session, SessionSort, SyncCheckpoint } from '@vista/client'
 import { createProfileClient, profilePath, profileStorageKey, routeProfileId } from '../client/profileScope'
 import { draftStoragePrefix, useConversation } from './useConversation'
 import { usePresentation } from './usePresentation'
+import { useSidebarSessions } from './useSidebarSessions'
 import { useInteractionPreferences } from './useInteractionPreferences'
 import { isPlainEscape } from './useEscape'
 import { quoteStoragePrefix } from '../state/quotedReply'
@@ -40,8 +41,24 @@ function createWorkspace(profileId: string, desktop: Readonly<Ref<boolean>>) {
     // Like language, retain this browser preference when a restart changes the server port.
     document.cookie = `vista-debug-mode=${value}; Path=/; Max-Age=31536000; SameSite=Strict`
   }, { flush: 'sync', immediate: true })
+  // Local conversation events can update row content, not membership or the
+  // ordering of the server's contiguous page window.
   const sessions = ref<Session[]>([])
   const sessionsReady = ref(false)
+  const sidebarSort = ref<SessionSort>('created-desc')
+  const sidebar = useSidebarSessions(client, computed(() => ({
+    open: true, sort: sidebarSort.value, untitledLabel: sidebarSort.value === 'title-asc' ? t('untitledSession') : undefined,
+  })))
+  const attentionCount = ref(0)
+  watch(sidebar.snapshot, (current, previous) => {
+    const local = new Map(sessions.value.map(item => [item.id, item]))
+    sessions.value = current?.items.map((item, index) => item === previous?.items[index] ? local.get(item.id) ?? item : item) ?? []
+    if (current) {
+      sessionsReady.value = true
+      attentionCount.value = current.attention ?? 0
+    }
+  }, { flush: 'sync' })
+  watch(sidebar.failed, failed => { if (failed) sessionsReady.value = true })
   const modelCatalog = ref<ModelCatalog>({ default: '', models: [] })
   const modelsReady = ref(false)
   const serverStatus = ref<ServerStatus | null>(null)
@@ -56,11 +73,13 @@ function createWorkspace(profileId: string, desktop: Readonly<Ref<boolean>>) {
   function navigateFromSidebar(destination: RouteLocationRaw) {
     return drawerEntryOpen.value ? drawer.complete(destination) : router.push(destination)
   }
-  const openSessions = computed(() => sessions.value.filter(sessionEntryId).sort(compareSessionOrder))
+  const openSessions = computed(() => {
+    const byId = new Map(sessions.value.map(item => [item.id, item]))
+    return sidebar.snapshot.value?.items.map(item => byId.get(item.id) ?? item) ?? []
+  })
+  const openTotal = computed(() => sidebar.snapshot.value?.total ?? serverStatus.value?.sessions.open ?? 0)
   const closedSessions = computed(() => serverStatus.value?.sessions.closed ?? 0)
-  const totalSessions = computed(() => serverStatus.value?.sessions.total ?? sessions.value.length)
-  const attentionCount = computed(() => openSessions.value.filter(session => sessionNeedsAttention(session,
-    serverStatus.value ? workerAvailable(session.id) : undefined)).length)
+  const totalSessions = computed(() => serverStatus.value?.sessions.total ?? openTotal.value)
   const settingsOpen = computed(() => route.name === 'settings' || String(route.name).startsWith('settings-'))
   const sessionManagerOpen = computed(() => route.name === 'session-manager')
   const needsProvider = computed(() => modelsReady.value && !modelCatalog.value.models.some(model => model.provider))
@@ -68,7 +87,7 @@ function createWorkspace(profileId: string, desktop: Readonly<Ref<boolean>>) {
   const revisions = { sessions: 0, models: 0, status: 0 }
   const stateConnection = ref<StateConnection>({ phase: 'connecting' })
   const stateSync = createWorkspaceSync({
-    client,
+    client, pagedSessions: true,
     status: value => { stateConnection.value = value },
     metrics: value => {
       if (!serverStatus.value || Date.parse(value.sampledAt) >= Date.parse(serverStatus.value.sampledAt)) {
@@ -77,6 +96,7 @@ function createWorkspace(profileId: string, desktop: Readonly<Ref<boolean>>) {
       }
     },
   })
+  watch(sidebar.interest, stateSync.setSessionWindow, { immediate: true, flush: 'sync' })
   const wantsMetrics = computed(() => debugMode.value || route.name === 'settings-about')
   watch(wantsMetrics, value => stateSync.setMetrics(value && !document.hidden))
   let disposed = false
@@ -98,55 +118,48 @@ function createWorkspace(profileId: string, desktop: Readonly<Ref<boolean>>) {
     || !!selected.value && (!selected.value.open || !workerAvailable(selected.value.id)))
   const presentation = usePresentation(modelCatalog)
 
-  async function refreshTopics(topics: StateTopic[], signal?: AbortSignal, pushed: WorkspaceSnapshots = {}) {
+  async function refreshTopics(topics: StateTopic[], signal?: AbortSignal, pushed: WorkspaceSnapshots = {}, version?: string) {
     if (!scopeActive()) return
     await Promise.all(topics.map(async topic => {
       if (topic !== 'sessions' && topic !== 'status' && topic !== 'models') return
       const revision = ++revisions[topic]
       const started = selected.value ? { sessionId: selected.value.id, eventSequence: conversation.lastEvent.value } : null
       if (topic === 'sessions') {
-        let snapshot = pushed.sessions?.items ?? await client.request<Session[]>('/sessions?open=true', { signal })
+        await sidebar.synchronize(version, signal, pushed.sessionWindow)
         if (!scopeActive() || signal?.aborted || revision !== revisions.sessions) return
         const activeID = selected.value?.id
         const routedID = route.name === 'session' ? String(route.params.id) : ''
-        const lookupID = activeID && !snapshot.some(item => item.id === activeID) ? activeID
-          : routedID && !snapshot.some(item => item.id === routedID) ? routedID : ''
-        let point: SyncCheckpoint | undefined
-        if (lookupID) {
-          // Omission from the open list can mean closed, deleted, or created
-          // after this snapshot. Verify just that conversation, never archives.
-          try { point = await client.request<SyncCheckpoint>(`/sessions/${lookupID}/checkpoint`, { signal }) }
+        const target = activeID || routedID
+        // Not having a row is normal in a paged list. Only the single-session
+        // checkpoint can distinguish an off-page conversation from a deletion.
+        const window = sidebar.snapshot.value
+        let item = window?.items.find(row => row.id === target)
+        let eventSequence = window?.throughSequences?.[target] ?? (started?.sessionId === target ? started.eventSequence : 0)
+        if (target && !item) {
+          try {
+            const point = await client.request<SyncCheckpoint>(`/sessions/${target}/checkpoint`, { signal })
+            item = point.session
+            eventSequence = point.throughSequence
+          }
           catch (cause) { if (!(cause instanceof VistaAPIError && cause.status === 404)) throw cause }
-          if (!scopeActive() || signal?.aborted || revision !== revisions.sessions) return
-          if (selected.value?.id !== activeID) return refreshTopics(['sessions'], signal, {
-            ...pushed, sessions: { items: snapshot, throughSequences: pushed.sessions?.throughSequences ?? {} },
-          })
-          // A direct branch bookmark is not an extra sidebar item.
+          if (!scopeActive() || signal?.aborted || revision !== revisions.sessions || selected.value?.id !== activeID
+            || (route.name === 'session' ? String(route.params.id) : '') !== routedID) return
         }
-        const boundary = selected.value ? {
-          sessionId: selected.value.id,
-          eventSequence: point?.session.id === selected.value.id ? point.throughSequence
-            : pushed.sessions?.throughSequences[selected.value.id]
-              ?? (started?.sessionId === selected.value.id ? started.eventSequence : 0),
-        } : null
-        const list = mergeSessionSnapshot(snapshot, selected.value, boundary, Math.max(conversation.lastEvent.value, conversation.activeRunSequence.value))
-        sessions.value = list.filter(sessionEntryId)
-        sessionsReady.value = true
-        if (selected.value) {
-          const current = list.find(item => item.id === selected.value?.id)
-            ?? (point?.session.id === selected.value.id ? mergeSessionSnapshot([point.session], selected.value, boundary,
-              Math.max(conversation.lastEvent.value, conversation.activeRunSequence.value))[0] : undefined)
-          if (current) selected.value = current
-          else conversation.clearSession()
+        if (activeID) {
+          if (item) {
+            const boundary = { sessionId: activeID, eventSequence }
+            const [current] = mergeSessionSnapshot([item], selected.value, boundary, Math.max(conversation.lastEvent.value, conversation.activeRunSequence.value))
+            selected.value = current!
+            if (sidebar.snapshot.value === window) sessions.value = sessions.value.map(row => row.id === current!.id ? current! : row)
+          } else conversation.clearSession()
         }
-        if (route.name === 'session') {
-          const routed = list.find(item => item.id === route.params.id) ?? (point?.session.id === route.params.id ? point.session : undefined)
-          if (!routed && lookupID === route.params.id) await router.replace(pathInProfile('/'))
-          else if (routed && !routed.open && selected.value?.id !== routed.id) await router.replace(pathInProfile('/sessions'))
+        if (target && routedID === target) {
+          if (!item) { await router.replace(pathInProfile('/')); return }
+          if (!item.open && selected.value?.id !== target) { await router.replace(pathInProfile('/sessions')); return }
         }
-        // A new session can receive a list push before its first send leaves
+        // A new session can receive an update before its first send leaves
         // home. Only actual route navigation may clear that in-flight scope.
-        if (route.name !== 'home') void syncRoute()
+        if (route.name !== 'home') void syncRoute(item)
       } else if (topic === 'status') {
         const status = pushed.status ?? await client.request<ServerStatus>('/status', { signal })
         if (scopeActive() && !signal?.aborted && revision === revisions.status
@@ -159,7 +172,8 @@ function createWorkspace(profileId: string, desktop: Readonly<Ref<boolean>>) {
       }
     }))
   }
-  stateSync.subscribe(['sessions', 'status', 'models'], refreshTopics)
+  stateSync.subscribe(['sessions', 'status', 'models'], (topics, signal, point) =>
+    refreshTopics(topics, signal, point, `${point.epoch}:${point.revisions.sessions}`))
   // Settings and the session manager can cover the composer. Keep its local
   // unsaved edits, but reconcile remote revisions only when it is in use.
   watch(() => route.name === 'home' || route.name === 'session', (visible, _, cleanup) => {
@@ -269,11 +283,11 @@ function createWorkspace(profileId: string, desktop: Readonly<Ref<boolean>>) {
   }
 
   const routeRequests = new AbortController()
-  async function syncRoute() {
+  async function syncRoute(resolved?: Session) {
     if (!scopeActive()) return
     const id = route.name === 'session' ? String(route.params.id || '')
       : typeof route.query.session === 'string' ? route.query.session : ''
-    let item = sessions.value.find(session => session.id === id && session.open)
+    let item = resolved?.id === id ? resolved : sessions.value.find(session => session.id === id && session.open)
     if (id && !item && selected.value?.id !== id) {
       const target = workspacePath.value
       try {
@@ -338,7 +352,7 @@ function createWorkspace(profileId: string, desktop: Readonly<Ref<boolean>>) {
   function workerAvailable(id: string) { return !!serverStatus.value?.workerMetrics?.some(item => item.sessionId === id) }
   function mib(bytes: number) { return (bytes / 1048576).toFixed(1) }
   return {
-    client, stateSync, stateConnection, router, route, error, busy, debugMode, sessions, openSessions, closedSessions, totalSessions, attentionCount, modelCatalog, serverStatus, mobileSessionsOpen, drawerEntryOpen,
+    client, stateSync, stateConnection, router, route, error, busy, debugMode, sidebar, sidebarSort, openSessions, openTotal, closedSessions, totalSessions, attentionCount, modelCatalog, serverStatus, mobileSessionsOpen, drawerEntryOpen,
     sessionsReady, modelsReady, profileId, pathInProfile, scopeActive, workspacePath, openMobileSessions, closeMobileSessions, navigateFromSidebar,
     changeSessionGroup, sessionGroupError, leaveChangedSessions,
     settingsOpen, sessionManagerOpen, needsProvider, senderDisabled, conversation, selected, modalQuery, backToWorkspace, openSessionManager,

@@ -817,6 +817,8 @@ export default {
   "sessionSortCreatedOldest": "Erstellt: älteste zuerst",
   "sessionSortUpdatedNewest": "Aktualisiert: neueste zuerst",
   "sessionSortUpdatedOldest": "Aktualisiert: älteste zuerst",
+  "sessionSortTitleAZ": "Titel: A–Z",
+  "sessionPageLoadFailed": "Unterhaltungen konnten nicht geladen werden.",
   "selectSessions": "Auswählen",
   "finishSessionSelection": "Fertig",
   "selectSession": "{title} auswählen",

@@ -1028,6 +1028,7 @@ body {
   flex: 1;
   min-height: 0;
   scrollbar-width: thin;
+  overflow-anchor: none;
 }
 .sessions-panel li {
   position: relative;
@@ -1041,6 +1042,23 @@ body {
   border-radius: 8px;
   cursor: pointer;
   min-height: 40px;
+}
+.sessions-panel li.sidebar-page-status {
+  display: flex;
+  justify-content: center;
+  gap: 6px;
+  cursor: default;
+  color: var(--muted);
+  font-size: 12px;
+}
+.sessions-panel li.sidebar-page-status svg { width: 14px; height: 14px; }
+.sessions-panel li.sidebar-page-sentinel {
+  display: block;
+  min-height: 1px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  pointer-events: none;
 }
 .sessions-panel li.selected {
   background: var(--selected);
@@ -1587,13 +1605,14 @@ body {
 .sidebar-section-label {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  padding: 24px 12px 8px;
+  gap: 6px;
+  padding: 20px 8px 4px 12px;
   font-size: 11px;
   font-weight: 500;
   color: var(--muted);
 }
 .sidebar-section-label small {
+  margin-inline-start: auto;
   font-size: 11px;
   color: var(--faint);
 }
@@ -2221,7 +2240,7 @@ body {
     padding-block: 6px;
   }
   .sidebar-section-label {
-    padding-block: 4px;
+    padding-block: 0;
   }
   .sessions-panel-footer {
     padding-top: 6px;
@@ -2231,7 +2250,7 @@ body {
     padding-block: 7px;
   }
   .sessions-panel > ul {
-    margin-bottom: 8px;
+    margin-block: 0 4px;
   }
   .welcome {
     padding: 2.5rem 1rem .8rem;
@@ -2384,9 +2403,6 @@ body {
   }
   .sidebar-brand {
     margin-bottom: 6px;
-  }
-  .sidebar-section-label {
-    padding-top: 12px;
   }
 }
 @media(prefers-reduced-motion:reduce) {

@@ -817,6 +817,8 @@ export default {
   "sessionSortCreatedOldest": "创建时间：由旧到新",
   "sessionSortUpdatedNewest": "最近更新：由近到远",
   "sessionSortUpdatedOldest": "最近更新：由远到近",
+  "sessionSortTitleAZ": "标题：A–Z",
+  "sessionPageLoadFailed": "无法加载会话。",
   "selectSessions": "多选",
   "finishSessionSelection": "完成",
   "selectSession": "选择“{title}”",

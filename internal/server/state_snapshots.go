@@ -102,8 +102,8 @@ func (point *stateCheckpoint) limitPayload() error {
 	omit := map[string]func(){
 		"schedules": func() { point.Schedules = nil },
 		"models":    func() { point.Models = nil }, "diagnostics": func() { point.Diagnostics = nil },
-		"sessions": func() { point.Sessions = nil },
-		"mcp":      func() { point.MCP = nil }, "catalog": func() { point.Catalog = nil },
+		"sessions": func() { point.Sessions = nil }, "sessionWindow": func() { point.SessionWindow = nil },
+		"mcp": func() { point.MCP = nil }, "catalog": func() { point.Catalog = nil },
 		"providerLogins": func() { point.ProviderLogins = nil }, "storage": func() { point.Storage = nil },
 		"network": func() { point.Network = nil },
 		"status":  func() { point.Status = nil }, "serverConfig": func() { point.ServerConfig = nil },

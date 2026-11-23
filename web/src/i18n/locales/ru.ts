@@ -817,6 +817,8 @@ export default {
   "sessionSortCreatedOldest": "Создание: сначала старые",
   "sessionSortUpdatedNewest": "Обновление: сначала новые",
   "sessionSortUpdatedOldest": "Обновление: сначала старые",
+  "sessionSortTitleAZ": "Название: A–Z",
+  "sessionPageLoadFailed": "Не удалось загрузить беседы.",
   "selectSessions": "Выбрать",
   "finishSessionSelection": "Готово",
   "selectSession": "Выбрать {title}",

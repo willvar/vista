@@ -1,4 +1,4 @@
-import { coreSnapshot, installConversationStream } from './conversation-fixture'
+import { coreSnapshot, installConversationStream, patchSessionPage } from './conversation-fixture'
 import { scrollToConversationEntry } from './conversation-scroll'
 import { closeSettings } from './settings-navigation'
 import type { Page } from '@playwright/test'
@@ -75,11 +75,7 @@ async function mockConversation(page: Page, vista: FixtureAPI, options: { cancel
       return route.abort()
     }
     if (request.method() !== 'GET') return route.continue()
-    if (path === '/api/sessions') {
-      const original = await route.fetch()
-      return route.fulfill({ response: original, json: (await original.json()).map((row: { id: string }) =>
-        row.id === session.id ? { ...row, executing } : row) })
-    }
+    if (path === '/api/sessions') return patchSessionPage(route, session.id, executing)
     if (path === `/api/sessions/${session.id}/snapshot`) return route.fulfill({ json: snapshot() })
     if (path === `/api/sessions/${session.id}/messages`) return route.fulfill({ json: messages })
     if (path.includes('/runs/') && path.endsWith('/main-outputs')) return route.fulfill({ json: [] })

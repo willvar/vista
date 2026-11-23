@@ -36,7 +36,7 @@ func TestViewInterestsAreScopedToLiveStreamAndBounded(t *testing.T) {
 	if !a.updates.interested("storage") || a.updates.interested("skills") {
 		t.Fatal("interests not scoped")
 	}
-	_, zone := a.updates.clientInterests(client.id)
+	_, zone, _ := a.updates.clientInterests(client.id)
 	if zone == nil || zone.String() != "Asia/Kathmandu" {
 		t.Fatal("lost viewer timezone")
 	}
@@ -101,11 +101,11 @@ func TestUnsubscribedViewsDoNotLoadOrPushTheirSnapshots(t *testing.T) {
 	a := &App{store: c.store, storageStatus: resourceStorageStatus{Phase: "idle", Stats: &store.ResourceStorage{TotalCount: 1}}}
 	before := a.updates.snapshot()
 	a.updates.notify("storage", "diagnostics", "skills", "connection-statistics")
-	point, err := a.stateUpdateScoped(c.ctx, "localhost", before, map[string]bool{"models": true})
+	point, err := a.stateUpdateScoped(c.ctx, "localhost", before, map[string]bool{"models": true}, nil)
 	if err != nil || point.Storage != nil || point.Diagnostics != nil || point.Revisions["storage"] != 1 {
 		t.Fatal(point, err)
 	}
-	point, err = a.stateUpdateScoped(c.ctx, "localhost", before, map[string]bool{"storage": true})
+	point, err = a.stateUpdateScoped(c.ctx, "localhost", before, map[string]bool{"storage": true}, nil)
 	if err != nil || point.Storage == nil || point.Storage.Stats.TotalCount != 1 {
 		t.Fatal(point, err)
 	}

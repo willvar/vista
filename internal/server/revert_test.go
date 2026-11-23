@@ -120,7 +120,7 @@ func TestBranchPreferencePublishesWorkspaceSnapshot(t *testing.T) {
 	if status := put(child); status != http.StatusNoContent {
 		t.Fatalf("save preference status: %d", status)
 	}
-	point, err := a.stateUpdateScoped(ctx, "", before, map[string]bool{"sessions": true})
+	point, err := a.stateUpdateScoped(ctx, "", before, map[string]bool{"sessions": true}, nil)
 	if err != nil || point.Revisions["sessions"] != before.Revisions["sessions"]+1 || point.Sessions == nil ||
 		len(point.Sessions.Items) != 1 || point.Sessions.Items[0].BranchGroup == nil || point.Sessions.Items[0].BranchGroup.EntryID != child {
 		t.Fatalf("preference not published in list snapshot: %+v, %v", point, err)

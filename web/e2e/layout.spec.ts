@@ -1,4 +1,5 @@
-import { coreSnapshot, installConversationStream } from './conversation-fixture'
+import { coreSnapshot, installConversationStream, patchSessionPage } from './conversation-fixture'
+import { installMockStateStream } from './state-stream-fixture'
 import type { Locator, Page } from '@playwright/test'
 import { test, expect } from './fixtures'
 import { closeSettings } from './settings-navigation'
@@ -306,6 +307,9 @@ test('long running tool and completed process keep Stop and Send reachable', asy
   ]
   const forbidden: string[] = []
   const snapshot = coreSnapshot({ ...session, executing: true }, [user, assistant, currentUser], events)
+  // The real server has no such run; its live sidebar page must not replace
+  // the execution state supplied by this geometry-only fixture.
+  await installMockStateStream(page)
   await installConversationStream(page, snapshot)
   await page.route('**/api/sessions**', async route => {
     const request = route.request()
@@ -315,11 +319,7 @@ test('long running tool and completed process keep Stop and Send reachable', asy
       return route.abort()
     }
     if (request.method() !== 'GET') return route.continue()
-    if (path === '/api/sessions') {
-      const original = await route.fetch()
-      const rows = await original.json()
-      return route.fulfill({ response: original, json: rows.map((row: { id: string }) => row.id === session.id ? { ...row, executing: true } : row) })
-    }
+    if (path === '/api/sessions') return patchSessionPage(route, session.id, true)
     if (path === `/api/sessions/${session.id}/snapshot`) return route.fulfill({ json: snapshot })
     if (path === `/api/sessions/${session.id}/messages`) return route.fulfill({ json: [user, assistant, currentUser] })
     if (path === `/api/sessions/${session.id}/event-page`) {

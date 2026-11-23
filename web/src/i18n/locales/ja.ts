@@ -817,6 +817,8 @@ export default {
   "sessionSortCreatedOldest": "作成日時：古い順",
   "sessionSortUpdatedNewest": "最終更新：新しい順",
   "sessionSortUpdatedOldest": "最終更新：古い順",
+  "sessionSortTitleAZ": "タイトル：A–Z",
+  "sessionPageLoadFailed": "会話を読み込めませんでした。",
   "selectSessions": "選択",
   "finishSessionSelection": "完了",
   "selectSession": "{title} を選択",

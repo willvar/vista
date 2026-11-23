@@ -29,11 +29,11 @@ func TestScheduledStateIsScopedAndDoesNotBroadcastMessage(t *testing.T) {
 	if w.Code != http.StatusCreated || strings.Contains(w.Body.String(), prompt) {
 		t.Fatalf("create: %d %s", w.Code, w.Body.String())
 	}
-	point, err := app.stateUpdateScoped(ctx, "", previous, map[string]bool{})
+	point, err := app.stateUpdateScoped(ctx, "", previous, map[string]bool{}, nil)
 	if err != nil || point.Schedules != nil || point.Revisions["schedules"] <= previous.Revisions["schedules"] {
 		t.Fatalf("unsubscribed state %+v %v", point, err)
 	}
-	point, err = app.stateUpdateScoped(ctx, "", previous, map[string]bool{"schedules": true})
+	point, err = app.stateUpdateScoped(ctx, "", previous, map[string]bool{"schedules": true}, nil)
 	if err != nil || point.Schedules == nil || len(point.Schedules.Items) != 1 || point.Schedules.Items[0].Prompt != "" {
 		t.Fatalf("subscribed state %+v %v", point, err)
 	}

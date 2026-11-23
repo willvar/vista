@@ -26,7 +26,7 @@ test('session management pages archived summaries, searches all records and limi
   })
   await page.goto(vista.origin + '/')
   await expect(page.locator('.sender-card textarea')).toBeVisible()
-  expect(pages).toHaveLength(0)
+  expect(pages.map(url => url.search)).toEqual(['?page=1&pageSize=20&open=true'])
   await page.goto(vista.origin + '/sessions')
   const manager = page.locator('.session-manager-page')
   const rows = manager.locator('.managed-session')

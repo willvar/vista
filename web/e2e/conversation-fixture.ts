@@ -1,5 +1,13 @@
-import type { Page } from '@playwright/test'
-import type { ConversationSnapshot, Message, QueuedInput, Session, StreamEvent } from '@vista/client'
+import type { Page, Route } from '@playwright/test'
+import type { ConversationSnapshot, Message, QueuedInput, Session, SessionPage, StreamEvent } from '@vista/client'
+
+// Keep paging metadata and versions from the server; the mock changes only
+// the execution state of its own conversation.
+export async function patchSessionPage(route: Route, sessionId: string, executing: boolean) {
+  const response = await route.fetch()
+  const page: SessionPage = await response.json()
+  return route.fulfill({ response, json: { ...page, items: page.items.map(row => row.id === sessionId ? { ...row, executing } : row) } })
+}
 
 // A mock core read must describe the same saved state as its message/events
 // endpoints. Tests with delayed loads should delay this whole view together.

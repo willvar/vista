@@ -817,6 +817,8 @@ export default {
   "sessionSortCreatedOldest": "Création : plus anciennes en premier",
   "sessionSortUpdatedNewest": "Mise à jour : plus récentes en premier",
   "sessionSortUpdatedOldest": "Mise à jour : plus anciennes en premier",
+  "sessionSortTitleAZ": "Titre : A–Z",
+  "sessionPageLoadFailed": "Impossible de charger les conversations.",
   "selectSessions": "Sélectionner",
   "finishSessionSelection": "Terminé",
   "selectSession": "Sélectionner {title}",

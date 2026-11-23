@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"fmt"
 	"net/url"
 	"strconv"
@@ -28,4 +29,19 @@ func parsePagination(query url.Values) (store.Pagination, bool, error) {
 func (a *App) stateVersion(topic string) string {
 	point := a.updates.snapshot()
 	return point.Epoch + ":" + strconv.FormatUint(point.Revisions[topic], 10)
+}
+
+func (a *App) sessionPage(ctx context.Context, page store.Pagination, search store.SessionSearch, open ...bool) (store.SessionPage, error) {
+	if len(open) == 1 && open[0] {
+		search.IncludeSequences = true
+		if page.Page == 1 {
+			a.mu.Lock()
+			search.AttentionWorkers = make([]string, 0, len(a.workers))
+			for id := range a.workers {
+				search.AttentionWorkers = append(search.AttentionWorkers, id)
+			}
+			a.mu.Unlock()
+		}
+	}
+	return a.store.SessionPage(ctx, page, search, open...)
 }

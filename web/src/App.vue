@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, onErrorCaptured, ref, watch } from 'vue'
+import { computed, nextTick, onErrorCaptured, ref, shallowRef, watch, watchEffect } from 'vue'
 import { Empty as VEmpty, Button as VButton, Modal as VModal, Dropdown as VDropdown } from './ui'
 import { IconLayoutGrid, IconSettings, IconX, IconPlus, IconDots, IconLoader2, IconClock } from '@tabler/icons-vue'
 import { useI18n } from 'vue-i18n'
@@ -14,6 +14,7 @@ import ProfileMenu from './ProfileMenu.vue'
 import SessionIndicators from './SessionIndicators.vue'
 import InlineSessionTitle from './InlineSessionTitle.vue'
 import SessionPin from './SessionPin.vue'
+import SessionSortMenu from './SessionSortMenu.vue'
 import SessionActionDialog from './SessionActionDialog.vue'
 import { sessionEntryId, sessionListActivity } from '@vista/client'
 import type { Session } from '@vista/client'
@@ -21,7 +22,7 @@ const props = defineProps<{ profileId: string }>()
 const { t } = useI18n({ useScope: 'global' })
 onErrorCaptured(error => { if (captureAssetError(error)) return false })
 const { desktop, width: sidebarWidth, minimum, maximum, resize, finishResize, reset } = useSidebarWidth()
-const { route, conversation, error, busy, totalSessions, openSessions, selected, serverStatus, mobileSessionsOpen, drawerEntryOpen, settingsOpen,
+const { route, conversation, error, busy, totalSessions, sidebar, sidebarSort, openTotal, openSessions, selected, serverStatus, mobileSessionsOpen, drawerEntryOpen, settingsOpen,
   sessionsReady, modelsReady, stateConnection, stateSync, modalQuery, openSettings, closeSettings, openSessionManager, create, action, workerAvailable, displaySessionTitle,
   closeConfirmation, cancelSessionClose, confirmSessionClose, pathInProfile, workspacePath, closeMobileSessions, navigateFromSidebar } = provideWorkspace(props.profileId, desktop)
 const initialLoading = computed(() => !sessionsReady.value || !modelsReady.value || !serverStatus.value)
@@ -34,20 +35,52 @@ watch(initialLoading, (loading, _, cleanup) => {
 const layout = ref<HTMLElement | null>(null)
 const sessionsPanel = ref<HTMLElement | null>(null)
 const sessionsBackdrop = ref<HTMLElement | null>(null)
+const { loading: sidebarLoading, failed: sidebarFailed, hasMore: sidebarHasMore, snapshot: sidebarSnapshot } = sidebar
+const sessionList = ref<HTMLUListElement | null>(null)
+const sidebarSentinel = ref<HTMLElement | null>(null)
+watchEffect(cleanup => {
+  if ((!desktop.value && !mobileSessionsOpen.value) || !sidebarHasMore.value || sidebarLoading.value || sidebarFailed.value
+    || !sessionList.value || !sidebarSentinel.value) return
+  const observer = new IntersectionObserver(entries => {
+    if (entries.some(entry => entry.isIntersecting)) sidebar.loadMore()
+  }, { root: sessionList.value, rootMargin: '0px 0px 64px 0px' })
+  observer.observe(sidebarSentinel.value)
+  cleanup(() => observer.disconnect())
+})
+watch(sidebarSort, () => { if (sessionList.value) sessionList.value.scrollTop = 0 }, { flush: 'sync' })
 const drawerSwipe = useDrawerSwipe(sessionsPanel, sessionsBackdrop, mobileSessionsOpen, desktop, closeMobileSessions)
 const renamingSession = ref('')
-const editingSessionOrder = ref<string[]>([])
+const editingRows = shallowRef<Session[]>([])
 // Update live row contents, but defer reordering until the title editor closes.
 // Moving a focused input's DOM node would blur it and submit an unfinished title.
 const sidebarSessions = computed(() => {
   if (!renamingSession.value) return openSessions.value
-  const positions = new Map(editingSessionOrder.value.map((id, index) => [id, index]))
-  return [...openSessions.value].sort((a, b) => (positions.get(a.id) ?? positions.size) - (positions.get(b.id) ?? positions.size))
+  const current = new Map(openSessions.value.map(item => [item.id, item]))
+  const frozen: Session[] = []
+  for (const before of editingRows.value) {
+    const item = current.get(before.id)
+    if (item || before.id === renamingSession.value) frozen.push(item ?? before)
+    current.delete(before.id)
+  }
+  return [...frozen, ...current.values()]
 })
-watch(renamingSession, id => { editingSessionOrder.value = id ? sidebarSessions.value.map(item => item.id) : [] }, { flush: 'sync' })
-watch(openSessions, items => {
-  if (renamingSession.value && !items.some(item => item.id === renamingSession.value)) renamingSession.value = ''
-}, { flush: 'sync' })
+watch(renamingSession, id => { editingRows.value = id ? openSessions.value : [] }, { flush: 'sync' })
+watch(sidebarSessions, async rows => {
+  const list = sessionList.value
+  if (!list || list.scrollTop < 1 || !rows.length) return
+  const viewport = list.getBoundingClientRect()
+  const remaining = new Set(rows.map(item => item.id))
+  // Keep the first visible surviving row at its old pixel offset even when
+  // deletion above it shifts a page boundary. Use the next row if it vanished.
+  const anchor = [...list.querySelectorAll<HTMLElement>('.session-card')].find(row => {
+    const rect = row.getBoundingClientRect()
+    return remaining.has(row.dataset.sessionId!) && rect.bottom > viewport.top && rect.top < viewport.bottom
+  })
+  if (!anchor) return
+  const top = anchor.getBoundingClientRect().top
+  await nextTick()
+  if (anchor.parentElement === list) list.scrollTop += anchor.getBoundingClientRect().top - top
+}, { flush: 'pre' })
 const deletingSession = ref<Session | null>(null)
 const deleteConfirmationOpen = ref(false)
 // Keep confirmation copy stable while the dialog's exit animation runs.
@@ -127,9 +160,11 @@ function isExecuting(item: Session) {
         @pointercancel="drawerSwipe.cancel" @lostpointercapture="drawerSwipe.lostCapture" @click.capture="drawerSwipe.click">
         <div class="sidebar-brand"><button class="brand-home" aria-label="Vista" :disabled="busy" @click="create"><VistaMark /><span>Vista</span></button><v-button variant="text" class="icon-button mobile-sessions-close icon-close" :aria-label="t('closeSessionDrawer')" @click="closeMobileSessions"><IconX /></v-button></div>
         <v-button variant="text" class="sidebar-new-conversation" :disabled="busy" @click="create"><IconPlus aria-hidden="true" /><span>{{ t('newConversation') }}</span></v-button>
-        <div class="sidebar-section-label"><span>{{ t('recentConversations') }}</span><small>{{ openSessions.length || '' }}</small></div>
-        <v-empty v-if="sessionsReady && serverStatus && !openSessions.length" class="vista-empty-state vista-empty-state-compact sidebar-empty" :description="t(totalSessions ? 'noOpenSessions' : 'createSessionHint')" />
-        <ul><li v-for="item in sidebarSessions" :key="item.id" :data-session-id="item.id" class="session-card" :class="{ selected: selectedRoot === item.id }" role="button" tabindex="0" :aria-label="t('activateSession', { title: displaySessionTitle(item) })" :aria-current="selectedRoot === item.id ? 'page' : undefined" @click="activateSession(item)" @keydown.enter.prevent="activateSession(item)" @keydown.space.prevent="activateSession(item)">
+        <div class="sidebar-section-label"><span>{{ t('recentConversations') }}</span><small>{{ openTotal || '' }}</small>
+          <SessionSortMenu v-model="sidebarSort" :disabled="busy || !!renamingSession || !openTotal" />
+        </div>
+        <v-empty v-if="sidebarSnapshot && serverStatus && !openSessions.length" class="vista-empty-state vista-empty-state-compact sidebar-empty" :description="t(totalSessions ? 'noOpenSessions' : 'createSessionHint')" />
+        <ul ref="sessionList"><li v-for="item in sidebarSessions" :key="item.id" :data-session-id="item.id" class="session-card" :class="{ selected: selectedRoot === item.id }" role="button" tabindex="0" :aria-label="t('activateSession', { title: displaySessionTitle(item) })" :aria-current="selectedRoot === item.id ? 'page' : undefined" @click="activateSession(item)" @keydown.enter.prevent="activateSession(item)" @keydown.space.prevent="activateSession(item)">
           <InlineSessionTitle :session="item" :editing="renamingSession === item.id" @update:editing="updateRenaming(item, $event)">
             <strong class="session-name" :class="{ unread: !!sessionListActivity(item).unreadId }">{{ displaySessionTitle(item) }}</strong>
           </InlineSessionTitle>
@@ -140,7 +175,16 @@ function isExecuting(item: Session) {
           </div>
           <SessionIndicators :session="item" :worker-available="serverStatus ? workerAvailable(item.id) : undefined" @open="openBranch" />
           <v-button v-if="item.open && serverStatus && !workerAvailable(item.id)" variant="text" class="session-retry" :disabled="busy" @click.stop="action(item,'retry')" @keydown.enter.stop @keydown.space.stop>{{ t('retryWorker') }}</v-button>
-        </li></ul>
+        </li>
+          <li v-if="sidebarFailed" class="sidebar-page-status">
+            <span role="status">{{ t('sessionPageLoadFailed') }}</span>
+            <v-button variant="text" @click="sidebar.retry">{{ t('retry') }}</v-button>
+          </li>
+          <li v-else-if="sidebarLoading && openSessions.length" class="sidebar-page-status" role="status">
+            <IconLoader2 class="ui-icon-spin" aria-hidden="true" />{{ t('loadingSessions') }}
+          </li>
+          <li v-if="sidebarHasMore" ref="sidebarSentinel" class="sidebar-page-sentinel" aria-hidden="true"></li>
+        </ul>
         <footer class="sessions-panel-footer">
           <nav class="sidebar-navigation" :aria-label="t('workspaceHeading')">
             <v-button variant="text" class="manage-sessions-link" @click="openSessionManager"><IconLayoutGrid aria-hidden="true" />{{ t('manageSessions') }}</v-button>

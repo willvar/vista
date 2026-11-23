@@ -1,11 +1,5 @@
 import { computed, onScopeDispose, ref, shallowRef, watch, type Ref } from 'vue'
-import type { PageInfo, VistaClient, createWorkspaceSync, StateTopic } from '@vista/client'
-
-function atLeast(value: string | undefined, expected: string) {
-  const [epoch, revision] = value?.split(':') ?? []
-  const [expectedEpoch, expectedRevision] = expected.split(':')
-  return epoch === expectedEpoch && Number.isSafeInteger(Number(revision)) && Number(revision) >= Number(expectedRevision)
-}
+import { pageVersionAtLeast, type PageInfo, type VistaClient, type createWorkspaceSync, type StateTopic } from '@vista/client'
 
 export function usePagedList<T extends PageInfo>(options: {
   client: VistaClient
@@ -34,7 +28,7 @@ export function usePagedList<T extends PageInfo>(options: {
     loading.value = false
   }
   function apply(value: T) {
-    if (loadedPath === options.path(value.page) && data.value?.version !== value.version && atLeast(data.value?.version, value.version)) return
+    if (loadedPath === options.path(value.page) && data.value?.version !== value.version && pageVersionAtLeast(data.value?.version, value.version)) return
     cancel()
     data.value = value
     loadedPath = options.path(value.page)
@@ -79,7 +73,7 @@ export function usePagedList<T extends PageInfo>(options: {
     loading.value = true
     unsubscribe = options.sync.subscribe([options.topic], async (_, signal, point) => {
       const version = `${point.epoch}:${point.revisions[options.topic]}`
-      if (atLeast(data.value?.version, version) && loadedPath === path.value) { loading.value = false; return }
+      if (pageVersionAtLeast(data.value?.version, version) && loadedPath === path.value) { loading.value = false; return }
       await read(signal, true)
     })
   }, { immediate: true, flush: 'sync' })

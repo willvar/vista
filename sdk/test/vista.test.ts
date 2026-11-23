@@ -142,3 +142,16 @@ test('base URL is a service address, not a credential-bearing or relative URL', 
   }
   assert.throws(() => createVistaClient().url('//another.example.test'), TypeError)
 })
+
+test('paged workspace events opt out of the legacy list without dropping metrics', async () => {
+  const paths: string[] = []
+  const client = createVistaClient({ baseURL: 'https://vista.test/tenant', fetch: async input => {
+    const url = new URL(String(input))
+    paths.push(url.pathname + url.search)
+    return new Response(null, { headers: { 'Content-Type': 'text/event-stream' } })
+  } })
+  const signal = new AbortController().signal
+  await client.openWorkspaceEvents(true, signal, true)
+  await client.openWorkspaceEvents(false, signal)
+  assert.deepEqual(paths, ['/tenant/api/events?metrics=1&sessions=paged', '/tenant/api/events'])
+})

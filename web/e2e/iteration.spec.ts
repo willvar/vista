@@ -67,7 +67,11 @@ async function mockWorkspace(page: Page, origin: string, withTiers = false, canA
     }
     if (path === '/models') return reply({ default: 'first', conversationDefault, models })
     if (path === '/status') return reply({ state: 'running', sessions: { total: 1, open: 1, closed: 0, running: session.executing ? 1 : 0, workers: 1 }, workerMetrics: [{ sessionId: session.id, memory: { heapBytes: 1000000, rssBytes: 4000000, sampledAt: '2026-01-01T12:00:00Z' } }] })
-    if (path === '/sessions') return reply([session])
+    if (path === '/sessions') {
+      const query = new URL(request.url()).searchParams
+      return reply({ page: 1, pageSize: Number(query.get('pageSize')), total: 1, items: [session], attention: 0,
+        throughSequences: { [session.id]: coreSnapshot(session, messages, events, inputs).throughSequence } })
+    }
     if (path.endsWith('/snapshot')) return reply(coreSnapshot(session, messages, events, inputs))
     if (path.endsWith('/overview')) return reply({ modelCalls: 1, throughSequence: events.at(-1)?.sequence || 0, startedAt: session.createdAt, events })
     if (path.endsWith('/selection')) {

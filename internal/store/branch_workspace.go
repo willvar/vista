@@ -57,8 +57,8 @@ func sessionGroupQuery(db *gorm.DB, open []bool) *gorm.DB {
 	return query
 }
 
-func readSessionGroups(db, query *gorm.DB, limit, offset int, sort SessionSort) ([]Session, error) {
-	items, err := readSessions(db, query, limit, offset, sort)
+func readSessionGroups(db, query *gorm.DB, limit, offset int, search SessionSearch) ([]Session, error) {
+	items, err := readSessions(db, query, limit, offset, search)
 	if err != nil || len(items) == 0 {
 		return items, err
 	}
