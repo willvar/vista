@@ -15,9 +15,12 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
+
 	"vista/internal/model"
 	"vista/internal/network"
 	"vista/internal/provider"
+	"vista/internal/resources"
 	"vista/internal/useragent"
 )
 
@@ -48,6 +51,9 @@ func newRequest(ctx context.Context, target model.GenerationTarget) (request, er
 		return request{}, errors.New("no compatible generation adapter is configured")
 	}
 	base := m.BaseURL
+	if target.Kind == model.ImageOutput && m.ProviderID == "microsoft-foundry" {
+		base = connectionMediaBase(spec, m)
+	}
 	if target.Connection != nil {
 		base = connectionMediaBase(spec, *target.Connection)
 		m.APIKey = target.Connection.APIKey
@@ -59,6 +65,9 @@ func newRequest(ctx context.Context, target model.GenerationTarget) (request, er
 	}
 	if base == "" && !m.Custom {
 		base = spec.Base
+	}
+	if !m.Custom && !compatibleModel(m.ProviderID, target.Kind, m.ID) {
+		return request{}, errors.New("the selected model does not use this generation interface")
 	}
 	parsed, err := Endpoint(base)
 	if err != nil {
@@ -105,14 +114,22 @@ func connectionMediaBase(spec Spec, source model.Model) string {
 	case "minimax", "minimax-portal":
 		return strings.TrimSuffix(strings.TrimSuffix(base, "/v1"), "/anthropic")
 	case "alibaba", "qwen":
-		return strings.TrimSuffix(base, "/compatible-mode/v1")
+		return strings.TrimSuffix(strings.TrimSuffix(base, "/compatible-mode/v1"), "/api/v1")
 	case "together":
+		return strings.TrimSuffix(strings.TrimSuffix(base, "/v1"), "/v2")
+	case "runway":
 		return strings.TrimSuffix(base, "/v1")
 	case "novita":
 		return strings.TrimSuffix(strings.TrimSuffix(base, "/v1"), "/openai")
 	case "microsoft-foundry":
-		if strings.HasSuffix(base, "/openai") {
+		if strings.HasSuffix(base, "/openai") || strings.HasSuffix(base, "/mai") {
 			return base + "/v1"
+		}
+		if u, err := Endpoint(base); err == nil && u.Path == "" {
+			if source.ProviderID == "azure" || strings.HasSuffix(strings.ToLower(u.Hostname()), ".openai.azure.com") {
+				return base + "/openai/v1"
+			}
+			return base + "/mai/v1"
 		}
 	}
 	return base
@@ -186,6 +203,9 @@ func (c request) api(method, raw string, body any, extra http.Header) (wire, err
 	limit := int64(2 << 20)
 	if c.target.Kind == model.ImageOutput {
 		limit = maxResponseJSON
+	} else if c.target.Kind == model.VideoOutput && (c.target.Model.ProviderID == "deepinfra" || c.target.Model.ProviderID == "google") {
+		// These APIs can embed the original video rather than a download URL.
+		limit = int64(base64.StdEncoding.EncodedLen(resources.MaxVideoBytes)) + (1 << 20)
 	}
 	r := &io.LimitedReader{R: resp.Body, N: limit + 1}
 	d := json.NewDecoder(r)
@@ -194,10 +214,38 @@ func (c request) api(method, raw string, body any, extra http.Header) (wire, err
 	if d.Decode(&result) != nil || result == nil || d.Decode(new(any)) != io.EOF || r.N <= 0 {
 		return nil, errors.New("generation service returned invalid or oversized JSON")
 	}
-	if result["error"] != nil && result["error"] != "" {
-		return nil, errors.New("generation service returned an error")
+	if err := c.resultError(result); err != nil {
+		return nil, err
 	}
 	return result, nil
+}
+
+func (c request) resultError(result wire) error {
+	if result["error"] != nil && result["error"] != "" {
+		return errors.New("generation service returned an error")
+	}
+	// Some APIs report business failures in a successful HTTP response.
+	var code any
+	want := 0
+	switch c.target.Model.ProviderID {
+	case "kie":
+		code, want = result["code"], 200
+	case "pixverse":
+		code = result["ErrCode"]
+	case "minimax", "minimax-portal":
+		code = getValue(result, "base_resp", "status_code")
+	case "alibaba", "qwen":
+		if text(result, "code") != "" {
+			return errors.New("DashScope rejected the generation request")
+		}
+	}
+	if code != nil {
+		actual, ok := numeric(code)
+		if !ok || actual != want {
+			return errors.New("generation service reported a non-success API code")
+		}
+	}
+	return nil
 }
 
 func (c request) send(method, raw string, body io.Reader, extra http.Header, auth bool) (*http.Response, error) {
@@ -268,7 +316,10 @@ func (c request) send(method, raw string, body io.Reader, extra http.Header, aut
 			}
 		}
 		for k, v := range extra {
-			req.Header[k] = v
+			req.Header[http.CanonicalHeaderKey(k)] = v
+		}
+		if c.target.Model.ProviderID == "pixverse" {
+			req.Header.Set("Ai-Trace-Id", uuid.NewString())
 		}
 	}
 	// Disable native replay of a billed POST, even on a reused idle connection.
@@ -358,7 +409,7 @@ func status(s string) (bool, error) {
 		return true, nil
 	case "canceled", "cancelled":
 		return true, ErrUpstreamCanceled
-	case "failed", "fail", "failure", "error", "expired", "task_status_fail":
+	case "failed", "fail", "failure", "error", "expired", "task_status_fail", "task_status_failed":
 		return true, errors.New("upstream generation failed")
 	case "pending", "queued", "in_queue", "in_progress", "processing", "running", "submitted", "starting", "preparing", "task_status_processing", "task_status_queueing":
 		return false, nil

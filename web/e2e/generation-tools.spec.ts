@@ -51,7 +51,14 @@ test('chooses classified media and decision models by name from saved connection
     requests.push({ path, body, hasSavedAuth })
     res.setHeader('content-type', 'application/json')
     if (path === '/gateway/models') return res.end(JSON.stringify({ data: advertised }))
-    if (path === '/gateway/images/generations') return res.end(JSON.stringify({ data: [{ b64_json: png.toString('base64') }] }))
+    if (path === '/gateway/images/generations') {
+      // Reject an incorrect saved binding or unsupported image fields.
+      if (req.method !== 'POST' || !hasSavedAuth || body?.model !== 'fixture-image' || body?.n !== 1 ||
+        typeof body?.prompt !== 'string' || !body.prompt.trim() || Object.keys(body).sort().join(',') !== 'model,n,prompt') {
+        return res.writeHead(400).end(JSON.stringify({ error: 'Image request does not match the provider contract' }))
+      }
+      return res.end(JSON.stringify({ data: [{ b64_json: png.toString('base64') }] }))
+    }
     if (path === '/gateway/videos/generations') return res.end(JSON.stringify({ request_id: 'job-saved' }))
     if (path === '/gateway/videos/job-saved') return res.end(JSON.stringify(ready ? { status: 'done', video: { url: '/gateway/video-resource' } } : { status: 'pending' }))
     if (path === '/gateway/video-resource') { res.setHeader('content-type', 'video/mp4'); return res.end(mp4) }
@@ -101,6 +108,7 @@ test('chooses classified media and decision models by name from saved connection
     const original = await page.request.get(vista.origin + imageURL)
     expect(original.status()).toBe(200)
     expect(await original.body()).toEqual(png)
+    expect(requests.filter(r => r.path === '/gateway/images/generations')).toHaveLength(1)
     await sender.fill(`Fixture video ${hash}`)
     await sender.press('Control+Enter')
     const video = page.locator('[data-generation-kind="video"]')

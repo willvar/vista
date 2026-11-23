@@ -2,6 +2,7 @@ package generation
 
 import (
 	"slices"
+	"strings"
 
 	"vista/internal/model"
 	"vista/internal/provider"
@@ -64,7 +65,33 @@ func DeclaredChoice(adapter, kind, id string) bool {
 }
 
 func Choices(adapter, kind string) []provider.OutputMetadata {
-	return provider.SpecializedModels(CatalogProviderID(adapter), kind, declaredChoices[kind][adapter]...)
+	rows := provider.SpecializedModels(CatalogProviderID(adapter), kind, declaredChoices[kind][adapter]...)
+	return slices.DeleteFunc(rows, func(m provider.OutputMetadata) bool { return !compatibleModel(adapter, kind, m.ID) })
+}
+
+// Output modality metadata is insufficient when the provider exposes another
+// API family for the same kind. Custom connections advertise their own dialect.
+func compatibleModel(adapter, kind, id string) bool {
+	if kind == model.VideoOutput {
+		switch adapter {
+		case "google":
+			return strings.HasPrefix(id, "veo-") // Gemini Omni uses Interactions, not predictLongRunning.
+		case "kie", "vydra":
+			return DeclaredChoice(adapter, kind, id) // Other endpoints can require a public reference or different fields.
+		case "zai":
+			return id == "cogvideox-3"
+		case "openrouter":
+			switch id {
+			case "black-forest-labs/flux-video-edit", "black-forest-labs/flux-video-upscale", "runway/aleph-2", "heygen/avatar-iv":
+				// These models need a source video or an avatar/audio input, not a first frame.
+				return false
+			}
+		}
+	}
+	if kind == model.ImageOutput && adapter == "openai" {
+		return id != "gpt-image-1" && id != "dall-e-2" && id != "dall-e-3"
+	}
+	return true
 }
 
 // Pin the model-specific first-frame rules that OpenClaw normally implements
@@ -78,6 +105,17 @@ func VideoFrameMode(adapter, id string) (allowed, required bool) {
 			return false, false
 		case "wan2.6-i2v":
 			return true, true
+		}
+	case "fal":
+		if id == "fal-ai/minimax/video-01-live" {
+			return false, false
+		}
+	case "minimax", "minimax-portal":
+		switch id {
+		case "MiniMax-Hailuo-2.3-Fast", "I2V-01", "I2V-01-Director", "I2V-01-live":
+			return true, true
+		case "T2V-01", "T2V-01-Director":
+			return false, false
 		}
 	case "together":
 		switch id {

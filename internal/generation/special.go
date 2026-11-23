@@ -6,12 +6,12 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"mime"
 	"mime/multipart"
 	"net/http"
+	"net/textproto"
 	"net/url"
 	"strings"
-
-	"github.com/google/uuid"
 )
 
 func (c request) responseImage(body wire) (Asset, error) {
@@ -45,16 +45,31 @@ func (c request) responseImage(body wire) (Asset, error) {
 		}
 		switch text(event, "type") {
 		case "response.output_item.done":
-			if text(event, "item", "type") == "image_generation_call" {
-				image = text(event, "item", "result")
+			item := event["item"]
+			if text(item, "type") == "image_generation_call" && completedImage(item) != "" {
+				image = completedImage(item)
 			}
 		case "response.completed":
+			items, _ := getValue(event, "response", "output").([]any)
+			for _, item := range items {
+				if text(item, "type") == "image_generation_call" {
+					// The final snapshot takes precedence over intermediate events.
+					return c.asset("", completedImage(item))
+				}
+			}
 			return c.asset("", image)
-		case "response.failed", "error":
+		case "response.failed", "response.incomplete", "error":
 			return Asset{}, errors.New("hosted image generation failed")
 		}
 	}
 	return Asset{}, errors.New("hosted image response did not complete")
+}
+
+func completedImage(item any) string {
+	if state := text(item, "status"); state == "" || state == "completed" {
+		return text(item, "result")
+	}
+	return ""
 }
 
 func (c request) apiURL(raw string) (string, error) {
@@ -97,6 +112,9 @@ func (c request) fal(input Input, video bool) (Asset, error) {
 	if err != nil {
 		return Asset{}, err
 	}
+	if payload, ok := result["response"].(map[string]any); ok {
+		result = wire(payload)
+	}
 	if video {
 		return c.asset(first(text(result, "video", "url"), text(result, "videos", 0, "url")), "")
 	}
@@ -132,9 +150,13 @@ func (c request) vydra(input Input, video bool) (Asset, error) {
 func (c request) novita(input Input) (Asset, error) {
 	body := wire{"prompt": input.Prompt, "duration": 6, "resolution": "768P"}
 	if strings.HasPrefix(c.model, "wan") {
-		body = wire{"input": wire{"prompt": input.Prompt}, "parameters": wire{"duration": 5, "resolution": "720P"}}
+		params := wire{"duration": 5, "audio": false, "prompt_extend": true, "shot_type": "multi", "watermark": false}
+		body = wire{"input": wire{"prompt": input.Prompt}, "parameters": params}
 		if frame := input.dataURL(); frame != "" {
 			body["input"].(wire)["img_url"] = frame
+			params["resolution"] = "720P"
+		} else {
+			params["size"] = "1280*720"
 		}
 	} else if frame := input.dataURL(); frame != "" {
 		body["image"] = frame
@@ -157,7 +179,12 @@ func (c request) novita(input Input) (Asset, error) {
 func (c request) uploadFrame(path, field string, input Input) (wire, error) {
 	var b bytes.Buffer
 	mp := multipart.NewWriter(&b)
-	part, err := mp.CreateFormFile(field, "frame."+strings.TrimPrefix(input.FrameType, "image/"))
+	header := textproto.MIMEHeader{}
+	header.Set("Content-Disposition", mime.FormatMediaType("form-data", map[string]string{
+		"name": field, "filename": "frame." + strings.TrimPrefix(input.FrameType, "image/"),
+	}))
+	header.Set("Content-Type", input.FrameType)
+	part, err := mp.CreatePart(header)
 	if err != nil {
 		return nil, err
 	}
@@ -181,7 +208,7 @@ func (c request) uploadFrame(path, field string, input Input) (wire, error) {
 	if decoder.Decode(&out) != nil || out == nil {
 		return nil, errors.New("invalid reference image upload response")
 	}
-	return out, nil
+	return out, c.resultError(out)
 }
 
 func (c request) pixverse(input Input) (Asset, error) {
@@ -199,8 +226,9 @@ func (c request) pixverse(input Input) (Asset, error) {
 		path = "video/img/generate"
 		delete(body, "aspect_ratio")
 		body["img_id"] = id
+		body["motion_mode"] = "normal"
 	}
-	out, err := c.api(http.MethodPost, c.route(path), body, http.Header{"Ai-Trace-Id": {uuid.NewString()}})
+	out, err := c.api(http.MethodPost, c.route(path), body, nil)
 	if err != nil {
 		return Asset{}, err
 	}
@@ -208,7 +236,7 @@ func (c request) pixverse(input Input) (Asset, error) {
 	if !validTaskID(id) {
 		return Asset{}, errors.New("PixVerse did not return a video ID")
 	}
-	out, err = c.pollWithHeaders(c.route("video/result/"+id), http.Header{"Ai-Trace-Id": {uuid.NewString()}}, func(o wire) (bool, error) {
+	out, err = c.poll(c.route("video/result/"+id), func(o wire) (bool, error) {
 		s, ok := numeric(getValue(o, "Resp", "status"))
 		if !ok {
 			return false, errors.New("invalid PixVerse video status")
@@ -231,7 +259,7 @@ func (c request) pixverse(input Input) (Asset, error) {
 }
 
 func (c request) kie(input Input) (Asset, error) {
-	params := wire{"prompt": input.Prompt}
+	params := wire{"prompt": input.Prompt, "aspect_ratio": "16:9", "duration": "5", "sound": false}
 	out, err := c.api(http.MethodPost, c.route("api/v1/jobs/createTask"), wire{"model": c.model, "input": params}, nil)
 	if err != nil {
 		return Asset{}, err
@@ -287,11 +315,11 @@ func (c request) comfy(input Input, video bool) (Asset, error) {
 		return Asset{}, errors.New("ComfyUI prompt node is missing")
 	}
 	prefix := ""
-	if opt.Cloud {
+	if opt.Cloud && !strings.HasSuffix(strings.TrimRight(c.base.Path, "/"), "/api") {
 		prefix = "api/"
 	}
 	if len(input.Frame) > 0 {
-		if opt.ImageNode == "" {
+		if opt.ImageNode == "" || !set(opt.ImageNode, opt.ImageField, "") {
 			return Asset{}, errors.New("this ComfyUI workflow has no reference image input")
 		}
 		out, err := c.uploadFrame(prefix+"upload/image", "image", input)
@@ -311,21 +339,19 @@ func (c request) comfy(input Input, video bool) (Asset, error) {
 	if !validTaskID(id) {
 		return Asset{}, errors.New("ComfyUI did not return a prompt ID")
 	}
+	var outputs any
 	if opt.Cloud {
-		if _, err = c.poll(c.route("api/job/"+id+"/status"), func(o wire) (bool, error) { return status(text(o, "status")) }); err != nil {
-			return Asset{}, err
-		}
+		out, err = c.poll(c.route(prefix+"jobs/"+id), func(o wire) (bool, error) { return status(text(o, "status")) })
+		outputs = out["outputs"]
+	} else {
+		out, err = c.poll(c.route("history/"+id), func(o wire) (bool, error) {
+			if text(o, id, "status", "status_str") == "error" {
+				return false, errors.New("ComfyUI workflow failed")
+			}
+			return getValue(o, id, "outputs") != nil, nil
+		})
+		outputs = getValue(out, id, "outputs")
 	}
-	history := prefix + "history/" + id
-	if opt.Cloud {
-		history = "api/history_v2/" + id
-	}
-	out, err = c.poll(c.route(history), func(o wire) (bool, error) {
-		if text(o, id, "status", "status_str") == "error" {
-			return false, errors.New("ComfyUI workflow failed")
-		}
-		return getValue(o, id, "outputs") != nil, nil
-	})
 	if err != nil {
 		return Asset{}, err
 	}
@@ -334,7 +360,7 @@ func (c request) comfy(input Input, video bool) (Asset, error) {
 		kinds = []string{"videos", "gifs", "images"}
 	}
 	for _, kind := range kinds {
-		a := getValue(out, id, "outputs", opt.OutputNode, kind, 0)
+		a := getValue(outputs, opt.OutputNode, kind, 0)
 		if name := text(a, "filename"); name != "" {
 			q := url.Values{"filename": {name}, "subfolder": {text(a, "subfolder")}, "type": {first(text(a, "type"), "output")}}
 			return c.asset(c.route(prefix+"view?"+q.Encode()), "")

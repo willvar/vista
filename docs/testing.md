@@ -127,6 +127,13 @@ See [benchmarks](./benchmarks.md) for setup, model credentials, execution comman
 Recorded results and analyses are maintained separately for [Terminal-Bench](./benchmarks/tb.md) and [GAIA](./benchmarks/gaia.md).
 The maintained adapters live in [`benchmarks/harbor/`](../benchmarks/harbor/) and [`benchmarks/gaia/`](../benchmarks/gaia/).
 
+## Specialized model protocols
+
+Run `GOWORK=off go test ./internal/generation ./internal/modelcatalog ./internal/server` for image, video, and decision contracts.
+[Wire fixtures](../internal/generation/protocol_fixture_test.go) independently specify model IDs, paths, queries, credential headers, and entire request bodies. They reject wrong requests before returning a documented response, and check request order and counts for queued jobs. Add a fixture when adding a provider or a model with a different schema; update the negative cases for unsupported input modes and terminal failures. The [browser check](../web/e2e/generation-tools.spec.ts) verifies the saved connection, runtime submission, and original resource on an isolated Vista instance.
+
+These checks never use live credentials. Catalog metadata and a passing protocol fixture do not establish current account entitlement, availability, or successful inference on a remote provider.
+
 ## Generated provider fixture
 
 The [provider matrix fixture](../scripts/provider_matrix/testdata/catalog.csv) is deterministic catalog/routing data, not a real-provider report. Regeneration and evidence limits are in [providers](./providers.md#protocol-and-verification-boundaries).

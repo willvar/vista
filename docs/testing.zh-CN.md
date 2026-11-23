@@ -127,6 +127,13 @@ Windows 在 PowerShell 设置对应环境变量，路径使用 `.exe`。也可�
 已记录的成绩与分析分别维护在 [Terminal-Bench](./benchmarks/tb.zh-CN.md) 和 [GAIA](./benchmarks/gaia.zh-CN.md) 文档中。
 维护的适配器位于 [`benchmarks/harbor/`](../benchmarks/harbor/) 和 [`benchmarks/gaia/`](../benchmarks/gaia/)。
 
+## 专用模型协议
+
+运行 `GOWORK=off go test ./internal/generation ./internal/modelcatalog ./internal/server` 检查生图、生视频和决策接口。
+[协议基准](../internal/generation/protocol_fixture_test.go)独立指定模型 ID、路径、查询参数、鉴权头和完整请求体。不符合契约的请求会被拒绝，不会收到预设成功回包；异步任务还检查请求顺序和次数。新增服务商或不同请求格式的模型时补充基准，并更新不支持的输入方式及终态失败用例。[浏览器检查](../web/e2e/generation-tools.spec.ts)在隔离实例中验证连接绑定、运行时提交和原始资源。
+
+这些检查不使用真实凭据。目录元数据和通过的协议用例不代表当前账号有权限、服务可用或能在远端成功推理。
+
 ## 生成的服务商基准
 
 [服务商矩阵基准](../scripts/provider_matrix/testdata/catalog.csv)是确定性的目录／路由数据，不是真实服务商报告。生成方式及证据边界见[服务商](./providers.zh-CN.md#协议与验证边界)。

@@ -40,6 +40,40 @@ func TestDeclaredChoicesUseCatalogNamesOrModelIDs(t *testing.T) {
 	}
 }
 
+func TestBuiltinChoicesRequireACompatibleTransport(t *testing.T) {
+	original := provider.CurrentOMPCatalog()
+	t.Cleanup(original.Activate)
+	dir := t.TempDir()
+	catalog := `{"source":"oh-my-pi","revision":"nontext-wire-fixture","modelCount":5,"providers":{
+		"google":{
+			"gemini-omni-flash-preview":{"name":"Gemini Omni","kind":"video","api":"google-generative-ai","input":["text"]},
+			"veo-3.1-fast-generate-preview":{"name":"Veo Fast","kind":"video","api":"google-generative-ai","input":["text"]}
+		},
+		"openai":{"gpt-image-1":{"name":"Retired image model","api":"openai-images","input":["text"]}},
+		"openrouter":{
+			"black-forest-labs/flux-video-upscale":{"name":"Needs an existing video","api":"openrouter-video","input":["text"]},
+			"google/veo-3.1-fast":{"name":"OpenRouter Veo","api":"openrouter-video","input":["text"]}
+		}
+	}}`
+	if err := os.WriteFile(provider.OMPCatalogPath(dir), []byte(catalog), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := provider.LoadOMPCatalog(dir); err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct{ adapter, kind, excluded, included string }{
+		{"google", model.VideoOutput, "gemini-omni-flash-preview", "veo-3.1-fast-generate-preview"},
+		{"openrouter", model.VideoOutput, "black-forest-labs/flux-video-upscale", "google/veo-3.1-fast"},
+		{"openai", model.ImageOutput, "gpt-image-1", "gpt-image-2"},
+	} {
+		rows := Choices(tc.adapter, tc.kind)
+		if slices.ContainsFunc(rows, func(m provider.OutputMetadata) bool { return m.ID == tc.excluded }) ||
+			!slices.ContainsFunc(rows, func(m provider.OutputMetadata) bool { return m.ID == tc.included }) {
+			t.Errorf("incompatible %s choices: %+v", tc.adapter, rows)
+		}
+	}
+}
+
 func TestClawRouterDecisionUsesDiscoveredName(t *testing.T) {
 	var catalog wire
 	payload := strings.Replace(clawRouterCatalogFixture, `"upstream":"gpt-6-luna"`, `"upstream":"gpt-6-luna","displayName":"Gateway Luna"`, 1)

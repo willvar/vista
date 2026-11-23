@@ -23,6 +23,11 @@ func Generate(ctx context.Context, target model.GenerationTarget, input Input) (
 	if err != nil {
 		return Asset{}, err
 	}
+	return c.generate(input)
+}
+
+func (c request) generate(input Input) (Asset, error) {
+	target := c.target
 	if strings.TrimSpace(input.Prompt) == "" {
 		return Asset{}, errors.New("a generation description is required")
 	}
@@ -50,13 +55,19 @@ func (i Input) dataURL() string {
 }
 
 func (c request) image(prompt string) (Asset, error) {
-	body := wire{"model": c.model, "prompt": prompt, "n": 1, "response_format": "b64_json"}
+	body := wire{"model": c.model, "prompt": prompt, "n": 1}
 	path := "images/generations"
 	var extra http.Header
 	switch c.target.Model.ProviderID {
 	case "openrouter":
 		path = "images"
-		delete(body, "response_format")
+	case "xai":
+		body["response_format"] = "b64_json"
+	case "deepinfra":
+		body["response_format"] = "b64_json"
+		body["size"] = "1024x1024"
+	case "litellm":
+		body["size"] = "1024x1024"
 	case "clawrouter":
 		allowed, err := c.clawRouterAllows(model.ImageOutput, prompt)
 		if err != nil {
@@ -65,10 +76,8 @@ func (c request) image(prompt string) (Asset, error) {
 		if !allowed {
 			return Asset{}, errors.New("the selected ClawRouter connection did not advertise this image model")
 		}
-		delete(body, "response_format")
 	case "minimax", "minimax-portal":
 		path = "v1/image_generation"
-		delete(body, "response_format")
 		body["response_format"] = "base64"
 	case "google":
 		if strings.HasPrefix(c.model, "imagen-") {
@@ -87,7 +96,9 @@ func (c request) image(prompt string) (Asset, error) {
 	case "vydra":
 		return c.vydra(Input{Prompt: prompt}, false)
 	case "microsoft-foundry":
-		delete(body, "response_format")
+		if strings.HasSuffix(strings.TrimRight(c.base.Path, "/"), "/mai/v1") {
+			body = wire{"model": c.model, "prompt": prompt, "width": 1024, "height": 1024}
+		}
 	}
 	out, err := c.api(http.MethodPost, c.route(path), body, extra)
 	if err != nil {
@@ -112,7 +123,13 @@ func (c request) hostedImage(prompt string) (Asset, error) {
 	if c.target.Connection == nil {
 		return Asset{}, errors.New("an authorized Codex connection is required")
 	}
-	body := wire{"model": c.target.Connection.ID, "input": []wire{{"role": "user", "content": prompt}}, "instructions": "Generate the requested image.", "stream": true, "store": false, "tools": []wire{{"type": "image_generation", "model": c.model}}, "tool_choice": wire{"type": "image_generation"}}
+	body := wire{
+		"model":        c.target.Connection.ID,
+		"input":        []wire{{"role": "user", "content": []wire{{"type": "input_text", "text": prompt}}}},
+		"instructions": "Generate the requested image.", "stream": true, "store": false,
+		"tools":       []wire{{"type": "image_generation", "model": c.model, "size": "1024x1024"}},
+		"tool_choice": wire{"type": "image_generation"},
+	}
 	return c.responseImage(body)
 }
 
@@ -160,9 +177,13 @@ func (c request) video(input Input) (Asset, error) {
 		body = wire{"instances": []wire{instance}}
 	case "alibaba", "qwen":
 		path, idField = "api/v1/services/aigc/video-generation/video-synthesis", "task_id"
-		body = wire{"model": c.model, "input": wire{"prompt": input.Prompt}}
-		if frame != "" {
+		params := wire{"duration": 5}
+		body = wire{"model": c.model, "input": wire{"prompt": input.Prompt}, "parameters": params}
+		if frame == "" {
+			params["size"] = "1280*720"
+		} else {
 			body["input"].(wire)["img_url"] = frame
+			params["resolution"] = "720P"
 		}
 		extra = http.Header{"X-DashScope-Async": {"enable"}}
 	case "byteplus":
@@ -228,13 +249,26 @@ func (c request) video(input Input) (Asset, error) {
 	case "zai":
 		subPath = "async-result/" + id
 	}
-	result, err := c.pollWithHeaders(c.route(subPath), extra, func(out wire) (bool, error) {
-		return status(first(text(out, "status"), text(out, "task_status"), text(out, "output", "task_status")))
-	})
-	if err != nil {
-		return Asset{}, err
+	result := out
+	complete := false
+	if p == "deepinfra" || p == "together" {
+		// These APIs can return the completed result with the submission.
+		switch text(out, "status") {
+		case "succeeded", "completed":
+			complete = true
+		case "failed":
+			return Asset{}, errors.New("upstream generation failed")
+		}
 	}
-	raw := first(text(result, "video", "url"), text(result, "content", "video_url"), text(result, "output", "video_url"), text(result, "output", 0), text(result, "video_url"), text(result, "data", 0, "url"), text(result, "video_result", 0, "url"), text(result, "outputs", "video_url"), text(result, "outputs", 0, "video_url"), text(result, "outputs", 0, "url"), text(result, "data", 0, "video_url"))
+	if !complete {
+		result, err = c.pollWithHeaders(c.route(subPath), extra, func(out wire) (bool, error) {
+			return status(first(text(out, "status"), text(out, "task_status"), text(out, "output", "task_status")))
+		})
+		if err != nil {
+			return Asset{}, err
+		}
+	}
+	raw := first(text(result, "output", "results", 0, "video_url"), text(result, "video", "url"), text(result, "content", "video_url"), text(result, "output", "video_url"), text(result, "output", 0), text(result, "video_url"), text(result, "data", 0, "url"), text(result, "video_result", 0, "url"), text(result, "outputs", "video_url"), text(result, "outputs", 0, "video_url"), text(result, "outputs", 0, "url"), text(result, "data", 0, "video_url"))
 	if p == "openrouter" {
 		raw = first(text(result, "unsigned_urls", 0), text(result, "urls", 0), c.route(subPath+"/content"))
 	}
@@ -269,5 +303,5 @@ func (c request) veoResult(name string) (Asset, error) {
 	if video == nil {
 		video = getValue(out, "response", "generatedVideos", 0, "video")
 	}
-	return c.asset(text(video, "uri"), text(video, "bytesBase64Encoded"))
+	return c.asset(text(video, "uri"), first(text(video, "bytesBase64Encoded"), text(video, "videoBytes")))
 }
