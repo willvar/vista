@@ -4,6 +4,7 @@ import { createApp, defineComponent, h } from 'vue'
 import { createRouter, createWebHistory, RouterView, useRoute, type RouteRecordRaw } from 'vue-router'
 import App from './App.vue'
 import AppProvider from './AppProvider.vue'
+import MessageImagePreview from './MessageImagePreview.vue'
 import { profileHome, profileIdPattern, routeProfileId } from './client/profileScope'
 import ConversationPage from './pages/ConversationPage.vue'
 import { i18n, initializeLanguage } from './i18n'
@@ -50,5 +51,5 @@ const router = createRouter({ history: createWebHistory(), routes: [{
 // Reject a partially matched or noncanonical prefix.
 router.beforeEach(to => !(to.params.profilePrefix || to.params.profileId) || routeProfileId(to.params) !== 'default' || '/')
 installAssetRecovery(router)
-const Root = { render: () => h(AppProvider, null, { default: () => h(RouterView) }) }
+const Root = { render: () => h(AppProvider, null, { default: () => [h(RouterView), h(MessageImagePreview)] }) }
 initializeLanguage().then(() => createApp(Root).use(router).use(i18n).mount('#app')).catch(showBootFailure)

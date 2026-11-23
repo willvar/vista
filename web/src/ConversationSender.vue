@@ -14,7 +14,7 @@ import type { QuestionAnswer } from '@vista/client'
 const QuestionForm = defineAsyncComponent(() => import('./QuestionForm.vue'))
 const { t } = useI18n({ useScope: 'global' })
 const emit = defineEmits<{ send: []; locateQuote: [quote: QuotedExcerpt] }>()
-const { selected, busy, modelsReady, needsProvider, senderDisabled, conversation, route, mobileSessionsOpen, modalQuery } = useWorkspace()
+const { selected, busy, modelsReady, needsProvider, senderDisabled, conversation, route, mobileSessionsOpen, modalQuery, workspacePath } = useWorkspace()
 const { draft, quotedTexts, removeQuote, agentWorking, editingMessage, cancelEditMessage, selectedModel,
   canAttachImage, attachedImages, attachedPreviewURLs, chooseImages, pasteImages, dropImages, removeImage,
   submitMessage, submitQuestion, cancelExecution, recallLastUserMessage,
@@ -41,10 +41,13 @@ const activeInputKey = computed(() => answering.value ? undefined : inputViewKey
 let lastInputKey: string | undefined
 // History and the model catalog can arrive in either order. Focus when the
 // input is actually mounted as well as when the active conversation changes.
-watch([activeInputKey, sender], async ([id, control]) => {
+watch([activeInputKey, sender, mobileSessionsOpen, workspacePath], async ([id, control, , path], previous) => {
   if (!id || !control) return
+  // A dismissal on the same page belongs to the drawer opener. Choosing a
+  // different conversation still focuses its composer after it has loaded.
+  if (previous[1] === control && (previous[0] === id || previous[2] && previous[3] === path)) return
   await nextTick()
-  if (activeInputKey.value === id && sender.value === control) {
+  if (activeInputKey.value === id && sender.value === control && workspacePath.value === path) {
     control.focus({ cursor: lastInputKey === id ? undefined : 'end', preventScroll: true })
     lastInputKey = id
   }

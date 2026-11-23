@@ -86,7 +86,7 @@ test('Profiles isolate setup and two active conversations across tabs', { tag: '
   await call('',`/profiles/${id}`,{name:'Writing'},'PATCH')
   await second.reload()
   await expect(second.locator('article.assistant').filter({ hasText: 'Answer from Research' })).toHaveCount(1)
-  expect(page.url()).toBe(vista.origin + `/sessions/${session.id}`)
+  await expect(page).toHaveURL(vista.origin + `/sessions/${session.id}` + (info.project.name === 'desktop' ? '' : '?layer=sessions-drawer:'))
   await trigger.click()
   await page.locator('html').evaluate(el => { el.dataset.profileDocument = 'original' })
   await picker.getByRole('link', { name: 'Writing', exact: true }).click()
@@ -200,7 +200,7 @@ test('Profile rename stays in its row and retains the input on failure', { tag: 
   await expect(row.getByRole('link', { name: 'Edited profile name', exact: true })).toBeVisible()
   await expect(rename).toBeFocused()
   expect(writes).toBe(2)
-  await expect(page).toHaveURL(vista.origin + '/')
+  await expect(page).toHaveURL(vista.origin + '/' + (info.project.name === 'desktop' ? '' : '?layer=sessions-drawer:'))
   await expect(picker.locator('[aria-current="true"]')).toContainText('Default Profile')
 })
 

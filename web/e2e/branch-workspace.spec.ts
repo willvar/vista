@@ -45,7 +45,8 @@ test('a saved branch preference follows the Profile while group activity opens i
       await post(`/sessions/${attention.id}/messages`, { content: 'Ask me about the setup' })
       await showSidebar(other)
       await expect(row(other, root.id).getByRole('button', { name: 'Executing', exact: true })).toBeVisible()
-      await expect(other).toHaveURL(url(root.id)) // The other device didn't move.
+      // The other device did not switch branches; on mobile its drawer is still open.
+      await expect(other).toHaveURL(url(root.id) + (info.project.name === 'desktop' ? '' : '?layer=sessions-drawer:'))
       await enter(other, elsewhere.id)
       await enter(other, root.id, preferred.id)
       await expect(row(other, root.id)).toHaveAttribute('aria-current', 'page')

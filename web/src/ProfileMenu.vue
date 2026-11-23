@@ -9,7 +9,7 @@ import { useWorkspace } from './composables/useWorkspace'
 
 type Profile = { id: string; name: string }
 const { t } = useI18n({ useScope: 'global' })
-const { client, stateSync, mobileSessionsOpen, profileId } = useWorkspace()
+const { client, stateSync, mobileSessionsOpen, drawerEntryOpen, profileId } = useWorkspace()
 const pickerOpen = ref(false)
 const profiles = ref<Profile[]>([])
 const list = ref<HTMLUListElement>()
@@ -161,7 +161,7 @@ async function save() {
               </div>
             </form>
             <template v-else>
-              <component :is="canSwitch(p) ? RouterLink : 'div'" class="profile-switch-link" :to="canSwitch(p) ? profileHome(p.id) : undefined">
+              <component :is="canSwitch(p) ? RouterLink : 'div'" class="profile-switch-link" :to="canSwitch(p) ? profileHome(p.id) : undefined" :replace="canSwitch(p) && drawerEntryOpen ? true : undefined">
                 <span class="profile-avatar" aria-hidden="true">
                   <span v-if="p.name">{{ initial(p.name) }}</span><IconUser v-else />
                 </span>

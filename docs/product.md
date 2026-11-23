@@ -69,6 +69,8 @@ Changing the search, status filter, sort, page, or page size clears the selectio
 
 About Vista → Advanced settings → Memory and capacity offers Background processes per conversation, default 4, range 1–1024. Saves reach resident Workers; new Workers use the current limit. Lowering it preserves existing jobs and only restricts new starts. Excess starts fail without queuing. This is not a CPU or memory quota. Background jobs optionally specify a total runtime and an advance warning. Omitting both means no deadline; specifying only a timeout disables warnings. A warning never extends the hard deadline. Within authorization, the model can explicitly adjust it or stop the job, but cannot override a user-imposed hard deadline.
 
+On a phone, Back closes the session drawer before leaving the conversation. After selecting a destination from the drawer, Back returns to the original screen without reopening the drawer. Back from an enlarged message attachment closes the preview without leaving the conversation; browser Forward can reopen the same attachment.
+
 ## Scheduled tasks
 
 Open **Scheduled tasks** in the sidebar of the Profile you want to use. Enter a name, the message to send, and a one-time, fixed-interval, daily or weekly schedule. Check the time zone and next run before enabling. Leave the model blank to use the Profile's current default when each run starts. An unavailable selected model needs attention rather than switching models.

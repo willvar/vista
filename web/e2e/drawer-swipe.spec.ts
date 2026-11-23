@@ -31,6 +31,46 @@ async function openDrawer(page: Page) {
   return panel
 }
 
+test('one Back closes the drawer and choosing a destination does not reopen it', async ({ page, vista }) => {
+  const { active, other } = await prepareSessions(page, vista)
+  const original = page.url()
+  const draft = page.locator('.sender-card textarea')
+  await draft.fill('Keep this conversation draft')
+  const drawer = await openDrawer(page)
+  const drawerURL = page.url()
+  await page.goBack()
+  await expect(page).toHaveURL(original)
+  await expect(drawer).not.toHaveClass(/mobile-open/)
+  await expect(draft).toHaveValue('Keep this conversation draft')
+  await expect(page.locator('.mobile-sessions-trigger:visible')).toBeFocused()
+
+  await page.goForward()
+  await expect(drawer).toHaveClass(/mobile-open/)
+  const viewport = page.viewportSize()!
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await expect(drawer).not.toHaveClass(/mobile-open/)
+  await expect(page).toHaveURL(drawerURL)
+  await page.setViewportSize(viewport)
+  await expect(drawer).toHaveClass(/mobile-open/)
+  await expect(page).toHaveURL(drawerURL)
+  await drawer.locator(`[data-session-id="${other.id}"] .session-name`).tap()
+  await expect(page).toHaveURL(`${vista.origin}/sessions/${other.id}`)
+  await expect(drawer).not.toHaveClass(/mobile-open/)
+  await page.goBack()
+  await expect(page).toHaveURL(original)
+  await expect(drawer).not.toHaveClass(/mobile-open/)
+  await expect(draft).toHaveValue('Keep this conversation draft')
+
+  await openDrawer(page)
+  await drawer.locator('.settings-trigger').tap()
+  await expect(page).toHaveURL(url => url.pathname === '/settings' && url.searchParams.get('session') === active.id)
+  await expect(page.locator('.settings-page')).toBeVisible()
+  await page.goBack()
+  await expect(page.locator('.settings-page')).toHaveCount(0)
+  await expect(page).toHaveURL(original)
+  await expect(drawer).not.toHaveClass(/mobile-open/)
+})
+
 async function touchInput(page: Page) {
   const cdp = await page.context().newCDPSession(page)
   // Browser touch input exercises touch-action, native scrolling, pointer cancellation and clicks.

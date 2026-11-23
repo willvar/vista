@@ -1,6 +1,6 @@
-import { computed, inject, nextTick, onMounted, onUnmounted, provide, ref, watch, type InjectionKey } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
-import { layerTokens, returnToParent, withLayers } from './routeLayers'
+import { computed, inject, nextTick, onMounted, onUnmounted, provide, ref, watch, type InjectionKey, type Ref } from 'vue'
+import { useRoute, useRouter, type RouteLocationRaw } from 'vue-router'
+import { layerTokens, returnToParent, useRouteLayer, withLayers } from './routeLayers'
 import { useI18n } from 'vue-i18n'
 import { VistaAPIError, createWorkspaceSync, compareSessionOrder, mergeSessionSnapshot, sessionEntryId, sessionListActivity, sessionNeedsAttention } from '@vista/client'
 import type { StateTopic, StateConnection, WorkspaceSnapshots, ModelCatalog, ServerStatus, Session, SyncCheckpoint } from '@vista/client'
@@ -12,7 +12,7 @@ import { isPlainEscape } from './useEscape'
 import { quoteStoragePrefix } from '../state/quotedReply'
 import { trackActivity } from '../client/activity'
 
-function createWorkspace(profileId: string) {
+function createWorkspace(profileId: string, desktop: Readonly<Ref<boolean>>) {
   const route = useRoute()
   const router = useRouter()
   const { t } = useI18n({ useScope: 'global' })
@@ -45,7 +45,17 @@ function createWorkspace(profileId: string) {
   const modelCatalog = ref<ModelCatalog>({ default: '', models: [] })
   const modelsReady = ref(false)
   const serverStatus = ref<ServerStatus | null>(null)
-  const mobileSessionsOpen = ref(false)
+  const drawer = useRouteLayer('sessions-drawer', to => routeProfileId(to.params) === profileId && (to.name === 'home' || to.name === 'session'))
+  const drawerEntryOpen = computed(() => drawer.current.value !== undefined)
+  const mobileSessionsOpen = computed(() => !desktop.value && drawerEntryOpen.value)
+  const workspacePath = computed(() => router.resolve(withLayers(route, [])).fullPath)
+  function openMobileSessions() {
+    if (!layerTokens(route).length && window.matchMedia('(max-width: 830px)').matches) void drawer.open()
+  }
+  function closeMobileSessions() { drawer.close() }
+  function navigateFromSidebar(destination: RouteLocationRaw) {
+    return drawerEntryOpen.value ? drawer.complete(destination) : router.push(destination)
+  }
   const openSessions = computed(() => sessions.value.filter(sessionEntryId).sort(compareSessionOrder))
   const closedSessions = computed(() => serverStatus.value?.sessions.closed ?? 0)
   const totalSessions = computed(() => serverStatus.value?.sessions.total ?? sessions.value.length)
@@ -176,13 +186,13 @@ function createWorkspace(profileId: string) {
     if (!settingsOpen.value || layerTokens(route).length) return
     returnToParent(router, pathInProfile(selected.value?.open ? `/sessions/${selected.value.id}` : '/'))
   }
-  function openSessionManager() { void router.push({ path: pathInProfile('/sessions'), query: modalQuery() }) }
-  function openSettings() { void router.push({ path: pathInProfile(window.matchMedia('(max-width: 830px)').matches ? '/settings' : '/settings/general'), query: modalQuery() }) }
+  function openSessionManager() { void navigateFromSidebar({ path: pathInProfile('/sessions'), query: modalQuery() }) }
+  function openSettings() { void navigateFromSidebar({ path: pathInProfile(window.matchMedia('(max-width: 830px)').matches ? '/settings' : '/settings/general'), query: modalQuery() }) }
 
   async function create() {
     if (busy.value) return
-    mobileSessionsOpen.value = false
-    await router.push(pathInProfile('/'))
+    await navigateFromSidebar(pathInProfile('/'))
+    if (route.name !== 'home') return
     if (selected.value) conversation.clearSession()
     await nextTick()
     document.querySelector<HTMLTextAreaElement>('.sender-card textarea')?.focus()
@@ -265,12 +275,12 @@ function createWorkspace(profileId: string) {
       : typeof route.query.session === 'string' ? route.query.session : ''
     let item = sessions.value.find(session => session.id === id && session.open)
     if (id && !item && selected.value?.id !== id) {
-      const target = route.fullPath
+      const target = workspacePath.value
       try {
         const point = await client.request<SyncCheckpoint>(`/sessions/${id}/checkpoint`, { signal: routeRequests.signal })
-        if (!scopeActive() || route.fullPath !== target) return
+        if (!scopeActive() || workspacePath.value !== target) return
         item = point.session
-      } catch (cause) { if (scopeActive() && route.fullPath === target && !(cause instanceof VistaAPIError && cause.status === 404)) error.value = String(cause) }
+      } catch (cause) { if (scopeActive() && workspacePath.value === target && !(cause instanceof VistaAPIError && cause.status === 404)) error.value = String(cause) }
     }
     if (item && selected.value?.id !== item.id) await conversation.selectSession(item)
     else if (route.name === 'home') conversation.clearSession()
@@ -286,16 +296,16 @@ function createWorkspace(profileId: string) {
     if (editingWithIME(event)) return
     // Components own Escape while a layer is open, including its closing animation.
     // Modal handlers also run on window, so stopPropagation alone is insufficient.
-    if (settingsOpen.value || layerTokens(route).length || sessionManagerOpen.value || [...document.querySelectorAll<HTMLElement>(
+    if (settingsOpen.value || sessionManagerOpen.value || [...document.querySelectorAll<HTMLElement>(
       '[role="dialog"], [role="alertdialog"], .ui-select-dropdown, .ui-popover, .ui-menu',
     )].some(element => element.getClientRects().length && getComputedStyle(element).visibility !== 'hidden')) return
-    if (mobileSessionsOpen.value) { event.preventDefault(); mobileSessionsOpen.value = false; return }
+    if (drawerEntryOpen.value && layerTokens(route).at(-1) === 'sessions-drawer:') { event.preventDefault(); closeMobileSessions(); return }
+    if (layerTokens(route).length) return
     if (!selected.value?.open || !conversation.agentWorking.value || busy.value) return
     event.preventDefault()
     void conversation.cancelExecution()
   }
-  watch(() => router.resolve(withLayers(route, [])).fullPath, () => {
-    mobileSessionsOpen.value = false
+  watch(workspacePath, () => {
     closeConfirmation.value = null
     void syncRoute()
   })
@@ -328,8 +338,8 @@ function createWorkspace(profileId: string) {
   function workerAvailable(id: string) { return !!serverStatus.value?.workerMetrics?.some(item => item.sessionId === id) }
   function mib(bytes: number) { return (bytes / 1048576).toFixed(1) }
   return {
-    client, stateSync, stateConnection, router, route, error, busy, debugMode, sessions, openSessions, closedSessions, totalSessions, attentionCount, modelCatalog, serverStatus, mobileSessionsOpen,
-    sessionsReady, modelsReady, profileId, pathInProfile, scopeActive,
+    client, stateSync, stateConnection, router, route, error, busy, debugMode, sessions, openSessions, closedSessions, totalSessions, attentionCount, modelCatalog, serverStatus, mobileSessionsOpen, drawerEntryOpen,
+    sessionsReady, modelsReady, profileId, pathInProfile, scopeActive, workspacePath, openMobileSessions, closeMobileSessions, navigateFromSidebar,
     changeSessionGroup, sessionGroupError, leaveChangedSessions,
     settingsOpen, sessionManagerOpen, needsProvider, senderDisabled, conversation, selected, modalQuery, backToWorkspace, openSessionManager,
     openSettings, closeSettings, create, action, renameTitle,
@@ -340,8 +350,8 @@ function createWorkspace(profileId: string) {
 
 export type Workspace = ReturnType<typeof createWorkspace>
 const workspaceKey: InjectionKey<Workspace> = Symbol('vista-workspace')
-export function provideWorkspace(profileId: string) {
-  const workspace = createWorkspace(profileId)
+export function provideWorkspace(profileId: string, desktop: Readonly<Ref<boolean>>) {
+  const workspace = createWorkspace(profileId, desktop)
   provide(workspaceKey, workspace)
   return workspace
 }

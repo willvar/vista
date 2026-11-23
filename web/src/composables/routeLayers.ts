@@ -67,6 +67,16 @@ export function useRouteLayer(name: string, inScope: (route: RouteLocationNormal
   }
 
   function close() { captureClose()() }
+  // Completing a picker is navigation to a destination, not a new step
+  // above the picker. If the destination is already underneath, consume it.
+  function complete(destination: RouteLocationRaw) {
+    const entry = router.currentRoute.value
+    const previous = parent(entry)
+    if (!previous || closing.has(router) || router.options.history.location !== entry.fullPath) return
+    if (router.resolve(previous).fullPath === router.resolve(destination).fullPath) return returnToParent(router, previous, entry)
+    return router.replace(destination)
+  }
+
   function drop() {
     const route = router.currentRoute.value
     const token = tokenIn(route)
@@ -85,7 +95,7 @@ export function useRouteLayer(name: string, inScope: (route: RouteLocationNormal
     onScopeDispose(router.beforeEach(check))
   }
 
-  return { current, open, close, captureClose, drop, onLeave }
+  return { current, open, close, captureClose, complete, drop, onLeave }
 }
 
 // The confirmation belongs to the pending action, not to browser history.

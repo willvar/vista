@@ -20,9 +20,10 @@ import type { Session } from '@vista/client'
 const props = defineProps<{ profileId: string }>()
 const { t } = useI18n({ useScope: 'global' })
 onErrorCaptured(error => { if (captureAssetError(error)) return false })
-const { route, conversation, router, error, busy, totalSessions, openSessions, selected, serverStatus, mobileSessionsOpen, settingsOpen,
+const { desktop, width: sidebarWidth, minimum, maximum, resize, finishResize, reset } = useSidebarWidth()
+const { route, conversation, error, busy, totalSessions, openSessions, selected, serverStatus, mobileSessionsOpen, drawerEntryOpen, settingsOpen,
   sessionsReady, modelsReady, stateConnection, stateSync, modalQuery, openSettings, closeSettings, openSessionManager, create, action, workerAvailable, displaySessionTitle,
-  closeConfirmation, cancelSessionClose, confirmSessionClose, pathInProfile } = provideWorkspace(props.profileId)
+  closeConfirmation, cancelSessionClose, confirmSessionClose, pathInProfile, workspacePath, closeMobileSessions, navigateFromSidebar } = provideWorkspace(props.profileId, desktop)
 const initialLoading = computed(() => !sessionsReady.value || !modelsReady.value || !serverStatus.value)
 const initialLoadDelayed = ref(false)
 watch(initialLoading, (loading, _, cleanup) => {
@@ -31,10 +32,9 @@ watch(initialLoading, (loading, _, cleanup) => {
   cleanup(() => clearTimeout(timer))
 }, { immediate: true })
 const layout = ref<HTMLElement | null>(null)
-const { desktop, width: sidebarWidth, minimum, maximum, resize, finishResize, reset } = useSidebarWidth()
 const sessionsPanel = ref<HTMLElement | null>(null)
 const sessionsBackdrop = ref<HTMLElement | null>(null)
-const drawerSwipe = useDrawerSwipe(sessionsPanel, sessionsBackdrop, mobileSessionsOpen, desktop)
+const drawerSwipe = useDrawerSwipe(sessionsPanel, sessionsBackdrop, mobileSessionsOpen, desktop, closeMobileSessions)
 const renamingSession = ref('')
 const editingSessionOrder = ref<string[]>([])
 // Update live row contents, but defer reordering until the title editor closes.
@@ -83,8 +83,20 @@ watch(() => selected.value?.id, async () => {
   await nextTick()
   if (window.innerWidth > 830 || mobileSessionsOpen.value) document.querySelector('.sessions-panel .session-card.selected')?.scrollIntoView({ block: 'nearest' })
 })
+let drawerParent = ''
+watch(mobileSessionsOpen, async open => {
+  if (open) { drawerParent = workspacePath.value; return }
+  if (drawerEntryOpen.value) return // The desktop sidebar paints the same history entry without a drawer.
+  if (!busy.value) { cancelSessionClose(); deleteConfirmationOpen.value = false }
+  if (desktop.value || drawerParent !== workspacePath.value) return
+  await nextTick()
+  if (!mobileSessionsOpen.value && drawerParent === workspacePath.value) {
+    const trigger = [...document.querySelectorAll<HTMLElement>('.mobile-sessions-trigger')].find(element => element.getClientRects().length)
+    trigger?.focus({ preventScroll: true })
+  }
+}, { immediate: true })
 const selectedRoot = computed(() => selected.value?.branchRootId || selected.value?.id)
-function openBranch(id: string) { void router.push(pathInProfile(`/sessions/${id}`)) }
+function openBranch(id: string) { void navigateFromSidebar(pathInProfile(`/sessions/${id}`)) }
 function activateSession(item: Session) {
   const id = sessionEntryId(item)
   if (!id) return
@@ -100,7 +112,7 @@ function isExecuting(item: Session) {
 <template>
   <main class="app-shell">
     <AssetLoadNotice />
-    <Transition name="mobile-sessions-mask"><div v-if="mobileSessionsOpen" ref="sessionsBackdrop" class="mobile-sessions-backdrop" @click="mobileSessionsOpen = false"></div></Transition>
+    <Transition name="mobile-sessions-mask"><div v-if="mobileSessionsOpen" ref="sessionsBackdrop" class="mobile-sessions-backdrop" @click="closeMobileSessions"></div></Transition>
     <p v-if="error" class="error">{{ error }}</p>
     <p v-if="stateConnection.phase === 'error'" class="error state-sync-error" role="alert" :title="stateConnection.error"><span>{{ t('stateSyncFailed') }}</span><v-button @click="stateSync.reconnect()">{{ t('retry') }}</v-button></p>
     <p v-else-if="initialLoading" class="state-sync-loading" role="status">
@@ -113,7 +125,7 @@ function isExecuting(item: Session) {
       <aside id="sessions-panel" ref="sessionsPanel" class="sessions-panel" :class="{ 'mobile-open': mobileSessionsOpen }"
         @pointerdown.capture="drawerSwipe.start" @pointermove="drawerSwipe.move" @pointerup="drawerSwipe.end"
         @pointercancel="drawerSwipe.cancel" @lostpointercapture="drawerSwipe.lostCapture" @click.capture="drawerSwipe.click">
-        <div class="sidebar-brand"><button class="brand-home" aria-label="Vista" :disabled="busy" @click="create"><VistaMark /><span>Vista</span></button><v-button variant="text" class="icon-button mobile-sessions-close icon-close" :aria-label="t('closeSessionDrawer')" @click="mobileSessionsOpen = false"><IconX /></v-button></div>
+        <div class="sidebar-brand"><button class="brand-home" aria-label="Vista" :disabled="busy" @click="create"><VistaMark /><span>Vista</span></button><v-button variant="text" class="icon-button mobile-sessions-close icon-close" :aria-label="t('closeSessionDrawer')" @click="closeMobileSessions"><IconX /></v-button></div>
         <v-button variant="text" class="sidebar-new-conversation" :disabled="busy" @click="create"><IconPlus aria-hidden="true" /><span>{{ t('newConversation') }}</span></v-button>
         <div class="sidebar-section-label"><span>{{ t('recentConversations') }}</span><small>{{ openSessions.length || '' }}</small></div>
         <v-empty v-if="sessionsReady && serverStatus && !openSessions.length" class="vista-empty-state vista-empty-state-compact sidebar-empty" :description="t(totalSessions ? 'noOpenSessions' : 'createSessionHint')" />
@@ -133,7 +145,7 @@ function isExecuting(item: Session) {
           <nav class="sidebar-navigation" :aria-label="t('workspaceHeading')">
             <v-button variant="text" class="manage-sessions-link" @click="openSessionManager"><IconLayoutGrid aria-hidden="true" />{{ t('manageSessions') }}</v-button>
             <v-button variant="text" class="schedule-link" :aria-label="t('scheduledTasks')" :title="t('scheduledTasks')"
-              @click="router.push({ path: pathInProfile('/schedules'), query: modalQuery() })">
+              @click="navigateFromSidebar({ path: pathInProfile('/schedules'), query: modalQuery() })">
               <IconClock aria-hidden="true" /><span>{{ t('scheduledTasks') }}</span>
             </v-button>
             <div class="sidebar-profile-row">

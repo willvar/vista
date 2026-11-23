@@ -6,7 +6,7 @@ type Gesture = {
   samples: Array<{ x: number; time: number }>
 }
 
-export function useDrawerSwipe(panel: Ref<HTMLElement | null>, backdrop: Ref<HTMLElement | null>, open: Ref<boolean>, desktop: Ref<boolean>) {
+export function useDrawerSwipe(panel: Ref<HTMLElement | null>, backdrop: Ref<HTMLElement | null>, open: Readonly<Ref<boolean>>, desktop: Ref<boolean>, closeDrawer: () => void) {
   let gesture: Gesture | null = null
   let suppressClickUntil = 0
 
@@ -65,7 +65,7 @@ export function useDrawerSwipe(panel: Ref<HTMLElement | null>, backdrop: Ref<HTM
       const distance = -current.offset
       const close = velocity < -0.5 ? distance >= 24 : velocity > 0.5 ? false : distance >= current.width * 0.3
       suppressClickUntil = performance.now() + 500
-      if (close) open.value = false
+      if (close) closeDrawer()
     }
     reset()
   }

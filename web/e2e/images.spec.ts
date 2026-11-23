@@ -110,6 +110,7 @@ test('multiple images send once with the shortcut and no text and render automat
   })))
   for (const widths of thumbnailWidths) expect(Math.abs(widths.button - widths.image)).toBeLessThanOrEqual(2)
   await expect(page.getByRole('button', { name: /^View image/ })).toHaveCount(0)
+  const conversationURL = page.url()
   await thumbnails.first().click()
   await expect(page.locator('.medium-zoom-overlay')).toBeVisible()
   await expect(page.locator('body > .medium-zoom-image--opened')).toBeVisible()
@@ -122,10 +123,28 @@ test('multiple images send once with the shortcut and no text and render automat
   await expect(page.locator('.medium-zoom-overlay')).toBeVisible()
   await page.locator('.medium-zoom-overlay').click({ position: { x: 8, y: 8 } })
   await expect(page.locator('.medium-zoom-overlay')).toHaveCount(0)
+  await expect(page).toHaveURL(conversationURL)
+
+  await thumbnails.nth(2).click()
+  const zoomed = page.locator('body > .medium-zoom-image--opened')
+  await expect(zoomed).toBeVisible()
+  const source = await thumbnails.nth(2).getAttribute('src')
+  await page.goBack()
+  await expect(zoomed).toHaveCount(0)
+  await expect(page).toHaveURL(conversationURL)
+  await expect(thumbnails.nth(2).locator('..')).toBeFocused()
+  await page.goForward()
+  await expect(zoomed).toHaveAttribute('src', source!)
+  expect(cancellationRequests).toBe(0)
   release()
   await expect(page.locator('article.assistant')).toContainText('Mock reply: Hi')
 
+  // The selected message image can be restored before the virtualized row exists.
   await page.reload()
+  await expect(zoomed).toHaveAttribute('src', source!)
+  await page.getByRole('dialog', { name: 'Attached image', exact: true }).getByRole('button', { name: 'Close', exact: true }).click()
+  await expect(zoomed).toHaveCount(0)
+  await expect(page).toHaveURL(conversationURL)
   await expect(thumbnails).toHaveCount(4)
   await expect.poll(() => thumbnails.evaluateAll(items => items.every(item => (item as HTMLImageElement).complete && (item as HTMLImageElement).naturalWidth > 0))).toBe(true)
   expect(vista.modelRequests).toHaveLength(1)
@@ -141,6 +160,15 @@ test('multiple images send once with the shortcut and no text and render automat
   await expect(thumbnails).toHaveCount(4)
   await expect(page.locator('article.assistant')).toHaveCount(2)
   await expect(page.locator('article.assistant').last()).toContainText('Mock reply: Hi')
+})
+
+test('a stale image preview link falls back to its own conversation without opening another image', async ({ page, vista }) => {
+  const session = await vista.api('/sessions', { method: 'POST', body: '{}' })
+  const conversation = `${vista.origin}/sessions/${session.id}`
+  await page.goto(`${conversation}?layer=image-preview:missing-message/0`)
+  await expect(page).toHaveURL(conversation)
+  await expect(page.locator('.medium-zoom-overlay')).toHaveCount(0)
+  await expect(page.locator('.sender-card textarea')).toBeVisible()
 })
 
 test('pending image-only input restores all attachments to the draft', async ({ page, vista }, testInfo) => {
