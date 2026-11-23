@@ -107,7 +107,21 @@ test('message actions and usage retain their footer alignment and spacing', asyn
     expect(geometry.left).toBeCloseTo(0, 0)
   }
   const user = page.locator('.messages article.user').last()
-  await user.hover()
+  const userActions = user.locator('.message-actions')
+  const copy = userActions.getByRole('button', { name: 'Copy reply', exact: true })
+  if (testInfo.project.use.hasTouch) {
+    // The user's footer can be above the latest reply on a short screen.
+    await userActions.scrollIntoViewIfNeeded()
+    await expect(userActions).toHaveCSS('opacity', '1') // Not merely in the DOM before the first tap.
+    await expect(userActions.getByRole('button', { name: 'Edit message', exact: true })).toBeInViewport()
+    await copy.tap()
+    await expect(copy).toContainText('Copied')
+  } else {
+    await page.mouse.move(1, 1)
+    await expect(userActions).toHaveCSS('opacity', '0')
+    await user.hover()
+    await expect(userActions).toHaveCSS('opacity', '1')
+  }
   const alignment = await user.evaluate(article => {
     const content = article.querySelector('.ui-bubble-content')!.getBoundingClientRect()
     const actions = article.querySelector('.message-actions')!.getBoundingClientRect()

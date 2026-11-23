@@ -78,11 +78,16 @@ const switchingBranch = ref(false)
 const branchSwitchBusy = computed(() => busy.value || !!editingMessage.value || switchingBranch.value)
 async function switchBranch(target: BranchTarget) {
   const origin = selected.value?.id
-  if (!origin || branchSwitchBusy.value || origin === target.id || !branches.value.some(branch => branch.id === target.id && branch.open)) return
+  const destination = branches.value.find(branch => branch.id === target.id)
+  if (!origin || branchSwitchBusy.value || origin === target.id || !destination) return
   const path = route.fullPath
-  const current = () => selected.value?.id === origin && route.fullPath === path
+  const current = () => workspace.scopeActive() && selected.value?.id === origin && route.fullPath === path
   switchingBranch.value = true
   try {
+    if (!destination.open) {
+      await workspace.client.request(`/sessions/${target.id}/open`, { method: 'POST' })
+      if (!current()) return
+    }
     await workspace.client.request(`/sessions/${target.id}/branch-preference`, { method: 'PUT' })
     if (!current()) return
     error.value = ''

@@ -563,12 +563,14 @@ a {
 .messages article.user .ui-bubble-footer {
   margin-top: .2rem;
 }
-.user .message-actions:not(.branch-navigation) {
-  opacity: 0;
-  transition: opacity .15s;
-}
-.user:hover .message-actions,.user:focus-within .message-actions {
-  opacity: 1;
+@media (hover: hover) and (pointer: fine) {
+  .user .message-actions:not(.branch-navigation) {
+    opacity: 0;
+    transition: opacity .15s;
+  }
+  .user:is(:hover, :focus-within) .message-actions:not(.branch-navigation) {
+    opacity: 1;
+  }
 }
 .run-trace .ui-thought-chain-node-box {
   min-width: 0;
@@ -2385,11 +2387,6 @@ body {
   }
   .sidebar-section-label {
     padding-top: 12px;
-  }
-}
-@media(hover:none) {
-  .user .message-actions {
-    opacity: 1;
   }
 }
 @media(prefers-reduced-motion:reduce) {

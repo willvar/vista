@@ -1,5 +1,6 @@
 import type { Page } from '@playwright/test'
 import { test, expect } from './fixtures'
+import { selectSessions } from './session-manager-actions'
 
 test.use({ questionTool: true, replyWithPrompt: true })
 
@@ -78,4 +79,89 @@ test('a saved branch preference follows the Profile while group activity opens i
   } finally {
     await device.close()
   }
+})
+
+
+test('closing and deleting a conversation apply once to every branch', { tag: '@responsive' }, async ({ page, context, vista, isMobile }) => {
+  test.setTimeout(55_000)
+  const post = (path: string, body: object = {}) => vista.api(path, { method: 'POST', body: JSON.stringify(body) })
+  const root = await post('/sessions', { title: 'One conversation, several versions' })
+  const other = await post('/sessions', { title: 'Unrelated conversation' })
+  const sent = await post(`/sessions/${root.id}/messages`, { content: 'Original saved input', modelKey: 'test' })
+  const checkpoint = (id: string) => vista.api(`/sessions/${id}/checkpoint`)
+  await expect.poll(async () => (await checkpoint(root.id)).session.executing).toBe(false)
+  const fork = async () => (await post(`/sessions/${root.id}/messages/${sent.message.id}/revert`)).session
+  const active = await fork()
+  const closed = await fork()
+  // Use the compatibility endpoint to stage an already closed root and a
+  // closed branch. The WebUI still manages one complete conversation.
+  await post(`/sessions/${root.id}/close`)
+  await post(`/sessions/${closed.id}/close`)
+  const ids = [root.id, active.id, closed.id]
+  const row = page.locator(`.session-card[data-session-id="${root.id}"]`)
+  const openSidebar = async () => {
+    if (isMobile && !await page.locator('#sessions-panel.mobile-open').count()) {
+      await page.getByRole('button', { name: 'Open sessions', exact: true }).tap()
+    }
+  }
+  const mutations: string[] = []
+  page.on('request', request => {
+    const path = new URL(request.url()).pathname
+    if (request.method() === 'DELETE' || request.method() === 'POST' && path.endsWith('/close')) mutations.push(path)
+  })
+  const observe = await context.newPage()
+  await page.goto(`${vista.origin}/sessions/${active.id}`)
+  await observe.goto(`${vista.origin}/sessions/${active.id}`)
+  const release = vista.pauseModelReplies()
+  try {
+    await post(`/sessions/${active.id}/messages`, { content: 'A branch with live work', modelKey: 'test' })
+    await expect.poll(async () => (await checkpoint(active.id)).session.executing).toBe(true)
+    await expect(observe.locator('article.user')).toContainText('A branch with live work')
+    await openSidebar()
+    await row.getByRole('button', { name: 'Session menu', exact: true }).click()
+    await page.getByRole('menuitem', { name: 'Close', exact: true }).click()
+    const confirmation = page.getByRole('dialog', { name: 'Close session?', exact: true })
+    expect(mutations).toEqual([])
+    await expect(confirmation).toContainText('every branch')
+    await confirmation.getByRole('button', { name: 'Close and stop', exact: true }).click()
+    await expect(confirmation).toBeHidden()
+    await expect(row).toHaveCount(0)
+    await expect(page).toHaveURL(vista.origin + '/')
+    for (const id of ids) expect((await checkpoint(id)).session).toMatchObject({ open: false, executing: false })
+    await expect(observe.locator('.sender-card textarea')).toBeDisabled()
+    await expect(observe.locator('article.user')).toContainText('A branch with live work')
+    expect((await vista.api('/status')).workerMetrics.every((worker: { sessionId: string }) => !ids.includes(worker.sessionId))).toBe(true)
+  } finally { release() }
+  await openSidebar()
+  await page.getByRole('button', { name: 'Manage sessions', exact: true }).click()
+  const manager = page.locator('.session-manager-page')
+  const group = manager.locator(`.managed-session[data-session-id="${root.id}"]`)
+  await expect(group).toBeVisible()
+  await group.locator('.managed-session-entry').click()
+  await expect(page).toHaveURL(`${vista.origin}/sessions/${root.id}`)
+  expect((await checkpoint(active.id)).session.open).toBe(false)
+  const next = page.locator('article.user').getByRole('button', { name: 'Next branch', exact: true })
+  if (isMobile) await next.tap()
+  else await next.click()
+  await expect(page).toHaveURL(`${vista.origin}/sessions/${active.id}`)
+  await expect(page.locator('article.user')).toContainText('A branch with live work')
+  expect((await checkpoint(active.id)).session).toMatchObject({ open: true, executing: false })
+  expect((await checkpoint(closed.id)).session.open).toBe(false)
+  // Delete the group from the manager while a derived conversation is visible.
+  await openSidebar()
+  await page.getByRole('button', { name: 'Manage sessions', exact: true }).click()
+  await expect(page).toHaveURL(url => url.pathname === '/sessions' && url.searchParams.get('session') === active.id)
+  await selectSessions(manager)
+  await group.getByRole('checkbox').check()
+  await manager.getByRole('button', { name: 'Delete selected', exact: true }).click()
+  const deleteConfirm = page.getByRole('dialog', { name: 'Delete selected', exact: true })
+  await expect(deleteConfirm).toContainText('All branches will be permanently deleted.')
+  expect(mutations).toEqual([`/api/sessions/${root.id}/group/close`])
+  await deleteConfirm.getByRole('button', { name: 'Delete', exact: true }).click()
+  await expect(group).toHaveCount(0)
+  await expect(page).toHaveURL(url => url.pathname === '/sessions' && !url.searchParams.has('session'))
+  await expect(observe).toHaveURL(vista.origin + '/')
+  for (const id of ids) expect((await page.request.get(`${vista.origin}/api/sessions/${id}/checkpoint`)).status()).toBe(404)
+  expect((await checkpoint(other.id)).session.open).toBe(true)
+  expect(mutations).toEqual([`/api/sessions/${root.id}/group/close`, `/api/sessions/${root.id}/group`])
 })

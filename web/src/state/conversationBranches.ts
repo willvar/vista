@@ -4,7 +4,6 @@ export type BranchTarget = { id: string; message?: { key: string; sequence: numb
 export type BranchNavigation = { position: number; total: number; previous?: BranchTarget; next?: BranchTarget }
 
 export function branchNavigators(branches: readonly ConversationBranch[], activeId: string | undefined) {
-  const available = new Set(branches.filter(branch => branch.open || branch.id === activeId).map(branch => branch.id))
   const replaces = new Map(branches.flatMap(branch => branch.firstMessageId && branch.forkMessageId
     ? [[branch.firstMessageId, branch.forkMessageId] as const] : []))
   const groups = new Map<string, BranchTarget[]>()
@@ -27,8 +26,9 @@ export function branchNavigators(branches: readonly ConversationBranch[], active
 
   const messages = new Map<string, BranchNavigation>()
   let draft: BranchNavigation | undefined
-  for (const group of groups.values()) {
-    const versions = group.filter(version => available.has(version.id))
+  // Closed versions are still part of the message history. Choosing one
+  // explicitly can reopen it without starting the rest of the conversation.
+  for (const versions of groups.values()) {
     if (versions.length < 2) continue
     versions.forEach((version, index) => {
       const navigation = { position: index + 1, total: versions.length, previous: versions[index - 1], next: versions[index + 1] }

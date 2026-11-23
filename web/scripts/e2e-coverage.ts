@@ -62,7 +62,7 @@ const consumers: [RegExp, string[]][] = [
   [/^internal\/(?:store|server)\/drafts\.go$|^web\/src\/composables\/serviceDrafts\./, ['conversation', 'about', 'sessions']],
   [/^web\/src\/ContextCompaction\.vue$/, ['contextHeader']],
   [/^internal\/(?:generation\/|provider\/output_catalog|modelcatalog\/(?:generation|inventory|custom_model_metadata)|resources\/generated\.go|server\/generation_settings\.go)|^scripts\/onnx-decision\/|^web\/src\/(?:Generation|state\/generationCards)/, ['models', 'conversation']],
-  [/^web\/src\/(?:App\.vue$|SessionActionDialog\.vue$)|^internal\/(?:server|store)\/session_actions\.go$|^internal\/agent\/tool_(?:session|history)\.go$/, ['sessions', 'conversation']],
+  [/^web\/src\/(?:App\.vue$|SessionActionDialog\.vue$)|^internal\/(?:server|store)\/(?:session|conversation)_actions\.go$|^internal\/agent\/tool_(?:session|history)\.go$/, ['sessions', 'conversation']],
   [/^sdk\/src\/(?:conversationSync\.ts|state\/workspace\.ts)$/, ['sessions', 'conversation']],
   [/^sdk\/src\/state\/(?:conversation|events|inputQueue|mainOutputs)\.ts$/, ['conversation']],
   [/^web\/src\/ui\/TabbedModal\.vue$/, ['about']],

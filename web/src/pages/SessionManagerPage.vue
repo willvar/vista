@@ -23,7 +23,7 @@ const {
   openSessions, closedSessions, totalSessions, serverStatus, busy, debugMode, stateSync,
   backToWorkspace, action, closeConfirmation, requestSessionClose,
   workerAvailable, displaySessionTitle,
-  client, route, selected, conversation, pathInProfile, scopeActive, forgetLocalDraft,
+  client, pathInProfile, scopeActive, changeSessionGroup, sessionGroupError, leaveChangedSessions,
 } = useWorkspace()
 const sessionSearch = ref('')
 const searchQuery = ref('')
@@ -99,7 +99,7 @@ function changePage(current: number, size: number) {
 }
 const selectedIDs = ref(new Set<string>())
 const selectedSessions = computed(() => managedSessions.value.filter(item => selectedIDs.value.has(item.id)))
-const selectedOpen = computed(() => selectedSessions.value.filter(item => item.open))
+const selectedOpen = computed(() => selectedSessions.value.filter(sessionEntryId))
 const selectedClosed = computed(() => selectedSessions.value.filter(item => !sessionEntryId(item)))
 const allVisibleSelected = computed(() => managedSessions.value.length > 0 && selectedSessions.value.length === managedSessions.value.length)
 type BatchKind = 'open' | 'close' | 'delete'
@@ -163,7 +163,7 @@ function sessionMenu(item: Session) {
   return {
     items: [
       { key: 'rename', label: t('editTitle') },
-      ...(item.open ? [{ key: 'close', label: t('close') }] : []),
+      ...(sessionEntryId(item) ? [{ key: 'close', label: t('close') }] : []),
       ...(item.open && managedWorkerAvailable(item.id) === false ? [{ key: 'retry', label: t('retryWorker') }] : []),
       { key: 'delete', label: t('delete'), danger: true },
     ],
@@ -217,29 +217,20 @@ async function runBatch(request = batchRequest.value) {
   busy.value = true
   batchFailures.value = []
   const succeeded = new Set<string>()
+  const affected = new Set<string>()
   try {
     for (const item of targets) {
       try {
-        await client.request(`/sessions/${item.id}${kind === 'delete' ? '' : '/' + kind}`, { method: kind === 'delete' ? 'DELETE' : 'POST' })
+        if (kind === 'open') await client.request(`/sessions/${item.id}/open`, { method: 'POST' })
+        else for (const id of await changeSessionGroup(item, kind)) affected.add(id)
         succeeded.add(item.id)
-        if (kind === 'delete') forgetLocalDraft(item.id)
       } catch (cause) {
-        batchFailures.value.push({ id: item.id, title: displaySessionTitle(item), message: cause instanceof Error ? cause.message : String(cause) })
+        batchFailures.value.push({ id: item.id, title: displaySessionTitle(item), message: sessionGroupError(cause) })
       } finally {
         batchCompleted.value++
       }
     }
-    if (!scopeActive()) return
-    if (succeeded.size) {
-      const activeID = selected.value?.id
-      if (kind !== 'open' && activeID && succeeded.has(activeID)) conversation.clearSession()
-      const routedID = typeof route.query.session === 'string' ? route.query.session : ''
-      if (kind !== 'open' && succeeded.has(routedID)) {
-        const query = { ...route.query }
-        delete query.session
-        await router.replace({ path: route.path, query })
-      }
-    }
+    if (affected.size) await leaveChangedSessions(affected)
   } finally {
     try {
       // Read after the last mutation, never reuse a read started before it.
@@ -352,7 +343,7 @@ function localTime(utc: string) {
     <ListPagination :page="managedPagination.page" :page-size="managedPagination.pageSize" :total="managedPagination.total"
       :disabled="busy || !!renamingSessionID" @change="changePage" />
 </WorkspaceModal>
-<v-modal :open="deleteOpen" class="session-delete-modal" centered :z-index="1200" width="min(420px, calc(100vw - 2rem))"
+<v-modal :open="deleteOpen" class="session-delete-modal session-confirmation" centered :z-index="1200" width="min(420px, calc(100vw - 2rem))"
   :title="t('deleteSessionConfirmTitle')" :ok-text="t('delete')" :cancel-text="t('cancel')" :confirm-loading="busy"
   :ok-button-props="{ danger: true, disabled: busy }" :cancel-button-props="{ disabled: busy }"
   :closable="!busy" :keyboard="!busy" :mask-closable="!busy" @cancel="!busy && (deleteOpen = false)" @ok="deleteSession">

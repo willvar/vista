@@ -14,16 +14,17 @@ test('the message arrows group successive rewrites, not unrelated forks', () => 
   ]
   const { messages, draft } = branchNavigators(variants, 'draft')
   assert.deepEqual(messages.get('original'), {
-    position: 1, total: 3, previous: undefined, next: { id: 'edit', message: { key: 'edited', sequence: 15 } },
+    position: 1, total: 4, previous: undefined, next: { id: 'edit', message: { key: 'edited', sequence: 15 } },
   })
   assert.deepEqual(messages.get('edited'), {
-    position: 2, total: 3, previous: { id: 'root', message: { key: 'original', sequence: 12 } },
-    next: { id: 'draft', message: undefined },
+    position: 2, total: 4, previous: { id: 'root', message: { key: 'original', sequence: 12 } },
+    next: { id: 'closed', message: undefined },
   })
   assert.deepEqual(draft, {
-    position: 3, total: 3, previous: { id: 'edit', message: { key: 'edited', sequence: 15 } }, next: undefined,
+    position: 4, total: 4, previous: { id: 'closed', message: undefined }, next: undefined,
   })
   assert.equal(messages.get('later')?.total, 2)
   assert.equal(messages.get('later')?.next?.id, 'unrelated')
   assert.equal(branchNavigators(variants, 'root').draft, undefined)
+  assert.equal(branchNavigators(variants, 'closed').draft?.position, 3)
 })

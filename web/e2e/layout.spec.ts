@@ -224,6 +224,8 @@ for (const modal of [
       expect(layer.y).toBeGreaterThanOrEqual(0)
       expect(layer.right).toBeLessThanOrEqual(layer.viewportWidth + 2)
       expect(layer.bottom).toBeLessThanOrEqual(layer.viewportHeight + 2)
+      await expect(popup).toContainText('All branches will be permanently deleted.')
+      await expect(popup.getByRole('button', { name: 'Delete', exact: true })).toBeInViewport({ ratio: 1 })
       const after = await section.boundingBox()
       expect(before).not.toBeNull()
       expect(after).not.toBeNull()

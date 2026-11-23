@@ -460,7 +460,7 @@ test('sidebar deletion uses a secondary modal and cancellation preserves the con
   await expect(confirmation).toBeHidden()
   await expect(row).toHaveCount(0)
   await expect(page).toHaveURL(vista.origin + '/')
-  expect(deletes).toEqual([`/api/sessions/${session.id}`])
+  expect(deletes).toEqual([`/api/sessions/${session.id}/group`])
   expect(await vista.api('/sessions')).toEqual([])
   const copies = await page.evaluate(() => (window as any).deleteCopies as string[])
   expect(copies.length).toBeGreaterThan(0)

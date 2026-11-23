@@ -8,7 +8,7 @@ test.beforeEach(async ({ vista }) => {
 function trackCloseRequests(page: Page) {
   const closed: string[] = []
   page.on('request', request => {
-    const match = new URL(request.url()).pathname.match(/^\/api\/sessions\/([^/]+)\/close$/)
+    const match = new URL(request.url()).pathname.match(/^\/api\/sessions\/([^/]+)\/group\/close$/)
     if (request.method() === 'POST' && match) closed.push(match[1]!)
   })
   return closed

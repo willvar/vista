@@ -60,7 +60,7 @@ for (const kind of ['open', 'close', 'delete'] as const) {
       if (url.pathname === '/api/events') streams++
     })
     const releases: (() => void)[] = []
-    await page.route(/\/api\/sessions\/[^/]+(?:\/(?:open|close))?$/, async route => {
+    await page.route(/\/api\/sessions\/[^/]+\/(?:open|group(?:\/close)?)$/, async route => {
       if (route.request().method() !== (kind === 'delete' ? 'DELETE' : 'POST')) return route.continue()
       const response = await route.fetch()
       await new Promise<void>(resolve => { releases.push(resolve) })
@@ -138,7 +138,7 @@ test('batch progress respects reduced motion and responds to preference changes'
   await expect(manager.locator('.managed-session')).toHaveCount(2)
   await selectSessions(manager)
   const releases: (() => void)[] = []
-  await page.route(/\/api\/sessions\/[^/]+\/close$/, async route => {
+  await page.route(/\/api\/sessions\/[^/]+\/group\/close$/, async route => {
     const response = await route.fetch()
     await new Promise<void>(resolve => { releases.push(resolve) })
     await route.fulfill({ response })
@@ -168,7 +168,7 @@ test('batch failure details remain scrollable inside the secondary modal', async
   const manager = page.locator('.session-manager-page')
   await expect(manager.locator('.managed-session')).toHaveCount(1)
   await selectSessions(manager)
-  await page.route(/\/api\/sessions\/[^/]+\/close$/, route => route.fulfill({ status: 409, body: 'Deliberate batch failure. '.repeat(100) }))
+  await page.route(/\/api\/sessions\/[^/]+\/group\/close$/, route => route.fulfill({ status: 409, body: 'Deliberate batch failure. '.repeat(100) }))
   await manager.getByRole('checkbox', { name: 'Select all shown', exact: true }).check()
   await manager.getByRole('button', { name: /^Close selected/ }).click()
   const dialog = page.getByRole('dialog', { name: 'Close selected', exact: true })
@@ -218,7 +218,7 @@ test('bulk failures and SSE reconnect preserve the frozen view and reveal remote
   let requests = 0
   let streams = 0
   page.on('request', request => { if (new URL(request.url()).pathname === '/api/events') streams++ })
-  await page.route(/\/api\/sessions\/[^/]+\/close$/, async route => {
+  await page.route(/\/api\/sessions\/[^/]+\/group\/close$/, async route => {
     requests++
     if (requests === 2) return route.fulfill({ status: 409, body: 'Deliberate batch test conflict' })
     const response = await route.fetch()
@@ -280,7 +280,7 @@ test('batch completion replaces an older in-flight page read before releasing th
   let releaseFinalPage: (() => void) | undefined
   let pageReads = 0
   let firstCommitted = false
-  await page.route(/\/api\/sessions\/[^/]+\/close$/, async route => {
+  await page.route(/\/api\/sessions\/[^/]+\/group\/close$/, async route => {
     const response = await route.fetch()
     firstCommitted = true
     await new Promise<void>(resolve => { mutations.push(resolve) })

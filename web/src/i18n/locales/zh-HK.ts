@@ -256,7 +256,7 @@ export default { ...base, ...{
   "workers": "工作進程",
   "activateSession": "打開會話“{title}”",
   "sessionMenu": "會話菜單",
-  "closeSessionConfirmBody": "正在執行的任務和後台進程將停止。聊天記錄會保留，可從「{manager}」重新打開，但未完成的任務不會自動繼續。",
+  "closeSessionConfirmBody": "正在執行的任務和後台進程將停止。聊天記錄會保留，可從「{manager}」重新打開，但未完成的任務不會自動繼續。會話的所有分支都會關閉。",
   "closeSettings": "關閉設置",
   "backToSettings": "返回設置",
   "editTitle": "重命名",

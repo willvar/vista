@@ -48,7 +48,7 @@ test('bulk session actions respect visible selection, keep the manager open and 
     await new Promise(resolve => setTimeout(resolve, 250))
     await route.continue()
   })
-  await page.route(`**/api/sessions/${second.id}/close`, async route => {
+  await page.route(`**/api/sessions/${second.id}/group/close`, async route => {
     if (failSecondClose) return route.fulfill({ status: 503, body: 'Controlled close failure' })
     return route.continue()
   })

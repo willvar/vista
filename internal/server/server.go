@@ -683,6 +683,17 @@ func (a *App) session(w http.ResponseWriter, r *http.Request) {
 		a.confirmSessionAction(w, r, id.String(), bits[2])
 		return
 	}
+	if len(bits) >= 2 && bits[1] == "group" {
+		switch {
+		case len(bits) == 2 && r.Method == http.MethodDelete:
+			a.changeConversation(w, r, id.String(), true)
+		case len(bits) == 3 && bits[2] == "close" && r.Method == http.MethodPost:
+			a.changeConversation(w, r, id.String(), false)
+		default:
+			http.NotFound(w, r)
+		}
+		return
+	}
 	if r.Method != http.MethodGet && r.Method != http.MethodHead {
 		unlock := a.lockSessionMutation(id.String())
 		defer unlock()

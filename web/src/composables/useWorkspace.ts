@@ -1,7 +1,7 @@
 import { computed, inject, nextTick, onMounted, onUnmounted, provide, ref, watch, type InjectionKey } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
-import { VistaAPIError, createWorkspaceSync, compareSessionOrder, mergeSessionSnapshot, sessionEntryId, sessionNeedsAttention } from '@vista/client'
+import { VistaAPIError, createWorkspaceSync, compareSessionOrder, mergeSessionSnapshot, sessionEntryId, sessionListActivity, sessionNeedsAttention } from '@vista/client'
 import type { StateTopic, StateConnection, WorkspaceSnapshots, ModelCatalog, ServerStatus, Session, SyncCheckpoint } from '@vista/client'
 import { createProfileClient, profilePath, profileStorageKey, routeProfileId } from '../client/profileScope'
 import { draftStoragePrefix, useConversation } from './useConversation'
@@ -22,6 +22,7 @@ function createWorkspace(profileId: string) {
     try {
       localStorage.removeItem(storageKey(draftStoragePrefix) + id)
       localStorage.removeItem(storageKey(quoteStoragePrefix) + id)
+      sessionStorage.removeItem(storageKey('vista-pending-draft:') + id)
     } catch { /* Storage can be unavailable. */ }
   }
   const error = ref('')
@@ -186,8 +187,11 @@ function createWorkspace(profileId: string) {
   async function requestSessionClose(items: Session[], close: () => Promise<void>, confirm?: () => void, alwaysConfirm = false) {
     if (busy.value || closeConfirmation.value || !items.length) return
     const interruptsWork = items.some(item => {
-      const current = selected.value?.id === item.id ? selected.value : sessions.value.find(session => session.id === item.id) ?? item
-      return current.running || current.executing
+      const current = sessions.value.find(session => session.id === item.id) ?? item
+      const active = selected.value
+      const group = sessionListActivity(current)
+      return !!(group.runningId || group.executingId || active && (active.branchRootId || active.id) === item.id
+        && (active.running || active.executing))
     })
     if (interruptsWork || alwaysConfirm) {
       if (confirm) confirm()
@@ -214,19 +218,38 @@ function createWorkspace(profileId: string) {
     if (kind === 'close') return requestSessionClose([item], () => performAction(item, kind), undefined, confirmClose)
     await performAction(item, kind)
   }
+  // User actions operate on a conversation, not on whichever version is open.
+  async function changeSessionGroup(item: Session, kind: 'close' | 'delete') {
+    const { sessionIds } = await client.request<{ sessionIds: string[] }>(`/sessions/${item.id}/group${kind === 'close' ? '/close' : ''}`, {
+      method: kind === 'delete' ? 'DELETE' : 'POST',
+    })
+    if (kind === 'delete') for (const id of sessionIds) forgetLocalDraft(id)
+    return sessionIds
+  }
+  function sessionGroupError(cause: unknown) {
+    return cause instanceof VistaAPIError && cause.code === 'conversation_changed' ? t('sessionGroupChanged')
+      : cause instanceof Error ? cause.message : String(cause)
+  }
+  async function leaveChangedSessions(affected: ReadonlySet<string>) {
+    if (!scopeActive()) return
+    if (selected.value && affected.has(selected.value.id)) conversation.clearSession()
+    if (route.name === 'session' && affected.has(String(route.params.id))) await router.replace(pathInProfile('/'))
+    else if (typeof route.query.session === 'string' && affected.has(route.query.session)) {
+      const query = { ...route.query }
+      delete query.session
+      await router.replace({ path: route.path, query })
+    }
+  }
   async function performAction(item: Session, kind: 'open' | 'close' | 'delete' | 'retry') {
     busy.value = true
     try {
-      await client.request(`/sessions/${item.id}${kind === 'delete' ? '' : '/' + kind}`, { method: kind === 'delete' ? 'DELETE' : 'POST' })
-      if (kind === 'delete') forgetLocalDraft(item.id)
-      if (!scopeActive()) return
-      if ((kind === 'close' || kind === 'delete') && selected.value?.id === item.id) {
-        conversation.clearSession()
-        if (route.name === 'session') await router.replace(pathInProfile('/'))
-        else if (route.query.session === item.id) await router.replace({ path: route.path })
+      if (kind === 'close' || kind === 'delete') {
+        await leaveChangedSessions(new Set(await changeSessionGroup(item, kind)))
+      } else {
+        await client.request(`/sessions/${item.id}/${kind}`, { method: 'POST' })
+        if (scopeActive() && kind === 'open' && sessionManagerOpen.value) await router.push(pathInProfile(`/sessions/${item.id}`))
       }
-      if (kind === 'open' && sessionManagerOpen.value) await router.push(pathInProfile(`/sessions/${item.id}`))
-    } catch (cause) { error.value = String(cause) }
+    } catch (cause) { error.value = sessionGroupError(cause) }
     finally { busy.value = false }
   }
 
@@ -301,7 +324,8 @@ function createWorkspace(profileId: string) {
   function mib(bytes: number) { return (bytes / 1048576).toFixed(1) }
   return {
     client, stateSync, stateConnection, router, route, error, busy, debugMode, sessions, openSessions, closedSessions, totalSessions, attentionCount, modelCatalog, serverStatus, mobileSessionsOpen,
-    sessionsReady, modelsReady, profileId, pathInProfile, scopeActive, forgetLocalDraft,
+    sessionsReady, modelsReady, profileId, pathInProfile, scopeActive,
+    changeSessionGroup, sessionGroupError, leaveChangedSessions,
     settingsOpen, sessionManagerOpen, needsProvider, senderDisabled, conversation, selected, modalQuery, backToWorkspace, openSessionManager,
     openSettings, create, action, renameTitle,
     closeConfirmation, requestSessionClose, cancelSessionClose, confirmSessionClose,

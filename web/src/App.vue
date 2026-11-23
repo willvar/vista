@@ -63,7 +63,7 @@ function sessionMenu(item: Session) {
   return {
     items: [
       { key: 'rename', label: t('editTitle'), disabled: busy.value },
-      ...(item.open ? [{ key: 'close', label: t('close'), disabled: busy.value }] : []),
+      ...(sessionEntryId(item) ? [{ key: 'close', label: t('close'), disabled: busy.value }] : []),
       { key: 'delete', label: t('delete'), disabled: busy.value, danger: true },
     ],
     onClick: ({ key }: { key: string }) => {
@@ -148,14 +148,14 @@ function isExecuting(item: Session) {
       </WorkspaceSplit>
     </div>
   </main>
-  <v-modal :open="!!closeConfirmation" centered :z-index="1200" width="min(420px, calc(100vw - 2rem))"
+  <v-modal :open="!!closeConfirmation" class="session-confirmation" centered :z-index="1200" width="min(420px, calc(100vw - 2rem))"
     :title="t(closeDialogDetails.count > 1 ? 'closeSelectedSessionsConfirmTitle' : 'closeSessionConfirmTitle', { count: closeDialogDetails.count })"
     :ok-text="t(closeDialogDetails.stopsWork ? 'closeAndStop' : 'close')" :cancel-text="t('cancel')" :confirm-loading="busy"
     :ok-button-props="{ danger: true, disabled: busy }" :cancel-button-props="{ disabled: busy }"
     :closable="!busy" :keyboard="!busy" :mask-closable="!busy" @cancel="cancelSessionClose" @ok="confirmSessionClose">
     <p>{{ t('closeSessionConfirmBody', { manager: t('manageSessions') }) }}</p>
   </v-modal>
-  <v-modal :open="deleteConfirmationOpen" centered :z-index="1200" width="min(420px, calc(100vw - 2rem))"
+  <v-modal :open="deleteConfirmationOpen" class="session-confirmation" centered :z-index="1200" width="min(420px, calc(100vw - 2rem))"
     :title="t('deleteSessionConfirmTitle')" :ok-text="t('delete')" :cancel-text="t('cancel')" :confirm-loading="busy"
     :ok-button-props="{ danger: true, disabled: busy }" :cancel-button-props="{ disabled: busy }"
     :closable="!busy" :keyboard="!busy" :mask-closable="!busy" @cancel="!busy && (deleteConfirmationOpen = false)" @ok="deleteSession">
@@ -166,6 +166,20 @@ function isExecuting(item: Session) {
 </template>
 
 <style scoped>
+:global(.session-confirmation .ui-modal-container) {
+  display: flex;
+  flex-direction: column;
+  max-height: calc(100dvh - 32px);
+}
+:global(.session-confirmation .ui-modal-body) {
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+:global(.session-confirmation .ui-modal-footer) {
+  flex: none;
+}
+
 @media (max-width: 830px) and (max-height: 520px) {
   .sidebar-navigation { grid-template-columns: minmax(0, 1fr) auto; }
   .sidebar-profile-row { grid-column: 1 / -1; }
