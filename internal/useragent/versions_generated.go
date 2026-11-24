@@ -15,7 +15,7 @@ const OhMyPiVersion = "19.1.1"
 const ClaudeCodeVersion = "2.1.331"
 
 // GeminiCLIVersion tracks @google/gemini-cli@latest.
-const GeminiCLIVersion = "0.71.0"
+const GeminiCLIVersion = "0.71.1"
 
 // KimiCodeVersion tracks @moonshot-ai/kimi-code@latest.
 const KimiCodeVersion = "2.7.3"
