@@ -58,7 +58,7 @@ const consumers: [RegExp, string[]][] = [
   [/^web\/src\/composables\/routeLayers\.ts$|^web\/e2e\/controls\/LayerNavigation\.vue$/, ['navigation', 'about', 'models', 'skills', 'network', 'search', 'mcp', 'personalization']],
   [/^web\/src\/composables\/useDrawerSwipe\.ts$/, ['sidebar', 'navigation']],
   [/^web\/src\/(?:composables\/useMessageImageRoute|ui\/messageImageZoom)\.ts$/, ['navigation', 'conversation']],
-  [/^internal\/(?:schedule\/|(?:server|store)\/schedules\.go$)|^web\/src\/pages\/SchedulesPage\.vue$/, ['schedules']],
+  [/^internal\/(?:schedule\/|(?:server|store)\/schedules\.go$)|^web\/src\/(?:ScheduleSettings\.vue|pages\/SchedulesPage\.vue)$/, ['schedules']],
   [/^web\/src\/state\/clientRuntime\.ts$/, ['about']],
   [/^web\/src\/(?:App|ProfileMenu)\.vue$/, ['sidebar']],
   [/^web\/src\/(?:SessionSortMenu\.vue|composables\/useSidebarSessions\.ts)$|^sdk\/src\/sessionPages\.ts$/, ['sessions', 'sidebar']],

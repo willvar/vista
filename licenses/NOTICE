@@ -199,6 +199,11 @@ golang.org/x/term@v0.46.0
   Declared license: MIT
   LICENSE: 2e9d3d03c7f5bd727f8e53dda3795edc0873e6479d0cb32225b9390c1db72433
 
+@zag-js/auto-resize@1.47.0
+  Use: Frontend dependency
+  Declared license: MIT
+  LICENSE: 2e9d3d03c7f5bd727f8e53dda3795edc0873e6479d0cb32225b9390c1db72433
+
 @zag-js/checkbox@1.47.0
   Use: Frontend dependency
   Declared license: MIT

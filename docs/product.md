@@ -74,7 +74,7 @@ On a phone, Back closes the session drawer before leaving the conversation. Afte
 
 ## Scheduled tasks
 
-Open **Scheduled tasks** in the sidebar of the Profile you want to use. Enter a name, the message to send, and a one-time, fixed-interval, daily or weekly schedule. Check the time zone and next run before enabling. Leave the model blank to use the Profile's current default when each run starts. An unavailable selected model needs attention rather than switching models.
+Open **Settings → Scheduled tasks** in the Profile you want to use. Enter a name, the message to send, and a one-time, fixed-interval, daily or weekly schedule. Check the next run before enabling. Vista uses your device’s time zone when you create the task and keeps that zone when you edit it from another device. Leave the model blank to use the Profile's current default when each run starts. An unavailable selected model needs attention rather than switching models.
 
 The Vista service creates a new conversation at each trigger and sends the saved text as an ordinary user message. Creating a task does not start a conversation. Closing the browser does not stop a schedule; Vista must be running to execute. Open the conversation from run history. Execution uses the Profile's ordinary tools and confirmation rules. After the run ends Vista closes the conversation, retains its history and stops its managed work.
 

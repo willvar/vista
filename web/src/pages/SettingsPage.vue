@@ -4,7 +4,7 @@ import { computed, defineAsyncComponent, h, nextTick, reactive, onMounted, onUnm
 import { useRoute } from 'vue-router'
 import { layerTokens, returnToParent, useLeaveConfirmation, useRouteLayer, withLayers } from '../composables/routeLayers'
 import { useI18n } from 'vue-i18n'
-import { IconChevronRight, IconPalette, IconUser, IconPlugConnected, IconInfoCircle, IconSearch, IconLink, IconBook2, IconSun, IconMoon, IconDeviceDesktop, IconDatabase, IconAlertCircle, IconMaximize, IconMinimize, IconPlus, IconFileImport, IconRefresh, IconRobot, IconRobotFace, IconUsers, IconCompass, IconTool, IconMessage, IconFolderOpen, IconFolder, IconFileText, IconPencil, IconAdjustments } from '@tabler/icons-vue'
+import { IconChevronRight, IconPalette, IconUser, IconPlugConnected, IconInfoCircle, IconSearch, IconLink, IconBook2, IconSun, IconMoon, IconDeviceDesktop, IconDatabase, IconAlertCircle, IconMaximize, IconMinimize, IconPlus, IconFileImport, IconRefresh, IconRobot, IconRobotFace, IconUsers, IconCompass, IconTool, IconMessage, IconFolderOpen, IconFolder, IconFileText, IconPencil, IconAdjustments, IconClock } from '@tabler/icons-vue'
 import { Empty as VEmpty, Alert as VAlert, Button as VButton, Input as VInput, Modal as VModal, Select as VSelect, Switch as VSwitch, Tooltip as VTooltip } from '../ui'
 import WorkspaceModal from '../WorkspaceModal.vue'
 import ConfirmPopover from '../ConfirmPopover.vue'
@@ -32,6 +32,7 @@ import { useProviderSettings } from '../composables/useProviderSettings'
 import { useAppearance } from '../ui/appearance'
 import { readClientRuntime } from '../state/clientRuntime'
 
+const ScheduleSettings = defineAsyncComponent(() => import('../ScheduleSettings.vue'))
 const StatisticsSettings = defineAsyncComponent({
   loader: () => import('../StatisticsSettings.vue'),
   loadingComponent: () => h('p', { class: 'settings-content', role: 'status' }, t('statisticsLoading')),
@@ -67,6 +68,7 @@ const sections = [
   { name: 'settings-search', label: 'searchSettings', icon: IconSearch },
   { name: 'settings-mcp', label: 'mcpSettings', icon: IconLink },
   { name: 'settings-skills', label: 'skillsSettings', icon: IconBook2 },
+  { name: 'settings-schedules', label: 'scheduledTasks', icon: IconClock },
   { name: 'settings-network', label: 'networkSettings', icon: IconCompass },
   { name: 'settings-statistics', label: 'statisticsSettings', icon: IconChartBar },
   { name: 'settings-storage', label: 'storageSettings', icon: IconDatabase },
@@ -84,6 +86,7 @@ const settingsLayerKinds: Record<string, string[]> = {
   'settings-network': ['proxy-profile'],
   'settings-storage': ['storage-config'],
   'settings-search': ['search-key'],
+  'settings-schedules': ['schedule-editor', 'schedule-history'],
 }
 watch([() => route.name, () => route.query.layer], ([name, raw]) => {
   if (raw === undefined || route.meta.workspaceOverlay !== 'settings') return
@@ -292,6 +295,7 @@ watch([() => route.name, () => route.query.session], () => {
         </nav>
         <NetworkSettings ref="sectionActions" v-if="route.name === 'settings-network'" @modal-open="networkModalOpen = $event" />
         <SearchSettings v-if="route.name === 'settings-search'" @modal-open="searchModalOpen = $event" />
+        <ScheduleSettings v-if="route.name === 'settings-schedules'" />
         <StatisticsSettings ref="sectionActions" v-if="route.name === 'settings-statistics'" @modal-open="statisticsModalOpen = $event" />
         <MCPSettings ref="sectionActions" v-if="route.name === 'settings-mcp'" @modal-open="mcpModalOpen = $event" />
         <SkillsSettings ref="sectionActions" v-if="route.name === 'settings-skills'" @modal-open="skillModalOpen = $event" />
@@ -539,6 +543,8 @@ watch([() => route.name, () => route.query.session], () => {
   <v-modal :open="providerDiscardOpen" :title="t('networkDiscard')" :footer="null" :z-index="1400" @cancel="finishProviderDiscard(false)"><p>{{ t('configEditorDiscard') }}</p><div class="actions"><v-button @click="finishProviderDiscard(false)">{{ t('cancel') }}</v-button><v-button danger @click="finishProviderDiscard(true)">{{ t('networkDiscard') }}</v-button></div></v-modal>
 </template>
 <style scoped>
+.settings-nav { overflow-y: auto; }
+.settings-nav > a { flex: none; }
 .chat-model-controls { display: grid; gap: 8px; min-width: 0; }
 .model-visibility-setting { margin: 0; gap: 8px; }
 .provider-kind-select,.provider-kind-field,.provider-public-config,.provider-auth-info,.provider-login-workflow { grid-column: 1 / -1; min-width: 0; }

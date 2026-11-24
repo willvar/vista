@@ -1228,7 +1228,7 @@ func (a *App) outputPage(w http.ResponseWriter, r *http.Request, id, outputPath 
 }
 func (a *App) root(w http.ResponseWriter, r *http.Request) {
 	path := r.URL.Path
-	if (path != "/" && path != "/index.html" && path != "/settings" && path != "/settings/models" && path != "/settings/network" && path != "/settings/about" && path != "/settings/general" && path != "/settings/personalization" && path != "/settings/search" && path != "/settings/storage" && path != "/settings/mcp" && path != "/settings/skills" && path != "/settings/statistics" && path != "/sessions" && !strings.HasPrefix(path, "/sessions/")) || (r.Method != "GET" && r.Method != "HEAD") {
+	if (path != "/" && path != "/index.html" && path != "/settings" && path != "/settings/models" && path != "/settings/network" && path != "/settings/about" && path != "/settings/general" && path != "/settings/personalization" && path != "/settings/search" && path != "/settings/storage" && path != "/settings/mcp" && path != "/settings/skills" && path != "/settings/statistics" && path != "/settings/schedules" && path != "/schedules" && path != "/sessions" && !strings.HasPrefix(path, "/sessions/")) || (r.Method != "GET" && r.Method != "HEAD") {
 		http.NotFound(w, r)
 		return
 	}

@@ -12,7 +12,6 @@ import { installAssetRecovery, showBootFailure } from './asset-recovery'
 import './style.css'
 const SettingsPage = () => import('./pages/SettingsPage.vue')
 const SessionManagerPage = () => import('./pages/SessionManagerPage.vue')
-const SchedulesPage = () => import('./pages/SchedulesPage.vue')
 // The document, router and locale stay alive. Only the data-owning workspace
 // is recreated, so streams, editors and revision cursors remain Profile-local.
 const ProfileWorkspace = defineComponent({
@@ -37,8 +36,9 @@ const routes: RouteRecordRaw[] = [
   { path: 'settings/search', name: 'settings-search', components: { default: ConversationPage, overlay: SettingsPage }, meta: { workspaceOverlay: 'settings' } },
   { path: 'settings/mcp', name: 'settings-mcp', components: { default: ConversationPage, overlay: SettingsPage }, meta: { workspaceOverlay: 'settings' } },
   { path: 'settings/skills', name: 'settings-skills', components: { default: ConversationPage, overlay: SettingsPage }, meta: { workspaceOverlay: 'settings' } },
+  { path: 'settings/schedules', name: 'settings-schedules', components: { default: ConversationPage, overlay: SettingsPage }, meta: { workspaceOverlay: 'settings' } },
   { path: 'sessions', name: 'session-manager', components: { default: ConversationPage, overlay: SessionManagerPage }, meta: { workspaceOverlay: 'sessions' } },
-  { path: 'schedules', name: 'schedules', components: { default: ConversationPage, overlay: SchedulesPage }, meta: { workspaceOverlay: 'schedules' } },
+  { path: 'schedules', redirect: to => ({ name: 'settings-schedules', params: to.params, query: to.query, hash: to.hash }) },
   { path: 'sessions/:id', name: 'session', component: ConversationPage },
   { path: ':pathMatch(.*)*', redirect: to => profileHome(routeProfileId(to.params)) },
 ]

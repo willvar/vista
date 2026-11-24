@@ -4,7 +4,7 @@ import { closeSettings } from './settings-navigation'
 const sections = [
   ['general', 'Appearance'], ['personalization', 'Personalization'],
   ['models', 'Service connections'], ['search', 'Model web access'], ['mcp', 'MCP'],
-  ['skills', 'Skill library'], ['network', 'Network configuration'], ['statistics', 'Usage'], ['storage', 'Storage'], ['about', 'About Vista'],
+  ['skills', 'Skill library'], ['schedules', 'Scheduled tasks'], ['network', 'Network configuration'], ['statistics', 'Usage'], ['storage', 'Storage'], ['about', 'About Vista'],
 ] as const
 
 test.beforeEach(async ({ vista }) => {

@@ -29,6 +29,12 @@ func TestFrontendDocumentAndMissingResources(t *testing.T) {
 	if conditional.Code != http.StatusNotModified || conditional.Body.Len() != 0 {
 		t.Fatal("application routes do not revalidate their shared HTML")
 	}
+	for _, path := range []string{"/settings/schedules?layer=schedule-editor", "/schedules"} {
+		response := frontendRequest(t, "GET", path, nil)
+		if response.Code != http.StatusOK || !bytes.Equal(response.Body.Bytes(), index.Body.Bytes()) {
+			t.Fatalf("schedule link did not receive the application document: %s %d", path, response.Code)
+		}
+	}
 	head := frontendRequest(t, "HEAD", "/index.html", nil)
 	if head.Code != http.StatusOK || head.Body.Len() != 0 || head.Header().Get("Content-Length") == "" {
 		t.Fatal("application HEAD response is invalid")

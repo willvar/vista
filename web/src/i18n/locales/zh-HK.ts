@@ -271,6 +271,7 @@ export default { ...base, ...{
   "scheduleMessage": "要發送的消息",
   "scheduleDefaultModel": "使用執行時的默認模型",
   "scheduleConflict": "任務已變更或正在運行。請查看當前狀態後重試。",
+  "scheduleInvalidTiming": "請檢查時間設置。僅運行一次的任務需選擇未來的時間。",
   "scheduleEnable": "保存並啓用",
   "scheduleNoHistory": "這個任務還沒有運行記錄。",
   "scheduleOlder": "查看更早的執行",
