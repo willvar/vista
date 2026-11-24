@@ -12,6 +12,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"vista/internal/provider"
 	"vista/internal/tools"
@@ -324,59 +325,162 @@ func TestAgentExecutesWithoutAnEmptyInstructionRound(t *testing.T) {
 
 func TestAgentConsumesDiscoveredRulesWithoutASeparateReadRound(t *testing.T) {
 	for _, concurrentRead := range []bool{false, true} {
-		t.Run(fmt.Sprint("concurrent explicit read=", concurrentRead), func(t *testing.T) {
-			root, _ := continuationFixture(t)
-			path, rule := filepath.Join(root, "created.txt"), filepath.Join(root, "AGENTS.md")
-			if err := os.WriteFile(rule, []byte("Use the project writing rules."), 0600); err != nil {
-				t.Fatal(err)
-			}
-			write := instructionCall(t, "blocked-write", "write_file", map[string]string{"path": path, "expectedSha256": "missing", "content": "written after reading"})
-			read := instructionCall(t, "read-rules", "read_project_instruction", map[string]string{"path": rule})
-			var requests atomic.Int32
-			model := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				turn := requests.Add(1)
-				var body struct{ Messages []provider.ChatMessage }
-				if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-					t.Error(err)
-				}
-				if turn <= 2 {
-					if _, err := os.Stat(path); !os.IsNotExist(err) {
-						t.Errorf("write ran before model consumed rules, turn=%d err=%v", turn, err)
-					}
-				}
-				switch turn {
-				case 1:
-					if concurrentRead {
-						instructionTurn(w, read, write)
-					} else {
-						instructionTurn(w, write)
-					}
-				case 2:
-					var notice instructionNotice
-					if err := json.Unmarshal([]byte(body.Messages[len(body.Messages)-1].Content), &notice); err != nil || notice.Status != "instructions_required" || notice.Executed || len(notice.Pages) != 1 || notice.Pages[0].Content != "Use the project writing rules." {
-						t.Errorf("model did not receive the blocked result and actual rules: %+v %v", notice, err)
-					}
-					write.ID = "after-reading-write"
-					instructionTurn(w, write)
-				default:
-					if data, err := os.ReadFile(path); err != nil || string(data) != "written after reading" {
-						t.Errorf("retry did not write: %q %v", data, err)
-					}
-					continuationAnswer(w, "done")
-				}
-			}))
-			defer model.Close()
-			blocked := 0
-			answer, err := Run(context.Background(), continuationCommand(model.URL, "Create the file."), func(event workerproto.Result) error {
-				if event.Kind == "tool" && event.Status == "succeeded" && strings.Contains(event.Content, `"status":"instructions_required"`) {
-					blocked++
-				}
-				return nil
+		for _, delayWrite := range []bool{false, true} {
+			t.Run(fmt.Sprintf("concurrent explicit read=%t/deferred write=%t", concurrentRead, delayWrite), func(t *testing.T) {
+				testAgentConsumesDiscoveredRules(t, concurrentRead, delayWrite)
 			})
-			if err != nil || answer != "done" || requests.Load() != 3 || blocked != 1 {
-				t.Fatalf("rule retry: answer=%q requests=%d blocked=%d err=%v", answer, requests.Load(), blocked, err)
+		}
+	}
+}
+
+func testAgentConsumesDiscoveredRules(t *testing.T, concurrentRead, delayWrite bool) {
+	t.Helper()
+	const runID, blockedWrite, acceptedWrite, readRules = "rule-retry", "blocked-write", "after-reading-write", "read-rules"
+	const rules = "Use the project writing rules."
+	root, _ := continuationFixture(t)
+	path, rule := filepath.Join(root, "created.txt"), filepath.Join(root, "AGENTS.md")
+	if err := os.WriteFile(rule, []byte(rules), 0600); err != nil {
+		t.Fatal(err)
+	}
+	args := map[string]string{"path": path, "expectedSha256": "missing", "content": "written after reading"}
+	initial := []provider.ToolCall{instructionCall(t, blockedWrite, "write_file", args)}
+	if concurrentRead {
+		initial = append([]provider.ToolCall{instructionCall(t, readRules, "read_project_instruction", map[string]string{"path": rule})}, initial...)
+	}
+	next := instructionCall(t, acceptedWrite, "write_file", args)
+	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
+	defer cancel()
+	// The latest matching runtime notice supersedes a running tool reply.
+	reply := func(messages []provider.ChatMessage, callID string) (string, bool, error) {
+		executionID := runID + ":tool:main/" + callID
+		for i := len(messages) - 1; i >= 0; i-- {
+			msg := messages[i]
+			if runtimeNoticeOnWire(msg.Role, msg.Content) {
+				_, raw, _ := strings.Cut(msg.Content, "\n")
+				var notice workerproto.RuntimeEvent
+				if err := json.Unmarshal([]byte(raw), &notice); err != nil {
+					return "", false, err
+				}
+				if notice.SourceID != callID {
+					continue
+				}
+				if notice.ID != executionID || notice.Kind != "tool" || notice.Status != "succeeded" {
+					return "", false, fmt.Errorf("wrong completion for %s", callID)
+				}
+				return notice.Content, false, nil
 			}
-		})
+			if msg.Role == "tool" && msg.ToolCallID == callID {
+				var result struct {
+					Status      string `json:"status"`
+					ExecutionID string `json:"executionId"`
+				}
+				pending := json.Unmarshal([]byte(msg.Content), &result) == nil && result.Status == "running"
+				if pending && result.ExecutionID != executionID {
+					return "", false, fmt.Errorf("wrong pending result for %s", callID)
+				}
+				return msg.Content, pending, nil
+			}
+		}
+		return "", false, fmt.Errorf("missing tool reply for %s", callID)
+	}
+	var mu sync.Mutex
+	var requests, waitingTurns int
+	afterReading, writeYielded := false, false
+	calls := initial
+	remaining := len(calls) + 1
+	model := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		defer mu.Unlock()
+		requests++
+		var body struct{ Messages []provider.ChatMessage }
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Error(err)
+			http.Error(w, "invalid model context", http.StatusBadRequest)
+			return
+		}
+		if !afterReading {
+			if _, err := os.Stat(path); !os.IsNotExist(err) {
+				t.Errorf("write ran before model consumed rules, request=%d err=%v", requests, err)
+			}
+		}
+		if requests == 1 {
+			instructionTurn(w, calls...)
+			return
+		}
+		pending := 0
+		var blockedResult string
+		for _, call := range calls {
+			content, running, err := reply(body.Messages, call.ID)
+			if err != nil {
+				t.Error(err)
+				http.Error(w, "invalid tool response", http.StatusBadRequest)
+				return
+			}
+			if running {
+				pending++
+			} else if call.ID == blockedWrite {
+				blockedResult = content
+			}
+		}
+		if pending > 0 {
+			if pending >= remaining {
+				t.Error("repeated waiting turn without a new tool completion")
+				http.Error(w, "unexpected waiting turn", http.StatusBadRequest)
+				return
+			}
+			remaining = pending
+			waitingTurns++
+			writeYielded = writeYielded || afterReading
+			continuationAnswer(w, "Waiting for the existing tool calls")
+			return
+		}
+		if !afterReading {
+			var notice instructionNotice
+			if err := json.Unmarshal([]byte(blockedResult), &notice); err != nil || notice.Status != "instructions_required" || notice.Executed || len(notice.Pages) != 1 || notice.Pages[0].Content != rules {
+				t.Errorf("model did not receive the blocked result and actual rules: %+v %v", notice, err)
+				http.Error(w, "invalid instructions notice", http.StatusBadRequest)
+				return
+			}
+			afterReading = true
+			calls = []provider.ToolCall{next}
+			remaining = len(calls) + 1
+			instructionTurn(w, next)
+			return
+		}
+		if data, err := os.ReadFile(path); err != nil || string(data) != "written after reading" {
+			t.Errorf("retry did not write: %q %v", data, err)
+		}
+		continuationAnswer(w, "done")
+	}))
+	defer model.Close()
+	command := continuationCommand(model.URL, "Create the file.")
+	command.RunID = runID
+	var blocked, written atomic.Int32
+	answer, err := Run(ctx, command, func(event workerproto.Result) error {
+		if event.Kind == "tool" && event.Status == "succeeded" && event.Tool != nil {
+			switch event.Tool.CallID {
+			case blockedWrite:
+				if strings.Contains(event.Content, `"status":"instructions_required"`) {
+					blocked.Add(1)
+				}
+			case acceptedWrite:
+				if delayWrite {
+					// Force the normal yield path without changing the runtime.
+					select {
+					case <-time.After(2 * toolYieldDelay):
+					case <-ctx.Done():
+						return ctx.Err()
+					}
+				}
+				written.Add(1)
+			}
+		}
+		return nil
+	})
+	mu.Lock()
+	defer mu.Unlock()
+	if err != nil || answer != "done" || requests != 3+waitingTurns || blocked.Load() != 1 || written.Load() != 1 || (delayWrite && !writeYielded) {
+		t.Fatalf("rule retry: answer=%q requests=%d waiting=%d blocked=%d written=%d yielded=%v err=%v", answer, requests, waitingTurns, blocked.Load(), written.Load(), writeYielded, err)
 	}
 }
 

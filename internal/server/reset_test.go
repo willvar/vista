@@ -174,37 +174,83 @@ func TestResetRequiresExplicitConfirmation(t *testing.T) {
 func TestResetDrainsRequestsAndBackgroundWriters(t *testing.T) {
 	h, handler := resetFixture(t)
 	old := h.app
+	// The watchdog bounds a hung fixture; rebuilding the database is not a drain-order assertion.
+	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
+	defer cancel()
 	started := make(chan struct{})
 	release := make(chan struct{})
-	var releaseOnce sync.Once
-	t.Cleanup(func() { releaseOnce.Do(func() { close(release) }) })
+	reopen := make(chan struct{})
+	allowReopen := make(chan struct{})
+	var releaseOnce, reopenOnce sync.Once
+	t.Cleanup(func() {
+		releaseOnce.Do(func() { close(release) })
+		reopenOnce.Do(func() { close(allowReopen) })
+	})
 	requestFinished := make(chan struct{})
+	saveWritten := make(chan struct{})
 	lateWriter := make(chan struct{})
 	// Simulate an HTTP save which finishes after its context is canceled.
 	h.next = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		close(started)
 		<-r.Context().Done()
 		<-release
-		_ = os.WriteFile(filepath.Join(old.configDir, "late-save.json"), []byte("old secret"), 0600)
+		if err := os.WriteFile(filepath.Join(old.configDir, "late-save.json"), []byte("old secret"), 0600); err != nil {
+			t.Errorf("late save fixture: %v", err)
+		}
+		close(saveWritten)
 	})
+	open := h.open
+	h.open = func() (*App, error) {
+		for _, writer := range []<-chan struct{}{saveWritten, lateWriter} {
+			select {
+			case <-writer:
+			default:
+				t.Error("reset reached reopen before an old writer finished")
+			}
+		}
+		for _, name := range []string{"late-save.json", "late-login.json"} {
+			if _, err := os.Stat(filepath.Join(old.configDir, name)); !errors.Is(err, os.ErrNotExist) {
+				t.Errorf("old write survived cleanup before reopen: %s %v", name, err)
+			}
+		}
+		close(reopen)
+		select {
+		case <-allowReopen:
+			return open()
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+	}
 	go func() {
 		handler.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodPut, "http://127.0.0.1:5186/api/test-save", nil))
 		close(requestFinished)
 	}()
-	<-started
+	select {
+	case <-started:
+	case <-ctx.Done():
+		t.Fatal("test save did not start")
+	}
 	old.background.Go(func() {
 		<-old.ctx.Done()
 		<-release
-		_ = os.WriteFile(filepath.Join(old.configDir, "late-login.json"), []byte("old credential"), 0600)
+		if err := os.WriteFile(filepath.Join(old.configDir, "late-login.json"), []byte("old credential"), 0600); err != nil {
+			t.Errorf("late login fixture: %v", err)
+		}
 		close(lateWriter)
 	})
 	done := make(chan *httptest.ResponseRecorder, 1)
 	go func() { done <- resetCall(handler, http.MethodPost, `{"confirm":"reset-all"}`) }()
-	select {
-	case <-old.ctx.Done():
-	case <-time.After(3 * time.Second):
-		t.Fatal("reset did not cancel active work")
+	awaitPhase := func(phase string, reached <-chan struct{}) {
+		t.Helper()
+		select {
+		case <-reached:
+		case result := <-done:
+			t.Fatalf("reset returned before %s: %d %s", phase, result.Code, result.Body.String())
+		case <-ctx.Done():
+			t.Fatalf("reset did not reach %s: %v", phase, ctx.Err())
+		}
 	}
+	awaitPhase("old app cancellation", old.ctx.Done())
 	if result := resetCall(handler, http.MethodPost, `{"confirm":"reset-all"}`); result.Code != http.StatusConflict {
 		t.Fatalf("concurrent reset accepted: %d", result.Code)
 	}
@@ -216,19 +262,27 @@ func TestResetDrainsRequestsAndBackgroundWriters(t *testing.T) {
 	select {
 	case <-done:
 		t.Fatal("reset finished before old writers drained")
+	case <-reopen:
+		t.Fatal("reset reached reopen before releasing old writers")
 	default:
 	}
+	drainStart := time.Now()
 	releaseOnce.Do(func() { close(release) })
+	awaitPhase("old API request exit", requestFinished)
+	awaitPhase("old background writer exit", lateWriter)
+	awaitPhase("cleanup and start of reopen", reopen)
+	t.Logf("drain and cleanup: %v", time.Since(drainStart))
+	reopenStart := time.Now()
+	reopenOnce.Do(func() { close(allowReopen) })
 	select {
 	case result := <-done:
 		if result.Code != http.StatusOK {
 			t.Fatalf("reset: %d %s", result.Code, result.Body.String())
 		}
-	case <-time.After(3 * time.Second):
-		t.Fatal("reset did not finish after writers drained")
+		t.Logf("reopen and response: %v", time.Since(reopenStart))
+	case <-ctx.Done():
+		t.Fatalf("reset drained and cleaned up, but did not finish reopening: %v", ctx.Err())
 	}
-	<-requestFinished
-	<-lateWriter
 	for _, name := range []string{"late-save.json", "late-login.json"} {
 		if _, err := os.Stat(filepath.Join(old.configDir, name)); !errors.Is(err, os.ErrNotExist) {
 			t.Fatalf("late writer restored deleted data: %s %v", name, err)
