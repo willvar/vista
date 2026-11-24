@@ -416,8 +416,24 @@ test('connect Z.ai with only a key, then choose models in the conversation', asy
   await expect(form.locator('.catalog-model-field, .model-list-field')).toHaveCount(0)
   await expect(form.getByPlaceholder('Leave blank to reuse the saved key')).toHaveValue('')
   await form.getByLabel(/^Provider name/).fill('Renamed Z.ai')
-  await form.getByRole('button', { name: 'Save changes', exact: true }).click()
-  await expect(modal.locator('.configured-provider').filter({ hasText: 'Renamed Z.ai' })).toBeVisible()
+  // The committed rename can reach the list over SSE before the save closes its route.
+  let acknowledge!: () => void
+  const saving = new Promise<void>(resolve => { acknowledge = resolve })
+  await page.route('**/api/provider-config', async route => {
+    if (route.request().method() !== 'PUT') return route.continue()
+    const response = await route.fetch()
+    await saving
+    await route.fulfill({ response })
+  })
+  try {
+    await form.getByRole('button', { name: 'Save changes', exact: true }).click()
+    await expect(modal.locator('.configured-provider').filter({ hasText: 'Renamed Z.ai' })).toBeVisible()
+    await expect(form).toBeVisible()
+  } finally {
+    acknowledge()
+  }
+  await expect(form).toHaveCount(0)
+  await page.unroute('**/api/provider-config')
   await page.reload()
   const reloaded = (await vista.api('/model-config')).models.find((item: { key: string }) => item.key === configured.key)
   expect(reloaded).toMatchObject({ connectionId: configured.connectionId, name: 'Renamed Z.ai', hasApiKey: true })

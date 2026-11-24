@@ -78,14 +78,33 @@ function openChange(value: boolean) {
   open.value = value
   if (!value) { search.value = ''; text.value = '' }
 }
+// Initialize the controlled highlight with the opening gesture. Zag's native
+// opening handlers restore it in a later frame, after a key may have moved it.
+function openWithSelection(direction?: 'ArrowDown' | 'ArrowUp') {
+  const list = collection.value
+  const initial = list.sort(selected.value).find(value => list.has(value))
+  highlighted.value = initial ?? (direction === 'ArrowDown' ? list.firstValue : direction === 'ArrowUp' ? list.lastValue : null)
+  openChange(true)
+}
+function openOnClick(event: MouseEvent, trigger = false) {
+  if (open.value || props.disabled || event.defaultPrevented || event.button !== 0) return
+  // Only the trigger still has a built-in opening action. Preserve native input focus.
+  if (trigger) event.preventDefault()
+  openWithSelection()
+}
+function handleKeydown(event: KeyboardEvent) {
+  if (event.defaultPrevented || props.disabled || event.isComposing || event.keyCode === 229) return
+  if (!open.value && !event.altKey && !event.ctrlKey && !event.shiftKey && (event.key === 'ArrowDown' || event.key === 'ArrowUp')) {
+    event.preventDefault(); openWithSelection(event.key); return
+  }
+  addTag(event)
+}
 function inputChange(details: { inputValue: string; reason?: string }) {
   if (!editable.value) return
   if (details.reason === 'input-change') { text.value = details.inputValue; search.value = details.inputValue }
   else if (details.reason === 'item-select') { text.value = ''; search.value = '' }
 }
 function highlightChange(details: { highlightedValue: string | null }) {
-  // Opening can restore the previous selection after search/navigation ran.
-  // Keep the current highlight when that deferred value was filtered out.
   if (details.highlightedValue === null || collection.value.has(details.highlightedValue)) highlighted.value = details.highlightedValue
 }
 function setScrolling(element: unknown) { scrolling.value = (element as { $el?: HTMLElement } | null)?.$el }
@@ -107,7 +126,7 @@ function addTag(event: KeyboardEvent) {
 <template>
   <Combobox class="ui-select" :class="[attrs.class, { 'ui-select-borderless': variant === 'borderless', 'ui-select-multiple': multiple, 'ui-select-disabled': disabled }]" :style="attrs.style"
     :collection="collection" :model-value="selected" :highlighted-value="highlighted" :input-value="editable && (multiple || open) ? text : selectedLabel" :open="open" :multiple="multiple" :allow-custom-value="multiple" :disabled="disabled"
-    :close-on-select="!multiple" open-on-click :ids="id ? { input: id } : undefined"
+    :close-on-select="!multiple" :open-on-click="false" :ids="id ? { input: id } : undefined"
     :positioning="{ placement: position(placement), sameWidth, gutter: 5 }"
     :translations="{ triggerLabel: t('uiToggleOptions'), clearTriggerLabel: t('uiClear'), resultsCount: count => t('uiResultsCount', { count }), noResults: t('traceNoMatches'), loading: t('uiLoading') }"
     :scroll-to-index-fn="virtualized ? details => virtualizer.scrollToIndex(details.index) : undefined" lazy-mount unmount-on-exit
@@ -116,9 +135,9 @@ function addTag(event: KeyboardEvent) {
       <template v-if="multiple"><span v-for="value in selected" :key="value" class="ui-select-tag">{{ label(value) }}<button type="button" :aria-label="`${t('remove')} ${label(value)}`" :disabled="disabled" @pointerdown.prevent @click.stop="update(selected.filter(item => item !== value))">×</button></span></template>
       <span v-else class="ui-select-selection-item" :class="{ 'ui-select-placeholder': !selected.length }" :style="[{ visibility: open && editable ? 'hidden' : undefined }, styles?.content]">{{ selectedLabel || placeholder }}</span>
       <ComboboxInput v-bind="{ ...attrs, class: undefined, style: undefined }" class="ui-select-input" :style="!multiple && (!open || !editable) ? { color: 'transparent', caretColor: 'transparent' } : undefined"
-        :readonly="!editable" :aria-autocomplete="editable ? 'list' : 'none'" :placeholder="multiple ? placeholder : open && editable ? selectedLabel || placeholder : undefined" @keydown.capture="addTag" />
+        :readonly="!editable" :aria-autocomplete="editable ? 'list' : 'none'" :placeholder="multiple ? placeholder : open && editable ? selectedLabel || placeholder : undefined" @click="openOnClick($event)" @keydown.capture="handleKeydown" />
       <ComboboxClearTrigger v-if="allowClear && selected.length" class="ui-select-clear"><IconX /></ComboboxClearTrigger>
-      <ComboboxTrigger class="ui-select-arrow" tabindex="-1"><IconChevronDown /></ComboboxTrigger>
+      <ComboboxTrigger class="ui-select-arrow" tabindex="-1" @click.capture="openOnClick($event, true)"><IconChevronDown /></ComboboxTrigger>
     </ComboboxControl>
     <Teleport to="body"><ComboboxPositioner style="z-index: 1500"><ComboboxContent :ref="setScrolling" class="ui-select-dropdown" :data-virtualized="virtualized || undefined" @layer:request-dismiss="requestDismiss">
       <ComboboxEmpty class="ui-select-empty">{{ t('traceNoMatches') }}</ComboboxEmpty>
