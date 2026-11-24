@@ -24,4 +24,4 @@ const KimiCodeVersion = "2.7.3"
 const ClineVersion = "3.0.75"
 
 // CopilotVersion tracks @github/copilot@latest.
-const CopilotVersion = "1.0.114"
+const CopilotVersion = "1.0.115"
