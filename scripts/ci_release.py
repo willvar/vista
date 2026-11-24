@@ -60,6 +60,16 @@ def github_entries(endpoint, field, **query):
 
 
 def clean_candidate_jobs(jobs):
+    # GitHub includes the tag-only publication job even on a candidate dispatch.
+    publication_name = "Publish tested archives"
+    publication = [job for job in jobs if job["name"] == publication_name]
+    if len(publication) > 1 or any(
+        job["status"] != "completed" or job["conclusion"] != "skipped"
+        or any(step["conclusion"] != "skipped" for step in job["steps"])
+        for job in publication
+    ):
+        return False
+    jobs = [job for job in jobs if job["name"] != publication_name]
     if len(jobs) != len(CANDIDATE_STEPS) or {job["name"] for job in jobs} != CANDIDATE_STEPS.keys():
         return False
     return all(job["status"] == "completed" and job["conclusion"] == "success"

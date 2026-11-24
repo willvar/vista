@@ -50,6 +50,27 @@ class CandidateTests(unittest.TestCase):
         # A later result on another source is not the candidate for this tag.
         self.assertEqual(self.find([self.run_info(102, head_sha="b" * 40), self.run_info(101)]), 101)
 
+    @staticmethod
+    def publication_job(**override):
+        return {"name": "Publish tested archives", "status": "completed",
+                "conclusion": "skipped", "steps": [], **override}
+
+    def test_accepts_skipped_tag_only_publication(self):
+        jobs = [*self.jobs(), self.publication_job()]
+        self.assertEqual(self.find([self.run_info(101)], attempts={(101, 1): jobs}), 101)
+
+    def test_rejects_unexpected_publication_records(self):
+        skipped = self.publication_job()
+        for extra in (
+            [self.publication_job(conclusion="success")],
+            [self.publication_job(status="in_progress", conclusion=None)],
+            [self.publication_job(steps=[{"name": "Create release", "conclusion": "success"}])],
+            [self.publication_job(name="Unexpected skipped job")],
+            [skipped, skipped],
+        ):
+            with self.subTest(extra=extra), self.assertRaisesRegex(ValueError, "no complete first-attempt candidate"):
+                self.find([self.run_info(101)], attempts={(101, 1): [*self.jobs(), *extra]})
+
     def test_wrong_candidate_identity_is_not_evidence(self):
         for overrides in (
             {"head_sha": "b" * 40}, {"display_title": "Release candidate v1.2.4"},
