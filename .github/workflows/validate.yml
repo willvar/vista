@@ -1,11 +1,15 @@
 name: Build and release
-run-name: Validate and package ${{ github.ref_name }}
+run-name: ${{ github.event_name == 'push' && format('Publish {0}', github.ref_name) || inputs.release_version && format('Release candidate {0}', inputs.release_version) || format('Validate {0}', github.ref_name) }}
 
 on:
   push:
     tags: ['v*']
   workflow_dispatch:
     inputs:
+      release_version:
+        description: Intended release version (vMAJOR.MINOR.PATCH); runs the full matrix without publishing
+        type: string
+        default: ''
       browser:
         description: Run the complete Linux browser suite
         type: boolean
@@ -24,15 +28,15 @@ permissions:
   contents: read
 
 concurrency:
-  group: vista-build-${{ github.ref }}-${{ github.event_name }}-${{ inputs.browser }}-${{ inputs.browser_project }}
-  cancel-in-progress: ${{ github.event_name != 'push' }}
+  group: vista-build-${{ github.ref }}-${{ github.event_name }}-${{ inputs.release_version || format('{0}-{1}', inputs.browser, inputs.browser_project) }}
+  cancel-in-progress: ${{ github.event_name == 'workflow_dispatch' && !inputs.release_version }}
 
 env:
   GOWORK: "off"
   CGO_ENABLED: "0"
   CI_GO_VERSION: "1.27.4"
   CI_NODE_VERSION: "26.4.0"
-  VISTA_BUILD_VERSION: ${{ github.ref_type == 'tag' && github.ref_name || 'dev' }}
+  VISTA_BUILD_VERSION: ${{ github.event_name == 'push' && github.ref_name || inputs.release_version || 'dev' }}
   VISTA_NO_BROWSER: "1"
   VISTA_WEBSEARCH_EXA_ENDPOINT: http://127.0.0.1:1/exa
   VISTA_WEBSEARCH_FIRECRAWL_ENDPOINT: http://127.0.0.1:1/firecrawl
@@ -41,7 +45,7 @@ env:
 jobs:
   core:
     name: Go and frontend checks
-    if: ${{ github.event_name == 'push' || inputs.browser_project == 'all' }}
+    if: ${{ github.event_name == 'workflow_dispatch' && (inputs.release_version || inputs.browser_project == 'all') }}
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
@@ -57,12 +61,8 @@ jobs:
           node-version: ${{ env.CI_NODE_VERSION }}
           cache: npm
           cache-dependency-path: web/package-lock.json
-      - name: Check release tag and artifact safeguards
-        run: |
-          python3 -m unittest discover -s scripts -p 'ci_*_test.py'
-          if [ "$GITHUB_REF_TYPE" = tag ]; then
-            python3 scripts/ci_release.py --version "$VISTA_BUILD_VERSION" --source "$GITHUB_SHA" --check-tag
-          fi
+      - name: Check release safeguards
+        run: python3 -m unittest discover -s scripts -p 'ci_*_test.py'
       - name: Check Go, race safety, frontend types and units
         run: make test go frontend
       - name: Check bundled license notices
@@ -72,7 +72,7 @@ jobs:
 
   native:
     name: Native ${{ matrix.target }}
-    if: ${{ github.event_name == 'push' || inputs.browser_project == 'all' }}
+    if: ${{ github.event_name == 'workflow_dispatch' && (inputs.release_version || inputs.browser_project == 'all') }}
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 30
     strategy:
@@ -139,13 +139,13 @@ jobs:
 
   browser:
     name: Linux browser ${{ matrix.project }}
-    if: ${{ github.event_name == 'push' || inputs.browser }}
+    if: ${{ github.event_name == 'workflow_dispatch' && (inputs.release_version || inputs.browser) }}
     runs-on: ubuntu-24.04
     timeout-minutes: 35
     strategy:
       fail-fast: false
       matrix:
-        project: ${{ fromJSON((github.event_name == 'push' || inputs.browser_project == 'all') && '["desktop","mobile-portrait","mobile-landscape"]' || format('["{0}"]', inputs.browser_project)) }}
+        project: ${{ fromJSON((inputs.release_version || inputs.browser_project == 'all') && '["desktop","mobile-portrait","mobile-landscape"]' || format('["{0}"]', inputs.browser_project || 'desktop')) }}
     env:
       BROWSER_PROJECT: ${{ matrix.project }}
       PLAYWRIGHT_JSON_OUTPUT_FILE: ${{ github.workspace }}/web/.vista/test-state/browser-report.json
@@ -186,7 +186,11 @@ jobs:
           npx playwright install chromium
           node --input-type=module -e 'import { chromium } from "@playwright/test"; console.log("VISTA_CHROME=" + chromium.executablePath())' >> "$GITHUB_ENV"
       - name: Run viewport browser checks
-        run: make test e2e E2E_ARGS="--project=$BROWSER_PROJECT --max-failures=0 --workers=2 --reporter=list,json --global-timeout=1800000"
+        shell: bash
+        run: |
+          # Only pass a validated literal to Make's build flags.
+          [[ "$VISTA_BUILD_VERSION" =~ ^(dev|v[0-9]+\.[0-9]+\.[0-9]+)$ ]]
+          make test e2e VERSION="$VISTA_BUILD_VERSION" UPDATE_UA=0 E2E_ARGS="--project=$BROWSER_PROJECT --max-failures=0 --workers=2 --reporter=list,json --global-timeout=1800000"
       - name: Retain the browser result summary
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -209,21 +213,48 @@ jobs:
           retention-days: 3
           if-no-files-found: warn
 
-  release:
-    name: Publish tested archives
-    if: ${{ github.event_name == 'push' && github.ref_type == 'tag' }}
+  candidate:
+    name: Verify candidate archives
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.release_version != '' }}
     needs: [core, native, browser]
     runs-on: ubuntu-24.04
     timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: native-*
+          path: .vista/ci/artifacts
+      - name: Verify all tested native archives
+        run: python3 scripts/ci_release.py --candidate --version "$VISTA_BUILD_VERSION" --source "$GITHUB_SHA"
+
+  release:
+    name: Publish tested archives
+    if: ${{ github.event_name == 'push' && github.ref_type == 'tag' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
     permissions:
+      actions: read
       contents: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
           fetch-depth: 0
+      - name: Require a complete pre-tag release candidate
+        id: candidate
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          run_id=$(python3 scripts/ci_release.py --find-candidate "$GITHUB_REPOSITORY" --check-tag --version "$VISTA_BUILD_VERSION" --source "$GITHUB_SHA")
+          printf 'run_id=%s\n' "$run_id" >> "$GITHUB_OUTPUT"
+          printf 'Promoting tested archives from candidate run %s\n' "$run_id"
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
+          github-token: ${{ github.token }}
+          run-id: ${{ steps.candidate.outputs.run_id }}
           pattern: native-*
           path: .vista/ci/artifacts
       - name: Verify tested archives and combine checksums
