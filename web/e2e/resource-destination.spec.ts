@@ -2,6 +2,7 @@ import { spawn } from 'node:child_process'
 import { once } from 'node:events'
 import { createInterface } from 'node:readline'
 import { test, expect } from './fixtures'
+import { installMockStateStream, notifyState } from './state-stream-fixture'
 import type { Locator, Page } from '@playwright/test'
 
 test.use({ imageModel: true })
@@ -82,6 +83,33 @@ async function switchStorage(page: Page, label: string, byKeyboard = false) {
  else await sent
  await expect(dialog).toBeHidden()
 }
+
+test('an intermediate connection check snapshot does not invalidate a DOFS draft', async ({ page, vista }) => {
+ test.setTimeout(45_000)
+ const service = await storageFixture()
+ try {
+  await installMockStateStream(page)
+  await page.goto(vista.origin + '/settings/storage')
+  const progress = page.locator('.storage-progress')
+  await expect(progress).toHaveCount(0)
+  const editor = await fillPreset(page, primary, service.endpoint)
+  await service.controlRequest('/hold-check')
+  await editor.getByRole('button', { name: check, exact: true }).click()
+  await expect.poll(async () => (await service.controlRequest('/status')).blocked).toBeGreaterThan(0)
+  const during = await vista.api('/resource-storage')
+  // Deliver a background update with the actual configuration read during the probe.
+  await notifyState(page, ['storage'], { storage: { ...during, action: 'scan', phase: 'running' } })
+  await expect(progress).toBeVisible()
+  await service.controlRequest('/release')
+  await expect(editor.getByText(checked, { exact: true })).toBeVisible()
+  await expect(editor.getByRole('button', { name: saved, exact: true })).toBeEnabled()
+  await savePreset(editor)
+  await expect(page.locator('.storage-preset')).toContainText(primary)
+ } finally {
+  await service.controlRequest('/release').catch(() => undefined)
+  await service.stop()
+ }
+})
 
 test('storage migration keeps conversations active, follows new originals and reclaims copies @responsive', async ({ page, vista }, info) => {
  test.setTimeout(60_000)

@@ -53,10 +53,10 @@ type resourceStorageRequest struct {
 }
 
 type resourceStorageState struct {
-	current   resources.Stamp
-	settings  resources.Settings
-	migration *resources.Migration
-	revision  string
+	current        resources.Stamp
+	settings       resources.Settings
+	migration      *resources.Migration
+	storedRevision string
 }
 
 func (a *App) storageRevision(stamp resources.Stamp, data []byte, present bool) string {
@@ -67,6 +67,22 @@ func (a *App) storageRevision(stamp resources.Stamp, data []byte, present bool) 
 	return a.networkRevision(material, present)
 }
 
+func (a *App) storageEditorRevision(s resourceStorageState) string {
+	// Draft probes and removed backends are kept for recovery, not editable
+	// choices. Keep them out of the editor revision, but not the disk guard.
+	selected := map[string]bool{s.current.BackendID: true}
+	for _, preset := range s.settings.Presets {
+		selected[preset.BackendID] = true
+	}
+	backends := make([]resources.BackendConfig, 0, len(selected))
+	for _, backend := range s.settings.Backends {
+		if selected[backend.ID] {
+			backends = append(backends, backend)
+		}
+	}
+	data, _ := json.Marshal(resources.Settings{Backends: backends, Presets: s.settings.Presets})
+	return a.storageRevision(s.current, data, true)
+}
 func (a *App) readStorageState(ctx context.Context) (state resourceStorageState, err error) {
 	control := a.store.ResourceControl()
 	if state.current, err = control.Current(ctx); err != nil {
@@ -82,7 +98,7 @@ func (a *App) readStorageState(ctx context.Context) (state resourceStorageState,
 	if state.migration, err = control.Migration(ctx); err != nil {
 		return state, err
 	}
-	state.revision = a.storageRevision(state.current, data, present)
+	state.storedRevision = a.storageRevision(state.current, data, present)
 	state.projectLegacyPresets()
 	return state, nil
 }
@@ -134,7 +150,7 @@ func (a *App) storageConfiguration() (resourceStorageConfigView, error) {
 	if err != nil {
 		return resourceStorageConfigView{}, err
 	}
-	view := resourceStorageConfigView{Current: active.Public(), Revision: s.revision, Migration: s.migration, Presets: make([]resourceStoragePresetView, 0, len(s.settings.Presets))}
+	view := resourceStorageConfigView{Current: active.Public(), Revision: a.storageEditorRevision(s), Migration: s.migration, Presets: make([]resourceStoragePresetView, 0, len(s.settings.Presets))}
 	for _, preset := range s.settings.Presets {
 		backend, err := s.settings.Backend(preset.BackendID)
 		if err != nil {
@@ -170,7 +186,7 @@ func (a *App) writeStorageState(ctx context.Context, s *resourceStorageState) er
 	}
 	dir := control.Library.ConfigDir()
 	err = configstore.Update(dir, configstore.Storage, func(raw []byte, present bool) ([]byte, error) {
-		if a.storageRevision(s.current, raw, present) != s.revision {
+		if a.storageRevision(s.current, raw, present) != s.storedRevision {
 			return nil, configstore.ErrConflict
 		}
 		return json.Marshal(s.settings)
@@ -180,7 +196,7 @@ func (a *App) writeStorageState(ctx context.Context, s *resourceStorageState) er
 	}
 	raw, present, err := configstore.Read(dir, configstore.Storage)
 	if err == nil {
-		s.revision = a.storageRevision(s.current, raw, present)
+		s.storedRevision = a.storageRevision(s.current, raw, present)
 	}
 	return err
 }
@@ -250,7 +266,7 @@ func (a *App) configureResourceStorage(w http.ResponseWriter, r *http.Request, i
 		settingsHTTPError(w, errors.New("storage configuration could not be read"), 500)
 		return
 	}
-	if s.revision != input.Revision {
+	if a.storageEditorRevision(s) != input.Revision {
 		settingsHTTPError(w, configstore.ErrConflict, 409)
 		return
 	}

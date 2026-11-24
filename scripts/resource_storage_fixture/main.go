@@ -26,7 +26,7 @@ func main() {
 	var mu sync.Mutex
 	var gate chan struct{}
 	blocked := 0
-	deny := false
+	deny, includeChecks := false, false
 	release := func() {
 		mu.Lock()
 		defer mu.Unlock()
@@ -36,12 +36,16 @@ func main() {
 		}
 	}
 	s3.SetHook(func(r *http.Request) int {
-		if r.Method != http.MethodPut || (!strings.Contains(r.URL.Path, "/objects/") || strings.Contains(r.URL.Path, "/checks/")) {
+		if r.Method != http.MethodPut {
 			return 0
 		}
+		objectWrite := strings.Contains(r.URL.Path, "/objects/") && !strings.Contains(r.URL.Path, "/checks/")
 		mu.Lock()
 		wait := gate
-		fail := deny
+		if !objectWrite && !includeChecks {
+			wait = nil
+		}
+		fail := deny && objectWrite
 		if wait != nil {
 			blocked++
 		}
@@ -59,10 +63,11 @@ func main() {
 	})
 	control := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
-		case "/hold":
+		case "/hold", "/hold-check":
 			mu.Lock()
 			if gate == nil {
 				gate = make(chan struct{})
+				includeChecks = r.URL.Path == "/hold-check"
 			}
 			mu.Unlock()
 		case "/release":

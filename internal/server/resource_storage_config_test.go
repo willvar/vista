@@ -4,12 +4,15 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"vista/internal/configstore"
 	"vista/internal/resources"
@@ -57,6 +60,78 @@ func storageRequest(t *testing.T, a *App, input any) (int, resourceStorageStatus
 	}
 	return w.Code, result, w.Body.Bytes()
 }
+func TestResourceStorageDraftCheckKeepsEditorRevision(t *testing.T) {
+	app := storageAppFixture(t)
+	s3 := resourcetest.NewS3(t)
+	_, before, _ := storageRequest(t, app, nil)
+	if before.Config == nil {
+		t.Fatal("missing storage configuration")
+	}
+	ctx, cancel := context.WithTimeout(t.Context(), 15*time.Second)
+	defer cancel()
+	staleDisk, err := app.readStorageState(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	entered, proceed := make(chan struct{}), make(chan struct{})
+	var first sync.Once
+	s3.SetHook(func(r *http.Request) int {
+		if r.Method != http.MethodPut {
+			return 0
+		}
+		first.Do(func() { close(entered) })
+		select {
+		case <-proceed:
+			return 0
+		case <-ctx.Done():
+			return http.StatusServiceUnavailable
+		}
+	})
+	cfg := &resourceStorageInput{Name: "Archive", Endpoint: s3.Server.URL, Bucket: "resources", Region: "us-east-1", AccessKey: "fixture-access", SecretKey: "fixture-secret"}
+	revision := before.Config.Revision
+	body, err := json.Marshal(resourceStorageRequest{Action: "check", Revision: revision, Config: cfg})
+	if err != nil {
+		t.Fatal(err)
+	}
+	response := httptest.NewRecorder()
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		app.handler().ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/api/resource-storage", bytes.NewReader(body)).WithContext(ctx))
+	}()
+	defer func() { cancel(); <-done }()
+	select {
+	case <-entered:
+	case <-ctx.Done():
+		t.Fatal("check did not reach the probe write")
+	}
+	settings, err := resources.LoadSettings(app.configDir)
+	if err != nil || len(settings.Backends) != 1 || !settings.Backends[0].Unused {
+		t.Fatalf("no private probe backend recorded while checking: %v", err)
+	}
+	_, during, _ := storageRequest(t, app, nil)
+	if during.Config == nil || during.Config.Revision != revision || len(during.Config.Presets) != 0 {
+		t.Error("a temporary probe invalidated the editor revision or appeared as a saved choice")
+	}
+	if err := app.writeStorageState(ctx, &staleDisk); !errors.Is(err, configstore.ErrConflict) {
+		t.Errorf("an outdated raw-file snapshot must not overwrite probe recovery state: %v", err)
+	}
+	close(proceed)
+	select {
+	case <-done:
+	case <-ctx.Done():
+		t.Fatal("check did not finish")
+	}
+	var checked resourceStorageStatus
+	if response.Code != http.StatusOK || json.Unmarshal(response.Body.Bytes(), &checked) != nil || checked.CheckError != "" || checked.Config == nil || checked.Config.Revision != revision || len(checked.Config.Presets) != 0 {
+		t.Fatalf("successful check must leave the editor revision and choices unchanged: status %d", response.Code)
+	}
+	code, saved, _ := storageRequest(t, app, resourceStorageRequest{Action: "save", Revision: revision, Config: cfg})
+	if code != http.StatusOK || saved.Config == nil || len(saved.Config.Presets) != 1 || saved.Config.Revision == revision {
+		t.Fatalf("the original draft must still be saveable, and a real save must change the revision: status %d", code)
+	}
+}
+
 func TestResourceStoragePresetsSeparateChecksSavingAndCutover(t *testing.T) {
 	app := storageAppFixture(t)
 	s3 := resourcetest.NewS3(t)
@@ -147,6 +222,15 @@ func TestResourceStoragePresetsSeparateChecksSavingAndCutover(t *testing.T) {
 	checked, _ := settings.Backend(stamp.BackendID)
 	if current.CheckError != "" || checked != active {
 		t.Fatal("testing replaced live credentials or namespace")
+	}
+	beforeRotation := current.Config.Revision
+	request("save", first, input, 200)
+	if current.Config.Revision == beforeRotation {
+		t.Fatal("rotating only credentials must invalidate a concurrent editor")
+	}
+	code, _, _ = storageRequest(t, app, resourceStorageRequest{Action: "save", PresetID: &first, Revision: beforeRotation, Config: input})
+	if code != http.StatusConflict {
+		t.Fatal("an editor opened before credential rotation could still save")
 	}
 	input.Name = "Renamed"
 	request("save", first, input, 200)
