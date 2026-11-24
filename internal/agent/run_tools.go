@@ -31,7 +31,7 @@ type toolFuture struct {
 	detached bool
 }
 
-func executeToolBatch(ctx context.Context, command workerproto.Command, turn int32, calls []provider.ToolCall, callErrors []error, prepared *preparedContext, mcp *mcpManager, scope *runScope, depth int, jobs *tools.BackgroundManager, runChild func(context.Context, workerproto.Command, func(workerproto.Result) error) (string, error), work *sync.WaitGroup, emit func(workerproto.Result) error) ([]provider.ChatMessage, error) {
+func executeToolBatch(ctx context.Context, command workerproto.Command, turn int32, calls []provider.ToolCall, callErrors []error, awaitFinalChecklist bool, prepared *preparedContext, mcp *mcpManager, scope *runScope, depth int, jobs *tools.BackgroundManager, runChild func(context.Context, workerproto.Command, func(workerproto.Result) error) (string, error), work *sync.WaitGroup, emit func(workerproto.Result) error) ([]provider.ChatMessage, error) {
 	confirmingSessionAction := len(calls) == 1 && isSessionAction(calls[0].Function.Name)
 	for i, call := range calls {
 		if isSessionAction(call.Function.Name) && !confirmingSessionAction {
@@ -125,8 +125,8 @@ func executeToolBatch(ctx context.Context, command workerproto.Command, turn int
 	deadline := time.NewTimer(toolYieldDelay)
 	defer deadline.Stop()
 	yield := deadline.C
-	if confirmingSessionAction {
-		// Await the user without issuing a model turn or detaching the mutation.
+	if confirmingSessionAction || awaitFinalChecklist {
+		// Confirmation and final replies depend on the definitive tool result.
 		yield = nil
 	}
 	yielded := false

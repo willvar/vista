@@ -509,7 +509,7 @@ turnLoop:
 			if err := emitContextUsage(ctx, command, messages, offeredTools, depth, emit); err != nil {
 				return "", errors.Join(err, checkpointContinuation())
 			}
-			toolMessages, err := executeToolBatch(toolCtx, command, turnID, turn.Calls, callErrors, &prepared, mcp, scope, depth, jobs, runChild, &toolWork, emit)
+			toolMessages, err := executeToolBatch(toolCtx, command, turnID, turn.Calls, callErrors, finishCall != "", &prepared, mcp, scope, depth, jobs, runChild, &toolWork, emit)
 			if err != nil {
 				return "", errors.Join(err, checkpointContinuation())
 			}

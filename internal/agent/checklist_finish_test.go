@@ -80,6 +80,8 @@ func TestChecklistFinishSavesOneResponseAndRestoresFullPairedHistory(t *testing.
 	sink := historyTestSink(db, command, &final)
 	emit := func(result workerproto.Result) error {
 		if result.Kind == "checklist" {
+			// Hold the durable save beyond the generic tool yield boundary.
+			time.Sleep(2 * toolYieldDelay)
 			return persistTestChecklist(db, command, result)
 		}
 		return sink(result)

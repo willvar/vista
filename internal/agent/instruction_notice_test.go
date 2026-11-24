@@ -142,7 +142,7 @@ func TestAsyncInstructionReadRestoresFullTextBeforeAcknowledging(t *testing.T) {
 	}
 	call := instructionCall(t, "slow-rule", "read_project_instruction", map[string]string{"path": path})
 	var work sync.WaitGroup
-	messages, err := executeToolBatch(ctx, workerproto.Command{RunID: "run", TaskID: "main"}, 1, []provider.ToolCall{call}, make([]error, 1), &prepared, nil, scope, 0, nil, nil, &work, func(workerproto.Result) error { return nil })
+	messages, err := executeToolBatch(ctx, workerproto.Command{RunID: "run", TaskID: "main"}, 1, []provider.ToolCall{call}, make([]error, 1), false, &prepared, nil, scope, 0, nil, nil, &work, func(workerproto.Result) error { return nil })
 	close(release)
 	work.Wait()
 	if err != nil || len(messages) != 1 || !strings.Contains(messages[0].Content, `"status":"running"`) {

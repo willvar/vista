@@ -68,7 +68,7 @@ func TestToolCompletionPublishesBeforeBatchAndSlowResultSettlesOnlyOnce(t *testi
 	done := make(chan []provider.ChatMessage, 1)
 	failure := make(chan error, 1)
 	go func() {
-		messages, err := executeToolBatch(ctx, workerproto.Command{RunID: "run", TaskID: "main"}, 1, calls, make([]error, 2), &prepared, nil, scope, 0, nil, nil, &work, emit)
+		messages, err := executeToolBatch(ctx, workerproto.Command{RunID: "run", TaskID: "main"}, 1, calls, make([]error, 2), false, &prepared, nil, scope, 0, nil, nil, &work, emit)
 		failure <- err
 		done <- messages
 	}()
