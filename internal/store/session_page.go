@@ -162,6 +162,8 @@ func countSessionAttention(tx *gorm.DB, workers []string, count *int) error {
  FROM sessions s LEFT JOIN conversation_branches b ON b.branch_id=s.id
  WHERE s.is_open=1 AND ((`+missingWorker+`) OR s.pending_kind<>'' OR EXISTS (
   SELECT 1 FROM messages m WHERE m.session_id=s.id AND m.sequence>s.read_sequence AND m.role='assistant'
+    AND (NOT EXISTS(SELECT 1 FROM live_history_starts l WHERE l.session_id=s.id)
+      OR EXISTS(SELECT 1 FROM history_messages h WHERE h.session_id=s.id AND h.id=m.id))
  ) OR (s.input_queue_paused=1 AND EXISTS (
   SELECT 1 FROM queued_inputs q WHERE q.session_id=s.id AND q.status IN ('queued','paused')
  )))`, args...).Row().Scan(count)

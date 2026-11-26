@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import GenerationSettings from '../GenerationSettings.vue'
+import BranchingSettings from '../BranchingSettings.vue'
 import { computed, defineAsyncComponent, h, nextTick, reactive, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { layerTokens, returnToParent, useLeaveConfirmation, useRouteLayer, withLayers } from '../composables/routeLayers'
@@ -314,6 +315,7 @@ watch([() => route.name, () => route.query.session], () => {
           </div>
         </div>
         <div v-if="route.name === 'settings-personalization'" class="settings-content personalization-settings-content">
+          <BranchingSettings />
           <v-alert v-if="agentSettingsError" type="error" role="alert" :message="agentSettingsError" />
           <v-alert v-if="agentSettingsSaved" type="success" role="status" :message="t('agentSettingsSaved')" />
           <section class="agent-instructions-form" aria-labelledby="global-instructions-heading">

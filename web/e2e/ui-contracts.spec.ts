@@ -138,6 +138,8 @@ test('a pending message withdrawal cannot be dismissed with Escape', async ({ pa
   await sender.fill('Withdraw after completion')
   await sender.press('Enter')
   await expect(page.locator('article.assistant').last()).toContainText('Mock reply: Hi')
+  const path = new URL(page.url()).pathname
+  await expect.poll(async () => (await vista.api(`${path}/checkpoint`)).session.executing).toBe(false)
   let release!: () => void
   const gate = new Promise<void>(resolve => { release = resolve })
   await page.route('**/api/sessions/*/messages/*/revert', async route => { await gate; await route.continue() })

@@ -4,6 +4,11 @@ import { test, expect } from './fixtures'
 
 test.use({ replyWithPrompt: true, fileChanges: true })
 
+// These cases specifically exercise the independent branch path.
+test.beforeEach(async ({ vista }) => {
+  await vista.api('/preferences', { method: 'PATCH', body: JSON.stringify({ branching: true }) })
+})
+
 test('editing and withdrawal create independent branches and retain file changes', async ({ page, vista }, testInfo) => {
   const session = await vista.api('/sessions', { method: 'POST', body: '{}' })
   const send = async (content: string) => {

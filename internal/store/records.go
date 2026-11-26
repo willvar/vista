@@ -151,14 +151,25 @@ func (s *Store) BeginRunWithImages(ctx context.Context, sessionID, runID, messag
 // BeginQuestionRun checks and consumes the pending request in the same
 // transaction as the new user message, so stale tabs cannot answer it twice.
 func (s *Store) BeginQuestionRun(ctx context.Context, sessionID, runID, messageID string, reply question.Reply, modelKey ...string) (Message, Event, error) {
-	return s.beginRun(ctx, sessionID, runID, messageID, "", nil, &reply, nil, modelKey...)
+	return s.beginRun(ctx, sessionID, runID, messageID, "", nil, &reply, nil, nil, modelKey...)
 }
 
 func (s *Store) BeginDraftRun(ctx context.Context, sessionID, runID, messageID, content string, images []Image, draft *DraftVersion, modelKey ...string) (Message, Event, error) {
-	return s.beginRun(ctx, sessionID, runID, messageID, content, images, nil, draft, modelKey...)
+	return s.beginRun(ctx, sessionID, runID, messageID, content, images, nil, draft, nil, modelKey...)
 }
 
-func (s *Store) beginRun(ctx context.Context, sessionID, runID, messageID, content string, images []Image, reply *question.Reply, draft *DraftVersion, modelKey ...string) (Message, Event, error) {
+type historyReplacement struct {
+	messageID string
+	change    HistoryChange
+	language  string
+}
+
+// A replacement send and saving the displaced timeline are one write.
+func (s *Store) BeginReplacementRun(ctx context.Context, sessionID, runID, messageID, replacedID, content string, images []Image, change HistoryChange, modelKey, language string) (Message, Event, error) {
+	return s.beginRun(ctx, sessionID, runID, messageID, content, images, nil, nil, &historyReplacement{messageID: replacedID, change: change, language: language}, modelKey)
+}
+
+func (s *Store) beginRun(ctx context.Context, sessionID, runID, messageID, content string, images []Image, reply *question.Reply, draft *DraftVersion, replacement *historyReplacement, modelKey ...string) (Message, Event, error) {
 	unlock, lockErr := s.lockImages(ctx, images)
 	if lockErr != nil {
 		return Message{}, Event{}, lockErr
@@ -176,6 +187,16 @@ func (s *Store) beginRun(ctx context.Context, sessionID, runID, messageID, conte
 		return Message{}, Event{}, err
 	}
 	defer tx.Rollback()
+	if replacement != nil {
+		if _, err := replaceHistory(ctx, tx, sessionID, replacement.messageID, "edit", replacement.change); err != nil {
+			return Message{}, Event{}, err
+		}
+		if replacement.language != "" {
+			if err := setReplyLanguage(ctx, tx, sessionID, replacement.language); err != nil {
+				return Message{}, Event{}, err
+			}
+		}
+	}
 	message, event, err := s.beginRunInTx(ctx, tx, sessionID, runID, messageID, content, images, reply, draft, modelKey...)
 	if err != nil {
 		return Message{}, Event{}, err

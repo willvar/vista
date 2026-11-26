@@ -20,6 +20,7 @@ type Preferences struct {
 	ReasoningByModelID map[string]string `json:"reasoningByModelId"`
 
 	ShowUnrecognizedModels bool `json:"showUnrecognizedModels"`
+	Branching              bool `json:"branching"`
 }
 
 type PreferencesPatch struct {
@@ -27,6 +28,7 @@ type PreferencesPatch struct {
 	ReasoningByModelID map[string]string `json:"reasoningByModelId"`
 
 	ShowUnrecognizedModels *bool `json:"showUnrecognizedModels"`
+	Branching              *bool `json:"branching"`
 }
 
 type preferenceRow struct {
@@ -37,6 +39,7 @@ type preferenceRow struct {
 	ReasoningJSON  string
 
 	ShowUnrecognizedModels bool `gorm:"not null;default:false"`
+	Branching              bool `gorm:"not null;default:false"`
 }
 
 func (preferenceRow) TableName() string { return "model_selection_preferences" }
@@ -102,7 +105,7 @@ func preferences(tx *gorm.DB) (Preferences, error) {
 	if err := tx.Where("id = ?", "local").Take(&row).Error; err != nil {
 		return Preferences{}, err
 	}
-	result := Preferences{UserID: row.UserID, ManualModelKey: row.ManualModelKey, ShowUnrecognizedModels: row.ShowUnrecognizedModels, ReasoningByModelID: map[string]string{}}
+	result := Preferences{UserID: row.UserID, ManualModelKey: row.ManualModelKey, ShowUnrecognizedModels: row.ShowUnrecognizedModels, Branching: row.Branching, ReasoningByModelID: map[string]string{}}
 	if err := json.Unmarshal([]byte(row.ReasoningJSON), &result.ReasoningByModelID); err != nil {
 		return Preferences{}, err
 	}
@@ -136,6 +139,9 @@ func (s *Store) PatchPreferences(ctx context.Context, patch PreferencesPatch) (P
 		if patch.ShowUnrecognizedModels != nil {
 			result.ShowUnrecognizedModels = *patch.ShowUnrecognizedModels
 		}
+		if patch.Branching != nil {
+			result.Branching = *patch.Branching
+		}
 		for id, value := range patch.ReasoningByModelID {
 			result.ReasoningByModelID[id] = value
 		}
@@ -147,9 +153,20 @@ func (s *Store) PatchPreferences(ctx context.Context, patch PreferencesPatch) (P
 			"manual_model_key":         result.ManualModelKey,
 			"reasoning_json":           string(encoded),
 			"show_unrecognized_models": result.ShowUnrecognizedModels,
+			"branching":                result.Branching,
 		}).Error
 	})
 	return result, err
+}
+
+func branching(ctx context.Context, tx *gorm.DB) (bool, error) {
+	var enabled bool
+	err := tx.WithContext(ctx).Raw(`SELECT COALESCE((SELECT branching FROM model_selection_preferences WHERE id='local'),0)`).Row().Scan(&enabled)
+	return enabled, err
+}
+
+func (s *Store) Branching(ctx context.Context) (bool, error) {
+	return branching(ctx, s.orm)
 }
 
 func (s *Store) PatchSessionSelection(ctx context.Context, id string, patch SessionSelectionPatch) (Session, error) {

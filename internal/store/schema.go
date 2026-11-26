@@ -172,10 +172,8 @@ func (s *Store) initializeSchema() error {
 			return fmt.Errorf("initialize database: %w", err)
 		}
 	}
-	for _, q := range branchHistorySchema {
-		if err := s.orm.Exec(q).Error; err != nil {
-			return fmt.Errorf("initialize branch history: %w", err)
-		}
+	if err := s.initBranchHistory(); err != nil {
+		return fmt.Errorf("initialize branch history: %w", err)
 	}
 	if err := resources.InitSchema(s.orm); err != nil {
 		return err

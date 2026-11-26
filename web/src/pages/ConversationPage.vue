@@ -26,7 +26,7 @@ import BackgroundProcesses from '../BackgroundProcesses.vue'
 import { conversationTimeline, recentSentMessage, type TimelineLayout, type TraceTimelineEntry } from '../state/conversationTimeline'
 import { createRunTraceView, type RunTraceViewState } from '../state/runTraceView'
 import { displayOutputKey, needsFullMessageText, jobActive } from '@vista/client'
-import type { Message, ReplyTraceSegment, ConversationItem, ConversationBranch } from '@vista/client'
+import type { Message, ReplyTraceSegment, ConversationItem, ConversationBranch, MessageDraft } from '@vista/client'
 import MessageUsage from '../MessageUsage.vue'
 import MessageActions from '../MessageActions.vue'
 import FailureHelp from '../FailureHelp.vue'
@@ -34,6 +34,7 @@ import MessageImages from '../MessageImages.vue'
 import MessageQuoteSelection from '../MessageQuoteSelection.vue'
 import PendingInputs from '../PendingInputs.vue'
 import WorkerStatus from '../WorkerStatus.vue'
+import ConversationHistoryVersions from '../ConversationHistoryVersions.vue'
 import { useWorkspace } from '../composables/useWorkspace'
 import { messageModelIdentity } from '../composables/usePresentation'
 import type { QuotedExcerpt, QuoteSource } from '../state/quotedReply'
@@ -47,7 +48,7 @@ const selectedWorkerMemory = computed(() => selected.value ? workerMemory(select
 const renamingTitle = ref(false)
 watch(() => selected.value?.id, () => { renamingTitle.value = false })
 const { synchronization, snapshotReady, viewRevision, resynchronize, renderFailure,
-  beginEditMessage, withdrawMessage, rollbackFailure, draft, attachedImages, editingMessage,
+  beginEditMessage, previewWithdrawal, withdrawMessage, hasHistoryVersions, rollbackFailure, draft, attachedImages, editingMessage,
   pendingInputs, inputQueuePaused, pendingBusy, mutateInput, resumeInputs,
   displayMessages: messages, processEvents, mainOutputs, modelOutput,
   agentWorking, agentStatus, activeRunID, jobs, artifacts, runClock,
@@ -110,12 +111,16 @@ const cards = computed(() => generationCards(processEvents.value))
 const runningJobs = computed(() => jobs.value.filter(jobActive).length)
 const showExecution = computed(() => agentWorking.value || compacting.value || !!compactionResult.value)
 const executionClock = computed(() => manualCompacting.value || compactionRequestPending.value || compactionResult.value ? null : runClock.value)
-const withdrawTarget = ref<Message | null>(null)
+const withdrawTarget = ref<{ message: Message; preview: MessageDraft } | null>(null)
 watch(() => selected.value?.id, () => { withdrawTarget.value = null })
-function requestWithdrawal(message: Message) { rollbackFailure.value = ''; withdrawTarget.value = message }
+async function requestWithdrawal(message: Message) {
+  rollbackFailure.value = ''
+  const preview = await previewWithdrawal(message)
+  if (preview) withdrawTarget.value = { message, preview }
+}
 async function confirmWithdrawal() {
   const target = withdrawTarget.value
-  if (target && await withdrawMessage(target) && withdrawTarget.value === target) withdrawTarget.value = null
+  if (target && await withdrawMessage(target.message, target.preview) && withdrawTarget.value === target) withdrawTarget.value = null
 }
 function runModelName(message: Message) {
   if (message.contextSummary) {
@@ -350,6 +355,8 @@ onUnmounted(() => {
           <v-button v-if="jobs.length" variant="text" class="icon-button header-status-trigger background-processes-trigger"
             :aria-label="t('backgroundProcessCount', { count: runningJobs })" :title="t('backgroundProcessCount', { count: runningJobs })" @click="processes?.open()">
             <IconSubtask aria-hidden="true" /><span class="background-processes-count">{{ runningJobs }}</span></v-button>
+          <ConversationHistoryVersions v-if="hasHistoryVersions" :key="selected.id" :session-id="selected.id"
+            :can-restore="selected.open && !busy && !agentWorking && !editingMessage" />
           <ConversationResponseOptions :key="selected.id" />
         </div>
           <ConversationRecentMessage v-if="recentSent" :key="`${selected.id}/${recentSent.id}`" :session-id="selected.id" :message="recentSent" @locate="locateRecentSent" />
@@ -447,7 +454,7 @@ onUnmounted(() => {
 
       <BackgroundProcesses v-if="selected" :key="selected.id" ref="processes" :session-id="selected.id" :jobs="jobs" />
       <v-modal :open="!!withdrawTarget" centered :width="480" :title="t('withdrawMessageTitle')" :confirm-loading="busy" :ok-text="t('withdrawMessage')" :cancel-text="t('cancel')" :mask-closable="!busy" :closable="!busy" :keyboard="!busy" :cancel-button-props="{ disabled: busy }" @cancel="withdrawTarget = null" @ok="confirmWithdrawal">
-        <p>{{ t('withdrawMessageBody') }}</p>
+        <p>{{ t(withdrawTarget?.preview.branching === false ? 'withdrawMessageInPlaceBody' : 'withdrawMessageBody') }}</p>
         <p class="rollback-scope">{{ t('rollbackFilesRetained') }}</p>
         <p v-if="draft || attachedImages.length">{{ t('withdrawDraftWarning') }}</p>
         <v-alert v-if="rollbackFailure" type="error" show-icon :message="rollbackFailure" />

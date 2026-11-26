@@ -51,7 +51,8 @@ func (s *Store) Branches(ctx context.Context, id string) ([]Branch, error) {
  COALESCE(m.id,'') AS first_message_id,COALESCE(m.sequence,0) AS first_message_sequence
  FROM sessions s LEFT JOIN conversation_branches b ON b.branch_id=s.id
  LEFT JOIN messages m ON m.id=(SELECT first.id FROM messages first
- WHERE first.session_id=b.branch_id AND first.role='user' ORDER BY first.sequence LIMIT 1)
+ WHERE first.session_id=b.branch_id AND first.role='user'
+    AND EXISTS(SELECT 1 FROM history_messages h WHERE h.session_id=b.branch_id AND h.id=first.id) ORDER BY first.sequence LIMIT 1)
  WHERE s.id=? OR b.root_id=? ORDER BY s.id<>?,s.created_at,s.id`, root, root, root, root).Scan(&out).Error
 	})
 	return out, err
@@ -61,6 +62,17 @@ func (s *Store) Branches(ctx context.Context, id string) ([]Branch, error) {
 // message, event body, run, job, artifact or output chunk. The new stream only
 // owns its own writes and the states needed to close inherited work at the cut.
 func (s *Store) Fork(ctx context.Context, source, child, messageID string, retain ...resources.Ref) (Branch, error) {
+	return s.fork(ctx, source, child, messageID, nil, retain...)
+}
+
+func (s *Store) ForkForChange(ctx context.Context, source, child, messageID string, change HistoryChange, retain ...resources.Ref) (Branch, error) {
+	if !change.WantsBranch() {
+		return Branch{}, ErrHistoryChanged
+	}
+	return s.fork(ctx, source, child, messageID, &change, retain...)
+}
+
+func (s *Store) fork(ctx context.Context, source, child, messageID string, change *HistoryChange, retain ...resources.Ref) (Branch, error) {
 	branch := Branch{ID: child, ParentID: source, CreatedAt: time.Now().UTC().Format(time.RFC3339Nano), ForkMessageID: messageID}
 	if _, err := uuid.Parse(child); err != nil {
 		return branch, err
@@ -70,6 +82,11 @@ func (s *Store) Fork(ctx context.Context, source, child, messageID string, retai
 		return branch, err
 	}
 	defer tx.Rollback()
+	if change != nil {
+		if err := checkBranching(ctx, tx, *change); err != nil {
+			return branch, err
+		}
+	}
 	branch.RootID, err = branchRoot(ctx, tx, source)
 	if err != nil {
 		return branch, err
@@ -99,9 +116,7 @@ func (s *Store) Fork(ctx context.Context, source, child, messageID string, retai
 	// Flatten only the ancestry ranges. A nested fork at an inherited message
 	// may shorten an ancestor and omit the immediate parent's entire own tail.
 	cut := branch.ForkBefore
-	if _, err = execSQL(ctx, tx, `INSERT INTO branch_history_spans(branch_id,source_id,before_sequence)
- SELECT ?,source_id, MIN(before_sequence,?) FROM branch_history_spans WHERE branch_id=? AND ?>1
- UNION ALL SELECT ?,?,? WHERE EXISTS(SELECT 1 FROM events WHERE session_id=? AND sequence<?)`, child, cut, source, cut, child, source, cut, source, cut); err != nil {
+	if err = freezeForkRanges(ctx, tx, source, child, cut); err != nil {
 		return branch, err
 	}
 	// Start the local SSE cursor at the fork, even with an empty prefix or

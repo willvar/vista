@@ -80,9 +80,12 @@ func readSessionGroups(db, query *gorm.DB, limit, offset int, search SessionSear
  OR EXISTS(SELECT 1 FROM agent_tasks t WHERE t.session_id=s.id AND t.status='started')) AS running,
  s.pending_kind<>'' AS awaiting,
  COALESCE((SELECT sequence FROM messages m WHERE m.session_id=s.id AND m.role='assistant'
+   AND (NOT EXISTS(SELECT 1 FROM live_history_starts l WHERE l.session_id=s.id)
+     OR EXISTS(SELECT 1 FROM history_messages h WHERE h.session_id=s.id AND h.id=m.id))
    ORDER BY sequence DESC LIMIT 1),0)>s.read_sequence AS unread,
  (s.input_queue_paused=1 AND EXISTS(SELECT 1 FROM queued_inputs q WHERE q.session_id=s.id AND q.status IN ('queued','paused'))) AS paused,
- COALESCE((SELECT status FROM runs r WHERE r.session_id=s.id ORDER BY created_at DESC,id DESC LIMIT 1),'')='failed' AS failed
+ COALESCE((SELECT h.status FROM history_runs h JOIN runs r ON h.id=r.id
+   WHERE h.session_id=s.id AND r.session_id=s.id ORDER BY h.created_at DESC,h.id DESC LIMIT 1),'')='failed' AS failed
  FROM conversation_branches b JOIN sessions s ON s.id=b.branch_id AND s.is_open=1
  LEFT JOIN conversation_branch_preferences pref ON pref.root_id=b.root_id
  WHERE b.root_id IN ? ORDER BY b.root_id,julianday(s.created_at) DESC,s.id DESC`, ids).Scan(&branches).Error; err != nil {

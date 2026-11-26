@@ -30,7 +30,8 @@ func (s *Store) Revert(ctx context.Context, sessionID, messageID string, sequenc
 	defer tx.Rollback()
 	// Legacy destructive rewind is only safe for streams without branches.
 	var branched bool
-	if err := tx.WithContext(ctx).Raw(`SELECT EXISTS(SELECT 1 FROM conversation_branches WHERE parent_id=? OR branch_id=?)`, sessionID, sessionID).Row().Scan(&branched); err != nil {
+	if err := tx.WithContext(ctx).Raw(`SELECT EXISTS(SELECT 1 FROM conversation_branches WHERE parent_id=? OR branch_id=?)
+ OR EXISTS(SELECT 1 FROM conversation_history_versions WHERE session_id=?)`, sessionID, sessionID, sessionID).Row().Scan(&branched); err != nil {
 		return Event{}, err
 	}
 	if branched {

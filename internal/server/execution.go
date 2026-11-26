@@ -20,6 +20,7 @@ import (
 	"vista/internal/platform"
 	"vista/internal/provider"
 	"vista/internal/question"
+	"vista/internal/replylanguage"
 	"vista/internal/resources"
 	"vista/internal/store"
 	"vista/internal/workerproto"
@@ -40,12 +41,13 @@ func workerImages(images []store.Image) []workerproto.Image {
 func (a *App) submitMessage(w http.ResponseWriter, r *http.Request, sessionID string) {
 	debug := requestDebugMode(r)
 	var input struct {
-		ReplacesMessageID string  `json:"replacesMessageId"`
-		Content           string  `json:"content"`
-		Mode              string  `json:"mode"` // Legacy immediate sends remain accepted.
-		ModelKey          string  `json:"modelKey"`
-		ReasoningEffort   string  `json:"reasoningEffort"`
-		ProcessingTier    *string `json:"processingTier"`
+		HistoryChange     store.HistoryChange `json:"historyChange"`
+		ReplacesMessageID string              `json:"replacesMessageId"`
+		Content           string              `json:"content"`
+		Mode              string              `json:"mode"` // Legacy immediate sends remain accepted.
+		ModelKey          string              `json:"modelKey"`
+		ReasoningEffort   string              `json:"reasoningEffort"`
+		ProcessingTier    *string             `json:"processingTier"`
 
 		Draft         *store.DraftVersion `json:"draft,omitempty"`
 		QuestionReply *question.Reply     `json:"questionReply,omitempty"`
@@ -130,6 +132,7 @@ func (a *App) submitMessage(w http.ResponseWriter, r *http.Request, sessionID st
 	}
 	catalog := a.modelsSnapshot()
 	var forked *store.Session
+	var replacement string
 	if input.ReplacesMessageID != "" {
 		// Reject malformed model/image choices before discarding usable history.
 		{
@@ -174,15 +177,19 @@ func (a *App) submitMessage(w http.ResponseWriter, r *http.Request, sessionID st
 			revertHTTPError(w, store.ErrBranchRunning)
 			return
 		}
-		result, err := a.revertConversation(r.Context(), sessionID, messageID.String(), input.Images...)
-		if err != nil {
-			revertHTTPError(w, err)
-			return
+		if input.HistoryChange.WantsBranch() {
+			result, err := a.revertConversation(r.Context(), sessionID, messageID.String(), input.HistoryChange, input.Images...)
+			if err != nil {
+				revertHTTPError(w, err)
+				return
+			}
+			forked = result.Session
+			item = *forked
+			sessionID = item.ID
+			w.Header().Set("X-Vista-Forked-Session", sessionID)
+		} else {
+			replacement = messageID.String()
 		}
-		forked = result.Session
-		item = *forked
-		sessionID = item.ID
-		w.Header().Set("X-Vista-Forked-Session", sessionID)
 	}
 	_, runningErr := a.store.RunningRunID(r.Context(), sessionID)
 	if runningErr != nil && !errors.Is(runningErr, store.ErrNotFound) {
@@ -193,8 +200,17 @@ func (a *App) submitMessage(w http.ResponseWriter, r *http.Request, sessionID st
 		http.Error(w, store.ErrNoPendingQuestion.Error(), http.StatusConflict)
 		return
 	}
-	if !a.saveReplyLanguage(w, r, sessionID) {
-		return
+	var replacementLanguage string
+	if replacement == "" {
+		if !a.saveReplyLanguage(w, r, sessionID) {
+			return
+		}
+	} else {
+		replacementLanguage = r.Header.Get("X-Vista-Language")
+		if replacementLanguage != "" && replylanguage.Name(replacementLanguage) == "" {
+			http.Error(w, "unsupported reply language", http.StatusBadRequest)
+			return
+		}
 	}
 	messageID := uuid.NewString()
 	if input.QuestionReply == nil && runningErr == nil {
@@ -292,10 +308,16 @@ func (a *App) submitMessage(w http.ResponseWriter, r *http.Request, sessionID st
 	var event store.Event
 	if input.QuestionReply != nil {
 		message, event, err = a.store.BeginQuestionRun(r.Context(), sessionID, runID, messageID, *input.QuestionReply, modelKey)
+	} else if replacement != "" {
+		message, event, err = a.store.BeginReplacementRun(r.Context(), sessionID, runID, messageID, replacement, input.Content, images, input.HistoryChange, modelKey, replacementLanguage)
 	} else {
 		message, event, err = a.store.BeginDraftRun(r.Context(), sessionID, runID, messageID, input.Content, images, input.Draft, modelKey)
 	}
 	a.admissionLock().Unlock()
+	if err != nil && replacement != "" {
+		revertHTTPError(w, err)
+		return
+	}
 	if errors.Is(err, store.ErrBranchRunning) {
 		revertHTTPError(w, err)
 		return

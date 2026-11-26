@@ -10,9 +10,10 @@ import (
 // SyncCheckpoint describes committed state at one event boundary. It is not an
 // event and must never advance a client's successfully applied event cursor.
 type SyncCheckpoint struct {
-	ThroughSequence  int64   `json:"throughSequence"`
-	RevertedSequence int64   `json:"revertedSequence"`
-	Session          Session `json:"session"`
+	ThroughSequence    int64   `json:"throughSequence"`
+	RevertedSequence   int64   `json:"revertedSequence"`
+	HasHistoryVersions bool    `json:"hasHistoryVersions"`
+	Session            Session `json:"session"`
 }
 
 type ConversationSnapshot struct {
@@ -44,6 +45,7 @@ func (s *Store) checkpoint(ctx context.Context, id string) (SyncCheckpoint, erro
 	var state struct {
 		ThroughSequence     int64
 		RevertedSequence    int64
+		HasHistoryVersions  bool
 		LatestReplySequence int64
 		LatestRunStatus     string
 		PendingInputCount   int
@@ -53,16 +55,17 @@ func (s *Store) checkpoint(ctx context.Context, id string) (SyncCheckpoint, erro
 	err = s.orm.WithContext(ctx).Raw(`SELECT
  COALESCE((SELECT MAX(sequence) FROM events WHERE session_id=?),0) AS through_sequence,
  COALESCE((SELECT MAX(sequence) FROM events WHERE session_id=? AND kind='conversation_reverted'),0) AS reverted_sequence,
+ EXISTS(SELECT 1 FROM conversation_history_versions WHERE session_id=?) AS has_history_versions,
  COALESCE((SELECT sequence FROM history_messages WHERE session_id=? AND role='assistant' ORDER BY sequence DESC LIMIT 1),0) AS latest_reply_sequence,
  COALESCE((SELECT status FROM history_runs WHERE session_id=? ORDER BY created_at DESC,id DESC LIMIT 1),'') AS latest_run_status,
  (SELECT COUNT(*) FROM queued_inputs WHERE session_id=? AND status IN ('queued','paused')) AS pending_input_count,
  EXISTS(SELECT 1 FROM runs WHERE session_id=? AND status='running') AS executing,
  (EXISTS(SELECT 1 FROM jobs WHERE session_id=? AND status IN ('starting','running')) OR
- EXISTS(SELECT 1 FROM agent_tasks WHERE session_id=? AND status='started')) AS background`, id, id, id, id, id, id, id, id).Scan(&state).Error
+ EXISTS(SELECT 1 FROM agent_tasks WHERE session_id=? AND status='started')) AS background`, id, id, id, id, id, id, id, id, id).Scan(&state).Error
 	session.LatestReplySequence, session.LatestRunStatus = state.LatestReplySequence, state.LatestRunStatus
 	session.PendingInputCount, session.Executing = state.PendingInputCount, state.Executing
 	session.Running = state.Executing || state.Background
-	return SyncCheckpoint{ThroughSequence: state.ThroughSequence, RevertedSequence: state.RevertedSequence, Session: session}, err
+	return SyncCheckpoint{ThroughSequence: state.ThroughSequence, RevertedSequence: state.RevertedSequence, HasHistoryVersions: state.HasHistoryVersions, Session: session}, err
 }
 
 func (s *Store) readView(ctx context.Context, fn func(*Store) error) error {

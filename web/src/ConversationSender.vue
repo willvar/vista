@@ -15,7 +15,7 @@ const QuestionForm = defineAsyncComponent(() => import('./QuestionForm.vue'))
 const { t } = useI18n({ useScope: 'global' })
 const emit = defineEmits<{ send: []; locateQuote: [quote: QuotedExcerpt] }>()
 const { selected, busy, modelsReady, needsProvider, senderDisabled, conversation, route, mobileSessionsOpen, modalQuery, workspacePath } = useWorkspace()
-const { draft, quotedTexts, removeQuote, agentWorking, editingMessage, cancelEditMessage, selectedModel,
+const { draft, quotedTexts, removeQuote, agentWorking, editingMessage, editingHistory, cancelEditMessage, selectedModel,
   canAttachImage, attachedImages, attachedPreviewURLs, chooseImages, pasteImages, dropImages, removeImage,
   submitMessage, submitQuestion, cancelExecution, recallLastUserMessage,
   continueAfterCompaction, fillContinueDraft, draftPhase, retryDraft } = conversation
@@ -212,7 +212,7 @@ onUnmounted(() => {
             <span>{{ t('questionPendingNotice') }}</span>
             <v-button type="button" variant="text" :disabled="busy || composing" @click="showAnswers">{{ t('questionReturnToAnswers') }}</v-button>
           </div>
-          <div v-if="editingMessage" v-show="!answering" class="sender-editing" role="status"><span>{{ t('editingSentMessage') }}</span><v-button variant="text" :disabled="busy" @click="cancelEditMessage">{{ t('cancelEditMessage') }}</v-button></div>
+          <div v-if="editingMessage" v-show="!answering" class="sender-editing" role="status"><span>{{ t(editingHistory?.branching === false ? 'editingSentMessageInPlace' : 'editingSentMessage') }}</span><v-button variant="text" :disabled="busy" @click="cancelEditMessage">{{ t('cancelEditMessage') }}</v-button></div>
           <div v-show="!answering"><ConversationQuotes :key="selected?.id" :quotes="quotedTexts" :disabled="busy" @remove="removeQuote" @locate="emit('locateQuote', $event)" /></div>
           <div v-if="imageDragDepth" class="sender-drop-hint" :class="{ unsupported: !canAttachImage }" role="status"><IconPhoto /><strong>{{ imageDropHint }}</strong><small v-if="canAttachImage">{{ t('imageLimit') }}</small></div>
           <div v-if="attachedImages.length" v-show="!answering" class="sender-attachments" aria-live="polite">

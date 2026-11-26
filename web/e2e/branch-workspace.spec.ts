@@ -4,6 +4,11 @@ import { selectSessions } from './session-manager-actions'
 
 test.use({ questionTool: true, replyWithPrompt: true })
 
+// These cases specifically exercise the independent branch path.
+test.beforeEach(async ({ vista }) => {
+  await vista.api('/preferences', { method: 'PATCH', body: JSON.stringify({ branching: true }) })
+})
+
 test('a saved branch preference follows the Profile while group activity opens its own branch', { tag: '@responsive' }, async ({ page, browser, vista }, info) => {
   test.setTimeout(55_000)
   const post = (path: string, body: object = {}) => vista.api(path, { method: 'POST', body: JSON.stringify(body) })

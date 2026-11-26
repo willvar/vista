@@ -82,7 +82,7 @@ export type CatalogCheckRecord = Pick<OMPCatalogInfo, 'revision' | 'modelsDevRev
 }
 export type Message = { failure?: boolean; contextSummary?: boolean; id: string; runId: string; provider?: string; modelId?: string; modelKey?: string; outputTurn?: number; outputBytes?: number; imageCount?: number; questionCallId?: string; sequence: number; resultsAfter?: number; role: string; content: string; createdAt: string; modelResults?: ModelResultView[] }
 export type StreamEvent = { sequence: number; kind: string; createdAt?: string; data: any }
-export type SyncCheckpoint = { throughSequence: number; revertedSequence?: number; session: Session }
+export type SyncCheckpoint = { throughSequence: number; revertedSequence?: number; hasHistoryVersions?: boolean; session: Session }
 export type RunClock = { id: string; startedAt: string; lastActivityAt?: string }
 export type ConversationSnapshot = SyncCheckpoint & { messages: Message[]; events: StreamEvent[]; queuedInputs: QueuedInput[]; hasOlder: boolean; hasOlderEvents: boolean; eventsBefore?: number; currentRun?: RunClock }
 export type ToolOutputRef = { artifactId?: string; outputPath?: string; runId?: string; turn?: number; bytes: number }
@@ -109,6 +109,7 @@ export type ServerConfig = {
 }
 export type MemoryConfig = { budgetMiB: number; workerMiB: number; concurrentRuns: number; backgroundJobsPerSession: number }
 export type ServerStatus = {
+  branching?: boolean
   instanceId?: string // Server process identity; unchanged by an in-process reset.
   pid?: number
   capacity?: { config: MemoryConfig; residentBytes: number }
@@ -139,6 +140,13 @@ export type ConversationBranch = {
   id: string; rootId: string; parentId?: string; forkMessageId?: string; forkBefore?: number; createdAt: string; open: boolean
   firstMessageId?: string; firstMessageSequence?: number
 }
+export type HistoryChange = { branching?: boolean; throughSequence?: number }
+export type ImageRef = { hash: string; name: string; mediaType: string; bytes: number }
+export type MessageDraft = HistoryChange & { message: Message; images: ImageRef[]; session?: Session }
+export type HistoryVersion = { version: number; createdAt: string; reason: 'edit' | 'withdraw' | 'restore' }
+export type HistoryVersionList = { items: HistoryVersion[]; nextBefore?: number }
+export type HistoryVersionPreview = { throughSequence: number; messages: { role: string; content: string }[] | null }
+
 export type SendMessageResult = { session?: Session | null; runId?: string; message?: Message; input?: QueuedInput; event: StreamEvent }
 export type ModelSpeedStats = { count: number; failures: number; medianMs: number | null; p90Ms: number | null; lowConfidence: boolean }
 

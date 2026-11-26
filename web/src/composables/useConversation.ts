@@ -2,7 +2,7 @@ import { profileStorageKey } from '../client/profileScope.ts'
 import { serviceDrafts, type DraftInput } from './serviceDrafts.ts'
 import { computed, onScopeDispose, reactive, ref, toRefs, watch, type Ref } from 'vue'
 import { VistaAPIError, restoreConversationSnapshot, createConversationSync, appendMessage, createConversationState, messageResults, runResults, pruneConversationWindow, reduceConversationEvent, replyTraceSegments, trailingTraceSegment, conversationItems, displayBodyVersion, displayOutputKey, hydrateMainOutput, mainOutputKey, mainOutputText, mergeMainOutputs, confirmInputEvent, projectInputQueue, jobActive } from '@vista/client'
-import type { VistaClient, ConversationSyncStatus, ConversationSyncDiagnostics, Artifact, ConversationSnapshot, CompactionStatus, ContextUsage, Job, MainOutput, Message, ModelCatalog, OutputView, QuestionAnswer, QueuedInput, SendMessageResult, Session, SessionActionPreview, StreamEvent, ReplyTraceSegment, ConversationItem, MainOutputRecord } from '@vista/client'
+import type { VistaClient, MessageDraft, HistoryChange, ImageRef, ConversationSyncStatus, ConversationSyncDiagnostics, Artifact, ConversationSnapshot, CompactionStatus, ContextUsage, Job, MainOutput, Message, ModelCatalog, OutputView, QuestionAnswer, QueuedInput, SendMessageResult, Session, SessionActionPreview, StreamEvent, ReplyTraceSegment, ConversationItem, MainOutputRecord } from '@vista/client'
 import { toolOperationLabelKey, compactTraceText, toolSummaryText } from '../state/runTrace.ts'
 import { useInteractionPreferences, type InteractionPreferences } from './useInteractionPreferences.ts'
 import { formatQuotedReply, quoteStoragePrefix, readQuotedReply, type QuotedReply, type QuotedText } from '../state/quotedReply.ts'
@@ -106,12 +106,12 @@ export function useConversation({ client, sessions, modelCatalog, error, busy, r
   const quotedReply = ref<QuotedReply | null>(null)
   const quotedTexts = computed(() => quotedReply.value?.items || [])
   const editingMessage = ref<Message | null>(null)
+  const editingHistory = ref<HistoryChange>()
+  const hasHistoryVersions = ref(false)
   const rollbackFailure = ref('')
   const analyzingFailure = ref('')
   const canAnalyzeFailure = computed(() => interactionPreferences.ready.value && !!selectedModelInfo.value?.provider)
   let editBackup: { draft: string; quote: QuotedReply | null; images: File[] } | null = null
-  type ImageRef = { hash: string; name: string; mediaType: string; bytes: number }
-  type MessageDraft = { message: Message; images: ImageRef[]; session?: Session }
   let draftRevision = 0
   let recallingScope: Scope | null = null
   let welcomeImages: File[] = []
@@ -336,6 +336,7 @@ export function useConversation({ client, sessions, modelCatalog, error, busy, r
   }
   function applySnapshot(scope: Scope, snapshot: ConversationSnapshot) {
     if (!current(scope) || snapshot.throughSequence < state.lastEvent) return
+    hasHistoryVersions.value = !!snapshot.hasHistoryVersions
     // Routing can start from a workspace list captured before the first send.
     // Restore the saved choice once, unless the user has since edited it.
     // Locally created first-send scopes keep their not-yet-persisted choice.
@@ -357,8 +358,9 @@ export function useConversation({ client, sessions, modelCatalog, error, busy, r
       compaction.value = null; contextUsage.value = null; maintenanceRunID = ''
       contextUsageRequest++
     }
-    viewRevision.value++
     Object.assign(state, next)
+    // The synchronous history watcher must anchor against the restored rows.
+    viewRevision.value++
     snapshotReady.value = true
     acknowledgedReplySequence = snapshot.session.latestReplySequence || 0
     latestUserSequence.value = next.activeRunSequence
@@ -383,6 +385,7 @@ export function useConversation({ client, sessions, modelCatalog, error, busy, r
       applySessionAction: action => { if (current(scope)) sessionAction.value = action },
       applyCheckpoint: point => {
         if (!current(scope) || !selected.value) return
+        if (point.throughSequence >= state.lastEvent) hasHistoryVersions.value = !!point.hasHistoryVersions
         const previous = selected.value
         const verified = { ...point.session, readSequence: Math.max(point.session.readSequence || 0, previous.readSequence || 0),
               manualModelKey: previous.manualModelKey, manualReasoningEffort: previous.manualReasoningEffort, processingTier: previous.processingTier }
@@ -505,6 +508,7 @@ export function useConversation({ client, sessions, modelCatalog, error, busy, r
   }
 
   function clearSession(loadDraft = true) {
+    hasHistoryVersions.value = false
     if (persisted) restoringDraft = true
     cancelEditMessage()
     rollbackFailure.value = ''
@@ -758,6 +762,7 @@ export function useConversation({ client, sessions, modelCatalog, error, busy, r
       attachedImages.value = editBackup.images
     }
     editingMessage.value = null
+    editingHistory.value = undefined
     editBackup = null
   }
   async function beginEditMessage(message: Message) {
@@ -771,6 +776,7 @@ export function useConversation({ client, sessions, modelCatalog, error, busy, r
       if (!current(scope)) return false
       editBackup ||= { draft: draft.value, quote: quotedReply.value, images: [...attachedImages.value] }
       editingMessage.value = result.message
+      editingHistory.value = { branching: result.branching, throughSequence: result.throughSequence }
       draft.value = result.message.content
       quotedReply.value = null
       attachedImages.value = files
@@ -782,16 +788,26 @@ export function useConversation({ client, sessions, modelCatalog, error, busy, r
   async function reloadAfterRollback(clearEdit = true) {
     const session = selected.value
     if (!session) return
-    const saved = { draft: draft.value, quote: quotedReply.value, images: [...attachedImages.value], edit: editingMessage.value, backup: editBackup }
+    const saved = { draft: draft.value, quote: quotedReply.value, images: [...attachedImages.value], edit: editingMessage.value, history: editingHistory.value, backup: editBackup }
     const nextGeneration = generation + 1
     await selectSession(session)
     if (selected.value?.id !== session.id || generation !== nextGeneration) return
     draft.value = saved.draft
     quotedReply.value = saved.quote
     attachedImages.value = saved.images
-    if (!clearEdit) { editingMessage.value = saved.edit; editBackup = saved.backup }
+    if (!clearEdit) { editingMessage.value = saved.edit; editingHistory.value = saved.history; editBackup = saved.backup }
   }
-  async function withdrawMessage(message: Message) {
+  async function previewWithdrawal(message: Message): Promise<MessageDraft | undefined> {
+    const scope = currentScope
+    if (!scope || !current(scope) || !selected.value?.open || message.role !== 'user' || busy.value) return
+    const owner = startBusy()
+    try {
+      const preview = await request<MessageDraft>(scope, `/sessions/${scope.id}/messages/${message.id}/draft`)
+      if (current(scope)) return preview
+    } catch (failure) { report(scope, failure) }
+    finally { endBusy(scope, owner) }
+  }
+  async function withdrawMessage(message: Message, preview?: MessageDraft) {
     const scope = currentScope
     if (!scope || !current(scope) || !selected.value?.open || message.role !== 'user' || busy.value) return false
     const owner = startBusy()
@@ -801,12 +817,14 @@ export function useConversation({ client, sessions, modelCatalog, error, busy, r
       // the originals first, while their download URLs remain authorized.
       let files: File[] = []
       if (message.imageCount) {
-        const original = await request<MessageDraft>(scope, `/sessions/${scope.id}/messages/${message.id}/draft`)
+        const original = preview ?? await request<MessageDraft>(scope, `/sessions/${scope.id}/messages/${message.id}/draft`)
         if (!current(scope)) return false
         files = await draftFiles(scope, original)
         if (!current(scope)) return false
       }
-      const result = await request<MessageDraft>(scope, `/sessions/${scope.id}/messages/${message.id}/revert`, { method: 'POST' })
+      const result = await request<MessageDraft>(scope, `/sessions/${scope.id}/messages/${message.id}/revert`, {
+        method: 'POST', ...(preview ? { body: JSON.stringify({ branching: preview.branching, throughSequence: preview.throughSequence }) } : {}),
+      })
       if (!current(scope)) return false
       editingMessage.value = null
       editBackup = null
@@ -958,7 +976,7 @@ export function useConversation({ client, sessions, modelCatalog, error, busy, r
         }))
         if (!current(scope)) return
       }
-      const result = await request<SendMessageResult>(scope, `/sessions/${scope.id}/messages`, { method: 'POST', body: JSON.stringify({ content, images, modelKey, reasoningEffort, processingTier, ...(edited ? { replacesMessageId: edited.id } : {}), ...(saved ? { draft: {key:saved.key,revision:saved.revision} } : {}) }) })
+      const result = await request<SendMessageResult>(scope, `/sessions/${scope.id}/messages`, { method: 'POST', body: JSON.stringify({ content, images, modelKey, reasoningEffort, processingTier, ...(edited ? { replacesMessageId: edited.id, historyChange: editingHistory.value } : {}), ...(saved ? { draft: {key:saved.key,revision:saved.revision} } : {}) }) })
       if (!current(scope)) return
       if (persisted) restoringDraft = true
       if (draft.value === text) draft.value = ''
@@ -976,11 +994,12 @@ export function useConversation({ client, sessions, modelCatalog, error, busy, r
       if (edited) {
         const backup = editBackup
         editingMessage.value = null
+        editingHistory.value = undefined
         editBackup = null
+        if (backup) {
+          draft.value = backup.draft; quotedReply.value = backup.quote; attachedImages.value = backup.images
+        }
         if (result.session) {
-          if (backup) {
-            draft.value = backup.draft; quotedReply.value = backup.quote; attachedImages.value = backup.images
-          }
           endBusy(scope,owner)
           await selectSession(result.session)
           await onSessionStarted?.(result.session)
@@ -1245,7 +1264,7 @@ export function useConversation({ client, sessions, modelCatalog, error, busy, r
   }
 
   return {
-    editingMessage, beginEditMessage, cancelEditMessage, withdrawMessage, rollbackFailure, sessionAction, decideSessionAction,
+    editingMessage, editingHistory, hasHistoryVersions, beginEditMessage, cancelEditMessage, previewWithdrawal, withdrawMessage, rollbackFailure, sessionAction, decideSessionAction,
     draftPhase: persisted?.phase, refreshDraft, retryDraft, flushDrafts: () => persisted?.flush(),
     ...refs, displayMessages, readOutputIndexes, readDisplayOutput, releaseDisplayOutput, olderActivity, hasOlderActivity, activityPaging, paging, selectedModel, selectedModelInfo,
     selectedReasoning, reasoningChoices, canAttachImage, attachedImages, attachedPreviewURLs,

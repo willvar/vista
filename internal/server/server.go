@@ -518,6 +518,10 @@ func (a *App) status(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) statusSnapshot(ctx context.Context, host string) (map[string]any, error) {
+	branching, err := a.store.Branching(ctx)
+	if err != nil {
+		return nil, err
+	}
 	counts, err := a.store.SessionCounts(ctx)
 	if err != nil {
 		return nil, err
@@ -558,7 +562,7 @@ func (a *App) statusSnapshot(ctx context.Context, host string) (map[string]any, 
 		pid, metrics := a.mcpHost.Status()
 		mcpHostStatus = map[string]any{"pid": pid, "memory": metrics}
 	}
-	return map[string]any{"state": "running", "instanceId": processInstanceID, "pid": os.Getpid(), "version": buildinfo.Version, "binaryHash": a.buildInfo.BinaryHash, "sourceCommit": a.buildInfo.SourceCommit, "sourceModified": a.buildInfo.SourceModified, "hostOS": a.hostOS, "address": "http://" + host, "provider": providerName, "model": defaultModel.ID, "defaultModel": defaultModelLabel, "defaultModelKey": defaultKey, "uptimeSeconds": int(time.Since(a.started).Seconds()), "sessions": map[string]int{"total": counts.Total, "open": counts.Open, "closed": counts.Total - counts.Open, "running": counts.Running, "idle": counts.Open - counts.Running, "unavailable": unavailable, "workers": count}, "managedBackgroundProcesses": counts.Jobs, "eventStreams": a.hub.subscriberCount() + a.updates.count(), "eventStreamLimit": maxEventStreams + maxStateEventStreams, "memory": map[string]uint64{"heapBytes": mem.HeapAlloc, "rssBytes": platform.RSS(), "peakRssBytes": platform.PeakRSS()}, "capacity": map[string]any{"config": a.memorySettings(), "residentBytes": residentBytes}, "workerMetrics": workerMetrics, "mcpHost": mcpHostStatus, "sampledAt": time.Now().UTC().Format(time.RFC3339Nano)}, nil
+	return map[string]any{"state": "running", "branching": branching, "instanceId": processInstanceID, "pid": os.Getpid(), "version": buildinfo.Version, "binaryHash": a.buildInfo.BinaryHash, "sourceCommit": a.buildInfo.SourceCommit, "sourceModified": a.buildInfo.SourceModified, "hostOS": a.hostOS, "address": "http://" + host, "provider": providerName, "model": defaultModel.ID, "defaultModel": defaultModelLabel, "defaultModelKey": defaultKey, "uptimeSeconds": int(time.Since(a.started).Seconds()), "sessions": map[string]int{"total": counts.Total, "open": counts.Open, "closed": counts.Total - counts.Open, "running": counts.Running, "idle": counts.Open - counts.Running, "unavailable": unavailable, "workers": count}, "managedBackgroundProcesses": counts.Jobs, "eventStreams": a.hub.subscriberCount() + a.updates.count(), "eventStreamLimit": maxEventStreams + maxStateEventStreams, "memory": map[string]uint64{"heapBytes": mem.HeapAlloc, "rssBytes": platform.RSS(), "peakRssBytes": platform.PeakRSS()}, "capacity": map[string]any{"config": a.memorySettings(), "residentBytes": residentBytes}, "workerMetrics": workerMetrics, "mcpHost": mcpHostStatus, "sampledAt": time.Now().UTC().Format(time.RFC3339Nano)}, nil
 }
 
 func (a *App) modelList(w http.ResponseWriter, r *http.Request) {
@@ -724,6 +728,10 @@ func (a *App) session(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		a.revertMessage(w, r, item.ID, messageID.String())
+		return
+	}
+	if len(bits) >= 2 && bits[1] == "history-versions" {
+		a.historyVersions(w, r, item.ID, bits[2:])
 		return
 	}
 	if len(bits) == 2 && bits[1] == "branches" && r.Method == http.MethodGet {

@@ -1864,13 +1864,14 @@ test('entering edit only prepares a draft and cancel restores the previous draft
   assert.equal(conversation.editingMessage.value, null)
 })
 
-test('editing submits one replacement request and reloads authoritative history', async t => {
+test('in-place editing sends one versioned replacement and preserves the unrelated draft', async t => {
   const original = { ...message('original', 2, 'run'), content: 'Original question' }
   const replacement = { ...message('replacement', 20, 'new-run'), content: 'Edited question' }
+  const historyChange = { branching: false, throughSequence: 8 }
   const sent: Record<string, unknown>[] = []
   let replaced = false
   const { conversation } = fixture(t, (path, options) => {
-    if (path.endsWith('/original/draft')) return Promise.resolve({ message: original, images: [] })
+    if (path.endsWith('/original/draft')) return Promise.resolve({ message: original, images: [], ...historyChange })
     if (path.endsWith('/messages') && options?.method === 'POST') {
       sent.push(JSON.parse(String(options.body))); replaced = true
       return Promise.resolve({ runId: replacement.runId, message: replacement })
@@ -1878,15 +1879,17 @@ test('editing submits one replacement request and reloads authoritative history'
     if (path.endsWith('/messages')) return Promise.resolve(replaced ? [replacement] : [original])
   })
   await conversation.selectSession(session('a'))
+  conversation.draft.value = 'Unsent continuation'
   await conversation.beginEditMessage(original)
   conversation.draft.value = 'Edited question'
   await conversation.send()
   assert.equal(sent.length, 1)
   assert.equal(sent[0]!.replacesMessageId, original.id)
+  assert.deepEqual(sent[0]!.historyChange, historyChange)
   assert.equal('mode' in sent[0]!, false)
   assert.equal(conversation.editingMessage.value, null)
   assert.equal(conversation.messages.value[0]?.id, replacement.id)
-  assert.equal(conversation.draft.value, '')
+  assert.equal(conversation.draft.value, 'Unsent continuation')
 })
 
 test('withdrawal returns the original attachments and leaves an idle draft', async t => {

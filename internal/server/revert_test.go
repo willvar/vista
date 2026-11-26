@@ -1,6 +1,7 @@
 package server
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"net/http"
@@ -46,6 +47,10 @@ func TestMessageDraftReadHasNoExecutionEffects(t *testing.T) {
 func TestRevertEndpointRetainsFileChangesAndRestoresDraftResourceBoundary(t *testing.T) {
 	a, message := revertApp(t)
 	ctx := context.Background()
+	enabled := true
+	if _, err := a.store.PatchPreferences(ctx, store.PreferencesPatch{Branching: &enabled}); err != nil {
+		t.Fatal(err)
+	}
 	directory := t.TempDir()
 	for name, content := range map[string]string{"modified": "agent changes", "added": "created", "external": "user changes"} {
 		if err := os.WriteFile(filepath.Join(directory, name), []byte(content), 0640); err != nil {
@@ -136,5 +141,65 @@ func TestBranchPreferencePublishesWorkspaceSnapshot(t *testing.T) {
 	}
 	if status := put(uuid.NewString()); status != http.StatusNotFound {
 		t.Fatalf("unknown branch write status: %d", status)
+	}
+}
+
+func TestSameSessionRevertRequiresTheDisplayedPolicy(t *testing.T) {
+	a, message := revertApp(t)
+	ctx := t.Context()
+	if err := a.store.SetOpen(ctx, message.SessionID, true); err != nil {
+		t.Fatal(err)
+	}
+	base := "/api/sessions/" + message.SessionID
+	path := base + "/messages/" + message.ID + "/revert"
+	post := func(body []byte, want int) *httptest.ResponseRecorder {
+		t.Helper()
+		w := httptest.NewRecorder()
+		a.session(w, httptest.NewRequest(http.MethodPost, path, bytes.NewReader(body)))
+		if w.Code != want {
+			t.Fatalf("revert: got %d, want %d: %s", w.Code, want, w.Body.String())
+		}
+		return w
+	}
+	post(nil, http.StatusConflict)
+	preview, err := a.messageDraft(ctx, message.SessionID, message.ID)
+	if err != nil || preview.WantsBranch() {
+		t.Fatalf("default draft: %+v %v", preview, err)
+	}
+	body, err := json.Marshal(preview.HistoryChange)
+	if err != nil {
+		t.Fatal(err)
+	}
+	enabled := true
+	if _, err := a.store.PatchPreferences(ctx, store.PreferencesPatch{Branching: &enabled}); err != nil {
+		t.Fatal(err)
+	}
+	post(body, http.StatusConflict)
+	if list, err := a.store.HistoryVersions(ctx, message.SessionID, 0); err != nil || len(list.Items) != 0 {
+		t.Fatalf("rejected operation saved a version: %+v %v", list, err)
+	}
+	enabled = false
+	if _, err := a.store.PatchPreferences(ctx, store.PreferencesPatch{Branching: &enabled}); err != nil {
+		t.Fatal(err)
+	}
+	w := post(body, http.StatusOK)
+	var result revertedConversation
+	if err := json.Unmarshal(w.Body.Bytes(), &result); err != nil || result.Session != nil || result.Message.ID != message.ID || len(result.Images) != 1 {
+		t.Fatalf("wrong same-session draft: %+v %v", result, err)
+	}
+	if _, err := a.store.SessionResource(ctx, message.SessionID, result.Images[0].Hash); err != nil {
+		t.Fatal(err)
+	}
+	if branches, err := a.store.Branches(ctx, message.SessionID); err != nil || len(branches) != 1 {
+		t.Fatalf("unexpected fork: %+v %v", branches, err)
+	}
+	point, err := a.store.Checkpoint(ctx, message.SessionID)
+	if err != nil || !point.HasHistoryVersions || point.Session.Executing {
+		t.Fatalf("wrong checkpoint: %+v %v", point, err)
+	}
+	// The withdrawn message is preserved but no longer an active target.
+	post(body, http.StatusNotFound)
+	if versions, err := a.store.HistoryVersions(ctx, message.SessionID, 0); err != nil || len(versions.Items) != 1 {
+		t.Fatalf("repeated withdrawal changed saved versions: %+v %v", versions, err)
 	}
 }

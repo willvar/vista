@@ -62,6 +62,9 @@ func (a *App) preferences(w http.ResponseWriter, r *http.Request) {
 		if patch.ShowUnrecognizedModels != nil {
 			a.updates.notify("models")
 		}
+		if patch.Branching != nil {
+			a.updates.notify("status")
+		}
 		jsonOut(w, value)
 	default:
 		http.Error(w, "method", 405)
