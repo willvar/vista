@@ -346,7 +346,7 @@ export default {
   "branchingOn": "켜짐",
   "branchingOffHint": "현재 대화에서 계속합니다. 이전 버전을 복원할 수 있습니다.",
   "branchingOnHint": "새 분기를 만들고 기존 대화 기록을 보존합니다.",
-  "branchingExistingHint": "기존 분기와 작업은 바뀌지 않습니다.",
+  "branchingExistingHint": "분기를 꺼도 이미 만들어진 분기 사이를 전환할 수 있습니다.",
   "restoreHistory": "이전 버전 복원",
   "historyFromEdit": "편집 전",
   "historyFromWithdrawal": "철회 전",

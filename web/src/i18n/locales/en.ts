@@ -343,7 +343,7 @@ export default {
   "branchingOn": "On",
   "branchingOffHint": "Continue in this conversation. The earlier version can be restored.",
   "branchingOnHint": "Create a separate branch. Keep the original conversation history.",
-  "branchingExistingHint": "Existing branches and their work are not affected.",
+  "branchingExistingHint": "You can still switch between existing branches when branching is off.",
   "restoreHistory": "Restore earlier version",
   "historyFromEdit": "Before an edit",
   "historyFromWithdrawal": "Before a withdrawal",

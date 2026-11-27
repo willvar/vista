@@ -346,7 +346,7 @@ export default {
   "branchingOn": "Activadas",
   "branchingOffHint": "Continúa en esta conversación. Puedes restaurar la versión anterior.",
   "branchingOnHint": "Crea otra rama y conserva el historial original.",
-  "branchingExistingHint": "Las ramas y tareas existentes no cambian.",
+  "branchingExistingHint": "Con la creación de ramas desactivada, aún puedes cambiar entre las ramas existentes.",
   "restoreHistory": "Restaurar una versión anterior",
   "historyFromEdit": "Antes de editar",
   "historyFromWithdrawal": "Antes de retirar",

@@ -346,7 +346,7 @@ export default {
   "branchingOn": "Activées",
   "branchingOffHint": "Continuer dans cette conversation. La version précédente peut être restaurée.",
   "branchingOnHint": "Créer une branche distincte et conserver l’historique d’origine.",
-  "branchingExistingHint": "Les branches et tâches existantes ne changent pas.",
+  "branchingExistingHint": "Même si la création de branches est désactivée, vous pouvez toujours passer d’une branche existante à une autre.",
   "restoreHistory": "Restaurer une version précédente",
   "historyFromEdit": "Avant la modification",
   "historyFromWithdrawal": "Avant le retrait",

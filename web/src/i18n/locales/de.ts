@@ -346,7 +346,7 @@ export default {
   "branchingOn": "An",
   "branchingOffHint": "Hier fortfahren. Die frühere Version lässt sich wiederherstellen.",
   "branchingOnHint": "Einen separaten Zweig erstellen und den bisherigen Verlauf behalten.",
-  "branchingExistingHint": "Bestehende Zweige und ihre Aufgaben bleiben unverändert.",
+  "branchingExistingHint": "Auch bei ausgeschalteter Verzweigung kannst du zwischen bestehenden Zweigen wechseln.",
   "restoreHistory": "Frühere Version wiederherstellen",
   "historyFromEdit": "Vor der Bearbeitung",
   "historyFromWithdrawal": "Vor dem Zurückziehen",

@@ -346,7 +346,7 @@ export default {
   "branchingOn": "Включены",
   "branchingOffHint": "Продолжайте в этом диалоге. Прежнюю версию можно восстановить.",
   "branchingOnHint": "Создаётся отдельная ветка, исходная история сохраняется.",
-  "branchingExistingHint": "Существующие ветки и задачи не изменятся.",
+  "branchingExistingHint": "Даже если создание веток отключено, между уже существующими ветками можно переключаться.",
   "restoreHistory": "Восстановить прежнюю версию",
   "historyFromEdit": "До правки",
   "historyFromWithdrawal": "До отзыва",

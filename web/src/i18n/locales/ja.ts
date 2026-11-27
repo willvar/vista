@@ -346,7 +346,7 @@ export default {
   "branchingOn": "オン",
   "branchingOffHint": "現在の会話を続けます。以前の版は復元できます。",
   "branchingOnHint": "別の分岐を作成し、元の履歴を残します。",
-  "branchingExistingHint": "既存の分岐やタスクには影響しません。",
+  "branchingExistingHint": "オフにしても、既存の分岐は切り替えられます。",
   "restoreHistory": "以前の版を復元",
   "historyFromEdit": "編集前",
   "historyFromWithdrawal": "撤回前",

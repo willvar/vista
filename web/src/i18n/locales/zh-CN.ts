@@ -346,7 +346,7 @@ export default {
   "branchingOn": "开启",
   "branchingOffHint": "在原会话继续，旧版本可以恢复。",
   "branchingOnHint": "另开一条分支，保留原会话历史。",
-  "branchingExistingHint": "已存在的分支和任务不受影响。",
+  "branchingExistingHint": "关闭后，已有分支仍可切换。",
   "restoreHistory": "恢复旧版本",
   "historyFromEdit": "编辑前",
   "historyFromWithdrawal": "撤回前",

@@ -12,6 +12,7 @@ test('branching defaults off and same-session edits can be recovered', { tag: '@
   await expect(figure).toBeVisible()
   await expect(figure).toContainText('The earlier version can be restored.')
   await expect(figure).toContainText('Create a separate branch.')
+  await expect(figure.locator('figcaption')).toHaveText('You can still switch between existing branches when branching is off.')
   expect(await figure.evaluate(node => node.scrollWidth <= node.clientWidth + 1)).toBe(true)
   await toggle.click()
   await expect(toggle).toBeChecked()

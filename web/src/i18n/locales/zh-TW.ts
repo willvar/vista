@@ -326,7 +326,7 @@ export default { ...base, ...{
   "branchingOn": "開啟",
   "branchingOffHint": "在原會話繼續，舊版本可以恢復。",
   "branchingOnHint": "另開一條分支，保留原會話歷史。",
-  "branchingExistingHint": "已存在的分支和任務不受影響。",
+  "branchingExistingHint": "關閉後，已有分支仍可切換。",
   "restoreHistory": "恢復舊版本",
   "historyFromEdit": "編輯前",
   "historyFromRestore": "恢復前",
