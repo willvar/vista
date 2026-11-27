@@ -5,6 +5,7 @@ test.use({ replyWithPrompt: true })
 test('branching defaults off and same-session edits can be recovered', { tag: '@responsive' }, async ({ page, vista, isMobile }) => {
   test.setTimeout(65_000)
   await page.goto(`${vista.origin}/settings/personalization`)
+  await expect(page.locator('.personalization-settings-content > :last-child')).toHaveAccessibleName('Branching')
   const toggle = page.getByRole('switch', { name: 'Branching', exact: true })
   await expect(toggle).not.toBeChecked()
   const figure = page.locator('.branching-figure')

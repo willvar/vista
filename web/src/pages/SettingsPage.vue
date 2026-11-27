@@ -315,7 +315,6 @@ watch([() => route.name, () => route.query.session], () => {
           </div>
         </div>
         <div v-if="route.name === 'settings-personalization'" class="settings-content personalization-settings-content">
-          <BranchingSettings />
           <v-alert v-if="agentSettingsError" type="error" role="alert" :message="agentSettingsError" />
           <v-alert v-if="agentSettingsSaved" type="success" role="status" :message="t('agentSettingsSaved')" />
           <section class="agent-instructions-form" aria-labelledby="global-instructions-heading">
@@ -376,7 +375,7 @@ watch([() => route.name, () => route.query.session], () => {
               </figure>
             </div>
           </section>
-
+          <BranchingSettings />
         </div>
         <div v-if="route.name === 'settings'" class="settings-content">
           <div v-if="settings.models.length" class="settings-toolbar"><p>{{ t('manageProvidersHint') }}</p></div>
