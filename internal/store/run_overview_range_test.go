@@ -116,3 +116,42 @@ func TestRunOverviewRangeSeparatesRepliesToolsAndChecklists(t *testing.T) {
 		}
 	}
 }
+
+func TestRunOverviewIncludesPublicChildFailureReason(t *testing.T) {
+	st, ctx := executionStore(t)
+	record := func(id, kind, status, content string, modelOnly bool) int64 {
+		t.Helper()
+		event, _, err := st.RecordRuntimeEvent(ctx, "session", workerproto.RuntimeEvent{
+			ID: id, RunID: "run", Recipient: "main", Kind: kind, SourceID: "child", Status: status, Content: content, ModelOnly: modelOnly,
+		})
+		if err != nil || event == nil {
+			t.Fatalf("record runtime event %q: %+v %v", id, event, err)
+		}
+		return event.Sequence
+	}
+	const reason = "Child request rejected by provider"
+	failed := record("failed", "agent", "failed", reason, false)
+	record("succeeded", "agent", "succeeded", "A successful child report should stay out of the index", false)
+	record("private", "agent", "failed", "Private runtime reason", true)
+	record("tool", "tool", "failed", "Tool result belongs to its own step", false)
+	for _, after := range []int64{0, failed} {
+		overview, err := st.RunOverviewRange(ctx, "session", "run", after, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		count := 0
+		for _, event := range overview.Events {
+			if event.Kind != "runtime_event" {
+				continue
+			}
+			count++
+			var notice workerproto.RuntimeEvent
+			if err := json.Unmarshal(event.Data, &notice); err != nil || event.Sequence != failed || notice.SourceID != "child" || notice.Content != reason {
+				t.Fatalf("unexpected runtime notice: %+v %v", event, err)
+			}
+		}
+		if after == 0 && count != 1 || after == failed && count != 0 {
+			t.Fatalf("range after %d: got %d child failure notices", after, count)
+		}
+	}
+}

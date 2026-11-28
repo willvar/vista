@@ -1,5 +1,13 @@
 import type { StreamEvent } from '../types.js'
 
+export function agentFailureReason(event: StreamEvent): { taskId: string; reason: string } | undefined {
+  const data = event.data
+  if (event.kind === 'runtime_event' && data?.kind === 'agent' && data.status === 'failed' && !data.modelOnly
+    && typeof data.sourceId === 'string' && data.sourceId && data.sourceId !== 'main'
+    && typeof data.content === 'string' && data.content.trim())
+    return { taskId: data.sourceId, reason: data.content }
+}
+
 export function isTimelineEvent(event: StreamEvent): boolean {
   const data = event.data || {}
   if (event.kind === 'message') return true

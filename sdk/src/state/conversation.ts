@@ -1,7 +1,7 @@
 import type { Artifact, ConversationSnapshot, Job, Message, ModelDraft, ModelInfo, ModelResultView, OutputView, QueuedInput, RunClock, RunProgress, Session, StreamEvent } from '../types.js'
 import { reduceMainOutputEvent, type MainOutputRecord } from './mainOutputs.js'
 import { isInputQueueEvent, projectInputQueue, reduceInputQueue } from './inputQueue.js'
-import { isTimelineEvent } from './events.js'
+import { agentFailureReason, isTimelineEvent } from './events.js'
 
 export function jobActive(job: Job) { return job.status === 'starting' || job.status === 'running' }
 
@@ -69,6 +69,7 @@ export function trailingTraceSegment(segments: ReadonlyMap<string, ReplyTraceSeg
   }
   const first = events.find(event => event.data?.runId === runId && event.sequence > after && (
     event.kind === 'agent_task' && !!event.data.task?.id && event.data.task.id !== 'main'
+    || agentFailureReason(event)
     || event.kind === 'run_finished' && event.data.emptyReply
     || isTimelineEvent(event) && event.kind !== 'message'
       && (event.kind !== 'model_delta' || !!event.data.depth || !!event.data.taskId && event.data.taskId !== 'main')
@@ -177,7 +178,9 @@ export function reduceConversationEvent(state: ConversationState, event: StreamE
   const runId: string | undefined = data?.runId
   const depth = data?.depth || 0
   next.mainOutputs = reduceMainOutputEvent(state.mainOutputs, event, runId ? state.modelByRun[runId] : undefined)
-  if (['model_request', 'model_retry', 'model_delta', 'model_reasoning_delta', 'model_result', 'tool', 'source', 'agent_task', 'artifact', 'job', 'run_finished'].includes(event.kind)) next.processEvents = [...state.processEvents, event].slice(-1500)
+  if (['model_request', 'model_retry', 'model_delta', 'model_reasoning_delta', 'model_result', 'tool', 'source', 'agent_task', 'artifact', 'job', 'run_finished'].includes(event.kind) || agentFailureReason(event)) {
+    next.processEvents = [...state.processEvents, event].slice(-1500)
+  }
   if ((event.kind === 'message' && data?.role === 'user' || event.kind === 'run_started') && runId && event.sequence >= state.activeRunSequence) {
     next.activeRunID = runId
     next.activeRunSequence = event.sequence

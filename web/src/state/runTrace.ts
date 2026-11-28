@@ -1,4 +1,4 @@
-import { isTimelineEvent } from '@vista/client'
+import { agentFailureReason, isTimelineEvent } from '@vista/client'
 import type { AgentTaskView, ModelResultView, StreamEvent, ToolOutputRef } from '@vista/client'
 import { inRunTraceRange, type RunTraceRange } from './runTraceRange.ts'
 
@@ -12,11 +12,12 @@ export type RunTraceNode = {
   turn?: number; modelId?: string; reasoningEffort?: string; truncated?: boolean
   callId?: string; toolName?: string; outputRef?: ToolOutputRef; artifactIds: string[]; jobIds: string[]; eventData: any
   rawBody?: string; markdown?: boolean
+  retryReasons?: { attempt: number; reason: string }[]
   input?: { command: string; directory: string; timeoutSeconds: number }
   error?: string; resultSummaryKey?: string; resultSummaryParams?: Record<string, string | number>
   search?: TraceSearchOutput; instructions?: TraceInstructionOutput; diff?: TraceFileDiff; diffs?: TraceFileDiff[]
 }
-export type RunTraceTask = AgentTaskView & { sequence: number; lastSequence: number; background?: boolean; modelId?: string; modelKey?: string; modelProvider?: string; reasoningEffort?: string; nodes: RunTraceNode[] }
+export type RunTraceTask = AgentTaskView & { sequence: number; lastSequence: number; background?: boolean; modelId?: string; modelKey?: string; modelProvider?: string; reasoningEffort?: string; failureReason?: string; nodes: RunTraceNode[] }
 export type TraceAgentHierarchyEntry = { task: RunTraceTask; number: number; depth: number; parentId?: string }
 
 export function buildTraceAgentHierarchy(tasks: readonly RunTraceTask[]): TraceAgentHierarchyEntry[] {
@@ -242,6 +243,13 @@ export function buildRunTrace(events: readonly StreamEvent[], options: RunTraceR
       const current = task(data.task.id, event)
       Object.assign(current, data.task)
       current.lastSequence = event.sequence
+    } else if (event.kind === 'runtime_event') {
+      const failure = agentFailureReason(event)
+      if (!failure) continue
+      const current = task(failure.taskId, event)
+      current.status = 'failed'
+      current.failureReason = failure.reason
+      current.lastSequence = event.sequence
     } else if (event.kind === 'model_request' && data.purpose !== 'summary') {
       const current = task(id, event)
       current.modelId = data.id || current.modelId
@@ -257,11 +265,18 @@ export function buildRunTrace(events: readonly StreamEvent[], options: RunTraceR
     } else if (event.kind === 'model_retry' && data.modelRetry) {
       const key = `retry/${turn}`
       const previous = nodes.get(key)
+      const { attempt, maxRetries, error } = data.modelRetry
+      const reason = typeof error === 'string' ? error : ''
+      const retryReasons = previous?.retryReasons || []
+      // A waiting record says why this retry was scheduled. A terminal failure
+      // describes the final request, not a replacement for that earlier reason.
+      const reasons = data.status !== 'failed' && reason && Number.isSafeInteger(attempt) && attempt > 0
+        && !retryReasons.some(item => item.attempt === attempt) ? [...retryReasons, { attempt, reason }] : retryReasons
       nodes.set(key, { key, sequence: previous?.sequence ?? event.sequence, lastSequence: event.sequence, kind: 'retry',
-        taskId: id, turn: data.turn, title: '', body: data.modelRetry.error || '',
+        taskId: id, turn: data.turn, title: '', body: data.status === 'failed' ? reason : '', retryReasons: reasons,
         status: data.status === 'waiting' ? 'loading' : traceStatus(data.status),
         resultSummaryKey: data.status === 'waiting' ? 'modelRetryWaiting' : data.status === 'succeeded' ? 'modelRetryRecovered' : 'modelRetryFailed',
-        resultSummaryParams: { attempt: data.modelRetry.attempt, maxRetries: data.modelRetry.maxRetries },
+        resultSummaryParams: { attempt, maxRetries },
         artifactIds: [], jobIds: [], eventData: data })
       task(id, event)
     } else if (event.kind === 'tool' && data.tool) {

@@ -115,12 +115,21 @@ test('retry history shows recovery without duplicating reasoning or tools', () =
     assert.equal(canceled.nodes[0]?.status, 'abort')
     assert.equal(canceled.nodes[0]?.resultSummaryKey, 'statusInterrupted')
   }
-  events.push(event(4, 'model_retry', { turn: 2, status: 'succeeded', modelRetry: { ...retry, retryAt: '' } }))
-  trace = buildRunTrace(events, options)
+  const second = { ...retry, attempt: 2, error: 'HTTP 503' }
+  events.push(event(4, 'model_retry', { turn: 2, status: 'waiting', modelRetry: second }))
+  const reasons = [{ attempt: 1, reason: 'HTTP 502' }, { attempt: 2, reason: 'HTTP 503' }]
+  const terminal = (status: string, error: string) => buildRunTrace([
+    ...events, event(5, 'model_retry', { turn: 2, status, modelRetry: { ...second, retryAt: '', error } }),
+  ], options)
+  trace = terminal('succeeded', 'HTTP 503')
   assert.equal(trace.nodes.length, 1)
   assert.equal(trace.nodes[0]?.status, 'success')
   assert.equal(trace.nodes[0]?.resultSummaryKey, 'modelRetryRecovered')
-  assert.equal(trace.nodes[0]?.body, 'HTTP 502')
+  assert.deepEqual(trace.nodes[0]?.retryReasons, reasons)
+  assert.equal(trace.nodes[0]?.body, '', 'the recovered state does not duplicate the last reason')
+  const failed = terminal('failed', 'HTTP 429: quota exhausted').nodes[0]!
+  assert.deepEqual(failed.retryReasons, reasons)
+  assert.equal(failed.body, 'HTTP 429: quota exhausted')
 })
 
 test('memory operations identify their changes and show saved preferences without IDs', () => {
@@ -429,13 +438,17 @@ test('tool and child failures stay with their steps while run failure adds only 
     event(4, 'agent_task', { task: { id: 'main', title: 'Main', status: 'failed' } }),
     event(5, 'run_finished', { status: 'failed', reason: 'Provider stopped' }),
     event(6, 'tool', { status: 'succeeded', tool: { callId: 'other', name: 'read_file' }, content: 'Unrelated success' }),
+    event(7, 'runtime_event', { kind: 'agent', sourceId: 'delegated', recipient: 'main', status: 'failed', content: 'Child model refused the request' }),
   ], { ...options, active: false })
   const failures = trace.nodes.filter(node => node.status === 'error')
   assert.equal(trace.nodes.length, 3)
   assert.equal(failures.length, 2)
   assert.equal(failures[0]?.body, 'An earlier independent failure')
   assert.equal(failures[1]?.error, 'Child request timed out')
-  assert.equal(trace.tasks.find(task => task.id === 'delegated')?.status, 'failed')
+  const child = trace.tasks.find(task => task.id === 'delegated')
+  assert.equal(child?.status, 'failed')
+  assert.equal(child?.failureReason, 'Child model refused the request')
+  assert.equal(trace.tasks.find(task => task.id === 'main')?.failureReason, undefined)
   assert.equal(trace.finished?.data.status, 'failed')
   assert.equal(trace.nodes.some(node => node.body.includes('Provider stopped')), false)
 })
