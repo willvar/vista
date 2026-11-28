@@ -1,7 +1,7 @@
 [Desktop Entry]
 Type=Application
 Name=Vista
-Exec=vista-desktop
+Exec=vista
 Icon=io.github.willvar.VistaDesktop
 Terminal=false
 Categories=Utility;

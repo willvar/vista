@@ -8,21 +8,23 @@ Vista is a general-purpose agent for Linux, Windows, and macOS. Describe a goal 
 
 ## Getting started
 
-Choose an archive by product, operating system and architecture on [GitHub Releases](https://github.com/willvar/vista/releases/latest).
-**`vista-server`** provides the standalone service and browser workbench; **`vista-desktop`** includes that service and a native window. The desktop package does not require a separate server installation.
+Choose an archive for your operating system and architecture on [GitHub Releases](https://github.com/willvar/vista/releases/latest).
+Every package has one Vista executable with the service, WebUI, CLI, native window and tray. Double-click `vista` (`vista.exe` on Windows, `Vista.app` on macOS) to open the [desktop window](./docs/desktop.md). With a tray available, closing the window hides it and leaves the service running.
 
-Run `vista-server` to start the service in the background and open the default browser. Opening it again uses the running instance. The browser opens `http://127.0.0.1:5186/` by default, while the service listens on all IPv4 interfaces (`0.0.0.0`). Other devices use `http://<host-IP>:5186/`. Set the optional `VISTA_HOST` environment variable to a specific IPv4 address to restrict the listener; HTTPS is provided by a reverse proxy, not Vista itself.
-
-To use the [desktop app](./docs/desktop.md), open `vista-desktop` (`vista-desktop.exe` on Windows, `Vista.app` on macOS). With a tray available, closing the window hides it while the service keeps running. The tray can reopen the window, show status, restart, or stop the service.
-
-Connect a model provider in Settings before sending the first message. Built-in connections provide their authentication and protocol settings; custom connections let you choose the conversation API format and authentication independently. Model availability follows the connected account or service.
-
-| Command | Action |
+| Command | What it does |
 | --- | --- |
-| `vista-server` / `vista-server start` | Start the service or open the existing instance |
-| `vista-server status` | Show service, conversation, Worker, and process status |
-| `vista-server stop` | Stop the service and its managed work, keeping history |
-| `vista-server restart` | Stop and start the service, keeping history |
+| `vista` | Start or reuse the service and open the desktop |
+| `vista web` | Start or reuse the service and open the default browser |
+| `vista serve` | Run the service in the foreground without opening an interface |
+| `vista status` | Show the service state without starting it |
+| `vista stop` / `vista restart` | Stop or restart the service, keeping history |
+| `vista --help` | Show command help |
+
+On macOS, the command-line executable is `Vista.app/Contents/MacOS/vista`. If opening the browser fails, `vista web` still prints the address. Desktop and browser launches bind a new service to loopback by default; reusing a service keeps its listener. Standalone `vista serve` continues to listen on IPv4 interfaces unless `VISTA_HOST` restricts it; configure HTTPS with a reverse proxy.
+
+**When upgrading:** configuration and conversations stay in place. The old no-argument browser launch is now `vista web`; use `vista serve` for a foreground service.
+
+Connect a model provider in Settings before sending the first message. Supported models depend on the connected service and account.
 
 Closing the browser does not stop work. Closing a conversation stops its Worker and managed background work, while retaining its history; deleting it also removes its associated data. Restarting Vista records unfinished operations as interrupted and does not replay their side effects.
 
@@ -34,7 +36,7 @@ Building requires Go 1.26+, Node.js with native TypeScript support, npm, and Mak
 
 ```sh
 make build
-./bin/vista-server start
+./bin/vista web
 ```
 
 `make build` builds and embeds the frontend with version `dev`; use `make build VERSION=v0.1.0` for a release version. Development rules are in [AGENTS.md](./AGENTS.md); build checks and test commands are in [verification](./docs/testing.md).

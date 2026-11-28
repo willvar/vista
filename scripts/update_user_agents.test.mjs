@@ -82,7 +82,7 @@ test('release builds refresh UA versions first while dev and pinned rebuilds ski
   const release = plan('VERSION=v0.1.0')
   assert.ok(release.indexOf(updater) >= 0)
   assert.ok(release.indexOf(updater) < release.indexOf('npm --prefix web run build'))
-  assert.ok(release.indexOf(updater) < release.indexOf('go build'))
+  assert.ok(release.indexOf(updater) < release.indexOf('python3 desktop/build.py --output bin/vista'))
   assert.ok(!plan('VERSION=dev').includes(updater))
   assert.ok(!plan('VERSION=v0.1.0', 'UPDATE_UA=0').includes(updater))
 })

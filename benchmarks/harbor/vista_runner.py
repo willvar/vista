@@ -161,7 +161,7 @@ def execute(root, logs, effort=None, image_loader=None):
                 (logs / "vista-stop.txt").write_text(stopped.stdout + stopped.stderr)
         finally:
             if (config / "state/server.log").is_file():
-                shutil.copyfile(config / "state/server.log", logs / "vista-server.log")
+                shutil.copyfile(config / "state/server.log", logs / "vista.log")
             if (config / "state/outputs").is_dir():
                 shutil.copytree(config / "state/outputs", logs / "vista-artifacts", dirs_exist_ok=True)
 

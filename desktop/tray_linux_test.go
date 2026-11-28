@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net"
 	"net/url"
@@ -35,6 +36,12 @@ func TestNativeLinuxTray(t *testing.T) {
 	if os.Getenv("WAYLAND_DISPLAY") == "" {
 		t.Fatal("test requires an isolated Wayland desktop with a tray panel")
 	}
+	for _, mode := range []string{"desktop-first", "web-first", "tray-at-launch"} {
+		t.Run(mode, func(t *testing.T) { testNativeLinuxTray(t, binary, mode) })
+	}
+}
+
+func testNativeLinuxTray(t *testing.T, binary, mode string) {
 	bus, err := dbus.ConnectSessionBus()
 	if err != nil {
 		t.Fatal(err)
@@ -59,7 +66,54 @@ func TestNativeLinuxTray(t *testing.T) {
 	l.Close()
 	t.Setenv("VISTA_PORT", strconv.Itoa(port))
 	base, _ := url.Parse(fmt.Sprintf("http://127.0.0.1:%d/", port))
-	service := binary
+	t.Cleanup(func() {
+		if _, err := os.Stat(filepath.Join(config, "state", "instance.json")); err == nil {
+			ctx, cancel := context.WithTimeout(context.Background(), 7*time.Second)
+			defer cancel()
+			if out, err := exec.CommandContext(ctx, binary, "stop").CombinedOutput(); err != nil {
+				t.Errorf("cleanup isolated service: %s: %v", out, err)
+			}
+		}
+	})
+	browserURL := filepath.Join(root, "browser-url")
+	// Observe the handoff without opening a browser on the developer's display.
+	if mode != "tray-at-launch" {
+		if err := os.WriteFile(filepath.Join(root, "xdg-open"), []byte(`#!/bin/sh
+printf '%s\n' "$1" > "$VISTA_TEST_BROWSER_URL"
+`), 0700); err != nil {
+			t.Fatal(err)
+		}
+		t.Setenv("PATH", root+string(os.PathListSeparator)+os.Getenv("PATH"))
+	}
+	openWeb := func() serviceStatus {
+		t.Helper()
+		if err := os.Remove(browserURL); err != nil && !os.IsNotExist(err) {
+			t.Fatal(err)
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 12*time.Second)
+		defer cancel()
+		cmd := exec.CommandContext(ctx, binary, "web")
+		cmd.Env = append(os.Environ(), "VISTA_NO_BROWSER=0", "VISTA_TEST_BROWSER_URL="+browserURL)
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("web entry point: %s: %v", out, err)
+		}
+		waitDesktop(t, "web hands the expected URL to the browser", func() bool {
+			data, e := os.ReadFile(browserURL)
+			return e == nil && strings.TrimSpace(string(data)) == base.String()
+		})
+		s, err := readStatus(base)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return s
+	}
+	var firstService serviceStatus
+	if mode == "web-first" {
+		firstService = openWeb()
+		if firstService.EventStreams != 0 {
+			t.Fatal("web started a desktop window")
+		}
+	}
 	logPath := filepath.Join(root, "desktop.log")
 	log, err := os.Create(logPath)
 	if err != nil {
@@ -72,7 +126,11 @@ func TestNativeLinuxTray(t *testing.T) {
 			t.Logf("desktop output: %s", data)
 		}
 	})
-	cmd := exec.Command(binary, "--tray")
+	var args []string
+	if mode == "tray-at-launch" {
+		args = []string{"--tray"}
+	}
+	cmd := exec.Command(binary, args...)
 	cmd.Stdout, cmd.Stderr = log, log
 	if err := cmd.Start(); err != nil {
 		t.Fatal(err)
@@ -86,13 +144,6 @@ func TestNativeLinuxTray(t *testing.T) {
 		default:
 			_ = cmd.Process.Kill()
 			<-done
-		}
-		if _, err := os.Stat(filepath.Join(config, "state", "instance.json")); err == nil {
-			ctx, cancel := context.WithTimeout(context.Background(), 7*time.Second)
-			defer cancel()
-			if out, err := exec.CommandContext(ctx, service, "stop").CombinedOutput(); err != nil {
-				t.Errorf("cleanup isolated service: %s: %v", out, err)
-			}
 		}
 	})
 	itemList := func() []string {
@@ -151,6 +202,21 @@ func TestNativeLinuxTray(t *testing.T) {
 	initial, err := readStatus(base)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if mode == "web-first" && (initial.PID != firstService.PID || initial.InstanceID != firstService.InstanceID) {
+		t.Fatal("the desktop did not reuse the web-started service")
+	}
+	if mode != "tray-at-launch" {
+		if s := openWeb(); s.PID != initial.PID || s.InstanceID != initial.InstanceID {
+			t.Fatal("web did not reuse the service open in the desktop")
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 6*time.Second)
+		out, err := exec.CommandContext(ctx, binary, "status").Output()
+		cancel()
+		var status serviceStatus
+		if err != nil || json.Unmarshal(out, &status) != nil || status.PID != initial.PID || status.InstanceID != initial.InstanceID {
+			t.Fatalf("status did not report the shared service: %s: %v", out, err)
+		}
 	}
 	click("Launch at login")
 	waitDesktop(t, "login item enabled", func() bool { ok, _ := loginEnabled(binary); return ok })

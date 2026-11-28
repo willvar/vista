@@ -43,10 +43,10 @@ def verify_macos_bundle(bundle, env):
     subprocess.run(["spctl", "--assess", "--type", "execute", str(bundle)], env=env, check=True, timeout=45)
 
 
-def sign_macos_desktop(binary, version, stage, identity, profile, env):
+def sign_macos(binary, version, stage, identity, profile, env):
     # Both credentials must be available in the release runner's keychain.
     # No key material is supplied by the repository or logged by this script.
-    for name, content in archive_entries(binary, version, "darwin", "desktop").items():
+    for name, content in archive_entries(binary, version, "darwin").items():
         if name.startswith("Vista.app/"):
             target = stage / name
             target.parent.mkdir(parents=True, exist_ok=True)
@@ -67,8 +67,8 @@ def sign_macos_desktop(binary, version, stage, identity, profile, env):
     return bundle
 
 
-def unpack(archive, binary, output, system, role, version="dev", bundle=None):
-    expected = archive_entries(binary, version, system, role, bundle)
+def unpack(archive, binary, output, system, version="dev", bundle=None):
+    expected = archive_entries(binary, version, system, bundle)
     if archive.suffix == ".zip":
         with zipfile.ZipFile(archive) as package:
             if set(package.namelist()) != set(expected):
@@ -90,16 +90,14 @@ def unpack(archive, binary, output, system, role, version="dev", bundle=None):
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_bytes(contents)
         path.chmod(0o755 if executable_entry(name) else 0o644)
-    return output / executable_location(role, system)
+    return output / executable_location(system)
 
 
-def native_tests(binary, output, env, role="server"):
+def native_tests(binary, output, env):
     env = dict(env, VISTA_TEST_BINARY=str(binary))
     command = ["go", "test", "-json", "-count=1", "-timeout=5m",
                "./internal/launch", "./internal/platform", "./internal/mcphost"]
-    if role == "desktop":
-        command[-3:] = ["-run=^TestNative(Application|ResetPort)$", "./internal/launch"]
-    log_path = output / ("native-tests.jsonl" if role == "server" else "desktop-native-tests.jsonl")
+    log_path = output / "native-tests.jsonl"
     print("+ " + " ".join(command), flush=True)
     passed, skipped, latest_output = set(), [], {}
     with log_path.open("w", encoding="utf-8") as log:
@@ -130,13 +128,12 @@ def native_tests(binary, output, env, role="server"):
         print(log_path.read_text(encoding="utf-8")[-24000:], flush=True)
         raise subprocess.CalledProcessError(exit_code, command)
     required = {("vista/internal/launch", name) for name in ("TestNativeApplication", "TestNativeResetPort")}
-    if role == "server":
-        required |= {("vista/internal/platform", name) for name in (
-            "TestNativeFileLock", "TestNativeMemory", "TestNativeOwnedSession", "TestNativeShell", "TestNativeShellErrorsRemainText")}
-        if sys.platform == "win32":
-            required.add(("vista/internal/launch", "TestNativeWindowsDesktopLauncher"))
-        elif sys.platform == "darwin":
-            required.add(("vista/internal/platform", "TestNativeReapedOwnedSession"))
+    required |= {("vista/internal/platform", name) for name in (
+        "TestNativeFileLock", "TestNativeMemory", "TestNativeOwnedSession", "TestNativeShell", "TestNativeShellErrorsRemainText")}
+    if sys.platform == "win32":
+        required.add(("vista/internal/launch", "TestNativeWindowsDesktopLauncher"))
+    elif sys.platform == "darwin":
+        required.add(("vista/internal/platform", "TestNativeReapedOwnedSession"))
     if missing := required - passed:
         raise ValueError("mandatory native tests did not pass: " + ", ".join("/".join(key) for key in sorted(missing)))
     return {"passed": len(passed), "skipped": skipped, "required_passed": ["/".join(key) for key in sorted(required)]}
@@ -146,8 +143,6 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--target", required=True, choices=TARGETS)
     parser.add_argument("--version", type=build_version, default="dev")
-    parser.add_argument("--with-desktop", action="store_true",
-                        help="Validate the opt-in Unix desktop archive in a native graphical session")
     args = parser.parse_args()
     env = {key: value for key, value in os.environ.items() if not key.startswith("VISTA_")}
     env.update(GOWORK="off", CGO_ENABLED="0", VISTA_NO_BROWSER="1",
@@ -161,9 +156,7 @@ def main():
     dirty = bool(run(["git", "status", "--porcelain"], env).strip())
     if os.environ.get("GITHUB_ACTIONS") == "true" and (dirty or source != os.environ["GITHUB_SHA"]):
         raise ValueError("runner source must be clean and match the dispatched commit")
-    with_desktop = sys.platform == "win32" or args.with_desktop or args.version != "dev"
-    suffix = "-desktop" if args.with_desktop and sys.platform != "win32" else ""
-    output = ROOT / ".vista/ci/native" / (args.target.replace("/", "_") + "_" + args.version + suffix)
+    output = ROOT / ".vista/ci/native" / (args.target.replace("/", "_") + "_" + args.version)
     output.mkdir(parents=True, exist_ok=True)
     report = {"source_commit": source, "source_modified": dirty, "version": args.version,
               "target": args.target, "go": go, "runner_os": os.environ.get("RUNNER_OS"),
@@ -182,65 +175,54 @@ def main():
                            creationflags=subprocess.CREATE_BREAKAWAY_FROM_JOB)
         system = go["GOOS"]
 
-        def validate_archive(binary, role, bundle=None):
-            info = run(["go", "version", "-m", str(binary)], env)
-            build = settings(info)
-            for key, expected in {"GOOS": system, "GOARCH": go["GOARCH"],
-                                  "vcs.revision": source, "vcs.modified": str(dirty).lower()}.items():
-                if build.get(key) != expected:
-                    raise ValueError(role + " binary metadata mismatch for " + key)
-            command = [sys.executable, "scripts/package_release.py", "--role", role,
-                       "--binary", str(binary), "--version", args.version, "--output-dir", str(output / "dist")]
-            if bundle is not None:
-                command += ["--bundle", str(bundle)]
-            archive = Path(run(command, env).strip())
-            fields = dict(archive=archive.name, archive_sha256=sha256(archive),
-                          archive_size=archive.stat().st_size, build_metadata=info)
-            checksum = fields["archive_sha256"] + "  " + archive.name
-            if checksum not in (output / "dist/SHA256SUMS").read_text(encoding="utf-8").splitlines():
-                raise ValueError(role + " archive checksum file does not match")
-            prefix = "" if role == "server" else "desktop_"
-            report.update({prefix + k: v for k, v in fields.items()})
-            return unpack(archive, binary, output / role, system, role, args.version, bundle)
+        binary = output / Path(executable_location(system)).name
+        run([sys.executable, "desktop/build.py", "--output", str(binary), "--version", args.version], env)
+        bundle = None
+        if signing:
+            stage = Path(staging.enter_context(tempfile.TemporaryDirectory(prefix="sign-", dir=output)))
+            bundle = sign_macos(binary, args.version, stage, identity, profile, env)
+            binary = stage / executable_location(system)
+        info = run(["go", "version", "-m", str(binary)], env)
+        build = settings(info)
+        for key, expected in {"GOOS": system, "GOARCH": go["GOARCH"], "CGO_ENABLED": "0",
+                              "vcs.revision": source, "vcs.modified": str(dirty).lower()}.items():
+            if build.get(key) != expected:
+                raise ValueError("Vista binary metadata mismatch for " + key)
+        command = [sys.executable, "scripts/package_release.py", "--binary", str(binary),
+                   "--version", args.version, "--output-dir", str(output / "dist")]
+        if bundle is not None:
+            command += ["--bundle", str(bundle)]
+        archive = Path(run(command, env).strip())
+        checksum = sha256(archive)
+        if checksum + "  " + archive.name not in (output / "dist/SHA256SUMS").read_text(encoding="utf-8").splitlines():
+            raise ValueError("archive checksum file does not match")
+        report.update(archive=archive.name, archive_sha256=checksum, archive_size=archive.stat().st_size,
+                      build_metadata=info, binary_sha256=sha256(binary), cgo_enabled=False)
+        packed = unpack(archive, binary, output / "unpacked", system, args.version, bundle)
+        if bundle is not None:
+            verify_macos_bundle(packed.parents[2], env)
+            report["distribution_verified"] = True
 
-        binary = output / executable_location("server", system)
-        run(["go", "build", "-trimpath", "-ldflags=-s -w -X vista/internal/buildinfo.Version=" + args.version,
-             "-o", str(binary), "./cmd/vista-server"], env)
-        report["binary_sha256"] = sha256(binary)
-        report["tests"] = native_tests(validate_archive(binary, "server"), output, env)
-        if with_desktop:
-            desktop = output / Path(executable_location("desktop", system)).name
-            run([sys.executable, "desktop/build.py", "--output", str(desktop), "--version", args.version], env)
-            bundle = None
-            if signing:
-                stage = Path(staging.enter_context(tempfile.TemporaryDirectory(prefix="sign-", dir=output)))
-                bundle = sign_macos_desktop(desktop, args.version, stage, identity, profile, env)
-                desktop = stage / executable_location("desktop", system)
-            report["desktop_sha256"] = sha256(desktop)
-            packed_desktop = validate_archive(desktop, "desktop", bundle)
-            if bundle is not None:
-                verify_macos_bundle(packed_desktop.parents[2], env)
-                report["desktop_distribution_verified"] = True
-            report["desktop_runtime_tests"] = native_tests(packed_desktop, output, env, "desktop")
-            test_name = {"windows": "TestNativeWindowsTray", "linux": "TestNativeLinuxTray",
-                         "darwin": "TestNativeDarwinDesktop"}[go["GOOS"]]
-            test = output / ("vista-desktop.test.exe" if sys.platform == "win32" else "vista-desktop.test")
-            run([sys.executable, "desktop/build.py", "--test", "--output", str(test)], env)
-            test_env = dict(env, VISTA_TEST_DESKTOP=str(packed_desktop))
-            platform_tests = {
-                "windows": ["TestWindowsLoginEntry"],
-                "linux": ["TestLinuxLoginSetting", "TestDesktopExecEscapesFieldCodes", "TestNativeLinuxWindowRecovery"],
-                "darwin": ["TestMacLoginSetting"],
-            }[go["GOOS"]]
-            required = [test_name, "TestDesktopInstanceID", "TestLoginFileOwnsOnlyItsEntry", *platform_tests]
-            pattern = "^(" + "|".join(required) + ")$"
-            desktop_log = run([str(test), "-test.v", "-test.timeout=105s", "-test.run=" + pattern], test_env)
-            (output / "desktop-test.log").write_text(desktop_log, encoding="utf-8")
-            for name in required:
-                if not re.search(r"^--- PASS: " + name + " ", desktop_log, re.M):
-                    raise ValueError("mandatory desktop test did not pass: " + name)
-            report["tests"]["passed"] += len(required)
-            report["tests"]["required_passed"].extend("vista/desktop/" + name for name in required)
+        # The same unpacked image must pass both service and native window tests.
+        report["tests"] = native_tests(packed, output, env)
+        test = output / ("vista.test.exe" if sys.platform == "win32" else "vista.test")
+        run([sys.executable, "desktop/build.py", "--test", "--output", str(test)], env)
+        test_env = dict(env, VISTA_TEST_DESKTOP=str(packed))
+        platform_tests = {
+            "windows": ["TestNativeWindowsTray", "TestWindowsLoginEntry"],
+            "linux": ["TestNativeLinuxTray", "TestLinuxLoginSetting", "TestDesktopExecEscapesFieldCodes",
+                      "TestNativeLinuxWindowRecovery", "TestNativeLinuxDesktopNoCGO"],
+            "darwin": ["TestNativeDarwinDesktop", "TestNativeMacNavigation", "TestMacLoginSetting"],
+        }[system]
+        required = ["TestDesktopInstanceID", "TestLoginFileOwnsOnlyItsEntry", *platform_tests]
+        pattern = "^(" + "|".join(required) + ")$"
+        desktop_log = run([str(test), "-test.v", "-test.timeout=135s", "-test.run=" + pattern], test_env)
+        (output / "desktop-test.log").write_text(desktop_log, encoding="utf-8")
+        for name in required:
+            if not re.search(r"^--- PASS: " + name + " ", desktop_log, re.M):
+                raise ValueError("mandatory desktop test did not pass: " + name)
+        report["tests"]["passed"] += len(required)
+        report["tests"]["required_passed"].extend("vista/desktop/" + name for name in required)
         report["status"] = "passed"
     except Exception as error:
         report.update(status="failed", error=str(error))

@@ -13,7 +13,7 @@ WAILS = "github.com/wailsapp/wails/v3"
 
 
 def build(output, test=False, version="dev"):
-    env = dict(os.environ, GOWORK="off")
+    env = dict(os.environ, GOWORK="off", CGO_ENABLED="0")
 
     def go(*args, capture=False):
         return subprocess.run(["go", *args], cwd=DESKTOP, env=env, text=True, check=True,
@@ -33,13 +33,10 @@ def build(output, test=False, version="dev"):
         args += ["-mod=readonly", "-trimpath", "-o", str(binary)]
         link = ["-X vista/internal/buildinfo.Version=" + version]
         if platform == "linux":
-            env["CGO_ENABLED"] = "1"
-            args += ["-tags", "gtk3,production"]
+            args += ["-tags", "gtk3,purego,production"]
         elif platform == "darwin":
-            env["CGO_ENABLED"] = "1"
-            args += ["-tags", "production"]
+            args += ["-tags", "purego,production"]
         else:
-            env["CGO_ENABLED"] = "0"
             source = json.loads(go("mod", "download", "-json", WAILS, capture=True))
             wails_version = source["Version"]
             if f"{WAILS} {wails_version} {source['Sum']}" not in (DESKTOP / "go.sum").read_text().splitlines():
@@ -57,8 +54,8 @@ def build(output, test=False, version="dev"):
             modfile.with_suffix(".sum").write_bytes((DESKTOP / "go.sum").read_bytes())
             go("mod", "edit", f"-modfile={modfile}", f"-replace={WAILS}={module}", f"-replace=vista={DESKTOP.parent}")
             args += [f"-modfile={modfile}", "-tags", "production"]
-            if not test:
-                link.append("-H=windowsgui")
+            # Keep normal terminal output; the launcher hides its own console
+            # when Explorer, rather than a terminal, starts the app.
         go(*args, "-ldflags=" + " ".join(link), ".")
         binary.replace(output)
 

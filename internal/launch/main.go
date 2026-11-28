@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -30,18 +31,25 @@ var instanceHTTPClient = network.NewClient(http.Client{
 	Transport: network.Transport{Base: &http.Transport{}, Policy: &network.Policy{}},
 }, network.ApplicationScope)
 
-// Run dispatches the server CLI and its background commands.
-func Run() {
+// Run owns every public entry point. Only the root action enters the desktop
+// toolkit; the service, Workers and MCP hosts re-execute this same program.
+func Run(openDesktop func(bool) error, startupError func(error)) {
 	desktopLaunch = prepareLauncher()
-	command := newRootCommand()
+	var openingDesktop bool
+	command := newRootCommand(func(tray bool) error {
+		openingDesktop = true
+		return openDesktop(tray)
+	})
 	if desktopLaunch {
 		command.SilenceErrors, command.SilenceUsage = true, true
 	}
-	if err := command.Execute(); err != nil {
-		if desktopLaunch {
+	if attempted, err := command.ExecuteC(); err != nil {
+		if openingDesktop {
+			startupError(err)
+		} else if desktopLaunch {
 			action := "start"
-			if len(os.Args) > 1 && (os.Args[1] == "restart" || os.Args[1] == "stop") {
-				action = os.Args[1]
+			if attempted != nil && (attempted.Name() == "restart" || attempted.Name() == "stop") {
+				action = attempted.Name()
 			}
 			message := "Vista could not " + action + ".\n\n" + err.Error()
 			if d, dirErr := dir(); dirErr == nil {
@@ -53,47 +61,49 @@ func Run() {
 	}
 }
 
-// RunSubprocess handles the commands started by an independent Desktop
-// executable without entering its windowing toolkit. Detached Server restarts,
-// Workers and MCP hosts all re-execute the same image that owns the service.
-func RunSubprocess() bool {
-	if len(os.Args) < 2 {
-		return false
-	}
-	switch os.Args[1] {
-	case "start", "status", "stop", "restart", "serve", "serve-reserved", "worker", "mcp-host":
-		Run()
-		return true
-	default:
-		return false
-	}
-}
-
-func newRootCommand() *cobra.Command {
-	// Vista is also a desktop launcher. Cobra's default Explorer guard exits
-	// before RunE and would prevent double-click startup on Windows.
-	cobra.MousetrapHelpText = ""
+func newRootCommand(openDesktop func(bool) error) *cobra.Command {
+	cobra.MousetrapHelpText = "" // Allow double-click startup on Windows.
 	var port int
-	root := &cobra.Command{Use: "vista-server", Short: "Vista local agent", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error { return start(port, true) }}
+	var tray bool
+	root := &cobra.Command{Use: "vista", Short: "Vista agent; run without a command to open the desktop", Args: cobra.NoArgs,
+		RunE: func(*cobra.Command, []string) error { return openDesktop(tray) }}
 	root.CompletionOptions.DisableDefaultCmd = true
-	addPortFlag(root, &port)
-	startCommand := &cobra.Command{Use: "start", Args: cobra.NoArgs, RunE: func(*cobra.Command, []string) error { return start(port, true) }}
+	root.Flags().BoolVar(&tray, "tray", false, "Launch in the tray at login")
+	_ = root.Flags().MarkHidden("tray")
+	// Keep the old CLI startup path for scripts and the desktop's private
+	// service launch. New users choose web, serve, or the default desktop.
+	startCommand := &cobra.Command{Use: "start", Hidden: true, Args: cobra.NoArgs, RunE: func(*cobra.Command, []string) error { return start(port, true) }}
 	addPortFlag(startCommand, &port)
 	root.AddCommand(startCommand)
-	root.AddCommand(&cobra.Command{Use: "stop", RunE: func(*cobra.Command, []string) error { return stop() }})
+	root.AddCommand(&cobra.Command{Use: "web", Short: "Open the WebUI in the default browser", Args: cobra.NoArgs,
+		RunE: func(*cobra.Command, []string) error {
+			// Local launch must not broaden the default listener.
+			if strings.TrimSpace(os.Getenv("VISTA_HOST")) == "" {
+				if err := os.Setenv("VISTA_HOST", "127.0.0.1"); err != nil {
+					return err
+				}
+			}
+			return start(0, true)
+		}})
+	root.AddCommand(&cobra.Command{Use: "stop", Short: "Stop the running service", Args: cobra.NoArgs, RunE: func(*cobra.Command, []string) error { return stop() }})
 	var noBrowser bool
-	restartCommand := &cobra.Command{Use: "restart", Args: cobra.NoArgs, RunE: func(*cobra.Command, []string) error {
+	restartCommand := &cobra.Command{Use: "restart", Short: "Restart the running service", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error {
+		if !noBrowser && !cmd.Flags().Changed("port") {
+			return restartCurrent()
+		}
+		// The server's internal controller inherits the existing listener
+		// environment. Accept the original internal flags across upgrades.
 		if err := stop(); err != nil {
 			return err
 		}
-		return start(port, !noBrowser)
+		return start(port, false)
 	}}
-	restartCommand.Flags().BoolVar(&noBrowser, "no-browser", false, "Skip opening the browser for this restart")
+	restartCommand.Flags().BoolVar(&noBrowser, "no-browser", false, "Internal restart controller")
 	_ = restartCommand.Flags().MarkHidden("no-browser")
 	addPortFlag(restartCommand, &port)
 	root.AddCommand(restartCommand)
-	root.AddCommand(&cobra.Command{Use: "status", RunE: func(*cobra.Command, []string) error { return status() }})
-	serveCommand := &cobra.Command{Use: "serve", Hidden: true, Args: cobra.NoArgs, RunE: func(*cobra.Command, []string) error {
+	root.AddCommand(&cobra.Command{Use: "status", Short: "Show service status without starting it", Args: cobra.NoArgs, RunE: func(*cobra.Command, []string) error { return status() }})
+	serveCommand := &cobra.Command{Use: "serve", Short: "Run the service in the foreground", Args: cobra.NoArgs, RunE: func(*cobra.Command, []string) error {
 		return server.Run(port, startProcessRestart, server.RunOptions{ReservePortRestart: reservePortRestart})
 	}}
 	addPortFlag(serveCommand, &port)
@@ -118,6 +128,7 @@ func newRootCommand() *cobra.Command {
 
 func addPortFlag(command *cobra.Command, port *int) {
 	command.Flags().IntVar(port, "port", 0, fmt.Sprintf("HTTP port (VISTA_PORT or config.json; default %d)", server.DefaultPort))
+	_ = command.Flags().MarkHidden("port")
 	command.PreRunE = func(command *cobra.Command, _ []string) error {
 		if command.Flags().Changed("port") && (*port < 1 || *port > 65535) {
 			return errors.New("--port must be from 1 to 65535")
@@ -296,6 +307,45 @@ func waitStopped(d string) error {
 	}
 	return errors.New("Vista did not release its instance lock within 30 seconds")
 }
+
+// Restart through the running service so its port and bind address survive a
+// restart from a different shell. Never retry an uncertain lifecycle POST.
+func restartCurrent() error {
+	d, err := dir()
+	if err != nil {
+		return err
+	}
+	before, ok := readLiveInstance(d)
+	if !ok {
+		fmt.Println("Vista is stopped")
+		return nil
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, before.Address+"/api/restart", strings.NewReader(`{"confirm":"restart"}`))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := instanceHTTPClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("could not confirm Vista restart: %w", err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusAccepted {
+		return fmt.Errorf("Vista rejected restart: %s", resp.Status)
+	}
+	for deadline := time.Now().Add(40 * time.Second); time.Now().Before(deadline); time.Sleep(200 * time.Millisecond) {
+		if next, ok := readLiveInstance(d); ok && next.Address == before.Address && next.PID != before.PID {
+			if ready, ok := probe(d); ok && ready == next {
+				fmt.Println("Vista restarted")
+				return nil
+			}
+		}
+	}
+	return errors.New("Vista accepted restart, but its replacement is not ready")
+}
+
 func status() error {
 	resp, err := request("GET", "/api/status")
 	if errors.Is(err, os.ErrNotExist) {
