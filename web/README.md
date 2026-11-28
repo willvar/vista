@@ -248,7 +248,7 @@ Other regional wording is maintained in `src/i18n/regional-overrides.ts`. `AppPr
 | `mobile-portrait` | 390 × 844, touch |
 | `mobile-landscape` | 568 × 320, touch |
 
-Set `VISTA_CHROME` to the browser executable; direct Playwright runs may set `VISTA_BIN` (otherwise the fixture uses repository `bin/vista-server`). Prefer `make test e2e`, which builds `.vista/test-state/bin/vista-server-e2e`. List tests with:
+Set `VISTA_CHROME` to the browser executable; direct Playwright runs may set `VISTA_BIN` (otherwise the fixture uses repository `bin/vista`). Prefer `make test e2e`, which builds `.vista/test-state/bin/vista-e2e`. List tests with:
 
 ```sh
 VISTA_CHROME=/absolute/path/to/chrome npm run test:e2e -- --list

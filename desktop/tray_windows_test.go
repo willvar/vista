@@ -265,7 +265,7 @@ func TestNativeWindowsTray(t *testing.T) {
 		before, err = readStatus(base)
 		return err == nil && before.PID != pid && len(findTray(before.PID)) == 0 && len(windowsOf(0, before.PID, "VistaDesktopControls", "")) == 0
 	})
-	secondary := exec.Command(binary, "--server", base.String())
+	secondary := exec.Command(binary)
 	if err := secondary.Run(); err != nil {
 		t.Fatalf("second desktop activation: %v", err)
 	}

@@ -2,12 +2,21 @@ package main
 
 import (
 	"context"
+	"debug/buildinfo"
+	"debug/elf"
 	"errors"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
+	"net/url"
 	"os"
 	"os/exec"
+	"path/filepath"
+	"strconv"
+	"strings"
 	"testing"
 	"time"
+	"unsafe"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
 	"github.com/wailsapp/wails/v3/pkg/events"
@@ -47,6 +56,56 @@ func TestNativeLinuxWindowRecovery(t *testing.T) {
 	}
 }
 
+// The packaged executable must dispatch its CLI even if WebKitGTK cannot load.
+func TestNativeLinuxDesktopNoCGO(t *testing.T) {
+	binary := os.Getenv("VISTA_TEST_DESKTOP")
+	if binary == "" {
+		t.Skip("requires the isolated native desktop check")
+	}
+	info, err := buildinfo.ReadFile(binary)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cgo := ""
+	for _, setting := range info.Settings {
+		if setting.Key == "CGO_ENABLED" {
+			cgo = setting.Value
+			break
+		}
+	}
+	if cgo != "0" {
+		t.Fatalf("desktop CGO_ENABLED=%q, want 0", cgo)
+	}
+	image, err := elf.Open(binary)
+	if err != nil {
+		t.Fatal(err)
+	}
+	libs, err := image.ImportedLibraries()
+	image.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, lib := range libs {
+		if strings.Contains(lib, "gtk") || strings.Contains(lib, "webkit") {
+			t.Fatalf("desktop directly links a graphical library: %s", lib)
+		}
+	}
+	root := t.TempDir()
+	// Shadow the soname for this process only so the check is meaningful
+	// even on a desktop test host where the real library is installed.
+	if err := os.WriteFile(filepath.Join(root, "libwebkit2gtk-4.1.so.0"), nil, 0600); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, binary, "status")
+	cmd.Env = append(os.Environ(), "HOME="+root, "XDG_CONFIG_HOME="+root, "LD_LIBRARY_PATH="+root,
+		"DISPLAY=", "WAYLAND_DISPLAY=", "WAYLAND_SOCKET=", "DBUS_SESSION_BUS_ADDRESS=")
+	if out, err := cmd.CombinedOutput(); err != nil || strings.TrimSpace(string(out)) != "Vista is stopped" {
+		t.Fatalf("no-WebKit CLI: %v, %s", err, out)
+	}
+}
+
 // Use an actual GTK window but inject availability so that testing the loss
 // of a panel does not require stopping the user's desktop environment.
 func checkGTKWindowRecovery() error {
@@ -56,13 +115,41 @@ func checkGTKWindowRecovery() error {
 		return err
 	}
 	d.app = application.New(options)
-	d.home = d.app.Window.NewWithOptions(application.WebviewWindowOptions{
-		Title: "Vista window recovery test", HTML: "<!doctype html><title>Vista</title>",
-	})
-	d.home.RegisterHook(events.Common.WindowClosing, func(e *application.WindowEvent) { d.hideOnClose(d.home, e) })
+	loaded := make(chan string, 1)
+	local := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/ready" {
+			select {
+			case loaded <- r.URL.RawQuery:
+			default:
+			}
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		w.Header().Set("Content-Type", "text/html")
+		fmt.Fprint(w, `<!doctype html><script>fetch('/ready?bridge='+Boolean(window.webkit?.messageHandlers?.external)+'&dark='+matchMedia('(prefers-color-scheme:dark)').matches)</script>`)
+	}))
+	defer local.Close()
+	intruded := make(chan struct{}, 1)
+	foreign := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		select {
+		case intruded <- struct{}{}:
+		default:
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer foreign.Close()
+	d.base, _ = url.Parse(local.URL)
+	d.home = d.open(local.URL)
 	done := make(chan error, 1)
 	d.app.Event.OnApplicationEvent(events.Common.ApplicationStarted, func(_ *application.ApplicationEvent) {
-		go func() { done <- exerciseGTKWindow(d); d.app.Quit() }()
+		go func() {
+			err := verifyGTKNavigation(d, loaded, foreign.URL, intruded)
+			if err == nil {
+				err = exerciseGTKWindow(d)
+			}
+			done <- err
+			d.app.Quit()
+		}()
 	})
 	if err := d.app.Run(); err != nil {
 		return err
@@ -72,6 +159,52 @@ func checkGTKWindowRecovery() error {
 		return err
 	default:
 		return errors.New("native window checks did not finish")
+	}
+}
+
+func verifyGTKNavigation(d *desktop, loaded <-chan string, foreign string, intruded <-chan struct{}) error {
+	select {
+	case query := <-loaded:
+		values, _ := url.ParseQuery(query)
+		dark := false
+		application.InvokeSync(func() { dark = d.app.Env.IsDarkMode() })
+		if values.Get("bridge") != "false" || values.Get("dark") != strconv.FormatBool(dark) {
+			return fmt.Errorf("unexpected WebView theme or native bridge state: %q, wanted dark=%t", query, dark)
+		}
+	case <-time.After(5 * time.Second):
+		return errors.New("the protected Linux WebView did not load")
+	}
+	g, err := linuxGTK()
+	if err != nil {
+		return err
+	}
+	blocked := make(chan struct{}, 1)
+	var ignore func(unsafe.Pointer)
+	application.InvokeSync(func() {
+		ignore = g.ignore
+		// Observe the actual native WebKit decision before testing its effect.
+		// The wrapper still calls the real C function on the GTK thread.
+		g.ignore = func(decision unsafe.Pointer) {
+			request := g.request(g.policyAction(decision))
+			match := request != nil && g.uri(request) == foreign+"/"
+			ignore(decision)
+			if match {
+				select {
+				case blocked <- struct{}{}:
+				default:
+				}
+			}
+		}
+		d.home.SetURL(foreign + "/")
+	})
+	defer application.InvokeSync(func() { g.ignore = ignore })
+	select {
+	case <-blocked:
+		return nil
+	case <-intruded:
+		return errors.New("the Linux WebView reached a disallowed origin")
+	case <-time.After(3 * time.Second):
+		return errors.New("the navigation policy did not reject the foreign origin")
 	}
 }
 

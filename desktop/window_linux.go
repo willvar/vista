@@ -5,10 +5,14 @@ import (
 	"errors"
 	"github.com/wailsapp/wails/v3/pkg/application"
 	"github.com/wailsapp/wails/v3/pkg/events"
+	"os"
 	"sync"
 )
 
 func (d *desktop) platformOptions(options *application.Options) error {
+	if os.Getenv("DISPLAY") == "" && os.Getenv("WAYLAND_DISPLAY") == "" && os.Getenv("WAYLAND_SOCKET") == "" {
+		return errors.New("no graphical session; use vista serve to run without a desktop")
+	}
 	options.Linux.ApplicationID = desktopID
 	return nil
 }

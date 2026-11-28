@@ -90,7 +90,7 @@ export const nativeFixture = {
   async use(options: Partial<NativeOptions>, use: (vista: VistaFixture, stop: () => Promise<string>) => Promise<void>, seed?: string) {
     const { configuredProvider, advertisedReasoningEfforts, imageModel, budgetModel, replyWithPrompt, followUpTool, questionTool, instructionTool, sessionActionTool, progressCalls, longProgress, terminalReasoning, interleavedOutput, emptyReply, detachedTask, backgroundProcess, fileChanges, providerOutput, modelFailure } = { ...nativeDefaults, ...options }
     if (!process.env.VISTA_CHROME) throw new Error('Set VISTA_CHROME to the isolated test browser executable')
-    const binary = resolve(process.env.VISTA_BIN || join(import.meta.dirname, '../../bin/vista-server'))
+    const binary = resolve(process.env.VISTA_BIN || join(import.meta.dirname, '../../bin/vista'))
     const root = resolve(import.meta.dirname, '../.vista/test-state')
     mkdirSync(root, { recursive: true })
     const state = mkdtempSync(join(realpathSync(root), 'e2e-'))

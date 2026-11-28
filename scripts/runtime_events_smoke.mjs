@@ -8,7 +8,7 @@ import { availableVistaPort } from './test_port.mjs'
 import { prepareVistaTestConfig, projectRulesFixture } from './test_config.mjs'
 
 // Real Server/Worker/SQLite boundaries, synthetic model, no live credentials.
-const binary = resolve(process.env.VISTA_BIN || 'bin/vista-server')
+const binary = resolve(process.env.VISTA_BIN || 'bin/vista')
 const parent = resolve('.vista/test-state')
 mkdirSync(parent, { recursive: true })
 const state = mkdtempSync(join(parent, 'runtime-events-'))

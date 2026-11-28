@@ -10,14 +10,6 @@ on:
         description: Intended release version (vMAJOR.MINOR.PATCH); runs the full matrix without publishing
         type: string
         default: ''
-      linux_desktop:
-        description: Validate Linux desktop archives in a private Wayland session
-        type: boolean
-        default: false
-      macos_desktop:
-        description: Validate macOS desktop archives (development only; leave release_version empty)
-        type: boolean
-        default: false
       browser:
         description: Run the complete Linux browser suite
         type: boolean
@@ -36,7 +28,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: vista-build-${{ github.ref }}-${{ github.event_name }}-${{ inputs.release_version || format('{0}-{1}-{2}-{3}', inputs.browser, inputs.browser_project, inputs.linux_desktop, inputs.macos_desktop) }}
+  group: vista-build-${{ github.ref }}-${{ github.event_name }}-${{ inputs.release_version || format('{0}-{1}', inputs.browser, inputs.browser_project) }}
   cancel-in-progress: ${{ github.event_name == 'workflow_dispatch' && !inputs.release_version }}
 
 env:
@@ -116,32 +108,22 @@ jobs:
         with:
           python-version: "3.14"
       - name: Install native Linux desktop dependencies
-        if: runner.os == 'Linux' && (inputs.linux_desktop || inputs.release_version != '')
+        if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends libgtk-3-dev libwebkit2gtk-4.1-dev kwin-wayland plasma-desktop plasma-workspace
+          sudo apt-get install -y --no-install-recommends libgtk-3-0t64 libwebkit2gtk-4.1-0 kwin-wayland plasma-desktop plasma-workspace qtwayland5 qml-module-qt-labs-platform plasma-pa
       - name: Build, unpack and run the native application
         if: runner.os != 'Windows'
         env:
           NATIVE_TARGET: ${{ matrix.target }}
-          MACOS_DESKTOP: ${{ inputs.macos_desktop }}
-          LINUX_DESKTOP: ${{ inputs.linux_desktop }}
           VISTA_MACOS_SIGNING_IDENTITY: ${{ vars.VISTA_MACOS_SIGNING_IDENTITY }}
           VISTA_MACOS_NOTARY_PROFILE: ${{ vars.VISTA_MACOS_NOTARY_PROFILE }}
         run: |
-          if [[ "$RUNNER_OS" == "Linux" && ("$LINUX_DESKTOP" == "true" || "$VISTA_BUILD_VERSION" != "dev") ]]; then
+          if [[ "$RUNNER_OS" == "Linux" ]]; then
             sh scripts/ci_linux_desktop.sh --target "$NATIVE_TARGET" --version "$VISTA_BUILD_VERSION"
-            exit
+          else
+            python scripts/ci_native.py --target "$NATIVE_TARGET" --version "$VISTA_BUILD_VERSION"
           fi
-          args=()
-          if [[ "$RUNNER_OS" == "macOS" && "$MACOS_DESKTOP" == "true" ]]; then
-            if [[ "$VISTA_BUILD_VERSION" != "dev" ]]; then
-              echo 'macos_desktop is for unsigned development validation only.' >&2
-              exit 2
-            fi
-            args+=(--with-desktop)
-          fi
-          python scripts/ci_native.py --target "$NATIVE_TARGET" --version "$VISTA_BUILD_VERSION" "${args[@]}"
         shell: bash
       - name: Build, unpack and run the Windows desktop application
         if: runner.os == 'Windows'
@@ -157,9 +139,9 @@ jobs:
           path: |
             .vista/ci/native/*/report.json
             .vista/ci/native/*/native-tests.jsonl
-            .vista/ci/native/*/desktop-native-tests.jsonl
             .vista/ci/native/*/desktop-test.log
             .vista/ci/native/*/dist/*
+            .vista/ci/linux-display-logs/*.log
             .vista/ci/windows/desktop.log
             .vista/ci/windows/result.json
             .vista/ci/windows/bootstrap*.log

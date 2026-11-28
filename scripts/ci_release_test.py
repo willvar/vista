@@ -26,19 +26,15 @@ class ReleaseTests(unittest.TestCase):
             required = {"windows": "TestNativeWindowsTray", "linux": "TestNativeLinuxTray",
                         "darwin": "TestNativeDarwinDesktop"}[system]
             report = {"target": target, "source_commit": self.source, "source_modified": False,
-                      "version": self.version, "status": "passed", "desktop_sha256": "b" * 64,
-                      "tests": {"required_passed": ["native application", "vista/desktop/" + required]},
-                      "desktop_runtime_tests": {"required_passed": ["vista/internal/launch/TestNativeApplication",
-                                                                     "vista/internal/launch/TestNativeResetPort"]}}
+                      "version": self.version, "status": "passed", "binary_sha256": "b" * 64, "cgo_enabled": False,
+                      "tests": {"required_passed": ["vista/desktop/" + required, "vista/internal/launch/TestNativeApplication",
+                                                    "vista/internal/launch/TestNativeResetPort"]}}
             if system == "darwin":
-                report["desktop_distribution_verified"] = True
-            for role in ("server", "desktop"):
-                name = f"vista-{role}_{self.version}_{system}_{arch}" + (".zip" if system == "windows" else ".tar.gz")
-                data = ("tested archive: " + target + "/" + role).encode()
-                (folder / "dist" / name).write_bytes(data)
-                prefix = "" if role == "server" else "desktop_"
-                report.update({prefix + "archive": name, prefix + "archive_sha256": hashlib.sha256(data).hexdigest(),
-                               prefix + "archive_size": len(data)})
+                report["distribution_verified"] = True
+            name = f"vista_{self.version}_{system}_{arch}" + (".zip" if system == "windows" else ".tar.gz")
+            data = ("tested archive: " + target).encode()
+            (folder / "dist" / name).write_bytes(data)
+            report.update(archive=name, archive_sha256=hashlib.sha256(data).hexdigest(), archive_size=len(data))
             path = folder / "report.json"
             path.write_text(json.dumps(report))
             self.reports.append(path)
@@ -66,7 +62,7 @@ class ReleaseTests(unittest.TestCase):
     def test_collects_exact_tested_bytes_and_sorted_checksums(self):
         text = self.collect()
         lines = text.splitlines()
-        self.assertEqual(len(lines), 2 * len(TARGETS))
+        self.assertEqual(len(lines), len(TARGETS))
         names = []
         for line in lines:
             checksum, name = line.split("  ")
@@ -96,7 +92,7 @@ class ReleaseTests(unittest.TestCase):
         original = json.loads(path.read_text())
         for key, value in (("source_commit", "b" * 40), ("source_modified", True),
                            ("version", "dev"), ("status", "failed"), ("tests", {}),
-                           ("archive", "other.zip"), ("archive_size", 0)):
+                           ("archive", "other.zip"), ("archive_size", 0), ("cgo_enabled", True)):
             with self.subTest(key=key), self.assertRaises(ValueError):
                 path.write_text(json.dumps(dict(original, **{key: value})))
                 self.collect()
@@ -106,7 +102,7 @@ class ReleaseTests(unittest.TestCase):
         path = self.reports[0]
         report = json.loads(path.read_text())
         self.assertTrue(report["target"].startswith("darwin/"))
-        report.pop("desktop_distribution_verified")
+        report.pop("distribution_verified")
         path.write_text(json.dumps(report))
         with self.assertRaisesRegex(ValueError, "signing and notarization"):
             self.collect()
