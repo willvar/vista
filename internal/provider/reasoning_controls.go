@@ -43,7 +43,7 @@ func validateReasoningOptions(options []ReasoningOption) error {
 				return errors.New("invalid reasoning effort list")
 			}
 			for _, value := range option.Values {
-				if !validEffortValue(value) && value != "none" && value != "default" {
+				if !validEffortValue(value) && value != "none" && value != "off" && value != "default" {
 					return errors.New("invalid reasoning effort value")
 				}
 			}
@@ -60,14 +60,15 @@ func validateReasoningOptions(options []ReasoningOption) error {
 }
 
 type reasoningControls struct {
-	efforts  []string
-	budget   *ReasoningOption
-	toggle   bool
-	fallback *OMPThinking
+	efforts []string
+	budget  *ReasoningOption
+	toggle  bool
 }
 
 func controlsFor(model modelcfg.Model) reasoningControls {
-	metadata, ok := ompModelForMetadata(model.ProviderID, strings.TrimPrefix(model.ID, "models/"))
+	// A third-party connection must not inherit controls from another host
+	// just because it uses a familiar model ID.
+	metadata, ok := ompModel(model.ProviderID, strings.TrimPrefix(model.ID, "models/"))
 	var controls reasoningControls
 	if live := model.DiscoveredReasoning; live != nil {
 		if !live.Supported {
@@ -81,15 +82,13 @@ func controlsFor(model modelcfg.Model) reasoningControls {
 	if !ok || !metadata.Reasoning {
 		return controls
 	}
-	// The merge retains OMP's Thinking policy only for OMP-only rows. A
-	// models.dev row replaces the whole policy, even when it has no controls;
-	// its legacy saved effort list is recovered before reaching this lookup.
-	if len(metadata.ReasoningOptions) == 0 && metadata.Thinking != nil {
-		controls.efforts = slices.Clone(metadata.Thinking.Efforts)
-		controls.fallback = metadata.Thinking
-		return controls
-	}
-	for _, option := range metadata.ReasoningOptions {
+	// OMP-only metadata can inform discovery, but not invent user-visible
+	// controls. Explicit catalog controls or the live model are authoritative.
+	return decodeReasoningControls(metadata.ReasoningOptions)
+}
+
+func decodeReasoningControls(options []ReasoningOption) (controls reasoningControls) {
+	for _, option := range options {
 		switch option.Type {
 		case "effort":
 			for _, value := range option.Values {
@@ -104,7 +103,7 @@ func controlsFor(model modelcfg.Model) reasoningControls {
 			controls.toggle = true
 		}
 	}
-	order := []string{"default", "none", "minimal", "low", "medium", "high", "xhigh", "max"}
+	order := []string{"default", "off", "none", "minimal", "low", "medium", "high", "xhigh", "max"}
 	slices.SortFunc(controls.efforts, func(a, b string) int {
 		return cmp.Compare(slices.Index(order, a), slices.Index(order, b))
 	})

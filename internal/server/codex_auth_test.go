@@ -124,14 +124,14 @@ func TestCodexLoginConnectReloadReauthenticateAndDisconnect(t *testing.T) {
 	}
 	for _, configured := range loaded.Public() {
 		model, _, err := loaded.Resolve(configured.Key)
-		if err != nil || model.CodexCredentialPath != path || model.ResponsesRoute != "codex" || model.Provider != "openai-responses" || model.APIKey != "" || len(configured.ReasoningOptions) == 0 {
+		if err != nil || model.CodexCredentialPath != path || model.ResponsesRoute != "codex" || model.Provider != "openai-responses" || model.APIKey != "" {
 			t.Fatalf("incorrect executable Codex model: %s %v", configured.ID, err)
 		}
 		if configured.ID == "gpt-image-2" {
 			t.Fatal("non-text model in conversation picker")
 		}
-		if err := modelcatalog.ApplyReasoningEffort(&model, "max"); err != nil || model.ReasoningEffort != "max" {
-			t.Fatalf("Codex reasoning selection is unusable: %v", err)
+		if len(configured.ReasoningOptions) != 0 || model.ReasoningEffort != "" {
+			t.Fatalf("configured an effort for an OMP-only Codex model: %v", configured.ReasoningOptions)
 		}
 	}
 	selected := loaded.Models[1]

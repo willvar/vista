@@ -23,13 +23,13 @@ export type VistaFixture = {
   api: (path: string, options?: RequestInit) => Promise<any>
 }
 
-type ModelRequest = { model?: string; reasoning?: { effort?: string; summary?: string; max_tokens?: number; enabled?: boolean }; messages?: {
+type ModelRequest = { model?: string; reasoning_effort?: string; reasoning?: { effort?: string; summary?: string; max_tokens?: number; enabled?: boolean }; messages?: {
   role: string
   content: unknown
   tool_calls?: { id: string; function: { name: string; arguments: string } }[]
   tool_call_id?: string
 }[] }
-type ProviderOutput = 'perplexity' | 'openrouter' | 'responses'
+type ProviderOutput = 'perplexity' | 'openrouter' | 'responses' | 'refuseless'
 type ModelFailure = { status: number; body: object; stream?: boolean; attempts?: number; skipAttempts?: number; retryAfterMs?: number }
 
 function messageText(content: unknown): string {
@@ -60,10 +60,11 @@ function modelCatalogFixture() {
   return catalogFixture = JSON.stringify(catalog)
 }
 
-type NativeOptions = { configuredProvider: boolean; imageModel: boolean; budgetModel: boolean; replyWithPrompt: boolean; followUpTool: boolean; questionTool: boolean; instructionTool: boolean; sessionActionTool: boolean; progressCalls: number; longProgress: boolean; terminalReasoning: boolean; interleavedOutput: boolean; emptyReply: boolean; detachedTask: boolean; backgroundProcess: boolean; fileChanges: boolean; providerOutput: ProviderOutput | undefined; modelFailure: ModelFailure | undefined }
+type NativeOptions = { configuredProvider: boolean; advertisedReasoningEfforts: string[] | undefined; imageModel: boolean; budgetModel: boolean; replyWithPrompt: boolean; followUpTool: boolean; questionTool: boolean; instructionTool: boolean; sessionActionTool: boolean; progressCalls: number; longProgress: boolean; terminalReasoning: boolean; interleavedOutput: boolean; emptyReply: boolean; detachedTask: boolean; backgroundProcess: boolean; fileChanges: boolean; providerOutput: ProviderOutput | undefined; modelFailure: ModelFailure | undefined }
 
 const nativeDefaults: NativeOptions = {
   configuredProvider: true,
+  advertisedReasoningEfforts: undefined,
   imageModel: false,
   budgetModel: false,
   replyWithPrompt: false,
@@ -87,7 +88,7 @@ const nativeDefaults: NativeOptions = {
 // persistent data; ordinary cases retain the same per-test lifecycle.
 export const nativeFixture = {
   async use(options: Partial<NativeOptions>, use: (vista: VistaFixture, stop: () => Promise<string>) => Promise<void>, seed?: string) {
-    const { configuredProvider, imageModel, budgetModel, replyWithPrompt, followUpTool, questionTool, instructionTool, sessionActionTool, progressCalls, longProgress, terminalReasoning, interleavedOutput, emptyReply, detachedTask, backgroundProcess, fileChanges, providerOutput, modelFailure } = { ...nativeDefaults, ...options }
+    const { configuredProvider, advertisedReasoningEfforts, imageModel, budgetModel, replyWithPrompt, followUpTool, questionTool, instructionTool, sessionActionTool, progressCalls, longProgress, terminalReasoning, interleavedOutput, emptyReply, detachedTask, backgroundProcess, fileChanges, providerOutput, modelFailure } = { ...nativeDefaults, ...options }
     if (!process.env.VISTA_CHROME) throw new Error('Set VISTA_CHROME to the isolated test browser executable')
     const binary = resolve(process.env.VISTA_BIN || join(import.meta.dirname, '../../bin/vista-server'))
     const root = resolve(import.meta.dirname, '../.vista/test-state')
@@ -103,8 +104,9 @@ export const nativeFixture = {
     const configuredModel = budgetModel ? { provider: 'catalog', providerId: 'openrouter', id: 'qwen/qwen3.8-flash' }
       : providerOutput === 'perplexity' ? { provider: 'openai-chat', providerId: 'custom', authentication: 'bearer', id: 'sonar-pro' }
       : providerOutput === 'openrouter' ? { provider: 'catalog', providerId: 'openrouter', id: 'aion-labs/aion-2.0' }
-      : providerOutput === 'responses' ? { provider: 'openai-responses', id: 'gpt-6.1-sol' }
-      : { provider: 'openai-chat', id: 'gpt-6-luna' }
+      : providerOutput === 'refuseless' ? { provider: 'openai-chat', providerId: 'custom', authentication: 'bearer', id: 'deepseek-v4.1-flash-fast' }
+      : providerOutput === 'responses' ? { provider: 'openai-responses', providerId: 'openai', id: 'gpt-6.1-sol' }
+      : { provider: 'openai-chat', providerId: 'openai', id: 'gpt-6-luna' }
     const modelId = configuredModel.id
     const modelRequests: ModelRequest[] = []
     const modelUserAgents: string[] = []
@@ -123,7 +125,8 @@ export const nativeFixture = {
     const upstream = createServer(async (request, response) => {
       const path = new URL(request.url || '/', 'http://127.0.0.1').pathname
       if (request.method === 'GET' && path === '/v1/models') {
-        response.writeHead(200, { 'Content-Type': 'application/json' }).end(JSON.stringify({ data: [{ id: modelId }] }))
+        const reasoning_efforts = advertisedReasoningEfforts ?? (providerOutput === 'refuseless' ? ['off', 'low', 'high', 'max'] : undefined)
+        response.writeHead(200, { 'Content-Type': 'application/json' }).end(JSON.stringify({ data: [{ id: modelId, reasoning_efforts }] }))
         return
       }
       if (request.method === 'GET' && ['/v1/responses', '/v1/chat/completions'].includes(path)) {
@@ -479,6 +482,7 @@ export const nativeFixture = {
 
 export const test = base.extend<NativeOptions & { vista: VistaFixture }>({
   configuredProvider: [true, { option: true }],
+  advertisedReasoningEfforts: [undefined, { option: true }],
   imageModel: [false, { option: true }],
   budgetModel: [false, { option: true }],
   replyWithPrompt: [false, { option: true }],
@@ -496,8 +500,8 @@ export const test = base.extend<NativeOptions & { vista: VistaFixture }>({
   fileChanges: [false, { option: true }],
   providerOutput: [undefined, { option: true }],
   modelFailure: [undefined, { option: true }],
-  vista: async ({ configuredProvider, imageModel, budgetModel, replyWithPrompt, followUpTool, questionTool, instructionTool, sessionActionTool, progressCalls, longProgress, terminalReasoning, interleavedOutput, emptyReply, detachedTask, backgroundProcess, fileChanges, providerOutput, modelFailure }, use) => {
-    await nativeFixture.use({ configuredProvider, imageModel, budgetModel, replyWithPrompt, followUpTool, questionTool, instructionTool, sessionActionTool, progressCalls, longProgress, terminalReasoning, interleavedOutput, emptyReply, detachedTask, backgroundProcess, fileChanges, providerOutput, modelFailure }, use)
+  vista: async ({ configuredProvider, advertisedReasoningEfforts, imageModel, budgetModel, replyWithPrompt, followUpTool, questionTool, instructionTool, sessionActionTool, progressCalls, longProgress, terminalReasoning, interleavedOutput, emptyReply, detachedTask, backgroundProcess, fileChanges, providerOutput, modelFailure }, use) => {
+    await nativeFixture.use({ configuredProvider, advertisedReasoningEfforts, imageModel, budgetModel, replyWithPrompt, followUpTool, questionTool, instructionTool, sessionActionTool, progressCalls, longProgress, terminalReasoning, interleavedOutput, emptyReply, detachedTask, backgroundProcess, fileChanges, providerOutput, modelFailure }, use)
   },
   page: async ({ page, vista }, use) => {
     await page.goto(vista.origin + '/')

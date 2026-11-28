@@ -106,9 +106,10 @@ func TestCodexAccountRefreshAndToolContinuation(t *testing.T) {
 	client = &http.Client{Transport: transport}
 	http.DefaultTransport = transport
 	t.Cleanup(func() { client, http.DefaultTransport = oldClient, oldTransport })
-	model := modelcfg.Model{Provider: "openai-responses", ProviderID: "openai-codex", ID: "gpt-6.1-sol", ResponsesRoute: modelcfg.ResponsesRouteCodex, CodexCredentialPath: path}
+	model := modelcfg.Model{Provider: "openai-responses", ProviderID: "openai-codex", ID: "gpt-6.1-sol", ResponsesRoute: modelcfg.ResponsesRouteCodex, CodexCredentialPath: path,
+		DiscoveredReasoning: &modelcfg.ReasoningCapabilities{Supported: true, Options: []modelcfg.ReasoningOption{{Type: "effort", Values: []string{"max"}}}}}
 	if err := ApplyReasoningEffort(&model, "max"); err != nil {
-		t.Fatalf("OMP-only Codex reasoning selection failed: %v", err)
+		t.Fatalf("explicit Codex reasoning selection failed: %v", err)
 	}
 	messages := []ChatMessage{{Role: "user", Content: "Read a file"}}
 	schemas := []map[string]any{{"type": "function", "function": map[string]any{"name": "read_file", "parameters": map[string]any{"type": "object"}}}}

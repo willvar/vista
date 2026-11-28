@@ -285,7 +285,7 @@ func TestQueuedRunUsesCurrentSelectionInsteadOfOldSubmissionPreferences(t *testi
 			app, session := inputQueueFixture(t)
 			app.models = modelCatalog{Default: "first", Models: []configuredModel{
 				{Key: "first", Provider: "openai-chat", ID: "gpt-6-astra", BaseURL: "http://127.0.0.1:1/v1", APIKey: "mock"},
-				{Key: "latest", Provider: "openai-chat", ID: "gpt-6-luna", BaseURL: "http://127.0.0.1:1/v1", APIKey: "mock"},
+				{Key: "latest", Provider: "openai-chat", ProviderID: "openai", ID: "gpt-6-luna", BaseURL: "http://127.0.0.1:1/v1", APIKey: "mock"},
 			}}
 			first, latest, low, high := "first", "latest", "low", "high"
 			if _, err := app.store.PatchSessionSelection(app.ctx, session, store.SessionSelectionPatch{ManualModelKey: &first, ManualReasoningEffort: &low}); err != nil {

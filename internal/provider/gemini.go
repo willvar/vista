@@ -40,7 +40,7 @@ func validateGeminiThinkingOptions(providerID, id, level string, budget *int) er
 		return errors.New("Gemini model does not support thinking")
 	}
 	if len(metadata.ReasoningOptions) > 0 {
-		controls := controlsFor(modelcfg.Model{ProviderID: providerID, ID: id})
+		controls := decodeReasoningControls(metadata.ReasoningOptions)
 		if budget != nil && controls.budget == nil {
 			return errors.New("Gemini model does not support thinking budgets")
 		}

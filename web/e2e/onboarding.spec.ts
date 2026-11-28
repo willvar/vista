@@ -103,7 +103,9 @@ test('provider recovery follows error codes and keeps the draft through a settin
 })
 
 test.describe('first launch without a provider', () => {
-  test.use({ configuredProvider: false })
+  const providerEfforts = ['low', 'high', 'max']
+  const reasoningOptions = ['default', ...providerEfforts]
+  test.use({ configuredProvider: false, advertisedReasoningEfforts: providerEfforts })
   test('connect a provider and create the first session only when sending Hi', { tag: '@smoke' }, async ({ page, vista }, testInfo) => {
     let creationRequests = 0
     let messageRequests = 0
@@ -196,11 +198,11 @@ test.describe('first launch without a provider', () => {
     await expect(connection).toBeVisible()
     await expect(form).toHaveCount(0)
     await expect(modal.locator('.model-list-field')).toHaveCount(0)
-    // Read the saved catalog to prove automatic /models discovery used this ID.
+    // The model ID alone is not a capability declaration. Wait for automatic discovery of its advertised levels.
     await expect.poll(async () => {
-      const catalog = await vista.api('/models') as { models: { name?: string; id: string }[] }
-      return catalog.models.some(model => model.name === 'E2E Provider' && model.id === vista.modelId)
-    }).toBe(true)
+      const catalog = await vista.api('/models') as { models: { name?: string; id: string; reasoningOptions?: string[] }[] }
+      return catalog.models.find(model => model.name === 'E2E Provider' && model.id === vista.modelId)?.reasoningOptions
+    }).toEqual(reasoningOptions)
     await closeSettings(page)
     await expect(modal).toBeHidden()
 
@@ -209,9 +211,6 @@ test.describe('first launch without a provider', () => {
     await expect(sender).toBeVisible()
     await expect(sender.locator('.composer-model')).toHaveCount(0)
 
-    const catalog = await vista.api('/models') as { models: { name?: string; id: string; reasoningOptions?: string[] }[] }
-    const reasoningOptions = catalog.models.find(model => model.name === 'E2E Provider' && model.id === vista.modelId)?.reasoningOptions || []
-    expect(reasoningOptions.length, 'Known model ID must expose its metadata reasoning choices').toBeGreaterThan(1)
     const reasoningEffort = reasoningOptions.at(-1)!
     const reasoningLabel = reasoningEffort.charAt(0).toUpperCase() + reasoningEffort.slice(1)
     const responseOptions = page.getByRole('button', { name: 'Response options', exact: true })
@@ -221,7 +220,7 @@ test.describe('first launch without a provider', () => {
     await responseOptions.click()
     const reasoningList = page.locator('.ui-select-dropdown:visible')
     await reasoningPicker.click()
-    await expect(reasoningList.getByRole('option')).toHaveCount(reasoningOptions.length)
+    await expect(reasoningList.getByRole('option')).toHaveText(['Service default', 'Low', 'High', 'Max'])
     await reasoningList.getByRole('option', { name: reasoningLabel, exact: true }).click()
 
     await page.keyboard.press('Escape')
@@ -259,6 +258,7 @@ test.describe('first launch without a provider', () => {
     await expect(page.locator('.messages article.user .markdown')).toHaveText('Hi')
     const reply = page.locator('.messages article.assistant').filter({ hasText: 'Mock reply: Hi' })
     await expect(reply.locator('.markdown')).toHaveText('Mock reply: Hi')
+    expect(vista.modelRequests.at(-1)?.reasoning_effort).toBe(reasoningEffort)
     await expect(reply.locator('.reply-footer .message-model-name')).toHaveText('E2E Provider · GPT-6 Luna')
     await expect(reply.locator('.message-model-results')).toBeVisible()
     await expect(sender.getByPlaceholder('Send a message')).toHaveValue('')
@@ -273,11 +273,10 @@ test.describe('first launch without a provider', () => {
     await page.keyboard.press('Escape')
     await expect(page.locator('.usage-popover:visible')).toHaveCount(0)
     await responseOptions.click()
-    const lowestReasoningLabel = reasoningOptions[0] === 'none' ? 'Off'
-      : reasoningOptions[0]!.charAt(0).toUpperCase() + reasoningOptions[0]!.slice(1)
+    const defaultReasoningLabel = 'Service default'
     await reasoningPicker.click()
-    await reasoningList.getByRole('option', { name: lowestReasoningLabel, exact: true }).click()
-    await expect(reasoningPicker).toHaveValue(lowestReasoningLabel)
+    await reasoningList.getByRole('option', { name: defaultReasoningLabel, exact: true }).click()
+    await expect(reasoningPicker).toHaveValue(defaultReasoningLabel)
     await page.keyboard.press('Escape')
     await expect(responsePanel).toBeHidden()
     await expect(reply.locator('.reply-footer .message-model-name')).toHaveText('E2E Provider · GPT-6 Luna')

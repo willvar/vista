@@ -78,3 +78,27 @@ test('catalog names and raw model IDs are searchable in Settings without a compo
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(viewport.width)
   }
 })
+
+test.describe('provider-declared reasoning effort', () => {
+  test.use({ providerOutput: 'refuseless', replyWithPrompt: true })
+
+  test('offers official effort levels and sends off literally', { tag: '@responsive' }, async ({ page, vista }) => {
+    await expect.poll(async () => {
+      const catalog = await vista.api('/models')
+      return catalog.models.find((row: { id: string }) => row.id === vista.modelId)?.reasoningOptions
+    }).toEqual(['default', 'off', 'low', 'high', 'max'])
+    await page.goto(vista.origin)
+    await page.getByRole('button', { name: 'Response options', exact: true }).click()
+    const panel = page.getByRole('dialog', { name: 'Response options', exact: true })
+    await panel.getByRole('combobox', { name: 'Reasoning effort', exact: true }).click()
+    await expect(page.getByRole('option', { name: 'Medium', exact: true })).toHaveCount(0)
+    await expect(page.getByRole('option', { name: 'Extra high', exact: true })).toHaveCount(0)
+    await page.getByRole('option', { name: 'Off', exact: true }).click()
+    await page.keyboard.press('Escape')
+    await expect(panel).toBeHidden()
+    const sender = page.locator('.sender-card .ui-sender-input')
+    await sender.fill('Use the selected effort')
+    await page.getByRole('button', { name: 'Send', exact: true }).click()
+    await expect.poll(() => vista.modelRequests.at(-1)?.reasoning_effort).toBe('off')
+  })
+})

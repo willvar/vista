@@ -12,6 +12,8 @@ import (
 	"path/filepath"
 	"runtime"
 	"testing"
+
+	modelcfg "vista/internal/model"
 )
 
 //go:embed testdata/reasoning.json
@@ -52,4 +54,9 @@ func Install(t *testing.T, load func(string) error) {
 	if err := load(dir); err != nil {
 		t.Fatal(err)
 	}
+}
+
+// LiveEfforts supplies explicit mock provider capabilities for a request test.
+func LiveEfforts(values ...string) *modelcfg.ReasoningCapabilities {
+	return &modelcfg.ReasoningCapabilities{Supported: true, Options: []modelcfg.ReasoningOption{{Type: "effort", Values: values}}}
 }

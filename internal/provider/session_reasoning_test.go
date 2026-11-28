@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"vista/internal/testcatalog"
 
 	modelcfg "vista/internal/model"
 )
@@ -46,6 +47,9 @@ func TestSessionReasoningReachesProviderPayload(t *testing.T) {
 				model.APIKey = ""
 				model.AWSAccessID = "fixture-id"
 				model.AWSSecret = "fixture-secret"
+			}
+			if tc.service == "custom" {
+				model.DiscoveredReasoning = testcatalog.LiveEfforts(tc.effort)
 			}
 			if err := ApplyReasoningEffort(&model, tc.effort); err != nil {
 				t.Fatal(err)

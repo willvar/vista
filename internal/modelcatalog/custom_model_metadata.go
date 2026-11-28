@@ -144,6 +144,24 @@ func (m *Configured) applyDiscoveredMetadata(row discoveryFields) {
 }
 
 func inventoryReasoning(fields ...discoveryFields) *modelcfg.ReasoningCapabilities {
+	// A model's own /v1/models row is authoritative, even when it exposes
+	// no adjustable levels. This field includes native values such as off.
+	for _, f := range fields {
+		if levels := f.strings("reasoning_efforts"); levels != nil {
+			var valid []string
+			for _, value := range levels {
+				if slices.Contains([]string{"off", "none", "minimal", "low", "medium", "high", "xhigh", "max"}, value) && !slices.Contains(valid, value) {
+					valid = append(valid, value)
+				}
+			}
+			options := []modelcfg.ReasoningOption{}
+			if len(valid) != 0 {
+				// The provider default is not an effort sent over the wire.
+				options = append(options, modelcfg.ReasoningOption{Type: "effort", Values: append([]string{"default"}, valid...)})
+			}
+			return &modelcfg.ReasoningCapabilities{Supported: len(valid) != 0, Options: options}
+		}
+	}
 	var supported *bool
 	var options []modelcfg.ReasoningOption
 	for _, fields := range fields {

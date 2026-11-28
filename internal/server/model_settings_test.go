@@ -20,6 +20,7 @@ import (
 	"vista/internal/configstore"
 	"vista/internal/modelcatalog"
 	"vista/internal/network"
+	"vista/internal/testcatalog"
 
 	modelcfg "vista/internal/model"
 	"vista/internal/provider"
@@ -172,7 +173,7 @@ func TestNamedCustomResponsesDiscoveryAndReply(t *testing.T) {
 		}
 		switch r.URL.Path {
 		case "/v1/models":
-			_, _ = w.Write([]byte(`{"data":[{"id":"gpt-6-luna"}]}`))
+			_, _ = w.Write([]byte(`{"data":[{"id":"gpt-6-luna","reasoning_efforts":["low","high","max"]},{"id":"gpt-5.6-luna"}]}`))
 		case "/v1/responses":
 			if r.Method == http.MethodGet {
 				w.WriteHeader(http.StatusMethodNotAllowed)
@@ -185,9 +186,9 @@ func TestNamedCustomResponsesDiscoveryAndReply(t *testing.T) {
 				t.Errorf("wrong Responses request: %+v %v", body, err)
 			}
 			w.Header().Set("Content-Type", "text/event-stream")
-			_, _ = w.Write([]byte("data: {\"type\":\"response.output_text.delta\",\"item_id\":\"msg_1\",\"delta\":\"Hi from Herdex\"}\n\ndata: {\"type\":\"response.completed\",\"response\":{\"status\":\"completed\",\"output\":[]}}\n\n"))
+			_, _ = w.Write([]byte("data: {\"type\":\"response.output_text.delta\",\"item_id\":\"msg_1\",\"delta\":\"Hi from Relay\"}\n\ndata: {\"type\":\"response.completed\",\"response\":{\"status\":\"completed\",\"output\":[]}}\n\n"))
 		case "/v1/chat/completions":
-			w.WriteHeader(http.StatusForbidden) // Herdex can return 403 for its unused route.
+			w.WriteHeader(http.StatusForbidden) // Relay can return 403 for its unused route.
 		default:
 			http.Error(w, "unexpected path", 404)
 		}
@@ -206,46 +207,47 @@ func TestNamedCustomResponsesDiscoveryAndReply(t *testing.T) {
 		t.Fatalf("Responses discovery: %d %s", discovery.Code, discovery.Body.String())
 	}
 	save := httptest.NewRecorder()
-	app.providerSettings(save, httptest.NewRequest(http.MethodPost, "/api/provider-config", strings.NewReader(`{"name":"Herdex","provider":"openai-responses","providerId":"custom","credentialMode":"bearer","baseUrl":"`+base+`","apiKey":"private-key","ids":["gpt-6-luna"]}`)))
+	app.providerSettings(save, httptest.NewRequest(http.MethodPost, "/api/provider-config", strings.NewReader(`{"name":"Relay","provider":"openai-responses","providerId":"custom","credentialMode":"bearer","baseUrl":"`+base+`","apiKey":"private-key","ids":["gpt-6-luna"]}`)))
 	if save.Code != http.StatusOK {
 		t.Fatalf("Responses save: %d %s", save.Code, save.Body.String())
 	}
+	app.refreshCustomModels(t.Context()) // The fixture does not start background discovery.
 	configured := app.modelsSnapshot()
-	if configured.Default != "herdex-gpt-6-luna" || configured.Models[0].Key != configured.Default {
+	if configured.Default != "relay-gpt-6-luna" || configured.Models[0].Key != configured.Default {
 		t.Fatalf("custom model key omitted provider name: %q", configured.Default)
 	}
-	if len(configured.Models) != 1 || configured.Models[0].Name != "Herdex" || configured.Models[0].Provider != "openai-responses" || configured.Models[0].Authentication != "bearer" || !modelcatalog.Editable(configured.Models[0]) {
+	if len(configured.Models) != 2 || configured.Models[1].ID != "gpt-5.6-luna" || configured.Models[0].Name != "Relay" || configured.Models[0].Provider != "openai-responses" || configured.Models[0].Authentication != "bearer" || !modelcatalog.Editable(configured.Models[0]) {
 		t.Fatalf("named Responses model: %+v", configured.Models)
 	}
 	if options := configured.Public()[0].ReasoningOptions; !containsString(options, "high") || !containsString(options, "max") {
-		t.Fatalf("Herdex Luna reasoning options missing: %v", options)
+		t.Fatalf("Relay Luna reasoning options missing: %v", options)
 	}
 	model, _, err := configured.Resolve("")
 	if err != nil {
 		t.Fatal(err)
 	}
 	turn, err := provider.ModelTurn(context.Background(), model, []provider.ChatMessage{{Role: "user", Content: "Hi"}}, nil)
-	if err != nil || turn.Text != "Hi from Herdex" {
+	if err != nil || turn.Text != "Hi from Relay" {
 		t.Fatalf("Responses reply: %+v %v", turn, err)
 	}
 	public := configured.Public()
-	if len(public) != 1 || public[0].Name != "Herdex" || public[0].BaseURL != base {
+	if len(public) != 2 || public[0].Name != "Relay" || public[0].BaseURL != base || len(public[1].ReasoningOptions) != 0 {
 		t.Fatalf("public named model: %+v", public)
 	}
 	settings := httptest.NewRecorder()
 	app.modelSettings(settings, httptest.NewRequest(http.MethodGet, "/api/model-config", nil))
-	if !strings.Contains(settings.Body.String(), `"name":"Herdex"`) || strings.Contains(settings.Body.String(), "private-key") {
+	if !strings.Contains(settings.Body.String(), `"name":"Relay"`) || strings.Contains(settings.Body.String(), "private-key") {
 		t.Fatalf("unsafe model settings: %s", settings.Body.String())
 	}
 	add := httptest.NewRecorder()
-	app.providerSettings(add, httptest.NewRequest(http.MethodPut, "/api/provider-config", strings.NewReader(`{"key":"`+configured.Models[0].Key+`","name":"Herdex","provider":"openai-responses","providerId":"custom","credentialMode":"bearer","baseUrl":"`+base+`","ids":["gpt-6-luna","gpt-5.6-luna"]}`)))
-	if add.Code != http.StatusOK || app.modelsSnapshot().Models[1].Name != "Herdex" {
+	app.providerSettings(add, httptest.NewRequest(http.MethodPut, "/api/provider-config", strings.NewReader(`{"key":"`+configured.Models[0].Key+`","name":"Relay","provider":"openai-responses","providerId":"custom","credentialMode":"bearer","baseUrl":"`+base+`","ids":["gpt-6-luna","gpt-5.6-luna"]}`)))
+	if added := app.modelsSnapshot().Models; add.Code != http.StatusOK || len(added) != 2 || added[1].Name != "Relay" {
 		t.Fatalf("connection name or credential not reused: %d %s", add.Code, add.Body.String())
 	}
 	rename := httptest.NewRecorder()
-	app.providerSettings(rename, httptest.NewRequest(http.MethodPut, "/api/provider-config", strings.NewReader(`{"key":"`+configured.Models[0].Key+`","name":"Herdex Pool","provider":"openai-responses","providerId":"custom","credentialMode":"bearer","baseUrl":"`+base+`"}`)))
+	app.providerSettings(rename, httptest.NewRequest(http.MethodPut, "/api/provider-config", strings.NewReader(`{"key":"`+configured.Models[0].Key+`","name":"Relay Pool","provider":"openai-responses","providerId":"custom","credentialMode":"bearer","baseUrl":"`+base+`"}`)))
 	models := app.modelsSnapshot().Models
-	if rename.Code != http.StatusOK || models[0].Name != "Herdex Pool" || models[1].Name != "Herdex Pool" {
+	if rename.Code != http.StatusOK || len(models) != 2 || models[0].Name != "Relay Pool" || models[1].Name != "Relay Pool" {
 		t.Fatalf("provider rename did not reach all models: %d %s %+v", rename.Code, rename.Body.String(), models)
 	}
 }
@@ -469,12 +471,12 @@ func TestSessionReasoningEffortFollowsSelectedModel(t *testing.T) {
 		{"Zen Claude explicit max", modelcfg.Model{Provider: "anthropic", ProviderID: "opencode", ID: "claude-sonnet-4-6"}, "max", true, "messages"},
 		{"Zen Gemini minimal", modelcfg.Model{Provider: "gemini", ProviderID: "opencode", ID: "gemini-3-flash"}, "minimal", true, "gemini"},
 		{"Zen DeepSeek max", modelcfg.Model{Provider: "openai-chat", ProviderID: "opencode", ID: "deepseek-v4-flash"}, "max", true, "chat"},
-		{"Herdex Luna high", modelcfg.Model{Provider: "openai-responses", ID: "gpt-6-luna"}, "high", true, "responses"},
-		{"Herdex Sol 6.1 max", modelcfg.Model{Provider: "openai-responses", ID: "gpt-6.1-sol"}, "max", true, "responses"},
-		{"custom Chat Sol 6.1 low", modelcfg.Model{Provider: "openai-chat", ID: "gpt-6.1-sol"}, "low", true, "chat"},
+		{"Relay Luna high", modelcfg.Model{Provider: "openai-responses", ID: "gpt-6-luna", DiscoveredReasoning: testcatalog.LiveEfforts("high")}, "high", true, "responses"},
+		{"Relay Sol 6.1 max", modelcfg.Model{Provider: "openai-responses", ID: "gpt-6.1-sol", DiscoveredReasoning: testcatalog.LiveEfforts("max")}, "max", true, "responses"},
+		{"custom Chat Sol 6.1 low", modelcfg.Model{Provider: "openai-chat", ID: "gpt-6.1-sol", DiscoveredReasoning: testcatalog.LiveEfforts("low")}, "low", true, "chat"},
 		{"Sol 6.1 does not offer none", modelcfg.Model{Provider: "openai-responses", ID: "gpt-6.1-sol"}, "none", false, ""},
 		{"custom Chat has no OMP identity", modelcfg.Model{Provider: "openai-chat", ID: "custom"}, "medium", false, ""},
-		{"Zen Big Pickle uses OMP fallback", modelcfg.Model{Provider: "openai-chat", ProviderID: "opencode", ID: "big-pickle"}, "high", true, "chat"},
+		{"OMP-only Zen Big Pickle has no verified efforts", modelcfg.Model{Provider: "openai-chat", ProviderID: "opencode", ID: "big-pickle"}, "high", false, ""},
 		{"MiniMax models.dev entry has no controls", modelcfg.Model{Provider: "openai-chat", ProviderID: "minimax", ID: "MiniMax-M2"}, "high", false, ""},
 		{"Claude does not offer xhigh", modelcfg.Model{Provider: "anthropic", ProviderID: "opencode", ID: "claude-sonnet-4-6"}, "xhigh", false, ""},
 		{"unsupported effort", modelcfg.Model{Provider: "openai-responses", ProviderID: "opencode", ID: "gpt-5.4"}, "ultra", false, ""},
@@ -516,6 +518,10 @@ func TestNewModelReasoningOptionsReachCustomProviderRequests(t *testing.T) {
 	for _, protocol := range []string{"openai-responses", "openai-chat"} {
 		t.Run(protocol, func(t *testing.T) {
 			upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.Method == http.MethodGet && r.URL.Path == "/v1/models" {
+					_, _ = w.Write([]byte(`{"data":[{"id":"gpt-6.1-sol","reasoning_efforts":["low","high","max"]}]}`))
+					return
+				}
 				var body struct {
 					Model     string `json:"model"`
 					Reasoning struct {
@@ -542,12 +548,18 @@ func TestNewModelReasoningOptionsReachCustomProviderRequests(t *testing.T) {
 				}
 			}))
 			defer upstream.Close()
-			catalog := modelCatalog{Models: []configuredModel{{Key: "herdex-sol", Name: "Herdex", Provider: protocol, ProviderID: "custom", Authentication: "bearer", ID: "gpt-6.1-sol", BaseURL: upstream.URL + "/v1", APIKey: "test-key"}}}
-			want := []string{"low", "medium", "high", "xhigh", "max"}
+			catalog := modelCatalog{Models: []configuredModel{{Key: "relay-sol", Name: "Relay", Provider: protocol, ProviderID: "custom", Authentication: "bearer", ID: "gpt-6.1-sol", BaseURL: upstream.URL + "/v1", APIKey: "test-key"}}}
+			rows, err := modelcatalog.DiscoverModels(t.Context(), catalog.Models[0])
+			if err != nil || len(rows) != 1 {
+				t.Fatalf("custom reasoning discovery: %v", err)
+			}
+			rows[0].Key = "relay-sol"
+			catalog.Models = rows
+			want := []string{"default", "low", "high", "max"}
 			if options := catalog.Public()[0].ReasoningOptions; !slices.Equal(options, want) {
 				t.Fatalf("public model options: %v", options)
 			}
-			model, _, err := catalog.Resolve("herdex-sol")
+			model, _, err := catalog.Resolve("relay-sol")
 			if err != nil {
 				t.Fatal(err)
 			}

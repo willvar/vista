@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"vista/internal/testcatalog"
 
 	modelcfg "vista/internal/model"
 )
@@ -136,6 +137,7 @@ func TestCustomResponseToolContinuationRetainsProtocolAndReasoning(t *testing.T)
 	}))
 	defer upstream.Close()
 	model := modelcfg.Model{Custom: true, ProviderID: "custom", Authentication: "none", Provider: "openai-responses", ID: "gpt-6.1-sol", BaseURL: upstream.URL}
+	model.DiscoveredReasoning = testcatalog.LiveEfforts("low")
 	if err := ApplyReasoningEffort(&model, "low"); err != nil {
 		t.Fatal(err)
 	}

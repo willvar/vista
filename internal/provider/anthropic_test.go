@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"vista/internal/testcatalog"
 
 	modelcfg "vista/internal/model"
 )
@@ -165,6 +166,9 @@ func TestAnthropicBindingHeaderFollowsThinkingField(t *testing.T) {
 			}))
 			defer server.Close()
 			model := modelcfg.Model{Provider: check.protocol, ProviderID: check.providerID, ID: check.id, BaseURL: server.URL, APIKey: "key", Custom: check.providerID == "custom", Authentication: "bearer"}
+			if model.Custom {
+				model.DiscoveredReasoning = testcatalog.LiveEfforts("high")
+			}
 			if err := ApplyReasoningEffort(&model, "high"); err != nil {
 				t.Fatal(err)
 			}

@@ -432,8 +432,7 @@ func mergeModelsDevCatalog(omp, modelsDev map[string]map[string]OMPModel) map[st
 	for providerID, models := range omp {
 		rows := maps.Clone(models)
 		for id, model := range rows {
-			// OMP-only models retain their complete Thinking policy. Explicit
-			// controls belong to models.dev and replace it by model, not by field.
+			// OMP-only models retain descriptive metadata, not request controls.
 			model.ReasoningOptions = nil
 			rows[id] = model
 		}

@@ -199,10 +199,10 @@ func TestDefaultReasoningClearsPreviousRequestControls(t *testing.T) {
 	}
 }
 
-func TestOMPOnlyModelUsesThinkingPolicy(t *testing.T) {
+func TestOMPAliasesAreFilteredWithoutOfferingUnverifiedLevels(t *testing.T) {
 	source := `{
  "version":1,
- "keys":["api","contextWindow","maxTokens","name","provider","reasoning","input","reasoningOptions","type","values","thinking","efforts","mode"],
+ "keys":["api","contextWindow","maxTokens","name","provider","reasoning","input","reasoningOptions","type","values","thinking","efforts","mode","effortMap","medium","high"],
  "booleanShapes":[[5],[]],
  "nodes":[
   [0,[0,"openai-completions",1,10000,2,4000,3,"Legacy",4,"fixture"],0,[1]],
@@ -211,8 +211,9 @@ func TestOMPOnlyModelUsesThinkingPolicy(t *testing.T) {
   [0,[8,"effort",9,[2]],1,[]],
   [1,[[3]]],
   [1,["minimal","low","high"]],
-  [0,[11,[5],12,"effort"],1,[]],
-  [0,[6,[1],7,[4],10,[6]],1,[]]
+  [0,[11,[5],12,"effort",13,[8]],1,[]],
+  [0,[6,[1],7,[4],10,[6]],1,[]],
+  [0,[14,"high",15,"high"],1,[]]
  ],
  "compat":[],
  "providers":[["fixture",[0],[["legacy",[7]]]]]
@@ -229,11 +230,14 @@ func TestOMPOnlyModelUsesThinkingPolicy(t *testing.T) {
 	t.Cleanup(original.Activate)
 	catalog.Activate()
 	model := modelcfg.Model{Provider: "openai-chat", ProviderID: "fixture", ID: "legacy"}
-	if got := SessionReasoningOptions(model); !slices.Equal(got, []string{"minimal", "low", "high"}) {
-		t.Fatalf("OMP-only controls: %v", got)
+	if _, ok := metadata.Thinking.EffortMap["medium"]; ok || metadata.Thinking.EffortMap["high"] != "high" {
+		t.Fatalf("invalid alias projection: %v", metadata.Thinking.EffortMap)
 	}
-	if err := ApplyReasoningEffort(&model, "high"); err != nil || model.ReasoningEffort != "high" {
-		t.Fatalf("OMP-only effort could not be applied: %+v, %v", model, err)
+	if got := SessionReasoningOptions(model); len(got) != 0 {
+		t.Fatalf("OMP-only row offered unverified controls: %v", got)
+	}
+	if err := ApplyReasoningEffort(&model, "high"); err == nil {
+		t.Fatal("accepted a level sourced only from OMP")
 	}
 }
 
@@ -270,7 +274,7 @@ func TestModelsDevReplacesReasoningPolicyByModel(t *testing.T) {
 			{"native", []string{"low", "high"}, "high"},
 			{"empty", nil, ""},
 			{"disabled", nil, ""},
-			{"omp-only", []string{"minimal", "low", "high"}, "max"},
+			{"omp-only", nil, ""},
 		} {
 			model := modelcfg.Model{Provider: "openai-chat", ProviderID: "fixture", ID: tc.id}
 			if got := SessionReasoningOptions(model); !slices.Equal(got, tc.want) {
@@ -298,51 +302,43 @@ func TestModelsDevReplacesReasoningPolicyByModel(t *testing.T) {
 	t.Run("reloaded", check)
 }
 
-func TestOMPOnlyReasoningTranslationsReachProviderPayload(t *testing.T) {
-	original := CurrentOMPCatalog()
-	t.Cleanup(original.Activate)
-	if err := RestoreBundledOMPCatalog(); err != nil {
-		t.Fatal(err)
+func TestDiscoveredReasoningLevelsReachProviderLiterally(t *testing.T) {
+	levels := []string{"off", "low", "high", "max"}
+	model := modelcfg.Model{Provider: "openai-chat", ProviderID: "refuseless", ID: "deepseek-v4.1-flash-fast", APIKey: "fixture",
+		DiscoveredReasoning: &modelcfg.ReasoningCapabilities{Supported: true, Options: []modelcfg.ReasoningOption{{Type: "effort", Values: levels}}}}
+	if got := SessionReasoningOptions(model); !slices.Equal(got, levels) {
+		t.Fatalf("official levels = %v, want %v", got, levels)
 	}
-	for _, tc := range []struct {
-		provider, protocol, id, choice string
-		want                           string
-	}{
-		{"openai-codex", "openai-responses", "gpt-6-luna", "max", `{"reasoning":{"effort":"max"}}`},
-		{"anthropic", "anthropic", "claude-haiku-4-5", "high", `{"thinking":{"type":"enabled","budget_tokens":16000}}`},
-		{"anthropic", "anthropic", "claude-opus-4-5", "xhigh", `{"thinking":{"type":"enabled","budget_tokens":16000},"output_config":{"effort":"high"}}`},
-		{"anthropic", "anthropic", "claude-fable-5", "max", `{"thinking":{"type":"adaptive"},"output_config":{"effort":"max"}}`},
-		{"google", "gemini", "gemini-2.5-flash", "high", `{"generationConfig":{"thinkingConfig":{"thinkingBudget":16384}}}`},
-		{"google", "gemini", "gemini-3-flash-preview", "high", `{"generationConfig":{"thinkingConfig":{"thinkingLevel":"HIGH"}}}`},
-		{"minimax", "openai-chat", "MiniMax-M2", "high", `{"thinking":{"type":"adaptive"}}`},
-		{"openrouter", "openai-chat", "aion-labs/aion-2.0", "high", `{"reasoning":{"effort":"high"}}`},
-	} {
-		t.Run(tc.provider+"/"+tc.id, func(t *testing.T) {
-			var captured map[string]any
-			upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				if err := json.NewDecoder(r.Body).Decode(&captured); err != nil {
-					t.Error(err)
-				}
-				http.Error(w, "fixture ends after request encoding", http.StatusBadRequest)
-			}))
-			defer upstream.Close()
-			model := modelcfg.Model{Provider: tc.protocol, ProviderID: tc.provider, ID: tc.id, APIKey: "fixture", BaseURL: upstream.URL, OutputLimit: 65536}
-			if err := ApplyReasoningEffort(&model, tc.choice); err != nil {
-				t.Fatal(err)
+	for _, level := range []string{"medium", "xhigh"} {
+		if err := ApplyReasoningEffort(&model, level); err == nil {
+			t.Fatalf("accepted a non-advertised alias %q", level)
+		}
+	}
+	for _, level := range []string{"off", "high"} {
+		captured := make(chan map[string]any, 1)
+		upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			var body map[string]any
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+				t.Error(err)
 			}
-			if ModelReasoningEffort(model) != tc.choice {
-				t.Fatalf("fallback translation lost the selected choice: %+v", model)
+			captured <- body
+			http.Error(w, "fixture ends after request encoding", http.StatusBadRequest)
+		}))
+		model.BaseURL = upstream.URL
+		if err := ApplyReasoningEffort(&model, level); err != nil {
+			upstream.Close()
+			t.Fatal(err)
+		}
+		_, err := ModelTurn(t.Context(), model, []ChatMessage{{Role: "user", Content: "hello"}}, nil)
+		upstream.Close()
+		select {
+		case body := <-captured:
+			if body["reasoning_effort"] != level || body["thinking"] != nil || body["enable_thinking"] != nil {
+				t.Fatalf("native effort %q was rewritten: %#v", level, body)
 			}
-			_, err := ModelTurn(context.Background(), model, []ChatMessage{{Role: "user", Content: "hello"}}, nil)
-			if captured == nil {
-				t.Fatalf("fallback request was rejected before HTTP: %v", err)
-			}
-			var want map[string]any
-			if err := json.Unmarshal([]byte(tc.want), &want); err != nil {
-				t.Fatal(err)
-			}
-			assertRequestSubset(t, captured, want)
-		})
+		default:
+			t.Fatalf("did not reach the provider fixture: %v", err)
+		}
 	}
 }
 

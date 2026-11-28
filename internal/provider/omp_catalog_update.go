@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"sync"
 	"time"
 
@@ -132,6 +133,15 @@ func decodeOMPSourceCatalog(data []byte, revision string) (*OMPCatalogSnapshot, 
 				return nil, errors.New("OMP model identity does not match its catalog entry")
 			}
 			model.ReasoningOptions = nil // Explicit controls belong to models.dev.
+			// OMP may supply aliases for unserved requested levels. Vista does
+			// not offer or translate those aliases; keep the declared policy.
+			if thinking := model.Thinking; thinking != nil {
+				for effort := range thinking.EffortMap {
+					if !slices.Contains(thinking.Efforts, effort) {
+						delete(thinking.EffortMap, effort)
+					}
+				}
+			}
 			rows[id] = model.OMPModel
 		}
 		if len(rows) != 0 {

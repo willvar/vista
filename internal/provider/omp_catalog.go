@@ -28,15 +28,15 @@ type OMPModel struct {
 	MaxTokens     int          `json:"maxTokens"`
 	SupportsTools *bool        `json:"supportsTools,omitempty"`
 	Thinking      *OMPThinking `json:"thinking,omitempty"`
-	// ReasoningOptions contains explicit models.dev controls. OMP-only rows use
-	// their complete Thinking policy instead; it never fills models.dev gaps.
+	// ReasoningOptions contains explicit models.dev controls. OMP-only rows do
+	// not supply adjustable controls.
 	ReasoningOptions []ReasoningOption `json:"reasoningOptions,omitempty"`
 }
 
 type ReasoningOption = modelcfg.ReasoningOption
 
-// OMPThinking supplies the fallback policy for OMP-only rows and retains legacy
-// saved models.dev effort lists. Matching models.dev controls replace this policy.
+// OMPThinking preserves catalog metadata and legacy saved models.dev effort
+// lists. The OMP policy is not used to choose or encode request controls.
 type OMPThinking struct {
 	Mode            string            `json:"mode"`
 	Efforts         []string          `json:"efforts"`

@@ -24,7 +24,7 @@ func TestQuestionReplyUsesMessageSelectionAndPreservesPendingOnRejection(t *test
 	}
 	app.models = modelCatalog{Default: "original", Models: []configuredModel{
 		{Key: "original", Provider: "openai-chat", ID: "original-model", BaseURL: "http://127.0.0.1:1/v1", APIKey: "key"},
-		{Key: "selected", Provider: "openai-chat", ID: "gpt-6-luna", BaseURL: "http://127.0.0.1:1/v1", APIKey: "key"},
+		{Key: "selected", Provider: "openai-chat", ProviderID: "openai", ID: "gpt-6-luna", BaseURL: "http://127.0.0.1:1/v1", APIKey: "key"},
 	}}
 	request := func(body string) *httptest.ResponseRecorder {
 		w := httptest.NewRecorder()

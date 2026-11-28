@@ -86,16 +86,15 @@ func TestCustomConfigurationRetainsCapabilitiesAndReasoningAcrossBoundary(t *tes
 		t.Fatal(err)
 	}
 	info := resolved.Public()[0]
-	if info.Key != "custom-luna" || info.ConnectionID != "connection" || info.Name != "Custom" || info.BaseURL != raw.Models[0].BaseURL || !slices.Contains(info.InputModalities, "image") || len(info.ReasoningOptions) == 0 {
+	if info.Key != "custom-luna" || info.ConnectionID != "connection" || info.Name != "Custom" || info.BaseURL != raw.Models[0].BaseURL || !slices.Contains(info.InputModalities, "image") || len(info.ReasoningOptions) != 0 {
 		t.Fatalf("custom model metadata changed: %+v", info)
 	}
 	model, key, err := resolved.ResolveForRun(context.Background(), "custom-luna")
 	if err != nil || key != info.Key || model.APIKey != "explicit-secret" || model.BaseURL != info.BaseURL || model.Context != info.Context || model.InputLimit != info.InputLimit || model.OutputLimit != info.OutputLimit {
 		t.Fatalf("custom runtime resolution changed: key=%q err=%v", key, err)
 	}
-	effort := info.ReasoningOptions[len(info.ReasoningOptions)-1]
-	if err := modelcatalog.ApplyReasoningEffort(&model, effort); err != nil || model.ReasoningEffort != effort {
-		t.Fatalf("advertised reasoning option cannot be applied: %v", err)
+	if err := modelcatalog.ApplyReasoningEffort(&model, "high"); err == nil {
+		t.Fatal("undiscovered custom connection inherited another provider's reasoning options")
 	}
 	if _, _, err := resolved.Resolve("missing-model"); err == nil {
 		t.Fatal("unknown model key fell back silently")

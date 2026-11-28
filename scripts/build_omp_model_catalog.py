@@ -113,7 +113,9 @@ def model_row(provider: str, model_id: str, raw: Any) -> dict[str, Any]:
                 fail(f"{provider}/{model_id}.thinking.effortMap is invalid")
             mapped: dict[str, str] = {}
             for effort, wire_value in effort_map.items():
-                if effort not in efforts or not isinstance(wire_value, str) or not wire_value or len(wire_value) > 64:
+                if effort not in efforts:
+                    continue
+                if not isinstance(wire_value, str) or not wire_value or len(wire_value) > 64:
                     fail(f"{provider}/{model_id}.thinking.effortMap is invalid")
                 mapped[effort] = wire_value
             if mapped:

@@ -136,9 +136,9 @@ models.dev 的输入／输出模态和专用类别独立于对话协议准入。
 不支持的版本或无效引用会使本次更新失败，并保留已安装目录。
 生成器验证命令为 `python3 -m unittest discover -s scripts -p 'build_omp_model_catalog_test.py'`。
 
-[推理选择](../internal/provider/reasoning_controls.go)按服务商／模型确定资料来源。models.dev 收录该模型时，完整采用它的 `effort`、`budget_tokens` 和 `toggle` 定义；缺失的控制保持缺失，不从 OMP 拼入档位或映射。原生档位来自发布的值，包括 `none`；显式「默认」选项不附加推理覆盖参数。预算显示为 token 数值预设，受发布范围及当前适配器的请求限制约束，不伪装成原生档位。适配器已实现相应请求格式时，开关显示为「开启／关闭」。不支持编码的控制不显示。
+[推理选择](../internal/provider/reasoning_controls.go)优先用连接实际发布的能力，包括模型列表中的 `reasoning_efforts`；其次使用与服务商、模型均匹配的明确 models.dev 控制。模型 ID 相同不代表不同连接支持相同档位。没有明确档位时保留服务商默认，不从 OMP 补齐。目录导入会忽略 OMP 中键不在 `efforts` 的映射，其他校验不变。
 
-models.dev 完全没有对应模型时，采用 OMP 的完整 thinking 策略补充档位及其请求参数转换，包括预算或自适应推理映射。这样可保留 Codex 等仅由 OMP 收录模型的手动控制。只有内置快照的安装先使用这些 OMP 策略，成功检查目录并取得 models.dev 的对应定义后再采用后者。旧版已安装 models.dev 的明确档位在完整控制结构刷新前仍可使用。
+原生档位按服务商声明原样编码，包括明确列出的 `off`；「默认」不附加覆盖。预算以 token 预设显示，受发布范围和适配器限制。仅当协议支持时才显示相应控制；原生 `off` 与协议开关是不同能力。
 
 Zen、自定义、Copilot 和本地发现仍决定账号／服务可用性。元数据本身不能证明特定中转的工具、图片、推理或上下文容量，超限处理[独立于目录限制](./context-compaction.zh-CN.md)。
 

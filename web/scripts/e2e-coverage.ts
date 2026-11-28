@@ -55,6 +55,7 @@ const groups: Record<string, string[]> = {
   sidebar: ['schedules', 'profiles', 'drawer-swipe', 'sidebar-width', 'settings-navigation'],
 }
 const consumers: [RegExp, string[]][] = [
+  [/^internal\/(?:provider\/(?:reasoning_controls|session_reasoning|omp_catalog_update)\.go|modelcatalog\/custom_model_metadata\.go)$/, ['models', 'about', 'conversation']],
   [/^web\/src\/composables\/routeLayers\.ts$|^web\/e2e\/controls\/LayerNavigation\.vue$/, ['navigation', 'about', 'models', 'skills', 'network', 'search', 'mcp', 'personalization']],
   [/^web\/src\/composables\/useDrawerSwipe\.ts$/, ['sidebar', 'navigation']],
   [/^web\/src\/(?:composables\/useMessageImageRoute|ui\/messageImageZoom)\.ts$/, ['navigation', 'conversation']],

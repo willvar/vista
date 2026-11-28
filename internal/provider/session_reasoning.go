@@ -30,7 +30,7 @@ func ApplyReasoningEffort(model *modelcfg.Model, effort string) error {
 	if effort == "default" {
 		return nil
 	}
-	if effort == "off" || effort == "on" {
+	if (effort == "off" || effort == "on") && !slices.Contains(controlsFor(*model).efforts, effort) {
 		applyToggleControl(model, effort == "on")
 		return nil
 	}
@@ -58,27 +58,6 @@ func SessionReasoningOptions(model modelcfg.Model) []string {
 		model.ID = strings.TrimPrefix(model.ID, "models/")
 	}
 	controls := controlsFor(model)
-	if policy := controls.fallback; policy != nil {
-		switch model.Provider {
-		case "anthropic", "vertex-anthropic":
-			if !slices.Contains([]string{"budget", "anthropic-adaptive", "anthropic-budget-effort"}, policy.Mode) {
-				return nil
-			}
-		case "gemini", "vertex-gemini":
-			if !slices.Contains([]string{"budget", "google-level"}, policy.Mode) {
-				return nil
-			}
-		case "openai-chat":
-			if policy.Mode == "budget" {
-				return nil
-			}
-		case "bedrock":
-			if !strings.Contains(model.ID, "anthropic.") && !strings.Contains(model.ID, "openai.") && !strings.Contains(model.ID, "amazon.nova-2-lite") {
-				return nil
-			}
-		}
-		return controls.efforts
-	}
 	var choices []string
 	if controls.toggle && supportsToggleControl(model, controls) {
 		choices = append(choices, "off", "on")
@@ -88,6 +67,7 @@ func SessionReasoningOptions(model modelcfg.Model) []string {
 	}
 	switch model.Provider {
 	case "anthropic", "vertex-anthropic":
+		return append(choices, slices.DeleteFunc(controls.efforts, func(effort string) bool { return effort == "off" })...)
 	case "gemini", "vertex-gemini":
 		for _, effort := range controls.efforts {
 			if slices.Contains([]string{"minimal", "low", "medium", "high", "default"}, effort) {
@@ -103,29 +83,11 @@ func SessionReasoningOptions(model modelcfg.Model) []string {
 	return append(choices, controls.efforts...)
 }
 
-// OMP-only models retain their complete published translation policy. These
-// mappings are never consulted for a matching models.dev row.
-func wireEffort(model modelcfg.Model, effort string) string {
-	if policy := controlsFor(model).fallback; policy != nil && policy.EffortMap[effort] != "" {
-		return policy.EffortMap[effort]
-	}
-	return effort
-}
-
-func thinkingBudget(model modelcfg.Model, effort string) int {
-	budget := map[string]int{"minimal": 1024, "low": 2048, "medium": 8192, "high": 16384, "xhigh": 32768, "max": 32768}[effort]
-	if model.OutputLimit > 0 {
-		budget = min(budget, max(1024, model.OutputLimit-1024))
-	}
-	return budget
-}
-
 func applyResponsesReasoning(model *modelcfg.Model, effort string) {
-	model.ReasoningEffort = wireEffort(*model, effort)
+	model.ReasoningEffort = effort
 }
 
 func applyChatReasoning(model *modelcfg.Model, effort string) {
-	effort = wireEffort(*model, effort)
 	if model.ProviderID == "openrouter" {
 		options := modelcfg.OpenRouterOptions{}
 		if model.OpenRouter != nil {
@@ -164,28 +126,6 @@ func applyAnthropicThinking(model *modelcfg.Model) {
 }
 
 func applyAnthropicReasoning(model *modelcfg.Model, effort string) {
-	if policy := controlsFor(*model).fallback; policy != nil {
-		wire := wireEffort(*model, effort)
-		if policy.Mode == "anthropic-adaptive" {
-			model.Thinking = &modelcfg.ThinkingOption{Type: "adaptive"}
-			if wire != "adaptive" {
-				model.Effort = wire
-			}
-			return
-		}
-		budget := thinkingBudget(*model, effort)
-		model.Thinking = &modelcfg.ThinkingOption{Type: "enabled", BudgetTokens: &budget}
-		if policy.Mode == "anthropic-budget-effort" {
-			switch wire {
-			case "minimal":
-				wire = "low"
-			case "xhigh", "max":
-				wire = "high"
-			}
-			model.Effort = wire
-		}
-		return
-	}
 	if effort == "none" {
 		model.Thinking = &modelcfg.ThinkingOption{Type: "disabled"}
 	} else {
@@ -195,15 +135,7 @@ func applyAnthropicReasoning(model *modelcfg.Model, effort string) {
 }
 
 func applyGeminiReasoning(model *modelcfg.Model, effort string) {
-	if policy := controlsFor(*model).fallback; policy != nil && policy.Mode == "budget" {
-		budget := thinkingBudget(*model, effort)
-		if strings.Contains(model.ID, "flash") {
-			budget = min(budget, 24576)
-		}
-		model.ThinkingBudget = &budget
-	} else {
-		model.ThinkingLevel = wireEffort(*model, effort)
-	}
+	model.ThinkingLevel = effort
 }
 
 func applyBedrockReasoning(model *modelcfg.Model, effort string) {

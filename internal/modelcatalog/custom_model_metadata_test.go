@@ -15,6 +15,18 @@ import (
 	"vista/internal/provider"
 )
 
+func TestExplicitProviderReasoningEfforts(t *testing.T) {
+	row := discoveryObject(json.RawMessage(`{"reasoning_efforts":["off","low","high","max","off"],"supported_reasoning_levels":["medium","xhigh"]}`))
+	capability := inventoryReasoning(row)
+	if capability == nil || !capability.Supported || len(capability.Options) != 1 || !slices.Equal(capability.Options[0].Values, []string{"default", "off", "low", "high", "max"}) {
+		t.Fatalf("official fields did not win: %+v", capability)
+	}
+	empty := inventoryReasoning(discoveryObject(json.RawMessage(`{"reasoning_efforts":[],"supported_reasoning_levels":["medium"]}`)))
+	if empty == nil || empty.Options == nil || len(empty.Options) != 0 {
+		t.Fatalf("explicit empty list must not fall back: %+v", empty)
+	}
+}
+
 func TestCustomInventoryMetadataPrecedenceAndIsolation(t *testing.T) {
 	useExplicitReasoningCatalog(t)
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -64,8 +76,8 @@ func TestCustomInventoryMetadataPrecedenceAndIsolation(t *testing.T) {
 	if info := byID["gemini-alias"].Info(); info.ModelName != "Friendly Gemini" || info.Context != 3000 || info.InputLimit != 1000 || info.OutputLimit != 2000 {
 		t.Fatalf("native token limits lost: %+v", info)
 	}
-	// No live controls means fall back to the reference, whereas an explicit
-	// false or empty list must suppress that reference, including after IPC.
+	// A matching name is not evidence of a custom gateway's controls, even
+	// when it advertises reasoning support. Check after worker IPC too.
 	for _, raw := range []string{`{}`, `{"reasoning":true}`, `{"reasoning":false}`, `{"thinking":false}`, `{"supported_reasoning_levels":[]}`} {
 		m := Configured{Key: "known", Provider: "openai-responses", ProviderID: "custom", ID: "gpt-6-luna"}
 		m.applyDiscoveredMetadata(discoveryObject(json.RawMessage(raw)))
@@ -78,8 +90,7 @@ func TestCustomInventoryMetadataPrecedenceAndIsolation(t *testing.T) {
 		if err := json.Unmarshal(data, &transported); err != nil {
 			t.Fatal(err)
 		}
-		wantOptions := raw == `{}` || raw == `{"reasoning":true}`
-		if got := len(provider.SessionReasoningOptions(transported)) > 0; got != wantOptions {
+		if got := provider.SessionReasoningOptions(transported); len(got) != 0 {
 			t.Fatalf("reasoning fallback for %s: %+v", raw, transported.DiscoveredReasoning)
 		}
 	}

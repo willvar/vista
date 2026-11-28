@@ -146,8 +146,8 @@ func TestModelCatalogUsesExplicitModelsDevControlsAndPreservesOMPRoutes(t *testi
 	if !slices.Equal(next.modelIDs("openai-codex"), original.modelIDs("openai-codex")) || len(next.modelIDs("openai-codex")) == 0 {
 		t.Fatal("models.dev removed the OMP-only Codex catalog")
 	}
-	if got := ModelReasoningOptionsFor("openai-codex", "gpt-6-luna"); !slices.Equal(got, []string{"low", "medium", "high", "xhigh", "max"}) {
-		t.Fatalf("models.dev removed OMP-only Codex controls: %v", got)
+	if got := ModelReasoningOptionsFor("openai-codex", "gpt-6-luna"); len(got) != 0 {
+		t.Fatalf("OMP-only Codex row offered unverified controls: %v", got)
 	}
 	if slices.Contains(next.TextModelIDs("opencode"), "picture") {
 		t.Fatal("image-only model entered the text picker")
