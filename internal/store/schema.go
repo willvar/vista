@@ -79,6 +79,7 @@ func (s *Store) initializeSchema() error {
  PRIMARY KEY(session_id,event_id)
  )`,
 		`CREATE INDEX IF NOT EXISTS pending_runtime_events ON runtime_events(session_id,recipient,sequence) WHERE status='pending'`,
+		`CREATE INDEX IF NOT EXISTS runtime_events_by_run ON runtime_events(run_id)`,
 		`CREATE TABLE IF NOT EXISTS messages (
    id TEXT PRIMARY KEY, session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
    provider_id TEXT NOT NULL DEFAULT '', model_id TEXT NOT NULL DEFAULT '', model_key TEXT NOT NULL DEFAULT '',
@@ -88,6 +89,7 @@ func (s *Store) initializeSchema() error {
   )`,
 		`CREATE INDEX IF NOT EXISTS messages_by_session ON messages(session_id, sequence)`,
 		`CREATE INDEX IF NOT EXISTS messages_by_run_role ON messages(session_id,run_id,role,sequence)`,
+		`CREATE INDEX IF NOT EXISTS messages_by_run ON messages(run_id)`,
 		`CREATE TABLE IF NOT EXISTS resources (
    hash TEXT PRIMARY KEY, media_type TEXT NOT NULL, bytes INTEGER NOT NULL, created_at TEXT NOT NULL
   )`,
@@ -109,6 +111,7 @@ func (s *Store) initializeSchema() error {
    mode TEXT NOT NULL, status TEXT NOT NULL, content TEXT NOT NULL, image_count INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL
   )`,
 		`CREATE INDEX IF NOT EXISTS queued_inputs_by_session ON queued_inputs(session_id,status,created_at)`,
+		`CREATE INDEX IF NOT EXISTS queued_inputs_by_run ON queued_inputs(run_id)`,
 		`CREATE TABLE IF NOT EXISTS queued_input_resources (
    input_id TEXT NOT NULL REFERENCES queued_inputs(id) ON DELETE CASCADE,
    position INTEGER NOT NULL, hash TEXT NOT NULL REFERENCES resources(hash), name TEXT NOT NULL DEFAULT '',
@@ -145,6 +148,7 @@ func (s *Store) initializeSchema() error {
    event_sequence INTEGER NOT NULL,
    PRIMARY KEY(session_id,run_id,turn,offset)
   )`,
+		`CREATE INDEX IF NOT EXISTS model_output_chunks_by_run ON model_output_chunks(run_id)`,
 		`CREATE TABLE IF NOT EXISTS jobs (
    id TEXT PRIMARY KEY, session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
    run_id TEXT NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
@@ -154,6 +158,8 @@ func (s *Store) initializeSchema() error {
    created_at TEXT NOT NULL, finished_at TEXT
   )`,
 		`CREATE INDEX IF NOT EXISTS jobs_by_session ON jobs(session_id,created_at)`,
+		`CREATE INDEX IF NOT EXISTS jobs_by_run ON jobs(run_id)`,
+		`CREATE INDEX IF NOT EXISTS jobs_by_output_path ON jobs(output_path)`,
 		`CREATE INDEX IF NOT EXISTS active_jobs_by_session ON jobs(session_id) WHERE status IN ('starting','running')`,
 		`CREATE TABLE IF NOT EXISTS worker_owners (
    session_id TEXT PRIMARY KEY REFERENCES sessions(id) ON DELETE CASCADE,
@@ -167,6 +173,8 @@ func (s *Store) initializeSchema() error {
    created_at TEXT NOT NULL, finished_at TEXT
   )`,
 		`CREATE INDEX IF NOT EXISTS artifacts_by_session ON artifacts(session_id,created_at)`,
+		`CREATE INDEX IF NOT EXISTS artifacts_by_run ON artifacts(run_id)`,
+		`CREATE INDEX IF NOT EXISTS artifacts_by_output_path ON artifacts(output_path)`,
 	} {
 		if err := s.orm.Exec(q).Error; err != nil {
 			return fmt.Errorf("initialize database: %w", err)
