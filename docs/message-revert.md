@@ -5,7 +5,7 @@
 Editing opens a temporary composer without changing history.
 **Settings → Personalization → Branching** is off by default and follows the Profile across devices.
 With Branching off, resending an edit or confirming a withdrawal retains the conversation address and saves the displaced history as a restorable version, not an active branch.
-Use **Restore earlier version** in the conversation header to preview a saved version and restore it. The displaced current version is saved too; previous tasks and queued decisions do not run again.
+Use **Restore earlier version** above the composer to preview and restore a saved version. The conversation header has no branch or version controls. The displaced current version is saved too; previous tasks and queued decisions do not run again.
 Let work in the current conversation finish or resolve its pending actions before replacing history. Other branches are unchanged.
 With Branching on, resending or withdrawing creates a new branch at the selected user message's send boundary.
 Both modes preserve earlier committed messages and replies, including earlier replies from the same run. Withdrawal returns the original text and attachments to the composer without sending them.

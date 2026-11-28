@@ -48,7 +48,11 @@ test('branching defaults off and same-session edits can be recovered', { tag: '@
   expect(await vista.api(`${path}/branches`)).toHaveLength(1)
   await expect(page).toHaveURL(vista.origin + path)
 
-  await page.getByRole('button', { name: 'Restore earlier version', exact: true }).click()
+  const restoreName = { name: 'Restore earlier version', exact: true }
+  await expect(page.getByRole('button', restoreName)).toBeVisible()
+  await expect(page.locator('.conversation-header-tools').getByRole('button', restoreName), 'history recovery stays out of the header').toHaveCount(0)
+  const restoreAction = page.locator('.conversation-revision-actions').getByRole('button', restoreName)
+  await restoreAction.click()
   const dialog = page.getByRole('dialog', { name: 'Restore earlier version', exact: true })
   await dialog.getByRole('button', { name: 'preview', exact: true }).first().click()
   await expect(dialog).toContainText('Original message')
@@ -70,6 +74,7 @@ test('branching defaults off and same-session edits can be recovered', { tag: '@
   await withdraw.getByRole('button', { name: 'Withdraw message', exact: true }).click()
   await expect(sender).toHaveValue('Original message')
   await expect(original).toHaveCount(0)
+  await expect(restoreAction).toBeVisible()
   await expect(page).toHaveURL(vista.origin + path)
   expect(await vista.api(`${path}/branches`)).toHaveLength(1)
 })

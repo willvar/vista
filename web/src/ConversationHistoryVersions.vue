@@ -67,8 +67,9 @@ function time(value: string) {
 </script>
 
 <template>
-  <Button variant="text" class="icon-button header-status-trigger" :aria-label="t('restoreHistory')" :title="t('restoreHistory')" @click="open">
-    <IconHistory aria-hidden="true" />
+  <Button variant="text" @click="open">
+    <template #icon><IconHistory aria-hidden="true" /></template>
+    {{ t('restoreHistory') }}
   </Button>
   <Modal :open="shown" centered :width="520" :title="t('restoreHistory')" :footer="null" :closable="!busy" :mask-closable="!busy" :keyboard="!busy" @cancel="close">
     <Alert v-if="error" type="error" :message="error" />

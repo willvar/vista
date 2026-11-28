@@ -354,8 +354,6 @@ onUnmounted(() => {
           <v-button v-if="jobs.length" variant="text" class="icon-button header-status-trigger background-processes-trigger"
             :aria-label="t('backgroundProcessCount', { count: runningJobs })" :title="t('backgroundProcessCount', { count: runningJobs })" @click="processes?.open()">
             <IconSubtask aria-hidden="true" /><span class="background-processes-count">{{ runningJobs }}</span></v-button>
-          <ConversationHistoryVersions v-if="hasHistoryVersions" :key="selected.id" :session-id="selected.id"
-            :can-restore="selected.open && !busy && !agentWorking && !editingMessage" />
           <ConversationResponseOptions :key="selected.id" />
         </div>
           <ConversationRecentMessage v-if="recentSent" :key="`${selected.id}/${recentSent.id}`" :session-id="selected.id" :message="recentSent" @locate="locateRecentSent" />
@@ -428,8 +426,10 @@ onUnmounted(() => {
         </div>
         <MessageQuoteSelection :root="messageList" :session-id="selected.id" :disabled="busy || !selected.open || route.name !== 'session' || mobileSessionsOpen" @quote="workspace.conversation.quoteSelection" />
         <PendingInputs :items="pendingInputs" :paused="inputQueuePaused" :busy="pendingBusy" :mutate="mutateInput" @resume="resumeInputs" />
-        <div v-if="branchNavigation.draft" class="draft-branch-navigation">
-          <MessageBranchSwitch :navigation="branchNavigation.draft" :busy="branchSwitchBusy" @select="switchBranch" />
+        <div v-if="hasHistoryVersions || branchNavigation.draft" class="conversation-revision-actions">
+          <ConversationHistoryVersions v-if="hasHistoryVersions" :key="selected.id" :session-id="selected.id"
+            :can-restore="selected.open && !busy && !agentWorking && !editingMessage" />
+          <MessageBranchSwitch v-if="branchNavigation.draft" :navigation="branchNavigation.draft" :busy="branchSwitchBusy" @select="switchBranch" />
         </div>
         <ConversationSender @send="prepareForSend" @locate-quote="locateQuote">
           <template v-if="showExecution" #execution>

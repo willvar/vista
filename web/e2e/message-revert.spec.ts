@@ -197,7 +197,7 @@ test('the fork toolbar switches to a withdrawn draft and back without adding a s
   else await forward.click()
   await expect(page).toHaveURL(`${vista.origin}/sessions/${result.session.id}`)
   await expect(page.locator('article.user')).toHaveCount(0)
-  const fallback = page.locator('.draft-branch-navigation')
+  const fallback = page.locator('.conversation-revision-actions').getByRole('group', { name: 'Conversation branches' })
   await expect(fallback).toContainText('2 / 2')
   await expect(headerPicker).toHaveCount(0)
   await draft.fill('Draft on the other branch')
