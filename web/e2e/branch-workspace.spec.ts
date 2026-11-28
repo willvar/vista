@@ -59,7 +59,12 @@ test('a saved branch preference follows the Profile while group activity opens i
     } finally { release() }
 
     await showSidebar(other)
-    await row(other, root.id).getByRole('button', { name: 'Waiting for your answer', exact: true }).click()
+    const awaiting = row(other, root.id).getByRole('button', { name: 'Waiting for your answer', exact: true })
+    if (info.project.name === 'desktop') {
+      await awaiting.hover()
+      await expect(awaiting).toHaveCSS('text-decoration-line', 'none')
+    }
+    await awaiting.click()
     await expect(other).toHaveURL(url(attention.id))
     await expect(other.locator('.sender-card .question-form')).toBeVisible()
     expect(await entryId()).toBe(preferred.id)

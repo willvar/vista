@@ -39,6 +39,5 @@ function open(event: Event, target?: string) {
 
 <style scoped>
 button.session-indicator{font:inherit;padding:0 2px;min-height:24px;border:0;background:none;cursor:pointer;border-radius:4px}
-button.session-indicator:hover{text-decoration:underline}
 button.session-indicator:focus-visible{outline:var(--focus-outline, 2px solid var(--accent))}
 </style>
