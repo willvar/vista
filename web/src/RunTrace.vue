@@ -15,7 +15,6 @@ import TraceReport from './TraceReport.vue'
 import TimelineItem from './TimelineItem.vue'
 import { createRunTraceView, type RunTraceViewState } from './state/runTraceView'
 import { inRunTraceRange } from './state/runTraceRange'
-import { runTraceLookupRows, type TraceLookupRow } from './state/runTraceLookups'
 import type { TimelineLayout, TraceTimelineEntry } from './state/conversationTimeline'
 
 const props = defineProps<{
@@ -23,7 +22,6 @@ const props = defineProps<{
   after?: number; through?: number
   replyTurns?: number[]; startedAt?: string; modelName?: string
   modelResults?: ModelResultView[]
-  lookupBoundaries: readonly number[]
   viewState?: RunTraceViewState
   layout: Record<string, TimelineLayout>
   paused: boolean
@@ -120,11 +118,15 @@ const modelName = computed(() => {
 })
 function nodeId(key: string) { return `trace-${props.runId}-${props.after ?? 0}-${encodeURIComponent(key)}` }
 function hydrateNode(node: RunTraceNode) {
-  if (node.kind === 'tool' && !node.artifactIds.length && !node.outputRef?.artifactId && !loadedSequences.value.has(node.lastSequence) && (node.truncated || !node.body && !!node.rawBody && !node.search && !node.instructions)) void loadNode(node.lastSequence)
+  if (node.kind !== 'tool' || loadedSequences.value.has(node.lastSequence)) return
+  const hasArtifact = node.artifactIds.length > 0 || !!node.outputRef?.artifactId
+  // An output file can contain only page bytes or logs, not the tool error.
+  if (node.truncated && node.status === 'error' && !node.error
+    || !hasArtifact && (node.truncated || !node.body && !!node.rawBody && !node.search && !node.instructions)) void loadNode(node.lastSequence)
 }
-watch(() => trace.value.nodes, () => {
+watch(() => trace.value.nodes, nodes => {
   const opened = new Set(expandedNodes.value)
-  for (const row of rows.value) if (!row.members && opened.has(row.key) && !nodeFailure.value[row.item.lastSequence]) hydrateNode(row.item)
+  for (const node of nodes) if (opened.has(node.key) && !nodeFailure.value[node.lastSequence]) hydrateNode(node)
 })
 function expandNodes(keys: string[]) {
   emit('inspect')
@@ -139,31 +141,17 @@ function expandNodes(keys: string[]) {
 // finish: inserting its pages can briefly move every trace row off screen.
 watch([hasDetails, () => props.detailed], ([details, visible]) => { if (details && visible) expanded.value = true }, { immediate: true })
 const orphanAgents = computed(() => agents.value.filter(entry => entry.task.id !== 'main' && !entry.task.nodes.length))
-const rows = computed(() => runTraceLookupRows(items.value,
-  [...props.lookupBoundaries, ...orphanAgents.value.map(agent => agent.task.sequence)], view.value.lookups, expandedNodes.value))
-function toggleLookup(row: TraceLookupRow<Node>) {
-  emit('inspect')
-  view.value.lookups[row.key] = !row.open
-  if (!row.open) for (const member of row.members || []) {
-    if (expandedNodes.value.includes(member.item.key) && !nodeFailure.value[member.item.lastSequence]) hydrateNode(member.item)
-  }
-}
 const showStatus = computed(() => !!overviewFailure.value || debugMode.value || !!failure.value || emptyReply.value)
 const entries = computed<TraceTimelineEntry[]>(() => [
   ...(showStatus.value ? [{ key: '!status', sequence: props.first, lastSequence: props.through ?? props.before, estimate: 64 }] : []),
-  ...rows.value.map(({ key, item, members, open }) => ({
-    key, sequence: item.sequence,
-    lastSequence: members?.reduce((last, step) => Math.max(last, step.item.lastSequence), item.lastSequence) ?? item.lastSequence,
-    estimate: members ? open ? 48 : 78 : item.kind === 'reasoning' || item.kind === 'text'
-      ? Math.max(72, Math.min(1200, item.body.length / 50 * 26)) : 68,
-  })),
+  ...items.value.map(node => ({ key: node.key, sequence: node.sequence, lastSequence: node.lastSequence,
+    estimate: node.kind === 'reasoning' || node.kind === 'text' ? Math.max(72, Math.min(1200, node.body.length / 50 * 26)) : 68 })),
   ...orphanAgents.value.map(agent => ({ key: `agent/${agent.task.id}`, sequence: agent.task.sequence, lastSequence: agent.task.lastSequence, estimate: 120 })),
 ])
 watch([entries, () => props.paused], () => { if (!props.paused) emit('entries', entries.value) }, { immediate: true, flush: 'post' })
 function retryPage() { emit('inspect'); void load() }
 watch(() => [props.sessionId, props.runId, props.after], () => {
   expandedNodes.value = []
-  view.value.lookups = {}
   diagnosticsOpen.value = false
 })
 </script>
@@ -180,7 +168,7 @@ watch(() => [props.sessionId, props.runId, props.after], () => {
       <Button v-if="failure" @click="retryPage">{{ t('retry') }}</Button>
       <p v-if="emptyReply" class="trace-empty-reply">{{ t('traceEmptyReply') }}</p>
     </TimelineItem>
-    <TraceSteps :rows="rows" :step-count="items.length" :layout="layout" :paused="paused" :placeholders="placeholders" :expanded-keys="expandedNodes" :node-loading="nodeLoading" :node-failure="nodeFailure" :node-id="nodeId" @expand="expandNodes" @toggle-lookup="toggleLookup" @retry="node => loadNode(node.lastSequence)" @measure="element => emit('measure', element)">
+    <TraceSteps :items="items" :layout="layout" :paused="paused" :placeholders="placeholders" :expanded-keys="expandedNodes" :node-loading="nodeLoading" :node-failure="nodeFailure" :node-id="nodeId" @expand="expandNodes" @retry="node => loadNode(node.lastSequence)" @measure="element => emit('measure', element)">
       <template #before-step="{ node, index }">
         <div v-if="node.taskId !== 'main' && (!index || items[index - 1].taskId !== node.taskId)" class="trace-agent-message-heading" :data-task-id="node.taskId" :data-task-status="agentFor(node).task.status" :data-parent-task-id="agentFor(node).parentId" :data-agent-number="agentFor(node).number" :data-agent-depth="agentFor(node).depth">
           <TraceAgentHeader :label="agentLabel(agentFor(node))" :status="taskStatus(agentFor(node).task)" :model-name="taskModelName(agentFor(node).task)" :delegated-by="delegatorLabel(agentFor(node))" :purpose="agentFor(node).task.title" />
@@ -189,13 +177,19 @@ watch(() => [props.sessionId, props.runId, props.after], () => {
         </div>
       </template>
       <template #tool-output="{ node, expanded }"><slot name="tool-output" :node="node" :expanded="expanded" /></template>
-      <template #after-step="{ node }"><TraceReport v-if="node.taskId !== 'main' && lastNodeByTask.get(node.taskId) === node.key && agentFor(node).task.report" :session-id="sessionId" :report="agentFor(node).task.report!" manual /></template>
+      <template #after-step="{ node }">
+        <template v-if="node.taskId !== 'main' && lastNodeByTask.get(node.taskId) === node.key">
+          <p v-if="agentFor(node).task.failureReason" class="trace-agent-error error">{{ agentFor(node).task.failureReason }}</p>
+          <TraceReport v-if="agentFor(node).task.report" :session-id="sessionId" :report="agentFor(node).task.report!" manual />
+        </template>
+      </template>
     </TraceSteps>
     <TimelineItem v-for="agent in orphanAgents.filter(entry => layout[`agent/${entry.task.id}`])" :key="agent.task.id" :layout="layout[`agent/${agent.task.id}`]" :paused="paused" :placeholder="placeholders.has(String(layout[`agent/${agent.task.id}`].key))" @measure="element => emit('measure', element)" class="trace-task trace-task-group" data-agent-role="subagent" :data-task-id="agent.task.id" :data-parent-task-id="agent.parentId" :data-task-status="agent.task.status" :data-agent-number="agent.number" :data-agent-depth="agent.depth">
     <section class="trace-agent-message-heading">
       <TraceAgentHeader :label="agentLabel(agent)" :status="taskStatus(agent.task)" :model-name="taskModelName(agent.task)" :delegated-by="delegatorLabel(agent)" :purpose="agent.task.title" />
       <Button v-if="traceStatus(agent.task.status) === 'loading'" variant="link" :loading="stoppingTasks[agent.task.id]" @click="stopTask(agent.task)">{{ t('stopAgent') }}</Button>
       <small v-if="stopFailures[agent.task.id]" role="alert">{{ stopFailures[agent.task.id] }}</small>
+      <p v-if="agent.task.failureReason" class="trace-agent-error error">{{ agent.task.failureReason }}</p>
       <TraceReport v-if="agent.task.report" :session-id="sessionId" :report="agent.task.report" manual />
     </section>
     </TimelineItem>
@@ -205,9 +199,10 @@ watch(() => [props.sessionId, props.runId, props.after], () => {
 
 <style scoped>
 .trace-messages{display:contents;min-width:0;color:var(--muted);font-size:var(--font-size-body);line-height:1.65}
-.trace-messages :deep(.trace-step-row),.trace-messages :deep(.trace-lookup-row){padding:.35rem 0 .8rem}
+.trace-messages :deep(.trace-step-row){padding:.35rem 0 .8rem}
 .trace-agent-message-heading{display:flex;flex-wrap:wrap;align-items:flex-start;justify-content:space-between;gap:.4rem .8rem;margin:.8rem 0 .4rem;padding:.3rem 0 .3rem .75rem;border-inline-start:2px solid var(--border-subtle)}
 .trace-agent-message-heading :deep(.trace-agent-heading){flex:1;min-width:0}
+.trace-agent-error{width:100%;min-width:0;margin:.25rem 0 0;white-space:pre-wrap;overflow-wrap:anywhere}
 .trace-overview-error{display:flex;align-items:center;gap:.5rem}.trace-debug-trigger{margin-inline-start:auto}
 .trace-status-row{padding:.5rem 0}.trace-loading,.trace-empty-reply{color:var(--muted)}
 </style>

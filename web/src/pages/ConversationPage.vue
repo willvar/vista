@@ -136,7 +136,6 @@ const requestedTraces = shallowRef(new Set<string>())
 const openingIndexes = ref(true)
 let openingRead: Promise<void> | undefined
 const traceEntries = shallowRef<Record<string, TraceTimelineEntry[]>>({})
-const traceMessageBoundaries = computed(() => messages.value.map(message => message.displaySequence))
 const history = useConversationHistory({
   items: messages, session: () => selected.value?.id, revision: viewRevision,
   synchronized: () => snapshotReady.value,
@@ -387,7 +386,6 @@ onUnmounted(() => {
             :active="source.segment.active"
             :after="source.segment.after"
             :through="source.segment.through"
-            :lookup-boundaries="traceMessageBoundaries"
             :status="agentStatus"
             :before="Math.max(source.message?.sequence ?? 0, lastEvent) + 1"
             :first="source.segment.firstSequence ?? firstRunSequence(source.segment.runId)"

@@ -105,6 +105,10 @@ export function useConversationScroll(options: {
     idleTimer = setTimeout(() => { if (!touching.value && !dragging.value) settle() }, 180)
   }
   function settle() {
+    // A native thumb can move the DOM before its scroll event reaches us.
+    // Process that offset before releasing input and possibly following the end.
+    const offset = element.value?.scrollTop
+    if (input && offset !== undefined && offset !== inputOffset) onScroll()
     clearTimeout(idleTimer)
     const reachedEnd = input && inputAtEnd
     input = false

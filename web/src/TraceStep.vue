@@ -12,7 +12,6 @@ import PlainTextOutput from './PlainTextOutput.vue'
 
 const props = defineProps<{
   item: Node; expanded: boolean; loading: boolean; failure?: string; nodeId: (key: string) => string
-  lookupHint?: string
 }>()
 const emit = defineEmits<{ expand: [keys: string[]]; retry: [node: RunTraceNode] }>()
 const { t } = useI18n()
@@ -38,7 +37,7 @@ function toggle() { if (collapsible.value) emit('expand', props.expanded ? [] : 
     <div class="ui-thought-chain-node" :class="`ui-thought-chain-node-${item.status || 'default'}`">
       <div class="ui-thought-chain-node-box">
         <component :is="collapsible ? 'button' : 'div'" :type="collapsible ? 'button' : undefined" class="ui-thought-chain-node-header" :aria-expanded="collapsible ? expanded : undefined" :aria-controls="collapsible ? `${nodeId(item.key)}-content` : undefined" :title="inputText || undefined" @click="toggle">
-          <span class="trace-step-label"><span class="ui-thought-chain-node-icon" aria-hidden="true"><IconLoader2 v-if="item.status === 'loading'" class="ui-icon-spin" /><IconCircleX v-else-if="item.status === 'error'" /><IconPlayerStop v-else-if="item.status === 'abort'" /><IconCircleCheck v-else /></span><span class="ui-thought-chain-node-title"><span :id="nodeId(item.key)">{{ item.title }}<template v-if="inputText">: <span class="trace-input-preview" :class="{ 'trace-input-code': item.input?.command }">{{ inputPreview }}</span></template><span v-if="lookupHint" class="trace-input-preview"> · {{ lookupHint }}</span></span></span></span>
+          <span class="trace-step-label"><span class="ui-thought-chain-node-icon" aria-hidden="true"><IconLoader2 v-if="item.status === 'loading'" class="ui-icon-spin" /><IconCircleX v-else-if="item.status === 'error'" /><IconPlayerStop v-else-if="item.status === 'abort'" /><IconCircleCheck v-else /></span><span class="ui-thought-chain-node-title"><span :id="nodeId(item.key)">{{ item.title }}<template v-if="inputText">: <span class="trace-input-preview" :class="{ 'trace-input-code': item.input?.command }">{{ inputPreview }}</span></template></span></span></span>
           <IconChevronRight v-if="collapsible" class="ui-thought-chain-node-collapse-icon" :class="{ expanded }" aria-hidden="true" />
         </component>
         <div v-if="!disclosureKind || (collapsible && expanded)" :id="`${nodeId(item.key)}-content`" class="trace-step-details">
@@ -53,7 +52,12 @@ function toggle() { if (collapsible.value) emit('expand', props.expanded ? [] : 
           <ToolOutput v-if="item.kind === 'tool'" />
           <a v-else-if="item.kind === 'source'" :href="item.body" target="_blank" rel="noopener noreferrer">{{ item.body }}</a>
           <div v-else-if="item.kind === 'text' || item.markdown" class="markdown" v-html="markdown"></div>
-          <pre v-else-if="item.body" class="trace-output">{{ item.body }}</pre>
+          <template v-else>
+            <ol v-if="item.retryReasons?.length" class="trace-retry-reasons">
+              <li v-for="reason in item.retryReasons" :key="reason.attempt" :value="reason.attempt"><pre class="trace-output">{{ reason.reason }}</pre></li>
+            </ol>
+            <pre v-if="item.body" class="trace-output">{{ item.body }}</pre>
+          </template>
         </div>
         </div>
       </div>
@@ -79,6 +83,7 @@ button.ui-thought-chain-node-header:hover{color:var(--text)}
 .trace-command-card{margin-top:.5rem}
 .trace-input-full:not(.trace-output){margin:.5rem 0 0;white-space:pre-wrap;overflow-wrap:anywhere;font-family:inherit;font-size:14px;line-height:1.65;color:var(--text-secondary)}
 .trace-input-code{font-family:var(--font-mono,monospace)}
+.trace-retry-reasons{margin:.3rem 0;padding-inline-start:1.4em}.trace-retry-reasons pre{margin:.2rem 0}
 .trace-step-content{color:var(--muted)}.trace-step-loading{font-size:15px;color:var(--text-secondary)}.trace-step-error{display:flex;align-items:center;gap:.5rem;font-size:15px}
 @media(prefers-reduced-motion:reduce){.ui-thought-chain-node-collapse-icon{transition:none}}
 </style>

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { appendMessage, createConversationState, messageResults, runResults, reduceConversationEvent, replyTraceSegments, trailingTraceSegment } from '../dist/state/conversation.js'
+import { appendMessage, createConversationState, messageResults, runResults, reduceConversationEvent, replyTraceSegments, restoreConversationSnapshot, trailingTraceSegment } from '../dist/state/conversation.js'
 import type { Message, Session, StreamEvent } from '../dist/types.js'
 
 const session: Session = { id: 'session-a', title: 'Example', modelKey: '', open: true, running: true, executing: true, createdAt: '' }
@@ -33,6 +33,23 @@ test('internal checklist events advance coverage without retaining UI state or p
  assert.equal('checklist' in state,false)
  assert.equal(state.processEvents.some(e=>e.kind==='checklist'||e.data?.tool?.name==='update_checklist'),false)
  assert.equal(state.messages.length,1)
+})
+
+test('only public child failure notices reach the execution display on live updates and snapshot recovery', () => {
+  const failed = event(1, 'runtime_event', { runId: 'run', kind: 'agent', sourceId: 'child', status: 'failed', content: 'provider rejected child request' })
+  const events = [failed,
+    event(2, 'runtime_event', { ...failed.data, status: 'succeeded', content: 'long successful report' }),
+    event(3, 'runtime_event', { ...failed.data, kind: 'tool' }),
+    event(4, 'runtime_event', { ...failed.data, modelOnly: true }),
+  ]
+  const live = events.reduce(reduceConversationEvent, createConversationState(session))
+  const restored = restoreConversationSnapshot(createConversationState(), {
+    session, throughSequence: 4, messages: [], events, queuedInputs: [], hasOlder: false, hasOlderEvents: false,
+  })
+  assert.deepEqual(live.processEvents, [failed])
+  assert.deepEqual(restored.processEvents, [failed])
+  assert.equal(trailingTraceSegment(new Map(), 'run', live.processEvents, false)?.firstSequence, 1)
+  assert.equal(live.lastEvent, 4)
 })
 
 test('model retry progress survives event replay and remains cancellable execution', () => {

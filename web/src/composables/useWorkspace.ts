@@ -45,7 +45,15 @@ function createWorkspace(profileId: string, desktop: Readonly<Ref<boolean>>) {
   // ordering of the server's contiguous page window.
   const sessions = ref<Session[]>([])
   const sessionsReady = ref(false)
+  const sidebarSortKey = storageKey('vista-sidebar-sort')
   const sidebarSort = ref<SessionSort>('created-desc')
+  try {
+    const saved = localStorage.getItem(sidebarSortKey)
+    if (saved === 'created-asc' || saved === 'updated-desc' || saved === 'updated-asc' || saved === 'title-asc') sidebarSort.value = saved
+  } catch { /* Use the default if browser storage is unavailable. */ }
+  watch(sidebarSort, value => {
+    try { localStorage.setItem(sidebarSortKey, value) } catch { /* Keep the choice for this page. */ }
+  }, { flush: 'sync' })
   const sidebar = useSidebarSessions(client, computed(() => ({
     open: true, sort: sidebarSort.value, untitledLabel: sidebarSort.value === 'title-asc' ? t('untitledSession') : undefined,
   })))

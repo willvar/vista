@@ -128,3 +128,31 @@ test('a failed next page keeps existing rows and a retried old order cannot leak
       .toEqual([seeded.at(-1)!, ...seeded.slice(1, -1), seeded[0]!].map(row => row.id))
   } finally { release() }
 })
+
+test('sidebar restores the saved order on the first page request after reload and in a new tab', async ({ page, vista }) => {
+  const [newest, oldest] = seed(vista, ['Z newest', 'Apple oldest'])
+  await page.reload()
+  const rows = page.locator('.sessions-panel .session-card')
+  const sort = page.locator('.sessions-panel').getByRole('button', { name: 'Sort sessions', exact: true })
+  await expect(rows.first()).toHaveAttribute('data-session-id', newest!.id)
+  await sort.click()
+  await page.getByRole('menuitemradio', { name: 'Title: A–Z', exact: true }).click()
+  await expect(rows.first()).toHaveAttribute('data-session-id', oldest!.id)
+  const firstRead = page.waitForRequest(request => {
+    const url = new URL(request.url())
+    return request.method() === 'GET' && url.pathname === '/api/sessions' && url.searchParams.get('page') === '1'
+  })
+  await page.reload()
+  expect(new URL((await firstRead).url()).searchParams.get('sort')).toBe('title-asc')
+  await expect(rows.first()).toHaveAttribute('data-session-id', oldest!.id)
+  await sort.click()
+  await expect(page.getByRole('menuitemradio', { name: 'Title: A–Z', exact: true })).toBeChecked()
+  const another = await page.context().newPage()
+  try {
+    await another.goto(vista.origin + '/')
+    await expect(another.locator('.sessions-panel .session-card').first()).toHaveAttribute('data-session-id', oldest!.id)
+  } finally { await another.close() }
+  await page.evaluate(() => localStorage.setItem('vista-sidebar-sort', 'unsupported-order'))
+  await page.reload()
+  await expect(rows.first()).toHaveAttribute('data-session-id', newest!.id)
+})
