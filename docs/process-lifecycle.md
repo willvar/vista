@@ -8,7 +8,7 @@ On Linux and macOS, each conversation Worker leads a separate process session. S
 
 Windows uses Job Objects with `KILL_ON_JOB_CLOSE`. Before launching managed children, the current process enters an outer Job that children inherit at creation. Workers, the MCP host, shells, and local MCP processes also start suspended and enter their own Jobs before resuming. This covers parent failure during startup and prevents rapidly spawned descendants from escaping registration. Job handles are not inherited by children; the OS terminates the Job's process tree when its owning parent exits or crashes. Explicit stops also terminate the tree. Persisted identity uses Windows process creation time to avoid killing a reused PID. The CLI detaches the Server from its console and from terminal/SSH Jobs that permit breakaway, so the service survives closure of the startup connection. Managed Workers and tools remain in Vista Jobs.
 
-On Windows, double-clicking `vista-server.exe` in Explorer starts or reopens the running instance and launches the default browser. Only the Explorer launcher's console is hidden; terminal commands retain their normal output. Startup failures show a native dialog with the cause and log path. If the browser command cannot start, a dialog provides the running instance's address.
+On Windows, double-clicking `vista.exe` opens or restores the native window and reuses the registered service. Only the launcher console started by Explorer is hidden; terminal commands retain normal output. Use `vista web` for the browser or `vista serve` under a service manager.
 
 On Windows the [desktop app](./desktop.md) owns the notification-area icon; the Server does not create native windows. Closing the desktop or hiding its window leaves the Server running. The tray sends confirmed restart and stop requests to the existing local service API.
 
@@ -35,7 +35,7 @@ Server-side data, including saved composer drafts, is preserved. Browser prefere
 ## Server process restart
 
 The WebUI's Restart Vista action always requires confirmation and restarts the Server process, not just the App runtime, conversation Workers or browser view.
-A detached control process, independent of the old Server, reuses the CLI's `vista-server restart` flow: stop → wait for the instance lock to be released → start.
+A detached control process, independent of the old Server, reuses the CLI's `vista restart` flow: stop → wait for the instance lock to be released → start.
 It loads the current binary at the running Server's executable path, so it can activate a newer binary already placed at that path; it does not download or install updates or switch to another checkout.
 The current configuration directory and actual listening port are carried through, and no additional browser is opened.
 Browser suppression applies only to this restart command; the new Server retains the original environment.

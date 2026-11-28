@@ -34,7 +34,7 @@ if [ "${1:-}" = --session ]; then
         sleep 0.25
     done
     printf '%s\n' 'Isolated KDE Wayland compositor and StatusNotifierItem host ready.'
-    python3 -u scripts/ci_native.py "$@" --with-desktop
+    python3 -u scripts/ci_native.py "$@"
     exit
 fi
 

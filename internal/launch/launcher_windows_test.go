@@ -224,7 +224,7 @@ func TestExplorerLaunchHelper(t *testing.T) {
 	binary, root := os.Args[len(os.Args)-2], os.Args[len(os.Args)-1]
 	ctx, cancel := context.WithTimeout(context.Background(), 25*time.Second)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, binary)
+	cmd := exec.CommandContext(ctx, binary, "web")
 	cmd.SysProcAttr = &syscall.SysProcAttr{CreationFlags: windows.CREATE_NEW_CONSOLE}
 	if err := cmd.Start(); err != nil {
 		os.Exit(2)

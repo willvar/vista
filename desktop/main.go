@@ -5,10 +5,8 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"errors"
-	"flag"
 	"fmt"
 	"io"
-	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -26,51 +24,29 @@ import (
 	"vista/internal/platform"
 )
 
-func main() {
-	if launch.RunSubprocess() {
-		return
-	}
-	server := flag.String("server", "", "Connect to an existing Vista at a numeric loopback HTTP origin")
-	tray := flag.Bool("tray", false, "Open in the system tray if one is available")
-	flag.Parse()
-	if flag.NArg() != 0 {
-		flag.Usage()
-		os.Exit(2)
-	}
-	if err := run(*server, *tray); err != nil {
-		fmt.Fprintln(os.Stderr, "Vista Desktop:", err)
-		startupError(err)
-		os.Exit(1)
-	}
-}
+func main() { launch.Run(run, startupError) }
 
-func connect(server, executable string) (*url.URL, string, serviceStatus, error) {
-	explicit := server != ""
-	if !explicit {
-		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-		defer cancel()
-		cmd := exec.CommandContext(ctx, executable, "start")
-		platform.PrepareCommand(cmd)
-		cmd.Env = append(os.Environ(), "VISTA_HOST=127.0.0.1", "VISTA_NO_BROWSER=1")
-		out, err := cmd.Output()
-		if err != nil {
-			var exit *exec.ExitError
-			if errors.As(err, &exit) {
-				return nil, "", serviceStatus{}, fmt.Errorf("start Vista: %s", strings.TrimSpace(string(exit.Stderr)))
-			}
-			return nil, "", serviceStatus{}, fmt.Errorf("start Vista: %w", err)
+func connect(executable string) (*url.URL, string, serviceStatus, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, executable, "start")
+	platform.PrepareCommand(cmd)
+	cmd.Env = append(os.Environ(), "VISTA_HOST=127.0.0.1", "VISTA_NO_BROWSER=1")
+	out, err := cmd.Output()
+	if err != nil {
+		var exit *exec.ExitError
+		if errors.As(err, &exit) {
+			return nil, "", serviceStatus{}, fmt.Errorf("start Vista: %s", strings.TrimSpace(string(exit.Stderr)))
 		}
-		server = strings.TrimSpace(string(out))
+		return nil, "", serviceStatus{}, fmt.Errorf("start Vista: %w", err)
 	}
-	if !instance.IsLocalAddress(server) {
+	address := strings.TrimSpace(string(out))
+	if !instance.IsLocalAddress(address) {
 		return nil, "", serviceStatus{}, errors.New("expected a Vista HTTP origin with a numeric local address and port")
 	}
-	base, err := url.Parse(server)
+	base, err := url.Parse(address)
 	if err != nil {
 		return nil, "", serviceStatus{}, err
-	}
-	if explicit && !net.ParseIP(base.Hostname()).IsLoopback() {
-		return nil, "", serviceStatus{}, errors.New("--server only accepts a loopback address")
 	}
 	base.Path = "/"
 	status, err := readStatus(base)
@@ -79,10 +55,7 @@ func connect(server, executable string) (*url.URL, string, serviceStatus, error)
 	}
 	dir, _ := instance.Dir()
 	if !registered(dir, base, status.PID) {
-		dir = "" // Explicitly attached instances need not use this configuration.
-		if !explicit {
-			return nil, "", serviceStatus{}, errors.New("Vista startup did not match the registered instance")
-		}
+		return nil, "", serviceStatus{}, errors.New("Vista startup did not match the registered instance")
 	}
 	return base, dir, status, nil
 }
@@ -206,7 +179,7 @@ func desktopInstanceID(root, target string) string {
 	return fmt.Sprintf("%s%x", prefix, sha256.Sum256([]byte(root)))
 }
 
-func run(server string, startInTray bool) error {
+func run(startInTray bool) error {
 	d := &desktop{flags: map[string]any{}, startInTray: startInTray}
 	root, err := os.UserConfigDir()
 	if err != nil {
@@ -219,9 +192,7 @@ func run(server string, startInTray bool) error {
 	if err != nil {
 		return err
 	}
-	if server == "" {
-		d.loginExecutable = executable
-	}
+	d.loginExecutable = executable
 	options := application.Options{Name: "Vista", Flags: d.flags, SingleInstance: &application.SingleInstanceOptions{
 		UniqueID: desktopInstanceID(root, runtime.GOOS),
 		OnSecondInstanceLaunch: func(data application.SecondInstanceData) {
@@ -234,7 +205,7 @@ func run(server string, startInTray bool) error {
 		return err
 	}
 	d.app = application.New(options)
-	base, dir, status, err := connect(server, executable)
+	base, dir, status, err := connect(executable)
 	if err != nil {
 		return err
 	}
