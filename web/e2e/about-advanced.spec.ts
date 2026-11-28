@@ -25,6 +25,14 @@ test('About lists the client runtime separately from the host OS @responsive', a
   })
   await expect(runtime).toHaveText('Desktop app · Wails 3.1.0 · WebKitGTK 2.54.2')
   await expect(hostOS).toHaveText(serverOS)
+
+  const fontFamily = (element: Element) => getComputedStyle(element.firstElementChild ?? element).fontFamily
+  expect(await hostOS.evaluate(fontFamily), 'host and runtime values use the same font').toBe(await runtime.evaluate(fontFamily))
+
+  await page.evaluate(() => localStorage.setItem('vista-language', 'zh-CN'))
+  await page.reload()
+  await expect(info.locator('dt:text-is("宿主系统") + dd')).toHaveText(serverOS)
+  await expect(info.locator('dt:text-is("宿主系统") + dd + dt')).toHaveText('运行环境')
 })
 
 test('About keeps Restart unless a native tray controls this origin @responsive', async ({ page, vista }) => {

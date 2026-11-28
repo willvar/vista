@@ -637,7 +637,7 @@ export default {
   "vistaTagline": "万里同翱翔",
   "binaryHash": "二进制 SHA-256",
   "sourceCommit": "源码提交",
-  "hostOS": "操作系统",
+  "hostOS": "宿主系统",
   "runtimeEnvironment": "运行环境",
   "runtimeBrowser": "浏览器",
   "runtimeDesktopApp": "桌面应用",

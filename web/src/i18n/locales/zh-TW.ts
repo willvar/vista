@@ -598,7 +598,7 @@ export default { ...base, ...{
   "vistaTagline": "萬里同翱翔",
   "binaryHash": "二進位制 SHA-256",
   "sourceCommit": "原始碼提交",
-  "hostOS": "作業系統",
+  "hostOS": "宿主系統",
   "runtimeEnvironment": "執行環境",
   "runtimeBrowser": "瀏覽器",
   "runtimeDesktopApp": "桌面應用",

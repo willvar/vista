@@ -450,7 +450,7 @@ watch([() => route.name, () => route.query.session], () => {
             </template>
             <template v-if="serverStatus?.hostOS">
               <dt>{{ t('hostOS') }}</dt>
-              <dd><code>{{ serverStatus.hostOS }}</code></dd>
+              <dd>{{ serverStatus.hostOS }}</dd>
             </template>
             <dt>{{ t('runtimeEnvironment') }}</dt>
             <dd>{{ clientRuntimeLabel }}</dd>
