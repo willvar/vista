@@ -1,6 +1,6 @@
 //go:build !windows
 
-package main
+package launch
 
 func prepareLauncher() bool    { return false }
 func showLauncherError(string) {}

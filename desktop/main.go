@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -13,52 +14,42 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"runtime/debug"
+	"slices"
 	"strings"
 	"time"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
 	"vista/internal/instance"
+	"vista/internal/launch"
 	"vista/internal/platform"
 )
 
 func main() {
+	if launch.RunSubprocess() {
+		return
+	}
 	server := flag.String("server", "", "Connect to an existing Vista at a numeric loopback HTTP origin")
-	backend := flag.String("backend", "", "Path to the companion Vista executable")
+	tray := flag.Bool("tray", false, "Open in the system tray if one is available")
 	flag.Parse()
-	if flag.NArg() != 0 || (*server != "" && *backend != "") {
+	if flag.NArg() != 0 {
 		flag.Usage()
 		os.Exit(2)
 	}
-	if err := run(*server, *backend); err != nil {
+	if err := run(*server, *tray); err != nil {
 		fmt.Fprintln(os.Stderr, "Vista Desktop:", err)
 		startupError(err)
 		os.Exit(1)
 	}
 }
 
-// Resolve the supplied development companion or the one delivered beside the desktop.
-func companionPath(backend string) (string, error) {
-	if backend == "" {
-		self, err := os.Executable()
-		if err != nil {
-			return "", err
-		}
-		backend = filepath.Join(filepath.Dir(self), "vista"+executableSuffix)
-	}
-	return filepath.Abs(backend)
-}
-
-func connect(server, backend string) (*url.URL, string, serviceStatus, error) {
+func connect(server, executable string) (*url.URL, string, serviceStatus, error) {
 	explicit := server != ""
 	if !explicit {
-		path, err := companionPath(backend)
-		if err != nil {
-			return nil, "", serviceStatus{}, err
-		}
 		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 		defer cancel()
-		cmd := exec.CommandContext(ctx, path, "start")
+		cmd := exec.CommandContext(ctx, executable, "start")
 		platform.PrepareCommand(cmd)
 		cmd.Env = append(os.Environ(), "VISTA_HOST=127.0.0.1", "VISTA_NO_BROWSER=1")
 		out, err := cmd.Output()
@@ -140,12 +131,15 @@ func registered(dir string, base *url.URL, pid int) bool {
 }
 
 type desktop struct {
-	app   *application.App
-	base  *url.URL // Read and updated on the native UI thread.
-	dir   string
-	err   error
-	home  *application.WebviewWindow
-	flags map[string]any
+	app             *application.App
+	base            *url.URL // Read and updated on the native UI thread.
+	dir             string
+	err             error
+	home            *application.WebviewWindow
+	flags           map[string]any
+	tray            trayState
+	startInTray     bool
+	loginExecutable string
 	desktopState
 }
 
@@ -202,14 +196,45 @@ func (d *desktop) navigate(raw string, popup, clicked bool) bool {
 	return false
 }
 
-func run(server, backend string) error {
-	d := &desktop{flags: map[string]any{}}
-	options := application.Options{Name: "Vista", Flags: d.flags}
+func desktopInstanceID(root, target string) string {
+	prefix := desktopID + "."
+	if target == "linux" {
+		// D-Bus forbids an element that begins with a digit. Keep the old
+		// Windows name so existing Windows desktop processes are still detected.
+		prefix += "config_"
+	}
+	return fmt.Sprintf("%s%x", prefix, sha256.Sum256([]byte(root)))
+}
+
+func run(server string, startInTray bool) error {
+	d := &desktop{flags: map[string]any{}, startInTray: startInTray}
+	root, err := os.UserConfigDir()
+	if err != nil {
+		return err
+	}
+	if !filepath.IsAbs(root) {
+		return errors.New("the user configuration directory must be absolute")
+	}
+	executable, err := os.Executable()
+	if err != nil {
+		return err
+	}
+	if server == "" {
+		d.loginExecutable = executable
+	}
+	options := application.Options{Name: "Vista", Flags: d.flags, SingleInstance: &application.SingleInstanceOptions{
+		UniqueID: desktopInstanceID(root, runtime.GOOS),
+		OnSecondInstanceLaunch: func(data application.SecondInstanceData) {
+			if !slices.Contains(data.Args, "--tray") && !slices.Contains(data.Args, "-tray") {
+				application.InvokeAsync(d.showHome)
+			}
+		},
+	}}
 	if err := d.platformOptions(&options); err != nil {
 		return err
 	}
 	d.app = application.New(options)
-	base, dir, status, err := connect(server, backend)
+	base, dir, status, err := connect(server, executable)
 	if err != nil {
 		return err
 	}
@@ -229,7 +254,10 @@ func run(server, backend string) error {
 			}
 		}
 	}
-	d.setup(backend, status)
+	d.setup(executable, status)
+	if !d.tray.created {
+		d.startInTray = false
+	}
 	d.home = d.open(base.String())
 	return errors.Join(d.app.Run(), d.err)
 }

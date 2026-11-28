@@ -57,6 +57,13 @@ test('About keeps Restart unless a native tray controls this origin @responsive'
 
   await client('linux', vista.origin)
   await expect(runtime).toHaveText('Desktop app · Wails · WebKitGTK')
+  await expect(restart).toHaveCount(0)
+  await client('linux')
+  await expect(restart).toBeVisible()
+  await client('darwin', vista.origin)
+  await expect(runtime).toHaveText('Desktop app · Wails · WKWebView')
+  await expect(restart).toHaveCount(0)
+  await client('darwin')
   await expect(restart).toBeVisible()
 })
 

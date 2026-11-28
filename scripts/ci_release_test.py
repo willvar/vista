@@ -23,15 +23,22 @@ class ReleaseTests(unittest.TestCase):
             system, arch = target.split("/")
             folder = self.root / "artifacts" / target.replace("/", "_")
             (folder / "dist").mkdir(parents=True)
-            name = f"vista_{self.version}_{system}_{arch}" + (".zip" if system == "windows" else ".tar.gz")
-            data = ("tested archive: " + target).encode()
-            (folder / "dist" / name).write_bytes(data)
+            required = {"windows": "TestNativeWindowsTray", "linux": "TestNativeLinuxTray",
+                        "darwin": "TestNativeDarwinDesktop"}[system]
             report = {"target": target, "source_commit": self.source, "source_modified": False,
-                      "version": self.version, "status": "passed", "tests": {"required_passed": ["native application"]},
-                      "archive": name, "archive_sha256": hashlib.sha256(data).hexdigest(), "archive_size": len(data)}
-            if system == "windows":
-                report["desktop_sha256"] = "b" * 64
-                report["tests"]["required_passed"].append("vista/desktop/TestNativeWindowsTray")
+                      "version": self.version, "status": "passed", "desktop_sha256": "b" * 64,
+                      "tests": {"required_passed": ["native application", "vista/desktop/" + required]},
+                      "desktop_runtime_tests": {"required_passed": ["vista/internal/launch/TestNativeApplication",
+                                                                     "vista/internal/launch/TestNativeResetPort"]}}
+            if system == "darwin":
+                report["desktop_distribution_verified"] = True
+            for role in ("server", "desktop"):
+                name = f"vista-{role}_{self.version}_{system}_{arch}" + (".zip" if system == "windows" else ".tar.gz")
+                data = ("tested archive: " + target + "/" + role).encode()
+                (folder / "dist" / name).write_bytes(data)
+                prefix = "" if role == "server" else "desktop_"
+                report.update({prefix + "archive": name, prefix + "archive_sha256": hashlib.sha256(data).hexdigest(),
+                               prefix + "archive_size": len(data)})
             path = folder / "report.json"
             path.write_text(json.dumps(report))
             self.reports.append(path)
@@ -59,7 +66,7 @@ class ReleaseTests(unittest.TestCase):
     def test_collects_exact_tested_bytes_and_sorted_checksums(self):
         text = self.collect()
         lines = text.splitlines()
-        self.assertEqual(len(lines), len(TARGETS))
+        self.assertEqual(len(lines), 2 * len(TARGETS))
         names = []
         for line in lines:
             checksum, name = line.split("  ")
@@ -94,6 +101,15 @@ class ReleaseTests(unittest.TestCase):
                 path.write_text(json.dumps(dict(original, **{key: value})))
                 self.collect()
         self.assertFalse((self.root / "release").exists())
+
+    def test_rejects_unsigned_mac_desktop_archive(self):
+        path = self.reports[0]
+        report = json.loads(path.read_text())
+        self.assertTrue(report["target"].startswith("darwin/"))
+        report.pop("desktop_distribution_verified")
+        path.write_text(json.dumps(report))
+        with self.assertRaisesRegex(ValueError, "signing and notarization"):
+            self.collect()
 
     def test_rejects_duplicate_platform_results(self):
         self.reports[-1].write_bytes(self.reports[0].read_bytes())

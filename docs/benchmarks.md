@@ -62,12 +62,12 @@ git -C .vista/benchmarks/harbor/dataset checkout 7e917f35c281188532772312d4ad91c
 docker pull ghcr.io/laude-institute/terminal-bench/build-cython-ext:2.0
 docker pull ghcr.io/laude-institute/terminal-bench/fix-code-vulnerability:2.0
 docker pull ghcr.io/laude-institute/terminal-bench/log-summary-date-ranges:2.0
-make benchmark tb BENCHMARK_ARGS='--binary candidate=bin/vista --profile .vista/benchmarks/profile --model YOUR_MODEL_ID --dry-run'
+make benchmark tb BENCHMARK_ARGS='--binary candidate=bin/vista-server --profile .vista/benchmarks/profile --model YOUR_MODEL_ID --dry-run'
 ```
 
 Remove `--dry-run` to execute.
 Repeat `--task` to select sample tasks.
-To compare builds, use `--binary before=/path/to/baseline --binary after=bin/vista --rounds 3`.
+To compare builds, use `--binary before=/path/to/baseline --binary after=bin/vista-server --rounds 3`.
 Each binary runs each selected task per round, with rotating order, concurrency 1, one attempt, zero Harbor retries, and the original task limits and verifiers.
 The runner checks the dataset commit, task-file hashes, and runtime-image digests against [`tasks.json`](../benchmarks/harbor/tasks.json).
 
@@ -79,7 +79,7 @@ Tokens belong in the Hugging Face credential store, not in tracked files or comm
 ```sh
 .vista/benchmarks/harbor/venv/bin/hf auth login
 make benchmark gaia BENCHMARK_ARGS='--prepare'
-make benchmark gaia BENCHMARK_ARGS='--binary candidate=bin/vista --profile .vista/benchmarks/profile --model YOUR_MODEL_ID --reasoning-effort low --dry-run'
+make benchmark gaia BENCHMARK_ARGS='--binary candidate=bin/vista-server --profile .vista/benchmarks/profile --model YOUR_MODEL_ID --reasoning-effort low --dry-run'
 ```
 
 `--prepare` downloads pinned validation metadata, original attachments, and the official scorer; it does not call a model.
@@ -93,7 +93,7 @@ A prepared dataset is not overwritten; use `--dataset` for a different destinati
 Remove `--dry-run` to run all 165 validation tasks.
 `--level 1` or repeated `--task TASK_ID` selects a subset; report it as a subset.
 Runs use concurrency 1, one attempt, zero Harbor retries, and a 600-second agent limit.
-To compare builds under the same conditions, supply both `--binary before=/path/to/baseline --binary after=bin/vista` in one run; the builds share frozen tasks, instructions, scorer, profile, and adapter, with rotating order.
+To compare builds under the same conditions, supply both `--binary before=/path/to/baseline --binary after=bin/vista-server` in one run; the builds share frozen tasks, instructions, scorer, profile, and adapter, with rotating order.
 The final answer goes in `/app/answer.txt`; Harbor supplies reference answers and the official scorer to the verifier after agent execution.
 The only scorer adjustment removes an unused NumPy import.
 
@@ -127,8 +127,8 @@ GAIA summaries include difficulty-level counts and explicitly label subsets and 
 
 ```sh
 .vista/benchmarks/harbor/venv/bin/python benchmarks/harbor/summarize.py .vista/benchmarks/gaia/runs/RUN_DIRECTORY
-VISTA_BENCHMARK_BIN="$PWD/bin/vista" .vista/benchmarks/harbor/venv/bin/python -m unittest discover -s benchmarks/harbor/tests -v
-VISTA_BENCHMARK_BIN="$PWD/bin/vista" .vista/benchmarks/harbor/venv/bin/python -m unittest discover -s benchmarks/gaia/tests -v
+VISTA_BENCHMARK_BIN="$PWD/bin/vista-server" .vista/benchmarks/harbor/venv/bin/python -m unittest discover -s benchmarks/harbor/tests -v
+VISTA_BENCHMARK_BIN="$PWD/bin/vista-server" .vista/benchmarks/harbor/venv/bin/python -m unittest discover -s benchmarks/gaia/tests -v
 ```
 
 Adapter checks use synthetic fixtures and a simulated model; they verify the evaluation path, not task success with a live provider.

@@ -8,7 +8,7 @@ import { availableVistaPort } from './test_port.mjs'
 import { prepareVistaTestConfig, projectRulesFixture } from './test_config.mjs'
 
 // Real Server/Worker/timers with an isolated deterministic model endpoint.
-const binary = resolve(process.env.VISTA_BIN || 'bin/vista')
+const binary = resolve(process.env.VISTA_BIN || 'bin/vista-server')
 const parent = resolve('.vista/test-state')
 mkdirSync(parent, { recursive: true })
 const state = mkdtempSync(join(parent, 'deadline-'))

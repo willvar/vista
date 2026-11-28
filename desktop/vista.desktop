@@ -1,0 +1,7 @@
+[Desktop Entry]
+Type=Application
+Name=Vista
+Exec=vista-desktop
+Icon=io.github.willvar.VistaDesktop
+Terminal=false
+Categories=Utility;

@@ -8,7 +8,7 @@
 
 | 目录 | 职责 |
 | --- | --- |
-| `cmd/vista/`、`internal/instance/` | 生命周期命令、后台服务、实例识别与关闭 |
+| `internal/launch/`、`internal/instance/` | 生命周期命令、后台服务、实例识别与关闭 |
 | `internal/server/` | HTTP/SSE、配置、准入、Worker 监督及持久化协调 |
 | `internal/worker/`、`internal/workerproto/` | 会话进程、管道协议和持久化确认 |
 | `internal/agent/` | 模型循环、工具调度、子任务收集及压缩 |

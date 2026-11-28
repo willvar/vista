@@ -1,4 +1,4 @@
-package main
+package launch
 
 import (
 	"context"
@@ -16,6 +16,7 @@ import (
 	"vista/internal/appdirs"
 	"vista/internal/instance"
 	"vista/internal/mcphost"
+	"vista/internal/network"
 	"vista/internal/platform"
 	"vista/internal/server"
 	"vista/internal/worker"
@@ -23,10 +24,14 @@ import (
 
 var desktopLaunch bool
 
-// Local instance control must not traverse an environment-configured proxy.
-var instanceHTTPClient = &http.Client{Transport: &http.Transport{Proxy: nil}}
+// Local instance control uses an explicit Direct policy, never the user's
+// configured proxy or an environment proxy.
+var instanceHTTPClient = network.NewClient(http.Client{
+	Transport: network.Transport{Base: &http.Transport{}, Policy: &network.Policy{}},
+}, network.ApplicationScope)
 
-func main() {
+// Run dispatches the server CLI and its background commands.
+func Run() {
 	desktopLaunch = prepareLauncher()
 	command := newRootCommand()
 	if desktopLaunch {
@@ -48,12 +53,28 @@ func main() {
 	}
 }
 
+// RunSubprocess handles the commands started by an independent Desktop
+// executable without entering its windowing toolkit. Detached Server restarts,
+// Workers and MCP hosts all re-execute the same image that owns the service.
+func RunSubprocess() bool {
+	if len(os.Args) < 2 {
+		return false
+	}
+	switch os.Args[1] {
+	case "start", "status", "stop", "restart", "serve", "serve-reserved", "worker", "mcp-host":
+		Run()
+		return true
+	default:
+		return false
+	}
+}
+
 func newRootCommand() *cobra.Command {
 	// Vista is also a desktop launcher. Cobra's default Explorer guard exits
 	// before RunE and would prevent double-click startup on Windows.
 	cobra.MousetrapHelpText = ""
 	var port int
-	root := &cobra.Command{Use: "vista", Short: "Vista local agent", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error { return start(port, true) }}
+	root := &cobra.Command{Use: "vista-server", Short: "Vista local agent", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error { return start(port, true) }}
 	root.CompletionOptions.DisableDefaultCmd = true
 	addPortFlag(root, &port)
 	startCommand := &cobra.Command{Use: "start", Args: cobra.NoArgs, RunE: func(*cobra.Command, []string) error { return start(port, true) }}

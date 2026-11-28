@@ -8,7 +8,7 @@ import { join, resolve } from 'node:path'
 import { promisify } from 'node:util'
 
 // Exercise CLI -> Server -> Worker -> model and persisted artifacts in isolation.
-const binary = resolve(process.env.VISTA_BIN || 'bin/vista')
+const binary = resolve(process.env.VISTA_BIN || 'bin/vista-server')
 const parent = resolve('.vista/test-state')
 mkdirSync(parent, { recursive: true })
 const state = mkdtempSync(join(parent, 'eff-'))

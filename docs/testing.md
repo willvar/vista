@@ -34,7 +34,7 @@ make test all
 
 Explicit goals such as `make test frontend memory` run only those checks; shared prerequisites run once. Locked npm dependencies are installed when needed. Browser checks find Chrome/Chromium on `PATH`; set `VISTA_CHROME` to override. Integration scripts require `sqlite3`. Missing prerequisites fail explicitly. MCP upstream dependencies may require network access to install.
 
-Make builds test executables under `.vista/test-state/bin` and uses separate configurations and ports. It does not replace `bin/vista` or restart the user's instance. Browser state, traces, screenshots, and HTML reports live under `web/.vista/test-state/`; see [frontend checks](../web/README.md).
+Make builds test executables under `.vista/test-state/bin` and uses separate configurations and ports. It does not replace `bin/vista-server` or restart the user's instance. Browser state, traces, screenshots, and HTML reports live under `web/.vista/test-state/`; see [frontend checks](../web/README.md).
 
 `E2E_ARGS` passes options to Playwright without changing the default projects, for example `make test e2e E2E_ARGS='--max-failures=1 --workers=2'`.
 Independent cases can run in parallel within one spec file.
@@ -94,12 +94,12 @@ Only the publishing job has repository write permission; it creates a regular Gi
 Build the application for the target OS, then run its application test there:
 
 ```sh
-VISTA_TEST_BINARY=/absolute/path/to/vista GOWORK=off go test ./cmd/vista -run '^TestNative(Application|ResetPort|WindowsDesktopLauncher)$' -count=1
+VISTA_TEST_BINARY=/absolute/path/to/vista-server GOWORK=off go test ./internal/launch -run '^TestNative(Application|ResetPort|WindowsDesktopLauncher)$' -count=1
 ```
 
 On Windows, set the equivalent environment variables in PowerShell and use the `.exe` path. A cross-compiled `go test -c` executable can run without installing Go on that machine. The tests use temporary configuration and a simulated model, exercising real application Workers, shell/background work, cancellation, startup/shutdown, reset, and crash recovery. The Windows desktop-launch test uses a private Explorer-named parent and browser command to check startup, reopening, and the native startup-error dialog without opening the user's browser. Platform-specific tests also cover process ownership and cleanup.
 
-On Windows, `ci_native.py` also tests the unpacked desktop and server as a pair. `desktop/build.py --test --output <file>` builds the native tray test. In the interactive Explorer session, invoke it with `VISTA_TEST_DESKTOP` and `VISTA_TEST_BINARY` pointing to the executables. The test exercises a single registered icon, closing and reopening the same window, native status, restart, and stop.
+On Windows, `ci_native.py` tests the two unpacked products separately. `desktop/build.py --test --output <file>` builds the native tray test. In an interactive Explorer session, invoke it with `VISTA_TEST_DESKTOP` pointing to the standalone desktop executable. The test exercises a single registered icon, closing and reopening the same window, native status, restart, and stop.
 
 Cross-compilation confirms compilation only. Mock endpoints establish request/stream behavior, not real account authorization or live-provider compatibility.
 
@@ -141,3 +141,7 @@ The [provider matrix fixture](../scripts/provider_matrix/testdata/catalog.csv) i
 When running tests through the foreground `shell` tool, set the test runner's diagnostic timeout below the shell timeout.
 For example, use `GOWORK=off go test -timeout=120s ./internal/agent` with `timeoutSeconds: 180`; Go can print its timeout stack trace before shell process cleanup.
 For a suite that may exceed the foreground timeout, use a managed background job and read its saved output rather than increasing or removing the shell's deadline.
+
+Run `sh scripts/ci_linux_desktop.sh --target linux/amd64 --version dev` for both unpacked Linux products in an isolated KDE Wayland session (select the host architecture). Validate Windows with an Explorer tray. On macOS, run `python3 scripts/ci_native.py --target darwin/arm64 --with-desktop` (or the Intel target) in an Aqua session. The Desktop archive contains no server executable; the service/Worker, port change and recovery checks must also pass using the desktop executable.
+
+The workflow inputs `linux_desktop` and `macos_desktop` select development checks. A release candidate requires both products to execute on each target. A macOS release also requires a preconfigured Developer ID Application identity and notarization profile and verifies the signature and ticket after unpacking. A WKWebView smoke test is not menu-bar or actual login-start acceptance.

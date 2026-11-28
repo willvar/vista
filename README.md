@@ -8,21 +8,21 @@ Vista is a general-purpose agent for Linux, Windows, and macOS. Describe a goal 
 
 ## Getting started
 
-Download the archive for your system from [GitHub Releases](https://github.com/willvar/vista/releases/latest) and extract it.
-Linux, Windows, and macOS each provide x86-64 (`amd64`) and ARM64 (`arm64`) archives.
+Choose an archive by product, operating system and architecture on [GitHub Releases](https://github.com/willvar/vista/releases/latest).
+**`vista-server`** provides the standalone service and browser workbench; **`vista-desktop`** includes that service and a native window. The desktop package does not require a separate server installation.
 
-Run `vista` to start the service in the background and open the default browser. Opening it again uses the running instance. The browser opens `http://127.0.0.1:5186/` by default, while the service listens on all IPv4 interfaces (`0.0.0.0`). Other devices use `http://<host-IP>:5186/`. Set the optional `VISTA_HOST` environment variable to a specific IPv4 address to restrict the listener; HTTPS is provided by a reverse proxy, not Vista itself.
+Run `vista-server` to start the service in the background and open the default browser. Opening it again uses the running instance. The browser opens `http://127.0.0.1:5186/` by default, while the service listens on all IPv4 interfaces (`0.0.0.0`). Other devices use `http://<host-IP>:5186/`. Set the optional `VISTA_HOST` environment variable to a specific IPv4 address to restrict the listener; HTTPS is provided by a reverse proxy, not Vista itself.
 
-On Windows, open `vista-desktop.exe` next to `vista.exe` to use the [desktop app](./docs/desktop.md) with WebView2. It opens the same interface and adds a notification-area icon for opening Vista, checking status, restarting, and stopping the service. Closing the window leaves the icon and service running. The command-line service does not add an icon.
+To use the [desktop app](./docs/desktop.md), open `vista-desktop` (`vista-desktop.exe` on Windows, `Vista.app` on macOS). With a tray available, closing the window hides it while the service keeps running. The tray can reopen the window, show status, restart, or stop the service.
 
 Connect a model provider in Settings before sending the first message. Built-in connections provide their authentication and protocol settings; custom connections let you choose the conversation API format and authentication independently. Model availability follows the connected account or service.
 
 | Command | Action |
 | --- | --- |
-| `vista` / `vista start` | Start the service or open the existing instance |
-| `vista status` | Show service, conversation, Worker, and process status |
-| `vista stop` | Stop the service and its managed work, keeping history |
-| `vista restart` | Stop and start the service, keeping history |
+| `vista-server` / `vista-server start` | Start the service or open the existing instance |
+| `vista-server status` | Show service, conversation, Worker, and process status |
+| `vista-server stop` | Stop the service and its managed work, keeping history |
+| `vista-server restart` | Stop and start the service, keeping history |
 
 Closing the browser does not stop work. Closing a conversation stops its Worker and managed background work, while retaining its history; deleting it also removes its associated data. Restarting Vista records unfinished operations as interrupted and does not replay their side effects.
 
@@ -34,7 +34,7 @@ Building requires Go 1.26+, Node.js with native TypeScript support, npm, and Mak
 
 ```sh
 make build
-./bin/vista start
+./bin/vista-server start
 ```
 
 `make build` builds and embeds the frontend with version `dev`; use `make build VERSION=v0.1.0` for a release version. Development rules are in [AGENTS.md](./AGENTS.md); build checks and test commands are in [verification](./docs/testing.md).

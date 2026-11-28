@@ -168,23 +168,24 @@ func TestTrayRequiresPairedCompanion(t *testing.T) {
 		t.Fatal(err)
 	}
 	const hash = "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
-	if !matchesCompanion(path, hash) {
+	if !matchesExecutable(path, hash) {
 		t.Fatal("the matching companion was rejected")
 	}
 	for _, invalid := range []string{"", strings.Repeat("0", 64)} {
-		if matchesCompanion(path, invalid) {
+		if matchesExecutable(path, invalid) {
 			t.Fatal("an older or unverifiable service would receive another tray")
 		}
 	}
-	if matchesCompanion(path+".missing", hash) {
+	if matchesExecutable(path+".missing", hash) {
 		t.Fatal("missing paired executable was accepted")
 	}
 }
 
 func TestNativeWindowsTray(t *testing.T) {
-	binary, service := os.Getenv("VISTA_TEST_DESKTOP"), os.Getenv("VISTA_TEST_BINARY")
-	if binary == "" || service == "" {
-		t.Skip("set VISTA_TEST_DESKTOP and VISTA_TEST_BINARY to the built pair")
+	binary := os.Getenv("VISTA_TEST_DESKTOP")
+	service := binary
+	if binary == "" {
+		t.Skip("set VISTA_TEST_DESKTOP to the standalone desktop executable")
 	}
 	taskbar, _ := windows.UTF16PtrFromString("Shell_TrayWnd")
 	if user("FindWindowW", uintptr(unsafe.Pointer(taskbar)), 0) == 0 {
@@ -231,7 +232,7 @@ func TestNativeWindowsTray(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer output.Close()
-	cmd := exec.Command(binary, "--backend", service)
+	cmd := exec.Command(binary)
 	cmd.Stdout, cmd.Stderr = output, output
 	if err := cmd.Start(); err != nil {
 		t.Fatal(err)
@@ -337,7 +338,7 @@ func TestNativeWindowsTray(t *testing.T) {
 			s, e := readStatus(base)
 			return e == nil && s.PID == oldServer.Process.Pid && s.BinaryHash != "" && s.BinaryHash != after.BinaryHash
 		})
-		viewer := exec.Command(binary, "--backend", service)
+		viewer := exec.Command(binary)
 		viewer.Stdout, viewer.Stderr = output, output
 		if err := viewer.Start(); err != nil {
 			t.Fatal(err)

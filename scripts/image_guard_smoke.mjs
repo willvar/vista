@@ -9,7 +9,7 @@ import { join } from 'node:path'
 
 // A real Worker must own maximum-size image request allocations.
 // Deliberately exceed a small Worker soft limit without provoking an OS OOM.
-const binary = process.env.VISTA_BIN || join(process.cwd(), 'bin/vista')
+const binary = process.env.VISTA_BIN || join(process.cwd(), 'bin/vista-server')
 const state = mkdtempSync(join(process.env.VISTA_TEST_TMPDIR || process.cwd(), 'vista-image-guard-'))
 prepareVistaTestConfig(state)
 const image = Buffer.alloc(50 << 20)

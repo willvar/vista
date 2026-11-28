@@ -11,6 +11,7 @@ import subprocess
 from urllib.parse import urlencode
 
 from ci_native import ROOT, TARGETS, build_version, sha256
+from package_release import archive_name
 
 
 CANDIDATE_STEPS = {
@@ -139,24 +140,33 @@ def collect(version, source, artifacts, output):
             raise ValueError("archive was not successfully tested at this clean source and version")
         targets.add(target)
         system, arch = target.split("/")
-        if system == "windows" and (not re.fullmatch(r"[0-9a-f]{64}", report.get("desktop_sha256", ""))
-                or "vista/desktop/TestNativeWindowsTray" not in report["tests"]["required_passed"]):
-            raise ValueError("Windows release requires the tested desktop shell")
-        name = f"vista_{version}_{system}_{arch}" + (".zip" if system == "windows" else ".tar.gz")
-        if report.get("archive") != name:
-            raise ValueError("archive name does not match its version and target")
-        archive = path.parent / "dist" / name
-        checksum = sha256(archive)
-        if checksum != report.get("archive_sha256") or archive.stat().st_size != report.get("archive_size"):
-            raise ValueError("archive differs from the bytes tested on its native runner")
-        archives.append((archive, checksum))
+        native_desktop_test = {"windows": "TestNativeWindowsTray", "linux": "TestNativeLinuxTray",
+                               "darwin": "TestNativeDarwinDesktop"}[system]
+        if (not re.fullmatch(r"[0-9a-f]{64}", report.get("desktop_sha256", ""))
+                or "vista/desktop/" + native_desktop_test not in report["tests"]["required_passed"]):
+            raise ValueError("release requires an independently tested desktop archive")
+        desktop_runtime = report.get("desktop_runtime_tests", {}).get("required_passed", [])
+        if not {"vista/internal/launch/TestNativeApplication", "vista/internal/launch/TestNativeResetPort"} <= set(desktop_runtime):
+            raise ValueError("release requires the tested desktop service, workers and restart paths")
+        if system == "darwin" and report.get("desktop_distribution_verified") is not True:
+            raise ValueError("macOS desktop distribution requires verified signing and notarization")
+        for role in ("server", "desktop"):
+            prefix = "" if role == "server" else "desktop_"
+            name = archive_name(role, version, system, arch)
+            if report.get(prefix + "archive") != name:
+                raise ValueError("archive name does not match its role, version and target")
+            archive = path.parent / "dist" / name
+            checksum = sha256(archive)
+            if checksum != report.get(prefix + "archive_sha256") or archive.stat().st_size != report.get(prefix + "archive_size"):
+                raise ValueError("archive differs from the bytes tested on its native runner")
+            archives.append((archive, checksum))
     # Validate every report before producing any public release assets.
     output.mkdir(parents=True, exist_ok=True)
     if any(output.iterdir()):
         raise ValueError("release output directory must be empty")
     for archive, _ in archives:
         shutil.copyfile(archive, output / archive.name)
-    checksums = "".join(f"{checksum}  {archive.name}\n" for archive, checksum in sorted(archives))
+    checksums = "".join(f"{checksum}  {archive.name}\n" for archive, checksum in sorted(archives, key=lambda item: item[0].name))
     (output / "SHA256SUMS").write_text(checksums, encoding="utf-8")
     return checksums
 

@@ -8,7 +8,7 @@ This document describes the current source. Product tradeoffs are in [product be
 
 | Directory | Responsibility |
 | --- | --- |
-| `cmd/vista/`, `internal/instance/` | Lifecycle CLI, background service, instance identification and shutdown |
+| `internal/launch/`, `internal/instance/` | Lifecycle CLI, background service, instance identification and shutdown |
 | `internal/server/` | HTTP/SSE, configuration, admission, Worker supervision, and persistence coordination |
 | `internal/worker/`, `internal/workerproto/` | Conversation processes, pipe protocol, and persistence acknowledgments |
 | `internal/agent/` | Model loop, tool scheduling, child-task completion events, and compaction |
