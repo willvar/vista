@@ -58,12 +58,12 @@ git -C .vista/benchmarks/harbor/dataset checkout 7e917f35c281188532772312d4ad91c
 docker pull ghcr.io/laude-institute/terminal-bench/build-cython-ext:2.0
 docker pull ghcr.io/laude-institute/terminal-bench/fix-code-vulnerability:2.0
 docker pull ghcr.io/laude-institute/terminal-bench/log-summary-date-ranges:2.0
-make benchmark tb BENCHMARK_ARGS='--binary candidate=bin/vista-server --profile .vista/benchmarks/profile --model YOUR_MODEL_ID --dry-run'
+make benchmark tb BENCHMARK_ARGS='--binary candidate=bin/vista --profile .vista/benchmarks/profile --model YOUR_MODEL_ID --dry-run'
 ```
 
 移除 `--dry-run` 后执行。
 重复传入 `--task` 可选择样本任务。
-比较版本时，使用 `--binary before=/path/to/baseline --binary after=bin/vista-server --rounds 3`。
+比较版本时，使用 `--binary before=/path/to/baseline --binary after=bin/vista --rounds 3`。
 每个二进制每轮执行所有选中任务，顺序轮换；并发为 1，每次试验只尝试一次，Harbor 重试为零，保留原始任务限制和判题器。
 执行器根据 [`tasks.json`](../benchmarks/harbor/tasks.json) 检查数据集提交、任务文件哈希及运行镜像摘要。
 
@@ -75,7 +75,7 @@ make benchmark tb BENCHMARK_ARGS='--binary candidate=bin/vista-server --profile 
 ```sh
 .vista/benchmarks/harbor/venv/bin/hf auth login
 make benchmark gaia BENCHMARK_ARGS='--prepare'
-make benchmark gaia BENCHMARK_ARGS='--binary candidate=bin/vista-server --profile .vista/benchmarks/profile --model YOUR_MODEL_ID --reasoning-effort low --dry-run'
+make benchmark gaia BENCHMARK_ARGS='--binary candidate=bin/vista --profile .vista/benchmarks/profile --model YOUR_MODEL_ID --reasoning-effort low --dry-run'
 ```
 
 `--prepare` 下载固定版本的验证集资料、原始附件和官方判题器，不调用模型。
@@ -89,7 +89,7 @@ make benchmark gaia BENCHMARK_ARGS='--binary candidate=bin/vista-server --profil
 移除 `--dry-run` 后运行全部 165 道验证题。
 `--level 1` 或重复的 `--task TASK_ID` 可选择子集，报告成绩时必须注明子集。
 并发为 1，只尝试一次，Harbor 重试为零，智能体限时 600 秒。
-比较构建时，在同一次运行中传入 `--binary before=/path/to/baseline --binary after=bin/vista-server`；两版共用固定的题目、指令、判题器、配置和适配器，并轮换执行顺序。
+比较构建时，在同一次运行中传入 `--binary before=/path/to/baseline --binary after=bin/vista`；两版共用固定的题目、指令、判题器、配置和适配器，并轮换执行顺序。
 最终答案写入 `/app/answer.txt`；智能体执行结束后，Harbor 才将参考答案和官方判题器交给验证步骤。
 判题器仅移除了未使用的 NumPy 导入。
 
@@ -120,8 +120,8 @@ GAIA 汇总还包含难度统计，并明确标注子集和答案污染限制。
 
 ```sh
 .vista/benchmarks/harbor/venv/bin/python benchmarks/harbor/summarize.py .vista/benchmarks/gaia/runs/RUN_DIRECTORY
-VISTA_BENCHMARK_BIN="$PWD/bin/vista-server" .vista/benchmarks/harbor/venv/bin/python -m unittest discover -s benchmarks/harbor/tests -v
-VISTA_BENCHMARK_BIN="$PWD/bin/vista-server" .vista/benchmarks/harbor/venv/bin/python -m unittest discover -s benchmarks/gaia/tests -v
+VISTA_BENCHMARK_BIN="$PWD/bin/vista" .vista/benchmarks/harbor/venv/bin/python -m unittest discover -s benchmarks/harbor/tests -v
+VISTA_BENCHMARK_BIN="$PWD/bin/vista" .vista/benchmarks/harbor/venv/bin/python -m unittest discover -s benchmarks/gaia/tests -v
 ```
 
 适配器检查使用合成样本和模拟模型，用来验证评测路径，不衡量真实服务商的任务成功率。

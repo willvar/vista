@@ -1,30 +1,29 @@
-# Wails 桌面应用
+# 原生窗口与托盘
 
 [English](./desktop.md)
 
-`vista-desktop` 在原生窗口中打开本机服务的 WebUI。浏览器和桌面端使用同一套页面、HTTP 接口和事件流。桌面进程负责系统集成，不向网页暴露 Vista 的原生 Go 方法。
+`vista` 可执行文件自带本机服务、WebUI、CLI，以及 Wails 原生窗口和托盘。窗口和浏览器共用配置、会话、HTTP 接口和事件流。网页不能调用 Vista 的原生 Go 方法。
 
-## 构建和安装
+## 构建与安装
 
-`make build` 构建无图形依赖的 `bin/vista-server`。`make desktop` 构建自带后端的 `bin/vista-desktop`，需要 Python 3。Windows 可执行文件带 `.exe` 后缀。`make package-server` 和 `make package-desktop` 分别生成带角色名称的压缩包，不包含另一个 Vista 程序。
+`make build` 构建 `bin/vista`（Windows：`bin/vista.exe`）；`make package` 生成一个压缩包。两者都需要 Python 3。交付产物统一使用 `CGO_ENABLED=0`。macOS 包中的可执行文件位于 `Vista.app/Contents/MacOS/vista`。
 
-| 平台 | 渲染引擎 | Desktop 用法 |
-| --- | --- | --- |
-| Windows | WebView2 运行库 | 解压并打开 `vista-desktop.exe`。无需另一个 `vista-server.exe` 或 `vista.exe`。 |
-| Linux | GTK 3 与 WebKitGTK 4.1 | 直接运行 `vista-desktop`，或把程序与 `share/` 下的桌面入口资源安装到同一本地前缀。 |
-| macOS | WKWebView | 打开包里的 `Vista.app`。本地开发打包不签名或公证；正式候选需验证两者。 |
+| 平台 | 原生窗口需要的运行库 |
+| --- | --- |
+| Windows | WebView2 运行库 |
+| Linux | GTK 3 和 WebKitGTK 4.1（Arch：`gtk3`、`webkit2gtk-4.1`） |
+| macOS | 系统自带的 WKWebView |
 
-Linux 构建还需要 C 编译器、`pkg-config` 及 GTK 3 和 WebKitGTK 4.1 开发库（Arch：`gtk3`、`webkit2gtk-4.1`；Debian/Ubuntu：`libgtk-3-dev`、`libwebkit2gtk-4.1-dev`）。安装后的桌面端只需相应运行库，不需要开发头文件。Linux 托盘使用桌面环境的 StatusNotifierItem 面板；没有可用托盘时，窗口不会隐藏到托盘。
+Linux 桌面模式使用 Wails Purego。构建不需要 GTK/WebKitGTK 开发头文件，服务和 CLI 模式也不依赖图形库。Linux 可执行文件仍需要系统 C 运行库。托盘使用桌面环境的 StatusNotifierItem 面板；没有可用托盘时显示窗口。
 
-## 窗口、托盘和服务
+## 窗口与服务生命周期
 
-桌面程序以同一个可执行文件启动后台服务、Worker 和 MCP Host，窗口通过本机 HTTP/SSE 使用相同 WebUI。新服务默认监听回环地址；复用不改变已有监听地址。`vista-desktop --server http://127.0.0.1:5186` 可以连接已运行的本机服务而不启动新服务。托盘只控制匹配本程序且已登记的实例；打开独立 Server 或不同构建的 WebUI 不会自动接管它。
+不带参数打开 `vista` 会打开或唤回窗口和托盘。`vista web` 打开默认浏览器，不开启原生窗口或托盘。二者复用已登记的本机服务；新启动的本机服务默认监听回环地址，复用不改变现有监听地址。`vista serve` 在前台运行，不打开界面；`vista status` 只查询状态。参见[入口说明](../README.zh-CN.md#开始使用)。
 
-- **打开 Vista** 唤回已有主窗口。同一配置下再次启动桌面端不会另开主窗口。
-- **状态**、**重启**和**停止**针对所连接的本机服务。重启和停止需确认。连接异常不会显示为服务已停止。
-- 托盘可用时，关闭主窗口只会隐藏。**退出桌面**移除图标而不中断服务；**停止**则停止服务并退出桌面。
-- **登录后启动**默认关闭，由桌面端管理，不属于 WebUI 或无人登录时的服务自启。托盘可用时只驻托盘，否则打开窗口。移动或删除应用前先关闭该选项；需要时从安装后的路径重新启用。
+- 托盘可用时关闭窗口只隐藏。**退出桌面**移除图标而不中断服务；**停止**则停止服务并退出桌面。
+- **状态**、**重启**和**停止**针对已登记的服务。托盘重启和停止需确认，也不会管理由另一个构建启动的实例。
+- **登录后启动**默认关闭。开启后优先驻托盘，没有托盘时打开窗口。移动或替换安装路径前先关闭该选项，之后可按需重新启用。
 
-用户明确点击的站外 HTTP(S) 链接交给系统浏览器。桌面窗口保留相同的 WebUI 功能，包括同一服务端的会话、设置和已保存草稿。浏览器和 WebView 各自保存渲染器本地偏好。「关于 Vista」的「宿主系统」显示运行服务的系统，「运行环境」显示当前客户端的运行环境。当前桌面连接没有可用托盘控制时，「关于 Vista」仍保留重启入口。
+用户点击的站外 HTTP(S) 链接交给系统浏览器，原生窗口的 WebView 仍只显示本机服务。浏览器和 WebView 各自保存本地偏好。「关于 Vista」的「宿主系统」显示运行服务的系统，「运行环境」显示当前客户端。
 
-原生包的验证方式见[验证](./testing.zh-CN.md)。桌面打包不改变 Windows 的原生发布门槛或 Unix 独立服务的发布门槛。
+原生包测试和 macOS 签名验收见[验证](./testing.zh-CN.md)。

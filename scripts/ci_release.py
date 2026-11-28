@@ -142,24 +142,22 @@ def collect(version, source, artifacts, output):
         system, arch = target.split("/")
         native_desktop_test = {"windows": "TestNativeWindowsTray", "linux": "TestNativeLinuxTray",
                                "darwin": "TestNativeDarwinDesktop"}[system]
-        if (not re.fullmatch(r"[0-9a-f]{64}", report.get("desktop_sha256", ""))
+        if (not re.fullmatch(r"[0-9a-f]{64}", report.get("binary_sha256", ""))
+                or report.get("cgo_enabled") is not False
                 or "vista/desktop/" + native_desktop_test not in report["tests"]["required_passed"]):
-            raise ValueError("release requires an independently tested desktop archive")
-        desktop_runtime = report.get("desktop_runtime_tests", {}).get("required_passed", [])
-        if not {"vista/internal/launch/TestNativeApplication", "vista/internal/launch/TestNativeResetPort"} <= set(desktop_runtime):
-            raise ValueError("release requires the tested desktop service, workers and restart paths")
-        if system == "darwin" and report.get("desktop_distribution_verified") is not True:
-            raise ValueError("macOS desktop distribution requires verified signing and notarization")
-        for role in ("server", "desktop"):
-            prefix = "" if role == "server" else "desktop_"
-            name = archive_name(role, version, system, arch)
-            if report.get(prefix + "archive") != name:
-                raise ValueError("archive name does not match its role, version and target")
-            archive = path.parent / "dist" / name
-            checksum = sha256(archive)
-            if checksum != report.get(prefix + "archive_sha256") or archive.stat().st_size != report.get(prefix + "archive_size"):
-                raise ValueError("archive differs from the bytes tested on its native runner")
-            archives.append((archive, checksum))
+            raise ValueError("release requires one tested non-CGO executable with native desktop coverage")
+        if not {"vista/internal/launch/TestNativeApplication", "vista/internal/launch/TestNativeResetPort"} <= set(report["tests"]["required_passed"]):
+            raise ValueError("release requires the tested service, Workers and restart paths")
+        if system == "darwin" and report.get("distribution_verified") is not True:
+            raise ValueError("macOS distribution requires verified signing and notarization")
+        name = archive_name(version, system, arch)
+        if report.get("archive") != name:
+            raise ValueError("archive name does not match its version and target")
+        archive = path.parent / "dist" / name
+        checksum = sha256(archive)
+        if checksum != report.get("archive_sha256") or archive.stat().st_size != report.get("archive_size"):
+            raise ValueError("archive differs from the bytes tested on its native runner")
+        archives.append((archive, checksum))
     # Validate every report before producing any public release assets.
     output.mkdir(parents=True, exist_ok=True)
     if any(output.iterdir()):

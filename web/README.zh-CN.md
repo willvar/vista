@@ -248,7 +248,7 @@ HTTP 200 返回 `status=exchanging` 且 `authorizationUrl` 为空的 Login；HTT
 | `mobile-portrait` | 390 × 844，触摸 |
 | `mobile-landscape` | 568 × 320，触摸 |
 
-`VISTA_CHROME` 指定浏览器；直接运行 Playwright 时可设置 `VISTA_BIN`，未指定则 fixture 使用仓库 `bin/vista-server`。优先通过 `make test e2e` 构建隔离的 `.vista/test-state/bin/vista-server-e2e`。查看用例列表：
+`VISTA_CHROME` 指定浏览器；直接运行 Playwright 时可设置 `VISTA_BIN`，未指定则 fixture 使用仓库 `bin/vista`。优先通过 `make test e2e` 构建隔离的 `.vista/test-state/bin/vista-e2e`。查看用例列表：
 
 ```sh
 VISTA_CHROME=/absolute/path/to/chrome npm run test:e2e -- --list

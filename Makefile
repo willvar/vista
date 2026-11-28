@@ -2,15 +2,14 @@
 
 VERSION ?= dev
 UPDATE_UA ?= $(if $(filter dev,$(VERSION)),0,1)
-BUILD_LDFLAGS := -X vista/internal/buildinfo.Version=$(VERSION)
 TARGET_OS := $(shell GOWORK=off go env GOOS)
 BIN_SUFFIX := $(if $(filter windows,$(TARGET_OS)),.exe)
 
 TEST_GOALS := go frontend e2e integration mcp memory capacity
 BENCHMARK_GOALS := tb gaia
 TEST_STATE := $(CURDIR)/.vista/test-state
-TEST_BIN := $(TEST_STATE)/bin/vista-server$(BIN_SUFFIX)
-TEST_E2E_BIN := $(TEST_STATE)/bin/vista-server-e2e$(BIN_SUFFIX)
+TEST_BIN := $(TEST_STATE)/bin/vista$(BIN_SUFFIX)
+TEST_E2E_BIN := $(TEST_STATE)/bin/vista-e2e$(BIN_SUFFIX)
 TEST_MCP_FIXTURE := $(TEST_STATE)/bin/mcp-fixture
 TEST_ENV = VISTA_BIN="$(TEST_BIN)" VISTA_MCP_FIXTURE="$(TEST_MCP_FIXTURE)" VISTA_TEST_TMPDIR="$(TEST_STATE)"
 VISTA_CHROME ?= $(shell command -v google-chrome || command -v google-chrome-stable || command -v chromium || command -v chromium-browser)
@@ -25,7 +24,7 @@ INTEGRATION_SCRIPTS := artifact background_job background_deadline catalog check
 IMAGE_PROTOCOLS := openai-chat mistral cohere bedrock vercel-gateway \
 	bedrock-mantle-responses sap-ai-core copilot
 
-.PHONY: build desktop update-ua licenses check-licenses package package-server package-desktop test web benchmark $(BENCHMARK_GOALS) $(TEST_GOALS) all test-bin test-mcp-fixture \
+.PHONY: build update-ua licenses check-licenses package test web benchmark $(BENCHMARK_GOALS) $(TEST_GOALS) all test-bin test-mcp-fixture \
 	test-frontend-unit test-frontend-types test-e2e-bin check-browser check-sqlite
 # Memory measurements and builds share resources, including with multiple goals.
 .NOTPARALLEL:
@@ -64,20 +63,10 @@ check-licenses: web
 	node scripts/update_licenses.mjs --check
 
 build: $(if $(filter 1,$(UPDATE_UA)),update-ua) licenses
-	mkdir -p bin
-	GOWORK=off CGO_ENABLED=0 go build -ldflags="$(BUILD_LDFLAGS)" -o bin/vista-server$(BIN_SUFFIX) ./cmd/vista-server
+	python3 desktop/build.py --output bin/vista$(BIN_SUFFIX) --version "$(VERSION)"
 
-desktop: $(if $(filter 1,$(UPDATE_UA)),update-ua) licenses
-	python3 desktop/build.py --output bin/vista-desktop$(BIN_SUFFIX) --version "$(VERSION)"
-
-# Headless packaging must not acquire graphical build dependencies.
-package: package-server
-
-package-server: build
-	python3 scripts/package_release.py --role server --binary bin/vista-server$(BIN_SUFFIX) --version "$(VERSION)" --output-dir .vista/dist
-
-package-desktop: desktop
-	python3 scripts/package_release.py --role desktop --binary bin/vista-desktop$(BIN_SUFFIX) --version "$(VERSION)" --output-dir .vista/dist
+package: build
+	python3 scripts/package_release.py --binary bin/vista$(BIN_SUFFIX) --version "$(VERSION)" --output-dir .vista/dist
 
 benchmark:
 ifeq ($(filter $(BENCHMARK_GOALS),$(MAKECMDGOALS)),)
@@ -123,7 +112,7 @@ check-sqlite:
 
 test-bin:
 	mkdir -p "$(TEST_STATE)/bin"
-	GOWORK=off CGO_ENABLED=0 go build -ldflags="$(BUILD_LDFLAGS)" -o "$(TEST_BIN)" ./cmd/vista-server
+	python3 desktop/build.py --output "$(TEST_BIN)" --version "$(VERSION)"
 
 test-mcp-fixture:
 	mkdir -p "$(TEST_STATE)/bin"
@@ -131,7 +120,7 @@ test-mcp-fixture:
 
 test-e2e-bin: check-browser web
 	mkdir -p "$(TEST_STATE)/bin"
-	GOWORK=off CGO_ENABLED=0 go build -ldflags="$(BUILD_LDFLAGS)" -o "$(TEST_E2E_BIN)" ./cmd/vista-server
+	python3 desktop/build.py --output "$(TEST_E2E_BIN)" --version "$(VERSION)"
 
 e2e: test-e2e-bin
 	VISTA_BIN="$(TEST_E2E_BIN)" VISTA_CHROME="$(VISTA_CHROME)" npm --prefix web run test:e2e -- $(E2E_ARGS)

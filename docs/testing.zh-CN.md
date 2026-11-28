@@ -34,7 +34,7 @@ make test all
 
 指定目标时只执行对应检查，例如 `make test frontend memory`；共享前置步骤只执行一次。按需安装锁定 npm 依赖；浏览器检查从 `PATH` 查找 Chrome／Chromium，也可设置 `VISTA_CHROME`。集成脚本需要 `sqlite3`，缺少依赖时明确失败；安装上游 MCP 依赖可能需要网络。
 
-Make 在 `.vista/test-state/bin` 构建隔离测试产物，使用独立配置和端口，不替换 `bin/vista-server` 或重启用户实例。浏览器状态、trace、截图和 HTML 报告位于 `web/.vista/test-state/`，见[前端检查](../web/README.zh-CN.md)。
+Make 在 `.vista/test-state/bin` 构建隔离测试产物，使用独立配置和端口，不替换 `bin/vista` 或重启用户实例。浏览器状态、trace、截图和 HTML 报告位于 `web/.vista/test-state/`，见[前端检查](../web/README.zh-CN.md)。
 
 可用 `E2E_ARGS` 向 Playwright 传递选项，保留默认项目，例如 `make test e2e E2E_ARGS='--max-failures=1 --workers=2'`。
 同一 spec 文件内的独立用例可以并行执行。
@@ -94,7 +94,7 @@ tag 说明作为 Release 正文，使用签名 tag 并保持英文发布说明�
 为目标操作系统构建应用，并在该平台运行应用测试：
 
 ```sh
-VISTA_TEST_BINARY=/absolute/path/to/vista-server GOWORK=off go test ./internal/launch -run '^TestNative(Application|ResetPort|WindowsDesktopLauncher)$' -count=1
+VISTA_TEST_BINARY=/absolute/path/to/vista GOWORK=off go test ./internal/launch -run '^TestNative(Application|ResetPort|WindowsDesktopLauncher)$' -count=1
 ```
 
 Windows 在 PowerShell 设置对应环境变量，路径使用 `.exe`。也可运行交叉编译的 `go test -c` 测试程序，无需在目标机器安装 Go。测试使用临时配置和模拟模型，覆盖实际应用 Worker、shell／后台工作、取消、启停、重置及崩溃恢复。Windows 桌面启动测试使用独立的 Explorer 同名父进程及浏览器替身，验证启动、再次打开和原生启动错误对话框，不打开用户的浏览器。平台专用测试另行覆盖进程归属和清理。
@@ -142,6 +142,6 @@ Windows 在 PowerShell 设置对应环境变量，路径使用 `.exe`。也可�
 例如，用 `timeoutSeconds: 180` 执行 `GOWORK=off go test -timeout=120s ./internal/agent`，让 Go 在 shell 清理进程前打印超时堆栈。
 测试套件可能超过前台超时时，使用受管后台工作并读取保存的输出，不增加或移除 shell 的最长时限。
 
-运行 `sh scripts/ci_linux_desktop.sh --target linux/amd64 --version dev`，在隔离的 KDE Wayland 会话验收 Linux 两份解包产物（目标架构须匹配本机）。Windows 验收从有 Explorer 托盘的会话执行。macOS 在 Aqua 会话运行 `python3 scripts/ci_native.py --target darwin/arm64 --with-desktop`（或 Intel 目标）。Desktop 的解包目录只包含自身程序；服务/Worker、端口切换和恢复测试也必须用这一个程序执行。
+运行 `sh scripts/ci_linux_desktop.sh --target linux/amd64 --version dev`，在隔离的 KDE Wayland 会话验收解包产物（目标架构须匹配本机）。Windows 验收使用 Explorer 托盘。macOS 在 GitHub 的 Aqua 会话运行 `python3 scripts/ci_native.py --target darwin/arm64`（或 Intel 目标）。同一个无 CGO 解包程序必须通过 CLI、服务/Worker、端口恢复和原生桌面检查。
 
-工作流的 `linux_desktop` 和 `macos_desktop` 选项用于开发验证。正式候选要求两个产品在每个目标均实际运行，macOS 还需要预先配置 Developer ID Application 和公证凭据、从解包产物验证签名和票据。WKWebView 冒烟不代表菜单栏实操或实际登录自启。
+macOS 正式发布需要预先配置 Developer ID Application 和公证凭据，验收时从解包产物验证签名和票据。未签名的 WKWebView 冒烟不代表签名分发、菜单栏实操或登录自启验收。

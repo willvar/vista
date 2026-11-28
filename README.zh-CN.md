@@ -9,20 +9,22 @@ Vista 是适用于 Linux、Windows 和 macOS 的通用型智能体。在浏览�
 ## 开始使用
 
 从 [GitHub Releases](https://github.com/willvar/vista/releases/latest) 选择与系统和架构匹配的一种包。
-**`vista-server`** 提供独立服务和浏览器工作台；**`vista-desktop`** 提供原生窗口并自带同一服务。桌面包不需要另装 Server。
-
-运行 `vista-server` 会在后台启动服务并打开默认浏览器，再次打开会复用已运行的实例。浏览器默认打开 `http://127.0.0.1:5186/`，服务则监听所有 IPv4 网卡（`0.0.0.0`），其他设备使用 `http://<主机IP>:5186/` 访问。可选环境变量 `VISTA_HOST` 可设为某个 IPv4 地址以收窄监听范围；HTTPS 由反向代理提供，Vista 自身不处理。
-
-使用[桌面端](./docs/desktop.zh-CN.md)时，直接打开 `vista-desktop`（Windows 上是 `vista-desktop.exe`，macOS 上打开 `Vista.app`）。托盘可用时关窗只隐藏，服务继续运行；托盘可以唤回窗口、查看状态、重启和停止服务。
-
-发送第一条消息前，先在设置中连接模型服务商。内置连接封装认证和协议配置；自定义连接可独立选择对话 API 格式与认证方式。可用模型由所连接的账号或服务决定。
+每种安装包只有一个 Vista 可执行文件，自带服务、WebUI、CLI、原生窗口和托盘。双击 `vista`（Windows 上是 `vista.exe`，macOS 上打开 `Vista.app`）即可打开[桌面窗口](./docs/desktop.zh-CN.md)。托盘可用时关窗只隐藏，服务继续运行。
 
 | 命令 | 作用 |
 | --- | --- |
-| `vista-server` / `vista-server start` | 启动服务或打开现有实例 |
-| `vista-server status` | 查看服务、会话、Worker 和进程状态 |
-| `vista-server stop` | 停止服务及其受管工作，保留历史 |
-| `vista-server restart` | 停止并重新启动服务，保留历史 |
+| `vista` | 启动或复用服务，打开桌面窗口 |
+| `vista web` | 启动或复用服务，打开默认浏览器 |
+| `vista serve` | 前台运行服务，不打开任何界面 |
+| `vista status` | 查询服务状态，不启动服务 |
+| `vista stop` / `vista restart` | 停止或重启服务，保留历史 |
+| `vista --help` | 查看命令帮助 |
+
+macOS 上的命令行入口是 `Vista.app/Contents/MacOS/vista`。浏览器打不开时，`vista web` 仍会打印访问地址。桌面与浏览器入口默认将新服务绑定到回环地址；复用服务不改变现有监听地址。独立运行 `vista serve` 时仍默认监听 IPv4 网卡，可用 `VISTA_HOST` 限制地址；HTTPS 由反向代理提供。
+
+**升级时：**原有配置和会话历史继续沿用。以前不带参数打开浏览器的用法，改为 `vista web`；前台运行服务用 `vista serve`。
+
+发送第一条消息前，在设置里连接模型服务商。可用模型取决于连接的服务及账号。
 
 关闭浏览器不会停止工作。关闭会话会停止其 Worker 和受管后台工作，保留历史；删除会话还会移除所属数据。重启 Vista 后，未完成操作记录为中断，不自动重放其副作用。
 
@@ -34,7 +36,7 @@ Vista 是适用于 Linux、Windows 和 macOS 的通用型智能体。在浏览�
 
 ```sh
 make build
-./bin/vista-server start
+./bin/vista web
 ```
 
 `make build` 会构建并内嵌前端，版本号默认为 `dev`；发布版本使用 `make build VERSION=v0.1.0`。开发约束见 [AGENTS.md](./AGENTS.md)，构建检查与测试命令见[验证](./docs/testing.zh-CN.md)。

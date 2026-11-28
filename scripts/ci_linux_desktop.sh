@@ -29,12 +29,12 @@ if [ "${1:-}" = --session ]; then
         org.kde.StatusNotifierWatcher IsStatusNotifierHostRegistered 2>/dev/null | grep -q 'b true'; do
         attempt=$((attempt + 1))
         if [ "$attempt" -ge 120 ] || ! kill -0 "$panel" 2>/dev/null; then
-            tail -40 "$VISTA_DISPLAY_LOG/"*.log >&2; exit 1
+            printf "%s\n" "The private KDE tray host did not become available." >&2; exit 1
         fi
         sleep 0.25
     done
     printf '%s\n' 'Isolated KDE Wayland compositor and StatusNotifierItem host ready.'
-    python3 -u scripts/ci_native.py "$@" --with-desktop
+    python3 -u scripts/ci_native.py "$@"
     exit
 fi
 
@@ -53,5 +53,13 @@ export GOCACHE="$(GOWORK=off go env GOCACHE)"
 export QT_QPA_PLATFORM=wayland GDK_BACKEND=wayland XDG_SESSION_TYPE=wayland XDG_CURRENT_DESKTOP=KDE LIBGL_ALWAYS_SOFTWARE=1
 # Start the shell and its tray watcher only on the private bus.
 dbus-run-session -- sh "$0" --session "$@" 2>"$sandbox/bus.log" || {
-    tail -60 "$sandbox/bus.log" >&2; exit 1
+    # Preserve private-session diagnostics before the EXIT trap removes them.
+    mkdir -p .vista/ci/linux-display-logs
+    for log in "$sandbox/"*.log; do
+        [ -f "$log" ] || continue
+        cp "$log" .vista/ci/linux-display-logs/
+        printf '\n--- %s ---\n' "${log##*/}" >&2
+        tail -n 60 "$log" >&2
+    done
+    exit 1
 }

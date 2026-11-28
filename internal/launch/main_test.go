@@ -1,6 +1,7 @@
 package launch
 
 import (
+	"bytes"
 	"context"
 	"io"
 	"net/http"
@@ -65,10 +66,10 @@ func TestLifecycleRequestsDoNotPreflightStatus(t *testing.T) {
 }
 
 func TestStartupCommandsRejectEphemeralAndInvalidPorts(t *testing.T) {
-	for _, command := range []string{"", "start", "restart", "serve"} {
+	for _, command := range []string{"start", "restart", "serve"} {
 		for _, port := range []string{"0", "-1", "65536"} {
 			t.Run(command+"/"+port, func(t *testing.T) {
-				root := newRootCommand()
+				root := newRootCommand(func(bool) error { return nil })
 				root.SetOut(io.Discard)
 				root.SetErr(io.Discard)
 				args := []string{"--port", port}
@@ -87,7 +88,7 @@ func TestStartupCommandsRejectEphemeralAndInvalidPorts(t *testing.T) {
 func TestRestartValidatesConfiguredPortBeforeStopping(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	t.Setenv("VISTA_PORT", "invalid")
-	root := newRootCommand()
+	root := newRootCommand(func(bool) error { return nil })
 	root.SetOut(io.Discard)
 	root.SetErr(io.Discard)
 	for _, command := range root.Commands() {
@@ -105,15 +106,48 @@ func TestRestartValidatesConfiguredPortBeforeStopping(t *testing.T) {
 }
 
 func TestDesktopLaunchIsNotRejectedByCobra(t *testing.T) {
-	root := newRootCommand()
-	if cobra.MousetrapHelpText != "" {
-		t.Fatal("Cobra's Explorer guard would exit before Vista starts")
+	for _, inTray := range []bool{false, true} {
+		called := false
+		root := newRootCommand(func(tray bool) error {
+			if tray != inTray {
+				t.Fatalf("unexpected tray flag: %v", tray)
+			}
+			called = true
+			return nil
+		})
+		if cobra.MousetrapHelpText != "" {
+			t.Fatal("Cobra's Explorer guard would exit before Vista starts")
+		}
+		args := []string{}
+		if inTray {
+			args = append(args, "--tray")
+		}
+		root.SetArgs(args)
+		if err := root.Execute(); err != nil || !called {
+			t.Fatalf("desktop launcher did not run: called=%v error=%v", called, err)
+		}
 	}
-	called := false
-	root.PreRunE = nil
-	root.RunE = func(*cobra.Command, []string) error { called = true; return nil }
-	root.SetArgs([]string{})
-	if err := root.Execute(); err != nil || !called {
-		t.Fatalf("no-argument launcher did not run: called=%v error=%v", called, err)
+}
+
+func TestPublicHelpHasNoStartupConfigurationFlags(t *testing.T) {
+	for _, command := range []string{"", "web", "serve", "restart"} {
+		t.Run(command, func(t *testing.T) {
+			var help bytes.Buffer
+			root := newRootCommand(func(bool) error { t.Fatal("help launched the desktop"); return nil })
+			root.SetOut(&help)
+			args := []string{"--help"}
+			if command != "" {
+				args = append([]string{command}, args...)
+			}
+			root.SetArgs(args)
+			if err := root.Execute(); err != nil {
+				t.Fatal(err)
+			}
+			for _, flag := range []string{"--port", "--server", "--tray", "--daemon", "--no-browser"} {
+				if strings.Contains(help.String(), flag) {
+					t.Fatalf("unexpected public flag %s in %q", flag, help.String())
+				}
+			}
+		})
 	}
 }
