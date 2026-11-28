@@ -70,8 +70,10 @@ build: $(if $(filter 1,$(UPDATE_UA)),update-ua) licenses
 desktop: build
 	python3 desktop/build.py --output bin/vista-desktop$(BIN_SUFFIX)
 
-package: $(if $(filter windows,$(TARGET_OS)),desktop,build)
-	python3 scripts/package_release.py --binary bin/vista$(BIN_SUFFIX) $(if $(filter windows,$(TARGET_OS)),--desktop bin/vista-desktop.exe) --version "$(VERSION)" --output-dir .vista/dist
+# Keep Unix service-only builds free of graphical build dependencies by default.
+PACKAGE_DESKTOP ?= $(if $(filter windows,$(TARGET_OS)),1,0)
+package: $(if $(filter 1,$(PACKAGE_DESKTOP)),desktop,build)
+	python3 scripts/package_release.py --binary bin/vista$(BIN_SUFFIX) $(if $(filter 1,$(PACKAGE_DESKTOP)),--desktop bin/vista-desktop$(BIN_SUFFIX)) --version "$(VERSION)" --output-dir .vista/dist
 
 benchmark:
 ifeq ($(filter $(BENCHMARK_GOALS),$(MAKECMDGOALS)),)

@@ -2,6 +2,7 @@ package main
 
 import (
 	"crypto/sha256"
+	_ "embed"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -9,34 +10,61 @@ import (
 	"net/url"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
+	"github.com/wailsapp/wails/v3/pkg/events"
 )
+
+//go:embed vista.png
+var vistaIcon []byte
+
+type trayState struct {
+	ready, created, quitting, controlling bool
+	companion                             string
+	menu                                  *application.Menu
+	controls                              [2]*application.MenuItem
+}
 
 // Do not create a second icon when a separately installed (possibly older)
 // service is already running. Still open its WebUI, without owning its lifecycle.
-func (d *desktop) setup(backend string, status serviceStatus) {
+func (d *desktop) setupTray(backend string, status serviceStatus) {
 	if d.dir == "" || !matchesCompanion(backend, status.BinaryHash) {
 		return
 	}
-	d.trayCompanion = status.BinaryHash
+	d.tray.created = true
+	d.tray.companion = status.BinaryHash
 	menu := d.app.NewMenu()
 	item := func(label string, fn func()) *application.MenuItem {
 		return menu.Add(label).OnClick(func(*application.Context) { application.InvokeAsync(fn) })
 	}
 	item("Open Vista", d.showHome)
 	item("Status", d.showStatus)
-	d.menu = menu
-	d.controls = [2]*application.MenuItem{
+	d.tray.menu = menu
+	d.tray.controls = [2]*application.MenuItem{
 		item("Restart", func() { d.confirmControl("Restart") }).SetEnabled(d.dir != ""),
 		item("Stop", func() { d.confirmControl("Stop") }).SetEnabled(d.dir != ""),
 	}
 	menu.AddSeparator()
+	if d.loginExecutable != "" {
+		d.addLoginItem(menu)
+	}
 	item("Quit desktop", d.quitDesktop)
 	tray := d.app.SystemTray.New().SetIcon(vistaIcon).SetMenu(menu)
 	tray.SetTooltip("Vista")
 	tray.OnClick(func() { application.InvokeAsync(d.showHome) })
 	tray.OnDoubleClick(func() { application.InvokeAsync(d.showHome) })
+	if d.startInTray {
+		d.app.Event.OnApplicationEvent(events.Common.ApplicationStarted, func(_ *application.ApplicationEvent) {
+			time.AfterFunc(2*time.Second, func() {
+				application.InvokeAsync(func() {
+					if d.startInTray && !d.tray.ready {
+						d.showHome()
+					}
+				})
+			})
+		})
+	}
 }
 
 func matchesCompanion(backend, want string) bool {
@@ -59,8 +87,37 @@ func matchesCompanion(backend, want string) bool {
 	return hex.EncodeToString(h.Sum(nil)) == want
 }
 
+// An unavailable tray must never be the only way back to a hidden window.
+func (d *desktop) trayAvailability(ready bool) {
+	lost := d.tray.ready && !ready
+	d.tray.ready = ready
+	d.originChanged()
+	if lost && d.home != nil && !d.home.IsVisible() {
+		d.showHome()
+	}
+}
+
+func (d *desktop) hideOnClose(w *application.WebviewWindow, event *application.WindowEvent) {
+	application.InvokeSync(func() {
+		if w == d.home && d.tray.ready && !d.tray.quitting {
+			event.Cancel()
+			w.Hide()
+		}
+	})
+}
+
+func (d *desktop) showHome() {
+	d.startInTray = false
+	if d.home == nil || d.tray.quitting {
+		return
+	}
+	d.home.Show()
+	d.home.UnMinimise()
+	d.home.Focus()
+}
+
 func (d *desktop) quitDesktop() {
-	d.quitting = true
+	d.tray.quitting = true
 	d.app.Quit()
 }
 
@@ -68,7 +125,7 @@ func (d *desktop) quitDesktop() {
 // WebUI restart button. Browser clients see no extra server state or requests.
 func (d *desktop) originChanged() {
 	origin := ""
-	if d.trayReady && d.dir != "" && d.base != nil {
+	if d.tray.ready && d.dir != "" && d.base != nil {
 		origin = d.base.Scheme + "://" + d.base.Host
 	}
 	if d.flags["vistaRestartTrayOrigin"] == origin {
@@ -100,7 +157,7 @@ func statusText(base *url.URL, s serviceStatus) string {
 }
 
 func (d *desktop) confirmControl(label string) {
-	if d.dir == "" || d.controlling || d.quitting {
+	if d.dir == "" || d.tray.controlling || d.tray.quitting {
 		return
 	}
 	action := strings.ToLower(label)
@@ -112,24 +169,24 @@ func (d *desktop) confirmControl(label string) {
 }
 
 func (d *desktop) setControlling(busy bool) {
-	d.controlling = busy
-	for _, item := range d.controls {
+	d.tray.controlling = busy
+	for _, item := range d.tray.controls {
 		item.SetEnabled(!busy && d.dir != "")
 	}
-	d.menu.Update()
+	d.tray.menu.Update()
 }
 
 func (d *desktop) control(action string) {
-	if d.dir == "" || d.controlling || d.quitting {
+	if d.dir == "" || d.tray.controlling || d.tray.quitting {
 		return
 	}
 	d.setControlling(true)
-	base, dir, expected := d.base, d.dir, d.trayCompanion
+	base, dir, expected := d.base, d.dir, d.tray.companion
 	go func() {
 		err := lifecycle(base, dir, expected, action)
 		application.InvokeAsync(func() {
 			d.setControlling(false)
-			if d.quitting {
+			if d.tray.quitting {
 				return
 			}
 			if err != nil {

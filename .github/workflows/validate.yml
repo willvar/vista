@@ -10,6 +10,10 @@ on:
         description: Intended release version (vMAJOR.MINOR.PATCH); runs the full matrix without publishing
         type: string
         default: ''
+      macos_desktop:
+        description: Validate macOS desktop archives (development only; leave release_version empty)
+        type: boolean
+        default: false
       browser:
         description: Run the complete Linux browser suite
         type: boolean
@@ -28,7 +32,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: vista-build-${{ github.ref }}-${{ github.event_name }}-${{ inputs.release_version || format('{0}-{1}', inputs.browser, inputs.browser_project) }}
+  group: vista-build-${{ github.ref }}-${{ github.event_name }}-${{ inputs.release_version || format('{0}-{1}-{2}', inputs.browser, inputs.browser_project, inputs.macos_desktop) }}
   cancel-in-progress: ${{ github.event_name == 'workflow_dispatch' && !inputs.release_version }}
 
 env:
@@ -111,7 +115,17 @@ jobs:
         if: runner.os != 'Windows'
         env:
           NATIVE_TARGET: ${{ matrix.target }}
-        run: python scripts/ci_native.py --target "$NATIVE_TARGET" --version "$VISTA_BUILD_VERSION"
+          MACOS_DESKTOP: ${{ inputs.macos_desktop }}
+        run: |
+          args=()
+          if [[ "$RUNNER_OS" == "macOS" && "$MACOS_DESKTOP" == "true" ]]; then
+            if [[ "$VISTA_BUILD_VERSION" != "dev" ]]; then
+              echo 'macos_desktop is for unsigned development validation only.' >&2
+              exit 2
+            fi
+            args+=(--with-desktop)
+          fi
+          python scripts/ci_native.py --target "$NATIVE_TARGET" --version "$VISTA_BUILD_VERSION" "${args[@]}"
         shell: bash
       - name: Build, unpack and run the Windows desktop application
         if: runner.os == 'Windows'
@@ -127,6 +141,7 @@ jobs:
           path: |
             .vista/ci/native/*/report.json
             .vista/ci/native/*/native-tests.jsonl
+            .vista/ci/native/*/desktop-test.log
             .vista/ci/native/*/dist/*
             .vista/ci/windows/desktop.log
             .vista/ci/windows/result.json

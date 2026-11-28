@@ -141,3 +141,7 @@ Windows 在 PowerShell 设置对应环境变量，路径使用 `.exe`。也可�
 通过前台 `shell` 工具运行测试时，将测试程序的诊断超时设为小于 shell 超时。
 例如，用 `timeoutSeconds: 180` 执行 `GOWORK=off go test -timeout=120s ./internal/agent`，让 Go 在 shell 清理进程前打印超时堆栈。
 测试套件可能超过前台超时时，使用受管后台工作并读取保存的输出，不增加或移除 shell 的最长时限。
+
+验证可选 Unix 桌面包时，从已启用 StatusNotifierItem 托盘宿主的隔离 Wayland 会话运行 `python3 scripts/ci_native.py --target linux/amd64 --with-desktop`，目标架构须匹配本机。测试要求唯一托盘、WebUI 已连接、登录项可开关、重复启动复用，以及退出桌面后本机服务继续运行。还用真实 GTK 窗口检查隐藏、恢复及模拟托盘失效后的可见性。macOS 在 Aqua 会话运行 `--target darwin/arm64 --with-desktop`（或本机 Intel 目标）会从解包的 `.app` 启动并检查 WKWebView 和实例复用。菜单栏、登录项、原生导航以及分发签名和公证需另外验收，不能用窗口冒烟测试代替。
+
+在托管环境验证桌面开发包时，用现有验证工作流选择 `macos_desktop=true`，并将 `release_version` 留空。两个 macOS 原生任务都会验证解包后的开发版 `.app` 和独立服务；Windows 继续用基于 Explorer 的桌面检查。该运行不能将未签名的 macOS 归档作为发布候选。

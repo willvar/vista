@@ -15,6 +15,6 @@ export function readClientRuntime() {
   if (!engine) return null
   return {
     details: [withVersion('Wails', wails?.flags?.vistaWailsVersion), withVersion(engine, wails?.flags?.vistaWebViewVersion)],
-    restartFromTray: os === 'windows' && wails?.flags?.vistaRestartTrayOrigin === window.location.origin,
+    restartFromTray: wails?.flags?.vistaRestartTrayOrigin === window.location.origin,
   }
 }

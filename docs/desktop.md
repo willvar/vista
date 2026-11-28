@@ -1,30 +1,30 @@
-# Wails desktop window
+# Wails desktop app
 
 [简体中文](./desktop.zh-CN.md)
 
-`vista-desktop` opens the WebUI served by Vista in a native window. The application uses the same pages, HTTP endpoints, and event streams as the browser. The desktop process does not host a second frontend or expose Vista Go methods to the page. System integration remains in the desktop process.
+`vista-desktop` opens the local service's WebUI in a native window. Browsers and the desktop app use the same pages, HTTP API, and event stream. The desktop process owns OS integration; the page cannot call Vista's native Go methods.
 
-## Build and run
+## Build and install
 
-The desktop build uses Python 3. On Linux, also install a C compiler, `pkg-config`, and development libraries for GTK 3 and WebKitGTK 4.1. For example, Arch uses `gtk3` and `webkit2gtk-4.1`; Debian and Ubuntu use `libgtk-3-dev` and `libwebkit2gtk-4.1-dev`. The built desktop executable needs the matching runtime libraries, not the development headers. The Vista server does not depend on these GUI libraries.
+`make build` builds the standalone Go service without graphical dependencies. `make desktop` also builds the desktop app and requires Python 3.
 
-```sh
-make desktop
-./bin/vista-desktop
-```
+| Platform | Engine | Desktop package |
+| --- | --- | --- |
+| Windows | WebView2 Runtime | Run `vista-desktop.exe` alongside `vista.exe` from the Windows archive. |
+| Linux | GTK 3 and WebKitGTK 4.1 | `make package PACKAGE_DESKTOP=1` includes both binaries and `share/` application resources. Install the resources under a local prefix and put both binaries in that prefix's `bin/` directory on `PATH`, or run `vista-desktop` beside `vista` directly. |
+| macOS | WKWebView | On macOS with the Xcode command-line tools, `make package PACKAGE_DESKTOP=1` assembles `Vista.app` with both executables. The local packager does not sign or notarize the bundle for public distribution. |
 
-On Windows, run `make desktop` and open `bin/vista-desktop.exe` with the WebView2 Runtime installed.
+Linux builds also need a C compiler, `pkg-config`, and the GTK 3 and WebKitGTK 4.1 development libraries (Arch: `gtk3`, `webkit2gtk-4.1`; Debian/Ubuntu: `libgtk-3-dev`, `libwebkit2gtk-4.1-dev`). The installed desktop app needs the corresponding runtime libraries, not the development headers. Linux uses the desktop environment's StatusNotifierItem panel. Without a reachable tray host, the window does not hide to the tray.
 
-Keep the server executable beside the desktop executable. The window invokes `vista start` without opening a browser; a new companion binds to loopback and an existing listener is not rebound. Closing a window does not stop the server. On Windows, closing the main window while the tray is available hides it; the tray opens it again. When an older or different service is already running, the desktop can open its WebUI but does not register another tray or stop the existing service. Quit desktop only removes the desktop process and icon. Stop shuts down both the selected local service and the desktop app. To attach to an explicitly selected running service without starting one:
+## Window, tray and service
 
-```sh
-./bin/vista-desktop --server http://127.0.0.1:5186
-```
+The app starts or reuses the local service with `vista start` without opening a browser. A newly started service uses a loopback listener; reuse does not change its existing listener. `vista-desktop --server http://127.0.0.1:5186` attaches to an existing local service without starting one. The tray controls only a matching, registered companion; opening another build's WebUI does not take over its service or add a second tray.
 
-The window loads the selected service directly. External HTTP(S) links opened by the user go to the system browser. Conversations, service settings, and saved composer drafts belong to the selected Vista service and Profile. Browser and WebView preferences remain separate; unacknowledged edits stay in the tab until saved. See [verification](./testing.md) for testing the shared WebUI.
+- **Open Vista** shows the existing main window. Launching the desktop app again does not create another main window for the same configuration.
+- **Status**, **Restart** and **Stop** refer to the connected local service. Restart and Stop require confirmation. A connection error is not reported as a stopped service.
+- Closing the main window hides it when the tray is usable. **Quit desktop** removes the icon and leaves the service running. **Stop** stops the service and exits the desktop app.
+- **Launch at login** is opt-in and belongs to the desktop process, not the WebUI or an unattended service. It starts in the tray when possible; otherwise the window opens. Disable it before moving or removing the app, and enable it again from the installed path if desired.
 
-About Vista lists the desktop client and its rendering engine under Runtime environment. Host OS describes the connected service, not the machine rendering the page. If this desktop window has a registered tray that can restart the connected local service, About leaves that action in the tray. A browser or a window without that control retains the Restart action.
+Explicitly clicked external HTTP(S) links open in the system browser. The desktop window retains the same WebUI functionality, including the same service-side conversations, settings and saved drafts. Browser and WebView preferences that are local to the renderer remain separate. About Vista distinguishes the client runtime from the service's host OS. Restart remains in About when the current desktop connection does not have a usable tray control.
 
-With appearance set to System, WebKitGTK passes the desktop's light or dark preference to the WebUI. Changes apply without reloading the page. An explicit Light or Dark choice still takes precedence.
-
-`make build` builds the standalone Go service. Windows `make package` includes both executables; the Linux package remains a standalone service. `desktop/build.py` applies a pinned Windows patch for WebView2 navigation enforcement, disabling the page message channel, and reporting tray registration. It does not modify the shared module cache.
+See [verification](./testing.md) for native archive tests. Desktop packaging does not change the Windows native gate or the standalone Unix release gate.

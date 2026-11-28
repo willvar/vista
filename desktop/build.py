@@ -20,8 +20,8 @@ def build(output, test=False):
                               stdout=subprocess.PIPE if capture else None).stdout
 
     platform = go("env", "GOOS", capture=True).strip()
-    if platform not in ("linux", "windows"):
-        raise ValueError("desktop build supports Linux and Windows")
+    if platform not in ("linux", "windows", "darwin"):
+        raise ValueError("desktop build supports Linux, macOS and Windows")
     output = output.resolve()
     output.parent.mkdir(parents=True, exist_ok=True)
     cache = DESKTOP.parent / ".vista" / "build"
@@ -34,6 +34,9 @@ def build(output, test=False):
         if platform == "linux":
             env["CGO_ENABLED"] = "1"
             args += ["-tags", "gtk3,production"]
+        elif platform == "darwin":
+            env["CGO_ENABLED"] = "1"
+            args += ["-tags", "production"]
         else:
             env["CGO_ENABLED"] = "0"
             source = json.loads(go("mod", "download", "-json", WAILS, capture=True))

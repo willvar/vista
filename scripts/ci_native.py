@@ -12,6 +12,8 @@ import sys
 import tarfile
 import zipfile
 
+from package_release import desktop_entries, desktop_location, executable_entry
+
 
 ROOT = Path(__file__).resolve().parent.parent
 TARGETS = ("linux/amd64", "linux/arm64", "windows/amd64", "windows/arm64", "darwin/amd64", "darwin/arm64")
@@ -33,14 +35,14 @@ def run(command, env):
     return subprocess.check_output(command, cwd=ROOT, env=env, text=True, stderr=subprocess.STDOUT)
 
 
-def unpack(archive, binary, output, desktop=None):
+def unpack(archive, binary, output, desktop=None, system=None, version="dev"):
     expected = {
         binary.name: binary.read_bytes(),
         "LICENSE": (ROOT / "LICENSE").read_bytes(),
         "THIRD_PARTY_NOTICES": (ROOT / "licenses/NOTICE").read_bytes(),
     }
     if desktop is not None:
-        expected[desktop.name] = desktop.read_bytes()
+        expected.update(desktop_entries(desktop, expected[binary.name], system, version))
     if archive.suffix == ".zip":
         with zipfile.ZipFile(archive) as package:
             if set(package.namelist()) != set(expected):
@@ -51,15 +53,17 @@ def unpack(archive, binary, output, desktop=None):
             if set(package.getnames()) != set(expected):
                 raise ValueError("unexpected archive contents")
             actual = {name: package.extractfile(name).read() for name in expected}
-            if package.getmember(binary.name).mode != 0o755:
+            if any(package.getmember(name).mode != (0o755 if executable_entry(name) else 0o644)
+                   for name in expected):
                 raise ValueError("archive executable permissions are incorrect")
     if actual != expected:
         raise ValueError("archive contents differ from the built binary or current notices")
     output.mkdir(parents=True, exist_ok=True)
     for name, contents in actual.items():
         path = output / name
+        path.parent.mkdir(parents=True, exist_ok=True)
         path.write_bytes(contents)
-        path.chmod(0o755 if name == binary.name or name == "vista-desktop.exe" else 0o644)
+        path.chmod(0o755 if executable_entry(name) else 0o644)
     return output / binary.name
 
 
@@ -112,6 +116,8 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--target", required=True, choices=TARGETS)
     parser.add_argument("--version", type=build_version, default="dev")
+    parser.add_argument("--with-desktop", action="store_true",
+                        help="Validate the opt-in Unix desktop archive in a native graphical session")
     args = parser.parse_args()
     env = {key: value for key, value in os.environ.items() if not key.startswith("VISTA_")}
     env.update(GOWORK="off", CGO_ENABLED="0", VISTA_NO_BROWSER="1",
@@ -125,7 +131,9 @@ def main():
     dirty = bool(run(["git", "status", "--porcelain"], env).strip())
     if os.environ.get("GITHUB_ACTIONS") == "true" and (dirty or source != os.environ["GITHUB_SHA"]):
         raise ValueError("runner source must be clean and match the dispatched commit")
-    output = ROOT / ".vista/ci/native" / (args.target.replace("/", "_") + "_" + args.version)
+    with_desktop = sys.platform == "win32" or args.with_desktop
+    suffix = "-desktop" if args.with_desktop and sys.platform != "win32" else ""
+    output = ROOT / ".vista/ci/native" / (args.target.replace("/", "_") + "_" + args.version + suffix)
     output.mkdir(parents=True, exist_ok=True)
     report = {"source_commit": source, "source_modified": dirty, "version": args.version,
               "target": args.target, "go": go, "runner_os": os.environ.get("RUNNER_OS"),
@@ -148,8 +156,8 @@ def main():
         command = [sys.executable, "scripts/package_release.py", "--binary", str(binary),
                    "--version", args.version, "--output-dir", str(output / "dist")]
         desktop = None
-        if sys.platform == "win32":
-            desktop = output / "vista-desktop.exe"
+        if with_desktop:
+            desktop = output / Path(desktop_location(go["GOOS"])).name
             run([sys.executable, "desktop/build.py", "--output", str(desktop)], env)
             command += ["--desktop", str(desktop)]
             report["desktop_sha256"] = sha256(desktop)
@@ -159,19 +167,29 @@ def main():
         expected_checksum = report["archive_sha256"] + "  " + archive.name + "\n"
         if (output / "dist/SHA256SUMS").read_text(encoding="utf-8") != expected_checksum:
             raise ValueError("archive checksum file does not match")
-        packed_binary = unpack(archive, binary, output / "unpacked", desktop)
+        packed_binary = unpack(archive, binary, output / "unpacked", desktop, go["GOOS"], args.version)
         report["tests"] = native_tests(packed_binary, output, env)
         if desktop is not None:
-            test = output / "vista-desktop.test.exe"
+            test_name = {"windows": "TestNativeWindowsTray", "linux": "TestNativeLinuxTray",
+                         "darwin": "TestNativeDarwinDesktop"}[go["GOOS"]]
+            test = output / ("vista-desktop.test.exe" if sys.platform == "win32" else "vista-desktop.test")
             run([sys.executable, "desktop/build.py", "--test", "--output", str(test)], env)
-            test_env = dict(env, VISTA_TEST_BINARY=str(packed_binary),
-                            VISTA_TEST_DESKTOP=str(packed_binary.with_name(desktop.name)))
-            tray_log = run([str(test), "-test.v", "-test.timeout=90s", "-test.run=^TestNativeWindowsTray$"], test_env)
-            (output / "desktop-test.log").write_text(tray_log, encoding="utf-8")
-            if not re.search(r"^--- PASS: TestNativeWindowsTray ", tray_log, re.M):
-                raise ValueError("mandatory Windows desktop tray test did not pass")
-            report["tests"]["passed"] += 1
-            report["tests"]["required_passed"].append("vista/desktop/TestNativeWindowsTray")
+            test_env = dict(env, VISTA_TEST_BINARY=str(packed_binary), VISTA_TEST_DESKTOP=str(
+                packed_binary.parent / desktop_location(go["GOOS"])))
+            platform_tests = {
+                "windows": ["TestWindowsLoginEntry"],
+                "linux": ["TestLinuxLoginSetting", "TestDesktopExecEscapesFieldCodes", "TestNativeLinuxWindowRecovery"],
+                "darwin": ["TestMacLoginSetting"],
+            }[go["GOOS"]]
+            required = [test_name, "TestDesktopInstanceID", "TestLoginFileOwnsOnlyItsEntry", *platform_tests]
+            pattern = "^(" + "|".join(required) + ")$"
+            desktop_log = run([str(test), "-test.v", "-test.timeout=105s", "-test.run=" + pattern], test_env)
+            (output / "desktop-test.log").write_text(desktop_log, encoding="utf-8")
+            for name in required:
+                if not re.search(r"^--- PASS: " + name + " ", desktop_log, re.M):
+                    raise ValueError("mandatory desktop test did not pass: " + name)
+            report["tests"]["passed"] += len(required)
+            report["tests"]["required_passed"].extend("vista/desktop/" + name for name in required)
         report["status"] = "passed"
     except Exception as error:
         report.update(status="failed", error=str(error))

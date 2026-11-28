@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -13,7 +14,9 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"runtime/debug"
+	"slices"
 	"strings"
 	"time"
 
@@ -25,12 +28,13 @@ import (
 func main() {
 	server := flag.String("server", "", "Connect to an existing Vista at a numeric loopback HTTP origin")
 	backend := flag.String("backend", "", "Path to the companion Vista executable")
+	tray := flag.Bool("tray", false, "Open in the system tray if one is available")
 	flag.Parse()
 	if flag.NArg() != 0 || (*server != "" && *backend != "") {
 		flag.Usage()
 		os.Exit(2)
 	}
-	if err := run(*server, *backend); err != nil {
+	if err := run(*server, *backend, *tray); err != nil {
 		fmt.Fprintln(os.Stderr, "Vista Desktop:", err)
 		startupError(err)
 		os.Exit(1)
@@ -140,12 +144,15 @@ func registered(dir string, base *url.URL, pid int) bool {
 }
 
 type desktop struct {
-	app   *application.App
-	base  *url.URL // Read and updated on the native UI thread.
-	dir   string
-	err   error
-	home  *application.WebviewWindow
-	flags map[string]any
+	app             *application.App
+	base            *url.URL // Read and updated on the native UI thread.
+	dir             string
+	err             error
+	home            *application.WebviewWindow
+	flags           map[string]any
+	tray            trayState
+	startInTray     bool
+	loginExecutable string
 	desktopState
 }
 
@@ -202,9 +209,39 @@ func (d *desktop) navigate(raw string, popup, clicked bool) bool {
 	return false
 }
 
-func run(server, backend string) error {
-	d := &desktop{flags: map[string]any{}}
-	options := application.Options{Name: "Vista", Flags: d.flags}
+func desktopInstanceID(root, target string) string {
+	prefix := desktopID + "."
+	if target == "linux" {
+		// D-Bus forbids an element that begins with a digit. Keep the old
+		// Windows name so existing Windows desktop processes are still detected.
+		prefix += "config_"
+	}
+	return fmt.Sprintf("%s%x", prefix, sha256.Sum256([]byte(root)))
+}
+
+func run(server, backend string, startInTray bool) error {
+	d := &desktop{flags: map[string]any{}, startInTray: startInTray}
+	root, err := os.UserConfigDir()
+	if err != nil {
+		return err
+	}
+	if !filepath.IsAbs(root) {
+		return errors.New("the user configuration directory must be absolute")
+	}
+	if server == "" && backend == "" {
+		d.loginExecutable, err = os.Executable()
+		if err != nil {
+			return err
+		}
+	}
+	options := application.Options{Name: "Vista", Flags: d.flags, SingleInstance: &application.SingleInstanceOptions{
+		UniqueID: desktopInstanceID(root, runtime.GOOS),
+		OnSecondInstanceLaunch: func(data application.SecondInstanceData) {
+			if !slices.Contains(data.Args, "--tray") && !slices.Contains(data.Args, "-tray") {
+				application.InvokeAsync(d.showHome)
+			}
+		},
+	}}
 	if err := d.platformOptions(&options); err != nil {
 		return err
 	}
@@ -230,6 +267,9 @@ func run(server, backend string) error {
 		}
 	}
 	d.setup(backend, status)
+	if !d.tray.created {
+		d.startInTray = false
+	}
 	d.home = d.open(base.String())
 	return errors.Join(d.app.Run(), d.err)
 }

@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
-"""Package Vista and the optional Windows desktop shell with their notices."""
+"""Package Vista and the optional native desktop shell with their notices."""
 
 import argparse
 import gzip
 import hashlib
 import io
 import os
+import plistlib
 from pathlib import Path
 import re
 import subprocess
@@ -27,6 +28,39 @@ def settings(info):
     return dict(re.findall(r"^\s*build\s+(\S+)=(.*?)\s*$", info, re.M))
 
 
+def desktop_location(system):
+    return {"windows": "vista-desktop.exe", "linux": "vista-desktop",
+            "darwin": "Vista.app/Contents/MacOS/vista-desktop"}[system]
+
+
+def desktop_entries(desktop, service, system, version):
+    location = desktop_location(system)
+    entries = {location: desktop.read_bytes()}
+    if system == "linux":
+        entries["share/applications/io.github.willvar.VistaDesktop.desktop"] = (
+            ROOT / "desktop/vista.desktop").read_bytes()
+        entries["share/icons/hicolor/64x64/apps/io.github.willvar.VistaDesktop.png"] = (
+            ROOT / "desktop/vista.png").read_bytes()
+    elif system == "darwin":
+        entries["Vista.app/Contents/MacOS/vista"] = service
+        short_version = version.removeprefix("v") if re.fullmatch(r"v[0-9]+\.[0-9]+\.[0-9]+", version) else "0.0.0"
+        entries["Vista.app/Contents/Info.plist"] = plistlib.dumps({
+            "CFBundleIdentifier": "io.github.willvar.VistaDesktop",
+            "CFBundleExecutable": "vista-desktop",
+            "CFBundleName": "Vista",
+            "CFBundlePackageType": "APPL",
+            "CFBundleShortVersionString": short_version,
+            "CFBundleVersion": short_version,
+            "NSHighResolutionCapable": True,
+            "NSAppTransportSecurity": {"NSAllowsLocalNetworking": True},
+        })
+    return entries
+
+
+def executable_entry(name):
+    return Path(name).name in ("vista", "vista.exe", "vista-desktop", "vista-desktop.exe")
+
+
 def package(binary: Path, version: str, output: Path, desktop: Path | None = None) -> Path:
     if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9.+_-]*", version):
         raise ValueError("invalid package version")
@@ -46,11 +80,11 @@ def package(binary: Path, version: str, output: Path, desktop: Path | None = Non
         info = metadata(desktop)
         companion = settings(info)
         keys = ("GOOS", "GOARCH", "vcs.revision", "vcs.modified")
-        if (target_os != "windows" or not target.get("vcs.revision")
+        if (target_os not in ("linux", "darwin", "windows") or not target.get("vcs.revision")
                 or any(key not in target or target[key] != companion.get(key) for key in keys)
                 or not re.search(r"^\s*path\s+vista/desktop\s*$", info, re.M)):
-            raise ValueError("desktop shell must match the Windows server's source and target")
-        entries["vista-desktop.exe"] = desktop.read_bytes()
+            raise ValueError("desktop shell must match the service's source and target")
+        entries.update(desktop_entries(desktop, data, target_os, version))
     output.mkdir(parents=True, exist_ok=True)
     archive = output / f"vista_{version}_{target_os}_{arch}{'.zip' if target_os == 'windows' else '.tar.gz'}"
     if target_os == "windows":
@@ -68,7 +102,7 @@ def package(binary: Path, version: str, output: Path, desktop: Path | None = Non
                     for name, content in entries.items():
                         info = tarfile.TarInfo(name)
                         info.size = len(content)
-                        info.mode = 0o755 if name == binary_name else 0o644
+                        info.mode = 0o755 if executable_entry(name) else 0o644
                         info.mtime = 0
                         package.addfile(info, io.BytesIO(content))
     archives = sorted([*output.glob("vista_*.zip"), *output.glob("vista_*.tar.gz")])
